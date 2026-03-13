@@ -1,5 +1,6 @@
 BUILD_DIR := build
 TARGET := $(BUILD_DIR)/SysyCC
+INPUT_FILE ?= tests/arithmetic.sy
 
 .PHONY: all build run clean
 
@@ -10,7 +11,7 @@ build:
 	cmake --build $(BUILD_DIR)
 
 run: build
-	./$(TARGET)
+	./$(TARGET) lex $(INPUT_FILE)
 
 clean:
 	rm -rf $(BUILD_DIR)

@@ -26,7 +26,7 @@ make clean
 ```bash
 cmake -S . -B build
 cmake --build build
-./build/SysyCC
+./build/SysyCC lex tests/arithmetic.sy
 ```
 
 ## 开发约定
