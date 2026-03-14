@@ -1,1 +1,4 @@
 build/
+src/frontend/grammer/lexer.cpp
+src/frontend/grammer/parser.cpp
+src/frontend/grammer/parser.tab.h

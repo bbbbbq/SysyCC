@@ -1,0 +1,12 @@
+{
+    "configurations": [
+        {
+            "name": "macOS",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "intelliSenseMode": "macos-clang-arm64",
+            "cppStandard": "c++17",
+            "cStandard": "c17"
+        }
+    ],
+    "version": 4
+}
