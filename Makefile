@@ -1,8 +1,8 @@
 BUILD_DIR := build
 TARGET := $(BUILD_DIR)/SysyCC
-INPUT_FILE ?= tests/arithmetic.sy
+FORMAT_FILES := $(shell find src -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) 2>/dev/null)
 
-.PHONY: all build run clean
+.PHONY: all build run clean format
 
 all: run
 
@@ -11,7 +11,10 @@ build:
 	cmake --build $(BUILD_DIR)
 
 run: build
-	./$(TARGET) lex $(INPUT_FILE)
+	./$(TARGET)
+
+format:
+	clang-format -i $(FORMAT_FILES)
 
 clean:
 	rm -rf $(BUILD_DIR)

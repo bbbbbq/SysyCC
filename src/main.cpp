@@ -1,23 +1,12 @@
 #include <iostream>
-#include <string>
+#include "cli/cli.hpp"
+#include "compiler/complier_option.hpp"
+ClI::Cli cli;
+sysycc::ComplierOption option;
 
-#include "lexer_driver.h"
-
-namespace {
-
-void PrintUsage() {
-    std::cerr << "Usage: SysyCC lex <input.sy>" << std::endl;
-}
-
-}  // namespace
-
-int main(int argc, char* argv[]) {
-    if (argc != 3 || std::string(argv[1]) != "lex") {
-        PrintUsage();
-        return 1;
-    }
-
-    sysycc::LexerDriver lexer_driver(argv[2]);
-    lexer_driver.RunLexer();
+int main(int argc, char *argv[]) {
+    cli.Run(argc, argv);
+    cli.set_compiler_option(option);
     return 0;
 }
+    
