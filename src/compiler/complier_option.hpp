@@ -11,6 +11,7 @@ class ComplierOption {
     std::string input_file_;
     std::string output_file_;
     bool dump_tokens_ = false;
+    bool dump_parse_ = false;
     bool dump_ast_ = false;
     bool dump_ir_ = false;
 
@@ -45,6 +46,12 @@ class ComplierOption {
     bool dump_ast() const noexcept { return dump_ast_; }
 
     void set_dump_ast(bool dump_ast) noexcept { dump_ast_ = dump_ast; }
+
+    bool dump_parse() const noexcept { return dump_parse_; }
+
+    void set_dump_parse(bool dump_parse) noexcept {
+        dump_parse_ = dump_parse;
+    }
 
     bool dump_ir() const noexcept { return dump_ir_; }
 

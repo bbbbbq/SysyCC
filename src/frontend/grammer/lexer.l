@@ -4,6 +4,37 @@
 
 %{
 #include "parser.tab.h"
+#include "frontend/driver/parser_runtime.hpp"
+
+static int g_line = 1;
+static int g_column = 1;
+static int g_token_line = 1;
+static int g_token_column = 1;
+
+void reset_lexer_state(void);
+int lexer_current_line(void);
+int lexer_current_column(void);
+
+static void update_position(const char *text, int length) {
+    g_token_line = g_line;
+    g_token_column = g_column;
+
+    for (int i = 0; i < length; ++i) {
+        if (text[i] == '\n') {
+            ++g_line;
+            g_column = 1;
+        } else {
+            ++g_column;
+        }
+    }
+}
+
+static int make_token(int token, const char *label) {
+    yylval.node = sysycc::make_terminal_node(label, yytext);
+    return token;
+}
+
+#define YY_USER_ACTION update_position(yytext, yyleng);
 %}
 
 DIGIT       [0-9]
@@ -12,51 +43,65 @@ IDENT       {LETTER}({LETTER}|{DIGIT})*
 DEC_INT     0|[1-9]{DIGIT}*
 
 %%
-
 [ \t\r\f\v]+                { }
 \n                          { }
 "//"[^\n]*                  { }
 "/*"([^*]|\*+[^*/])*\*+"/"  { }
 
-"const"                     { return CONST; }
-"int"                       { return INT; }
-"void"                      { return VOID; }
-"if"                        { return IF; }
-"else"                      { return ELSE; }
-"while"                     { return WHILE; }
-"break"                     { return BREAK; }
-"continue"                  { return CONTINUE; }
-"return"                    { return RETURN; }
+"const"                     { return make_token(CONST, "CONST"); }
+"int"                       { return make_token(INT, "INT"); }
+"void"                      { return make_token(VOID, "VOID"); }
+"if"                        { return make_token(IF, "IF"); }
+"else"                      { return make_token(ELSE, "ELSE"); }
+"while"                     { return make_token(WHILE, "WHILE"); }
+"break"                     { return make_token(BREAK, "BREAK"); }
+"continue"                  { return make_token(CONTINUE, "CONTINUE"); }
+"return"                    { return make_token(RETURN, "RETURN"); }
 
-"=="                        { return EQ; }
-"!="                        { return NE; }
-"<="                        { return LE; }
-">="                        { return GE; }
-"&&"                        { return AND; }
-"||"                        { return OR; }
+"=="                        { return make_token(EQ, "EQ"); }
+"!="                        { return make_token(NE, "NE"); }
+"<="                        { return make_token(LE, "LE"); }
+">="                        { return make_token(GE, "GE"); }
+"&&"                        { return make_token(AND, "AND"); }
+"||"                        { return make_token(OR, "OR"); }
 
-"+"                         { return PLUS; }
-"-"                         { return MINUS; }
-"*"                         { return MUL; }
-"/"                         { return DIV; }
-"%"                         { return MOD; }
-"="                         { return ASSIGN; }
-"<"                         { return LT; }
-">"                         { return GT; }
-"!"                         { return NOT; }
+"+"                         { return make_token(PLUS, "PLUS"); }
+"-"                         { return make_token(MINUS, "MINUS"); }
+"*"                         { return make_token(MUL, "MUL"); }
+"/"                         { return make_token(DIV, "DIV"); }
+"%"                         { return make_token(MOD, "MOD"); }
+"="                         { return make_token(ASSIGN, "ASSIGN"); }
+"<"                         { return make_token(LT, "LT"); }
+">"                         { return make_token(GT, "GT"); }
+"!"                         { return make_token(NOT, "NOT"); }
 
-";"                         { return SEMICOLON; }
-","                         { return COMMA; }
-"("                         { return LPAREN; }
-")"                         { return RPAREN; }
-"["                         { return LBRACKET; }
-"]"                         { return RBRACKET; }
-"{"                         { return LBRACE; }
-"}"                         { return RBRACE; }
+";"                         { return make_token(SEMICOLON, "SEMICOLON"); }
+","                         { return make_token(COMMA, "COMMA"); }
+"("                         { return make_token(LPAREN, "LPAREN"); }
+")"                         { return make_token(RPAREN, "RPAREN"); }
+"["                         { return make_token(LBRACKET, "LBRACKET"); }
+"]"                         { return make_token(RBRACKET, "RBRACKET"); }
+"{"                         { return make_token(LBRACE, "LBRACE"); }
+"}"                         { return make_token(RBRACE, "RBRACE"); }
 
-{DEC_INT}                   { return INT_LITERAL; }
-{IDENT}                     { return IDENTIFIER; }
+{DEC_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL"); }
+{IDENT}                     { return make_token(IDENTIFIER, "IDENTIFIER"); }
 
-.                           { return INVALID; }
+.                           { return make_token(INVALID, "INVALID"); }
 
 %%
+
+void reset_lexer_state(void) {
+    g_line = 1;
+    g_column = 1;
+    g_token_line = 1;
+    g_token_column = 1;
+}
+
+int lexer_current_line(void) {
+    return g_token_line;
+}
+
+int lexer_current_column(void) {
+    return g_token_column;
+}

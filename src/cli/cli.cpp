@@ -5,10 +5,12 @@ void Cli::Run(int argc, char *argv[]) {
     input_file_.clear();
     output_file_.clear();
     dump_tokens_ = false;
+    dump_parse_ = false;
     dump_ast_ = false;
     dump_ir_ = false;
     is_help_ = false;
     is_version_ = false;
+    has_error_ = false;
 
     if (argc <= 1) {
         is_help_ = true;
@@ -36,6 +38,11 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
+        if (arg == "--dump-parse") {
+            dump_parse_ = true;
+            continue;
+        }
+
         if (arg == "--dump-ast") {
             dump_ast_ = true;
             continue;
@@ -48,6 +55,7 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-o") {
             if (i + 1 >= argc) {
+                has_error_ = true;
                 std::cerr << "error: missing output file after -o" << std::endl;
                 PrintHelp();
                 return;
@@ -58,6 +66,7 @@ void Cli::Run(int argc, char *argv[]) {
         }
 
         if (!arg.empty() && arg[0] == '-') {
+            has_error_ = true;
             std::cerr << "error: unknown option: " << arg << std::endl;
             PrintHelp();
             return;
@@ -68,6 +77,7 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
+        has_error_ = true;
         std::cerr << "error: multiple input files are not supported: " << arg
                   << std::endl;
         PrintHelp();
@@ -75,6 +85,7 @@ void Cli::Run(int argc, char *argv[]) {
     }
 
     if (input_file_.empty()) {
+        has_error_ = true;
         std::cerr << "error: missing input file" << std::endl;
         PrintHelp();
     }
