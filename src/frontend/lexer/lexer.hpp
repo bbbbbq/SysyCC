@@ -4,15 +4,7 @@
 
 namespace sysycc {
 
-class ParserDriver {
-  public:
-    PassResult Run(CompilerContext &context) const;
-};
-
-class ParserPass : public Pass {
-  private:
-    ParserDriver parser_driver_;
-
+class LexerPass : public Pass {
   public:
     PassKind Kind() const override;
     const char *Name() const override;

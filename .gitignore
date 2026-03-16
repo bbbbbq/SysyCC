@@ -1,4 +1,5 @@
 build/
-src/frontend/grammer/lexer.cpp
-src/frontend/grammer/parser.cpp
-src/frontend/grammer/parser.tab.h
+src/frontend/lexer/lexer_scanner.cpp
+src/frontend/parser/parser_generated.cpp
+src/frontend/parser/parser.tab.h
+.cache/

@@ -1,25 +1,34 @@
 %option noyywrap
 %option nounput
 %option noinput
+%x COMMENT
 
 %{
-#include "parser.tab.h"
-#include "frontend/driver/parser_runtime.hpp"
+#include "frontend/parser/parser.tab.h"
+#include "frontend/parser/parser_runtime.hpp"
 
 static int g_line = 1;
 static int g_column = 1;
-static int g_token_line = 1;
-static int g_token_column = 1;
+static int g_token_line_begin = 1;
+static int g_token_column_begin = 1;
+static int g_token_line_end = 1;
+static int g_token_column_end = 1;
 
 void reset_lexer_state(void);
-int lexer_current_line(void);
-int lexer_current_column(void);
+int lexer_current_line_begin(void);
+int lexer_current_column_begin(void);
+int lexer_current_line_end(void);
+int lexer_current_column_end(void);
 
 static void update_position(const char *text, int length) {
-    g_token_line = g_line;
-    g_token_column = g_column;
+    g_token_line_begin = g_line;
+    g_token_column_begin = g_column;
+    g_token_line_end = g_line;
+    g_token_column_end = g_column;
 
     for (int i = 0; i < length; ++i) {
+        g_token_line_end = g_line;
+        g_token_column_end = g_column;
         if (text[i] == '\n') {
             ++g_line;
             g_column = 1;
@@ -38,15 +47,28 @@ static int make_token(int token, const char *label) {
 %}
 
 DIGIT       [0-9]
+NONZERO     [1-9]
+OCT_DIGIT   [0-7]
+HEX_DIGIT   [0-9a-fA-F]
 LETTER      [A-Za-z_]
 IDENT       {LETTER}({LETTER}|{DIGIT})*
-DEC_INT     0|[1-9]{DIGIT}*
+DEC_INT     0|{NONZERO}{DIGIT}*
+OCT_INT     0{OCT_DIGIT}+
+HEX_INT     0[xX]{HEX_DIGIT}+
+INVALID_OCT 0{OCT_DIGIT}*[89]{DIGIT}*
+INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 
 %%
 [ \t\r\f\v]+                { }
 \n                          { }
 "//"[^\n]*                  { }
-"/*"([^*]|\*+[^*/])*\*+"/"  { }
+"/*"                        { BEGIN(COMMENT); }
+
+<COMMENT>"*/"               { BEGIN(INITIAL); }
+<COMMENT>[^*\n]+            { }
+<COMMENT>"*"+[^*/\n]*       { }
+<COMMENT>\n                 { }
+<COMMENT><<EOF>>            { BEGIN(INITIAL); return make_token(INVALID, "INVALID"); }
 
 "const"                     { return make_token(CONST, "CONST"); }
 "int"                       { return make_token(INT, "INT"); }
@@ -84,7 +106,11 @@ DEC_INT     0|[1-9]{DIGIT}*
 "{"                         { return make_token(LBRACE, "LBRACE"); }
 "}"                         { return make_token(RBRACE, "RBRACE"); }
 
+{HEX_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL"); }
+{OCT_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL"); }
 {DEC_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL"); }
+{INVALID_HEX}               { return make_token(INVALID, "INVALID"); }
+{INVALID_OCT}               { return make_token(INVALID, "INVALID"); }
 {IDENT}                     { return make_token(IDENTIFIER, "IDENTIFIER"); }
 
 .                           { return make_token(INVALID, "INVALID"); }
@@ -94,14 +120,24 @@ DEC_INT     0|[1-9]{DIGIT}*
 void reset_lexer_state(void) {
     g_line = 1;
     g_column = 1;
-    g_token_line = 1;
-    g_token_column = 1;
+    g_token_line_begin = 1;
+    g_token_column_begin = 1;
+    g_token_line_end = 1;
+    g_token_column_end = 1;
 }
 
-int lexer_current_line(void) {
-    return g_token_line;
+int lexer_current_line_begin(void) {
+    return g_token_line_begin;
 }
 
-int lexer_current_column(void) {
-    return g_token_column;
+int lexer_current_column_begin(void) {
+    return g_token_column_begin;
+}
+
+int lexer_current_line_end(void) {
+    return g_token_line_end;
+}
+
+int lexer_current_column_end(void) {
+    return g_token_column_end;
 }

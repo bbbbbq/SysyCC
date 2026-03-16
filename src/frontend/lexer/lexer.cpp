@@ -1,19 +1,22 @@
-#include "frontend/driver/lexer_driver.hpp"
+#include "frontend/lexer/lexer.hpp"
 
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <cstdio>
 #include <string>
 
-#include "frontend/grammer/parser.tab.h"
+#include "common/source_span.hpp"
+#include "frontend/parser/parser.tab.h"
 
 extern FILE *yyin;
 extern char *yytext;
 extern int yylex(void);
 extern void yyrestart(FILE *);
 extern void reset_lexer_state(void);
-extern int lexer_current_line(void);
-extern int lexer_current_column(void);
+extern int lexer_current_line_begin(void);
+extern int lexer_current_column_begin(void);
+extern int lexer_current_line_end(void);
+extern int lexer_current_column_end(void);
 
 namespace sysycc {
 
@@ -75,14 +78,22 @@ const char *TokenKindToString(TokenKind kind) {
 
 } // namespace
 
-PassResult LexerDriver::Run(CompilerContext &context) const {
-    std::FILE *input = std::fopen(context.get_input_file().c_str(), "r");
+PassKind LexerPass::Kind() const { return PassKind::Lex; }
+
+const char *LexerPass::Name() const { return "LexerPass"; }
+
+PassResult LexerPass::Run(CompilerContext &context) {
+    context.clear_tokens();
+    reset_lexer_state();
+
+    const std::string &lexer_input_file =
+        context.get_preprocessed_file_path().empty()
+            ? context.get_input_file()
+            : context.get_preprocessed_file_path();
+    std::FILE *input = std::fopen(lexer_input_file.c_str(), "r");
     if (input == nullptr) {
         return PassResult::Failure("failed to open input file for lexer");
     }
-
-    context.clear_tokens();
-    reset_lexer_state();
     yyrestart(input);
     yyin = input;
 
@@ -94,7 +105,10 @@ PassResult LexerDriver::Run(CompilerContext &context) const {
 
         context.add_token(
             Token(ToTokenKind(token), yytext == nullptr ? "" : yytext,
-                  lexer_current_line(), lexer_current_column()));
+                  SourceSpan(lexer_current_line_begin(),
+                             lexer_current_column_begin(),
+                             lexer_current_line_end(),
+                             lexer_current_column_end())));
         if (token == INVALID) {
             std::fclose(input);
             return PassResult::Failure("lexer encountered invalid token");
@@ -123,21 +137,16 @@ PassResult LexerDriver::Run(CompilerContext &context) const {
 
         for (const Token &token : context.tokens()) {
             ofs << TokenKindToString(token.kind) << " " << token.text << " "
-                << token.line << ":" << token.column << "\n";
+                << token.source_span.get_line_begin() << ":"
+                << token.source_span.get_col_begin() << "-"
+                << token.source_span.get_line_end() << ":"
+                << token.source_span.get_col_end() << "\n";
         }
 
         context.set_token_dump_file_path(output_file.string());
     }
 
     return PassResult::Success();
-}
-
-PassKind LexerPass::Kind() const { return PassKind::Lex; }
-
-const char *LexerPass::Name() const { return "LexerPass"; }
-
-PassResult LexerPass::Run(CompilerContext &context) {
-    return lexer_driver_.Run(context);
 }
 
 } // namespace sysycc

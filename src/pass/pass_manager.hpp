@@ -9,25 +9,29 @@
 
 namespace sysycc {
 
-enum class PassKind { Preprocess, Lex, Parse, Semantic, IRGen, CodeGen };
+struct Diagnostic {
+    std::string stage;
+    int line = -1;
+    int column = -1;
+    std::string message;
+};
 
-struct PassResult {
+struct PassStatus {
     bool ok = true;
     std::string message;
 
-    static PassResult Success() { return {true, ""}; }
+    static PassStatus Success() { return {true, ""}; }
 
-    static PassResult Failure(std::string msg) {
-        return {false, std::move(msg)};
+    static PassStatus Failure(std::string message) {
+        return {false, std::move(message)};
     }
 };
 
 class Pass {
   public:
     virtual ~Pass() = default;
-    virtual PassKind Kind() const = 0;
     virtual const char *Name() const = 0;
-    virtual PassResult Run(CompilerContext &context) = 0;
+    virtual PassStatus Run(CompilerContext &context) = 0;
 };
 
 class PassManager {
@@ -36,9 +40,8 @@ class PassManager {
 
   public:
     void AddPass(std::unique_ptr<Pass> pass);
-    PassManager() = default;
-    Pass *get_pass_by_kind(PassKind kind) const;
-    PassResult Run(CompilerContext &context);
+    PassStatus Run(CompilerContext &context);
 };
 
 } // namespace sysycc
+

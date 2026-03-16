@@ -7,22 +7,27 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile commands" FORCE)
 
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+endif()
+
 find_package(BISON REQUIRED)
 find_package(FLEX REQUIRED)
 
-set(GRAMMER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend/grammer)
+set(LEXER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend/lexer)
+set(PARSER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend/parser)
 
 bison_target(
     SysyParser
-    ${GRAMMER_DIR}/parser.y
-    ${GRAMMER_DIR}/parser.cpp
-    DEFINES_FILE ${GRAMMER_DIR}/parser.tab.h
+    ${PARSER_DIR}/parser.y
+    ${PARSER_DIR}/parser_generated.cpp
+    DEFINES_FILE ${PARSER_DIR}/parser.tab.h
 )
 
 flex_target(
     SysyLexer
-    ${GRAMMER_DIR}/lexer.l
-    ${GRAMMER_DIR}/lexer.cpp
+    ${LEXER_DIR}/lexer.l
+    ${LEXER_DIR}/lexer_scanner.cpp
     OPTIONS --warn
 )
 
@@ -34,9 +39,10 @@ add_executable(${PROJECT_NAME}
     src/cli/cli.cpp
     src/compiler/complier.cpp
     src/compiler/pass/pass.cpp
-    src/frontend/driver/lexer_driver.cpp
-    src/frontend/driver/parser_driver.cpp
-    src/frontend/driver/parser_runtime.cpp
+    src/frontend/lexer/lexer.cpp
+    src/frontend/parser/parser.cpp
+    src/frontend/parser/parser_runtime.cpp
+    src/frontend/preprocess/preprocess.cpp
     src/main.cpp
 )
 

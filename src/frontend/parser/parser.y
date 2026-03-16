@@ -1,7 +1,7 @@
 %{
 #include <cstdio>
 
-#include "frontend/driver/parser_runtime.hpp"
+#include "frontend/parser/parser_runtime.hpp"
 
 int yylex(void);
 void yyerror(const char *message);
@@ -22,8 +22,8 @@ void yyerror(const char *message);
 
 %type <node> comp_unit comp_unit_items comp_unit_item
 %type <node> decl const_decl const_def_list const_def const_dims
-%type <node> var_decl var_def_list var_def dims
-%type <node> func_def func_fparams func_fparam
+%type <node> var_decl var_def_list var_def var_dims
+%type <node> func_def func_fparams func_fparam param_dims
 %type <node> block block_items block_item stmt
 %type <node> expr const_expr cond lval primary_expr func_rparams
 %type <node> unary_expr mul_expr add_expr rel_expr eq_expr l_and_expr l_or_expr
@@ -78,7 +78,7 @@ const_def_list
     ;
 
 const_def
-    : IDENTIFIER ASSIGN expr
+    : IDENTIFIER ASSIGN const_init_val
       { $$ = sysycc::make_nonterminal_node("const_def", {$1, $2, $3}); }
     | IDENTIFIER const_dims ASSIGN const_init_val
       { $$ = sysycc::make_nonterminal_node("const_def", {$1, $2, $3, $4}); }
@@ -106,19 +106,19 @@ var_def_list
 var_def
     : IDENTIFIER
       { $$ = sysycc::make_nonterminal_node("var_def", {$1}); }
-    | IDENTIFIER dims
+    | IDENTIFIER var_dims
       { $$ = sysycc::make_nonterminal_node("var_def", {$1, $2}); }
     | IDENTIFIER ASSIGN init_val
       { $$ = sysycc::make_nonterminal_node("var_def", {$1, $2, $3}); }
-    | IDENTIFIER dims ASSIGN init_val
+    | IDENTIFIER var_dims ASSIGN init_val
       { $$ = sysycc::make_nonterminal_node("var_def", {$1, $2, $3, $4}); }
     ;
 
-dims
-    : LBRACKET expr RBRACKET
-      { $$ = sysycc::make_nonterminal_node("dims", {$1, $2, $3}); }
-    | dims LBRACKET expr RBRACKET
-      { $$ = sysycc::make_nonterminal_node("dims", {$1, $2, $3, $4}); }
+var_dims
+    : LBRACKET const_expr RBRACKET
+      { $$ = sysycc::make_nonterminal_node("var_dims", {$1, $2, $3}); }
+    | var_dims LBRACKET const_expr RBRACKET
+      { $$ = sysycc::make_nonterminal_node("var_dims", {$1, $2, $3, $4}); }
     ;
 
 func_def
@@ -144,8 +144,15 @@ func_fparam
       { $$ = sysycc::make_nonterminal_node("func_fparam", {$1, $2}); }
     | INT IDENTIFIER LBRACKET RBRACKET
       { $$ = sysycc::make_nonterminal_node("func_fparam", {$1, $2, $3, $4}); }
-    | INT IDENTIFIER LBRACKET RBRACKET dims
+    | INT IDENTIFIER LBRACKET RBRACKET param_dims
       { $$ = sysycc::make_nonterminal_node("func_fparam", {$1, $2, $3, $4, $5}); }
+    ;
+
+param_dims
+    : LBRACKET expr RBRACKET
+      { $$ = sysycc::make_nonterminal_node("param_dims", {$1, $2, $3}); }
+    | param_dims LBRACKET expr RBRACKET
+      { $$ = sysycc::make_nonterminal_node("param_dims", {$1, $2, $3, $4}); }
     ;
 
 block
@@ -193,12 +200,12 @@ stmt
     ;
 
 expr
-    : l_or_expr
+    : add_expr
       { $$ = sysycc::make_nonterminal_node("expr", {$1}); }
     ;
 
 const_expr
-    : expr
+    : add_expr
       { $$ = sysycc::make_nonterminal_node("const_expr", {$1}); }
     ;
 

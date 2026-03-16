@@ -4,7 +4,8 @@
 #include <utility>
 #include <vector>
 
-#include "frontend/driver/parser_runtime.hpp"
+#include "common/source_span.hpp"
+#include "frontend/parser/parser_runtime.hpp"
 
 namespace sysycc {
 
@@ -20,21 +21,22 @@ class Token {
   public:
     TokenKind kind;
     std::string text;
-    int line = -1;
-    int column = -1;
-    Token(TokenKind kind, std::string text, int line = -1, int column = -1)
-        : kind(kind), text(std::move(text)), line(line), column(column) {}
+    SourceSpan source_span;
+
+    Token(TokenKind kind, std::string text, SourceSpan source_span = {})
+        : kind(kind),
+          text(std::move(text)),
+          source_span(std::move(source_span)) {}
 };
 
 class CompilerContext {
   private:
     std::string input_file_;
+    std::string preprocessed_file_path_;
     std::vector<Token> tokens_;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
     bool dump_ast_ = false;
-    bool parse_success_ = false;
-    std::string parse_message_;
     std::string token_dump_file_path_;
     std::string parse_dump_file_path_;
     std::unique_ptr<ParseTreeNode> parse_tree_root_;
@@ -46,6 +48,14 @@ class CompilerContext {
 
     void set_input_file(std::string input_file) {
         input_file_ = std::move(input_file);
+    }
+
+    const std::string &get_preprocessed_file_path() const noexcept {
+        return preprocessed_file_path_;
+    }
+
+    void set_preprocessed_file_path(std::string preprocessed_file_path) {
+        preprocessed_file_path_ = std::move(preprocessed_file_path);
     }
 
     const std::vector<Token> &tokens() const { return tokens_; }
@@ -70,20 +80,6 @@ class CompilerContext {
 
     void set_dump_parse(bool dump_parse) noexcept {
         dump_parse_ = dump_parse;
-    }
-
-    bool get_parse_success() const noexcept { return parse_success_; }
-
-    void set_parse_success(bool parse_success) noexcept {
-        parse_success_ = parse_success;
-    }
-
-    const std::string &get_parse_message() const noexcept {
-        return parse_message_;
-    }
-
-    void set_parse_message(std::string parse_message) {
-        parse_message_ = std::move(parse_message);
     }
 
     const std::string &get_token_dump_file_path() const noexcept {

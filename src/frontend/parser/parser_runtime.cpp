@@ -1,4 +1,4 @@
-#include "frontend/driver/parser_runtime.hpp"
+#include "frontend/parser/parser_runtime.hpp"
 
 namespace sysycc {
 
@@ -23,7 +23,8 @@ void *make_terminal_node(const char *label, const char *text) {
     return new ParseTreeNode(std::move(node_label));
 }
 
-void *make_nonterminal_node(const char *label, std::initializer_list<void *> children) {
+void *make_nonterminal_node(const char *label,
+                            std::initializer_list<void *> children) {
     auto *node = new ParseTreeNode(label == nullptr ? "node" : label);
     for (void *child_ptr : children) {
         if (child_ptr == nullptr) {

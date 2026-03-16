@@ -25,7 +25,9 @@ int main(int argc, char *argv[]) {
         std::cerr << result.message << std::endl;
         return 1;
     }
-
-    std::cout << complier.get_context().get_parse_message() << std::endl;
+    
+    if (!result.message.empty()) {
+        std::cout << result.message << std::endl;
+    }
     return 0;
 }

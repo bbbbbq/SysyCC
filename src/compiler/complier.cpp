@@ -3,8 +3,9 @@
 #include <memory>
 #include <utility>
 
-#include "frontend/driver/lexer_driver.hpp"
-#include "frontend/driver/parser_driver.hpp"
+#include "frontend/lexer/lexer.hpp"
+#include "frontend/parser/parser.hpp"
+#include "frontend/preprocess/preprocess.hpp"
 
 namespace sysycc {
 
@@ -21,6 +22,7 @@ void Complier::InitializePasses() {
         return;
     }
 
+    pass_manager_.AddPass(std::make_unique<PreprocessPass>());
     pass_manager_.AddPass(std::make_unique<LexerPass>());
     pass_manager_.AddPass(std::make_unique<ParserPass>());
     pipeline_initialized_ = true;
