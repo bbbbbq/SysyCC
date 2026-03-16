@@ -1,0 +1,37 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug SysyCC Minimal",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/SysyCC",
+            "args": [
+                "tests/minimal.sy"
+            ],
+            "stopAtEntry": true,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "CMake: build"
+        },
+        {
+            "name": "Debug SysyCC Dump Parse",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/SysyCC",
+            "args": [
+                "--dump-tokens",
+                "--dump-parse",
+                "tests/minimal.sy"
+            ],
+            "stopAtEntry": true,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "lldb",
+            "preLaunchTask": "CMake: build"
+        }
+    ]
+}
