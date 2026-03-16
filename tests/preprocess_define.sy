@@ -1,0 +1,5 @@
+#define RET 3
+
+int main() {
+    return RET;
+}

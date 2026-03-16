@@ -1,0 +1,6 @@
+int main() {
+    int oct = 012;
+    int hex = 0x10;
+    return oct + hex;
+}
+
