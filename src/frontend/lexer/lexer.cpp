@@ -27,22 +27,43 @@ TokenKind ToTokenKind(int token) {
     case IDENTIFIER:
         return TokenKind::Identifier;
     case INT_LITERAL:
+    case FLOAT_LITERAL:
+    case CHAR_LITERAL:
+    case STRING_LITERAL:
         return TokenKind::Literal;
     case CONST:
     case INT:
     case VOID:
+    case FLOAT:
     case IF:
     case ELSE:
     case WHILE:
+    case FOR:
+    case DO:
+    case SWITCH:
+    case CASE:
+    case DEFAULT:
     case BREAK:
     case CONTINUE:
     case RETURN:
+    case STRUCT:
+    case ENUM:
+    case TYPEDEF:
         return TokenKind::Keyword;
     case PLUS:
     case MINUS:
     case MUL:
     case DIV:
     case MOD:
+    case INC:
+    case DEC:
+    case BITAND:
+    case BITOR:
+    case BITXOR:
+    case BITNOT:
+    case SHL:
+    case SHR:
+    case ARROW:
     case ASSIGN:
     case EQ:
     case NE:
@@ -103,12 +124,10 @@ PassResult LexerPass::Run(CompilerContext &context) {
             break;
         }
 
-        context.add_token(
-            Token(ToTokenKind(token), yytext == nullptr ? "" : yytext,
-                  SourceSpan(lexer_current_line_begin(),
-                             lexer_current_column_begin(),
-                             lexer_current_line_end(),
-                             lexer_current_column_end())));
+        context.add_token(Token(
+            ToTokenKind(token), yytext == nullptr ? "" : yytext,
+            SourceSpan(lexer_current_line_begin(), lexer_current_column_begin(),
+                       lexer_current_line_end(), lexer_current_column_end())));
         if (token == INVALID) {
             std::fclose(input);
             return PassResult::Failure("lexer encountered invalid token");

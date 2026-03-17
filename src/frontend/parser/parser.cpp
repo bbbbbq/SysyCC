@@ -76,8 +76,7 @@ PassResult ParserPass::Run(CompilerContext &context) {
         }
 
         ofs << "input_file: " << context.get_input_file() << "\n";
-        ofs << "parse_success: " << (parse_success ? "true" : "false")
-            << "\n";
+        ofs << "parse_success: " << (parse_success ? "true" : "false") << "\n";
         ofs << "parse_message: " << parse_message << "\n";
         ofs << "parse_tree:\n";
         WriteParseTree(ofs, context.get_parse_tree_root(), 1);

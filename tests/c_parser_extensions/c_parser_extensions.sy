@@ -1,0 +1,42 @@
+struct Node {
+    int value;
+    struct Node *next;
+};
+
+enum Color {
+    RED = 1,
+    BLUE
+};
+
+typedef int MyInt;
+
+float scale = 1.5;
+
+int main() {
+    int a = 1;
+    float f = 2.0;
+    struct Node node;
+    struct Node *p = &node;
+    p->value = 0;
+    puts("ok");
+
+    for (a = 0; a < 3; a++) {
+        do {
+            a = (a << 1) | 1;
+        } while (a < 2);
+    }
+
+    switch (a) {
+        case 1: {
+            a = a & 3;
+            break;
+        }
+        default: {
+            a = a ^ ~0;
+        }
+    }
+
+    a++;
+    a--;
+    return 'a';
+}

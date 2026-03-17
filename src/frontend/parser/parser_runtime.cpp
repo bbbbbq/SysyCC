@@ -6,9 +6,7 @@ namespace {
 
 std::unique_ptr<ParseTreeNode> g_parse_tree_root;
 
-ParseTreeNode *AsNode(void *node) {
-    return static_cast<ParseTreeNode *>(node);
-}
+ParseTreeNode *AsNode(void *node) { return static_cast<ParseTreeNode *>(node); }
 
 } // namespace
 

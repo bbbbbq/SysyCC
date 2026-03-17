@@ -4,6 +4,7 @@
 
 namespace sysycc {
 
+// Runs lexical analysis and stores the token stream into compiler context.
 class LexerPass : public Pass {
   public:
     PassKind Kind() const override;
