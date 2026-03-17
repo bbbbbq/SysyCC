@@ -25,7 +25,24 @@ src/frontend/
 │   └── parser.tab.h
 └── preprocess/
     ├── preprocess.hpp
-    └── preprocess.cpp
+    ├── preprocess.cpp
+    └── detail/
+        ├── conditional_stack.hpp
+        ├── conditional_stack.cpp
+        ├── directive_parser.hpp
+        ├── directive_parser.cpp
+        ├── file_loader.hpp
+        ├── file_loader.cpp
+        ├── include_resolver.hpp
+        ├── include_resolver.cpp
+        ├── macro_expander.hpp
+        ├── macro_expander.cpp
+        ├── macro_table.hpp
+        ├── macro_table.cpp
+        ├── preprocess_runtime.hpp
+        ├── preprocess_runtime.cpp
+        ├── preprocess_session.hpp
+        └── preprocess_session.cpp
 ```
 
 ## Submodules
@@ -40,6 +57,7 @@ Main responsibilities:
 - collect token streams
 - invoke `yylex()`
 - dump token results
+- assume comments were already removed by preprocess
 
 ### `parser`
 
@@ -51,18 +69,27 @@ Main responsibilities:
 - collect parse trees
 - invoke `yyparse()`
 - dump intermediate files
+- accept the current SysY22 core grammar plus a growing subset of C-style extensions
+- parse float / char / string literals, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, and `->`
 
 ### `preprocess`
 
-This directory contains the active preprocessing stage and its supporting
-runtime state.
+This directory contains the active preprocessing stage. The public surface is
+[preprocess.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/preprocess.hpp),
+while the `detail/` directory contains internal helper classes.
 
 Main responsibilities:
 
 - handle object macro preprocessing state
+- handle function-like macro definitions and fixed-arity invocation expansion
+- support stringification (`#`) and token pasting (`##`) in function-like macros
+- strip `//` and `/* ... */` comments before lexical analysis
 - write preprocessed intermediate source files before lexical analysis
 - run the preprocessing pass before lexer analysis
-- reserve the extension point for future preprocessing features
+- resolve `#include "..."` against the including file's current directory and `-I` include search paths
+- support conditional directives (`#ifdef`, `#ifndef`, `#elif`, `#else`, `#endif`)
+- support simple `#if/#elif` constant expressions including identifiers, `defined(...)`, `&&`, and arithmetic
+- split preprocessing logic across focused internal classes instead of one large pass implementation
 
 ## Key Files
 

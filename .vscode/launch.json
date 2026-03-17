@@ -3,34 +3,42 @@
     "configurations": [
         {
             "name": "Debug SysyCC Minimal",
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build/SysyCC",
             "args": [
-                "tests/minimal.sy"
+                "tests/minimal/minimal.sy"
             ],
             "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "lldb",
             "preLaunchTask": "CMake: build"
         },
         {
             "name": "Debug SysyCC Dump Parse",
-            "type": "cppdbg",
+            "type": "lldb",
             "request": "launch",
             "program": "${workspaceFolder}/build/SysyCC",
             "args": [
                 "--dump-tokens",
                 "--dump-parse",
-                "tests/minimal.sy"
+                "tests/minimal/minimal.sy"
             ],
             "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "lldb",
+            "preLaunchTask": "CMake: build"
+        },
+        {
+            "name": "Debug SysyCC Function Macro",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/SysyCC",
+            "args": [
+                "--dump-tokens",
+                "--dump-parse",
+                "tests/function_macro/function_macro.sy"
+            ],
+            "stopAtEntry": true,
+            "cwd": "${workspaceFolder}",
             "preLaunchTask": "CMake: build"
         }
     ]

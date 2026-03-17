@@ -13,6 +13,7 @@ The CLI module converts `argv` into a compiler configuration object.
 
 - parse command line flags
 - record input and output file paths
+- collect include search directories from `-I`
 - enable dump switches such as `--dump-tokens` and `--dump-parse`
 - print help and version information
 - fill [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
@@ -34,4 +35,5 @@ Output:
 - The namespace is currently `ClI`.
 - The CLI does not run compilation logic itself.
 - It only prepares configuration for the compiler core.
-
+- `-I<dir>` and `-I <dir>` are both accepted and stored in [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp).
+- The parsed include directories are forwarded through the compiler context and consumed by the preprocess stage during local include resolution.

@@ -27,6 +27,7 @@ struct PassStatus {
     }
 };
 
+// Defines the minimal legacy pass interface kept for compatibility.
 class Pass {
   public:
     virtual ~Pass() = default;
@@ -34,6 +35,7 @@ class Pass {
     virtual PassStatus Run(CompilerContext &context) = 0;
 };
 
+// Runs the legacy pass sequence defined under src/pass.
 class PassManager {
   private:
     std::vector<std::unique_ptr<Pass>> passes_;
@@ -44,4 +46,3 @@ class PassManager {
 };
 
 } // namespace sysycc
-

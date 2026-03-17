@@ -30,6 +30,7 @@ The run configuration for one compilation task. It stores:
 
 - input file
 - output file
+- include search directories
 - dump options
 
 ### `CompilerContext`
@@ -61,4 +62,3 @@ LexerPass -> ParserPass
 
 - The file and class names currently use `Complier` instead of `Compiler`.
 - `PassResult` carries pass success state and a short message.
-

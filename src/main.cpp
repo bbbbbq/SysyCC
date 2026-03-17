@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
         std::cerr << result.message << std::endl;
         return 1;
     }
-    
+
     if (!result.message.empty()) {
         std::cout << result.message << std::endl;
     }

@@ -5,40 +5,50 @@
 The tests module stores SysY22 input files and helper scripts used for quick
 local verification.
 
+## Main Layout
+
+Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.sy` input and an executable `run.sh`. The top-level `run_all.sh` iterates over these folders.
+
 ## Main Files
 
-- [array_init.sy](/Users/caojunze424/code/SysyCC/tests/array_init.sy)
-- [array_init.sh](/Users/caojunze424/code/SysyCC/tests/array_init.sh)
-- [control_flow.sy](/Users/caojunze424/code/SysyCC/tests/control_flow.sy)
-- [control_flow.sh](/Users/caojunze424/code/SysyCC/tests/control_flow.sh)
-- [function_call.sy](/Users/caojunze424/code/SysyCC/tests/function_call.sy)
-- [function_call.sh](/Users/caojunze424/code/SysyCC/tests/function_call.sh)
-- [literal_formats.sy](/Users/caojunze424/code/SysyCC/tests/literal_formats.sy)
-- [literal_formats.sh](/Users/caojunze424/code/SysyCC/tests/literal_formats.sh)
-- [minimal.sy](/Users/caojunze424/code/SysyCC/tests/minimal.sy)
-- [minimal.sh](/Users/caojunze424/code/SysyCC/tests/minimal.sh)
-- [preprocess_define.sy](/Users/caojunze424/code/SysyCC/tests/preprocess_define.sy)
-- [preprocess_define.sh](/Users/caojunze424/code/SysyCC/tests/preprocess_define.sh)
-- [preprocess_undef.sy](/Users/caojunze424/code/SysyCC/tests/preprocess_undef.sy)
-- [preprocess_undef.sh](/Users/caojunze424/code/SysyCC/tests/preprocess_undef.sh)
-- [run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh)
+- [tests/array_init](/Users/caojunze424/code/SysyCC/tests/array_init) (run.sh + array_init.sy)
+- [tests/comment_preprocess](/Users/caojunze424/code/SysyCC/tests/comment_preprocess)
+- [tests/c_parser_extensions](/Users/caojunze424/code/SysyCC/tests/c_parser_extensions)
+- [tests/control_flow](/Users/caojunze424/code/SysyCC/tests/control_flow)
+- [tests/elif](/Users/caojunze424/code/SysyCC/tests/elif)
+- [tests/function_call](/Users/caojunze424/code/SysyCC/tests/function_call)
+- [tests/function_macro](/Users/caojunze424/code/SysyCC/tests/function_macro)
+- [tests/include_local](/Users/caojunze424/code/SysyCC/tests/include_local)
+- [tests/include_path](/Users/caojunze424/code/SysyCC/tests/include_path)
+- [tests/conditional_expr](/Users/caojunze424/code/SysyCC/tests/conditional_expr)
+- [tests/literal_formats](/Users/caojunze424/code/SysyCC/tests/literal_formats)
+- [tests/minimal](/Users/caojunze424/code/SysyCC/tests/minimal)
+- [tests/ifdef](/Users/caojunze424/code/SysyCC/tests/ifdef)
+- [tests/ifndef](/Users/caojunze424/code/SysyCC/tests/ifndef)
+- [tests/if0](/Users/caojunze424/code/SysyCC/tests/if0)
+- [tests/if1](/Users/caojunze424/code/SysyCC/tests/if1)
+- [tests/preprocess_define](/Users/caojunze424/code/SysyCC/tests/preprocess_define)
+- [tests/preprocess_undef](/Users/caojunze424/code/SysyCC/tests/preprocess_undef)
+- [tests/stringify_include](/Users/caojunze424/code/SysyCC/tests/stringify_include)
+- [tests/token_paste](/Users/caojunze424/code/SysyCC/tests/token_paste)
+- [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh)
 
 ## Responsibilities
 
-- provide minimal valid SysY22 source examples
-- cover functions, control flow, arrays, literal formats, and preprocessing
-- support one-click local runs
-- serve as smoke tests during development
+- provide minimal valid SysY22 source examples arranged per directory (`tests/<name>/`)
+- cover functions, control flow, arrays, literal formats, comment stripping, preprocessing, object and function-like macros, stringification, token pasting, local includes, include search paths, conditional directives, expression-based `#if` branches, and broader C-style parser extensions
+- support one-click local runs via each folder’s `run.sh`
+- serve as smoke tests during development and validate intermediate outputs
 
 ## Current Test Flow
 
-Each `*.sh` file will:
+Each test directory provides a `run.sh` script that will:
 
 - configure the project
 - build the project
 - run `SysyCC` on its matching `*.sy` file
 
-`run_all.sh` will execute every test script in the directory except itself.
+`run_all.sh` will execute every test directory under `tests/` that contains an executable `run.sh`.
 
 It also validates that each test produced:
 

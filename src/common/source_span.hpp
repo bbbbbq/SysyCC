@@ -2,6 +2,7 @@
 
 namespace sysycc {
 
+// Stores the begin and end position of a source fragment.
 class SourceSpan {
   private:
     int line_begin_ = 0;
@@ -13,9 +14,7 @@ class SourceSpan {
     SourceSpan() = default;
 
     SourceSpan(int line_begin, int col_begin, int line_end, int col_end)
-        : line_begin_(line_begin),
-          col_begin_(col_begin),
-          line_end_(line_end),
+        : line_begin_(line_begin), col_begin_(col_begin), line_end_(line_end),
           col_end_(col_end) {}
 
     int get_line_begin() const noexcept { return line_begin_; }

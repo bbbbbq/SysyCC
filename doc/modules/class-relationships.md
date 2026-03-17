@@ -24,6 +24,7 @@ classDiagram
     class ComplierOption {
         -input_file_
         -output_file_
+        -include_directories_
         -dump_tokens_
         -dump_parse_
         -dump_ast_
@@ -33,6 +34,7 @@ classDiagram
     class CompilerContext {
         -input_file_
         -preprocessed_file_path_
+        -include_directories_
         -tokens_
         -parse_tree_root_
         -token_dump_file_path_
@@ -61,10 +63,31 @@ classDiagram
     class PreprocessPass {
     }
 
-    class PreprocessorState {
+    class PreprocessSession {
+    }
+
+    class PreprocessorRuntime {
     }
 
     class MacroDefinition {
+    }
+
+    class MacroTable {
+    }
+
+    class MacroExpander {
+    }
+
+    class ConditionalStack {
+    }
+
+    class DirectiveParser {
+    }
+
+    class IncludeResolver {
+    }
+
+    class FileLoader {
     }
 
     class Token {
@@ -96,8 +119,15 @@ classDiagram
     LexerPass ..> CompilerContext : writes tokens
     ParserPass ..> CompilerContext : writes parse tree
     PreprocessPass ..> CompilerContext : writes preprocessed file path
-    PreprocessPass *-- PreprocessorState
-    PreprocessorState *-- MacroDefinition
+    PreprocessPass ..> PreprocessSession
+    PreprocessSession *-- PreprocessorRuntime
+    PreprocessorRuntime *-- MacroDefinition
+    PreprocessSession *-- MacroTable
+    PreprocessSession *-- MacroExpander
+    PreprocessSession *-- ConditionalStack
+    PreprocessSession *-- DirectiveParser
+    PreprocessSession *-- IncludeResolver
+    PreprocessSession *-- FileLoader
     CompilerContext *-- Token
     CompilerContext *-- ParseTreeNode
     Token *-- SourceSpan
@@ -141,7 +171,7 @@ Defined in:
 Role:
 
 - store the configuration of one compile run
-- carry file paths and dump switches
+- carry file paths, include search directories, and dump switches
 
 ### `sysycc::Complier`
 
@@ -172,6 +202,7 @@ Role:
 
 - act as the shared data bus for passes
 - store preprocessed intermediate file path
+- store include search directories for preprocessing
 - store token stream
 - store parse tree root
 - store intermediate output paths
@@ -191,6 +222,19 @@ Current concrete subclasses:
 - `PreprocessPass`
 - `LexerPass`
 - `ParserPass`
+
+### `sysycc::PreprocessPass`
+
+Defined in:
+
+- [preprocess.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/preprocess.hpp)
+- [preprocess.cpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/preprocess.cpp)
+
+Role:
+
+- expose the only public class of the preprocess module
+- run the preprocessing stage before lexical analysis through `detail::PreprocessSession`
+- write the preprocessed intermediate file path back into `CompilerContext`
 
 ### `sysycc::PassManager`
 
@@ -223,17 +267,41 @@ Role:
 - connect generated `flex`/`bison` code directly with the pass system
 - move lexer and parser output into [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 
-### `sysycc::PreprocessPass`, `sysycc::PreprocessorState`, and `sysycc::MacroDefinition`
+### `sysycc::preprocess::detail::PreprocessSession`
 
 Defined in:
 
-- [preprocess.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/preprocess.hpp)
+- [preprocess_session.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/preprocess_session.hpp)
+- [preprocess_session.cpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/preprocess_session.cpp)
 
 Role:
 
-- write preprocessed intermediate source files before lexical analysis
-- describe object macro storage and preprocessing state
-- provide the pass entry for `#define` and `#undef` style object-macro preprocessing
+- coordinate one full preprocessing run
+- dispatch lines between directive parsing, macro handling, include handling, and conditional handling
+- write the final `.preprocessed.sy` artifact
+
+### `sysycc::preprocess::detail::PreprocessorRuntime`, `MacroTable`, `MacroExpander`, `ConditionalStack`, `DirectiveParser`, `IncludeResolver`, `FileLoader`, and `MacroDefinition`
+
+Defined in:
+
+- [preprocess_runtime.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/preprocess_runtime.hpp)
+- [macro_table.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/macro_table.hpp)
+- [macro_expander.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/macro_expander.hpp)
+- [conditional_stack.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional_stack.hpp)
+- [directive_parser.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/directive_parser.hpp)
+- [include_resolver.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/include_resolver.hpp)
+- [file_loader.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/file_loader.hpp)
+
+Role:
+
+- `PreprocessRuntime`: store preprocessing output lines and file traversal state
+- `MacroTable`: manage object-like macro definitions
+- `MacroExpander`: expand ordinary source lines with macro substitutions
+- `ConditionalStack`: manage nested `#if/#ifdef/#ifndef/#elif/#else/#endif` state
+- `DirectiveParser`: parse raw directive text into structured directives
+- `IncludeResolver`: resolve local `#include "..."` directives through current-directory and `-I` search paths
+- `FileLoader`: load source files into line sequences
+- `MacroDefinition`: describe one object-like macro definition
 
 ### `sysycc::Token`
 

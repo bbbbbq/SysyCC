@@ -22,6 +22,7 @@ struct PassResult {
     }
 };
 
+// Defines the common interface that every compiler pass must implement.
 class Pass {
   public:
     virtual ~Pass() = default;
@@ -30,6 +31,7 @@ class Pass {
     virtual PassResult Run(CompilerContext &context) = 0;
 };
 
+// Owns pass objects and runs them in pipeline order.
 class PassManager {
   private:
     std::vector<std::unique_ptr<Pass>> passes_;
