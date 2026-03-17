@@ -1,0 +1,7 @@
+#define ADD(a, b) ((a) + (b))
+#define INC(x) ADD(x, 1)
+#define VALUE 3
+
+int main() {
+    return ADD(INC(1), VALUE);
+}

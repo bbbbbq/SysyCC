@@ -17,6 +17,7 @@ enum class TokenKind {
     Punctuation,
 };
 
+// Represents one token produced by lexical analysis.
 class Token {
   public:
     TokenKind kind;
@@ -24,15 +25,16 @@ class Token {
     SourceSpan source_span;
 
     Token(TokenKind kind, std::string text, SourceSpan source_span = {})
-        : kind(kind),
-          text(std::move(text)),
+        : kind(kind), text(std::move(text)),
           source_span(std::move(source_span)) {}
 };
 
+// Acts as the shared data bus across compiler passes.
 class CompilerContext {
   private:
     std::string input_file_;
     std::string preprocessed_file_path_;
+    std::vector<std::string> include_directories_;
     std::vector<Token> tokens_;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
@@ -58,6 +60,14 @@ class CompilerContext {
         preprocessed_file_path_ = std::move(preprocessed_file_path);
     }
 
+    const std::vector<std::string> &get_include_directories() const noexcept {
+        return include_directories_;
+    }
+
+    void set_include_directories(std::vector<std::string> include_directories) {
+        include_directories_ = std::move(include_directories);
+    }
+
     const std::vector<Token> &tokens() const { return tokens_; }
 
     std::vector<Token> &get_tokens() noexcept { return tokens_; }
@@ -78,9 +88,7 @@ class CompilerContext {
 
     bool get_dump_parse() const noexcept { return dump_parse_; }
 
-    void set_dump_parse(bool dump_parse) noexcept {
-        dump_parse_ = dump_parse;
-    }
+    void set_dump_parse(bool dump_parse) noexcept { dump_parse_ = dump_parse; }
 
     const std::string &get_token_dump_file_path() const noexcept {
         return token_dump_file_path_;

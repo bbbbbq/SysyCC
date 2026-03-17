@@ -1,0 +1,52 @@
+#define FOO 1
+#define BAR 0
+#define A 1
+#define B 1
+
+#if FOO
+int foo_branch() {
+    return 1;
+}
+#elif BAR
+int foo_branch() {
+    return 2;
+}
+#else
+int foo_branch() {
+    return 3;
+}
+#endif
+
+#if defined(FOO)
+int defined_branch() {
+    return 4;
+}
+#else
+int defined_branch() {
+    return 5;
+}
+#endif
+
+#if A && B
+int and_branch() {
+    return 6;
+}
+#else
+int and_branch() {
+    return 7;
+}
+#endif
+
+#if 1 + 2
+int arithmetic_branch() {
+    return 8;
+}
+#else
+int arithmetic_branch() {
+    return 9;
+}
+#endif
+
+int main() {
+    return foo_branch() + defined_branch() + and_branch() + arithmetic_branch();
+}

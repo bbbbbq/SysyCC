@@ -4,6 +4,7 @@ namespace ClI {
 void Cli::Run(int argc, char *argv[]) {
     input_file_.clear();
     output_file_.clear();
+    include_directories_.clear();
     dump_tokens_ = false;
     dump_parse_ = false;
     dump_ast_ = false;
@@ -62,6 +63,24 @@ void Cli::Run(int argc, char *argv[]) {
             }
 
             output_file_ = argv[++i];
+            continue;
+        }
+
+        if (arg == "-I") {
+            if (i + 1 >= argc) {
+                has_error_ = true;
+                std::cerr << "error: missing include directory after -I"
+                          << std::endl;
+                PrintHelp();
+                return;
+            }
+
+            include_directories_.push_back(argv[++i]);
+            continue;
+        }
+
+        if (arg.size() > 2 && arg.rfind("-I", 0) == 0) {
+            include_directories_.push_back(arg.substr(2));
             continue;
         }
 

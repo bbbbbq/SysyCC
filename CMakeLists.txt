@@ -43,6 +43,15 @@ add_executable(${PROJECT_NAME}
     src/frontend/parser/parser.cpp
     src/frontend/parser/parser_runtime.cpp
     src/frontend/preprocess/preprocess.cpp
+    src/frontend/preprocess/detail/conditional_stack.cpp
+    src/frontend/preprocess/detail/constant_expression_evaluator.cpp
+    src/frontend/preprocess/detail/directive_parser.cpp
+    src/frontend/preprocess/detail/file_loader.cpp
+    src/frontend/preprocess/detail/include_resolver.cpp
+    src/frontend/preprocess/detail/macro_expander.cpp
+    src/frontend/preprocess/detail/macro_table.cpp
+    src/frontend/preprocess/detail/preprocess_runtime.cpp
+    src/frontend/preprocess/detail/preprocess_session.cpp
     src/main.cpp
 )
 

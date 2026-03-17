@@ -1,0 +1,6 @@
+#define STR(x) #x
+#include STR(local_value.h)
+
+int main() {
+    return HEADER_VALUE;
+}

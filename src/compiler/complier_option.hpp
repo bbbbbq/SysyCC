@@ -1,15 +1,17 @@
-#ifndef SYSYCC_COMPLIER_OPTION_HPP
-#define SYSYCC_COMPLIER_OPTION_HPP
+#pragma once
 
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace sysycc {
 
+// Stores the configuration for one compiler invocation.
 class ComplierOption {
   private:
     std::string input_file_;
     std::string output_file_;
+    std::vector<std::string> include_directories_;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
     bool dump_ast_ = false;
@@ -37,6 +39,18 @@ class ComplierOption {
         output_file_ = std::move(output_file);
     }
 
+    const std::vector<std::string> &get_include_directories() const noexcept {
+        return include_directories_;
+    }
+
+    void set_include_directories(std::vector<std::string> include_directories) {
+        include_directories_ = std::move(include_directories);
+    }
+
+    void add_include_directory(std::string include_directory) {
+        include_directories_.push_back(std::move(include_directory));
+    }
+
     bool dump_tokens() const noexcept { return dump_tokens_; }
 
     void set_dump_tokens(bool dump_tokens) noexcept {
@@ -49,9 +63,7 @@ class ComplierOption {
 
     bool dump_parse() const noexcept { return dump_parse_; }
 
-    void set_dump_parse(bool dump_parse) noexcept {
-        dump_parse_ = dump_parse;
-    }
+    void set_dump_parse(bool dump_parse) noexcept { dump_parse_ = dump_parse; }
 
     bool dump_ir() const noexcept { return dump_ir_; }
 
@@ -59,5 +71,3 @@ class ComplierOption {
 };
 
 } // namespace sysycc
-
-#endif

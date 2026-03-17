@@ -1,14 +1,17 @@
 #pragma once
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "compiler/complier_option.hpp"
 
 namespace ClI {
+// Parses command line arguments and translates them into compiler options.
 class Cli {
   private:
     std::string input_file_;
     std::string output_file_;
+    std::vector<std::string> include_directories_;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
     bool dump_ast_ = false;
@@ -28,6 +31,8 @@ class Cli {
     static void PrintHelp() {
         std::cout << "Usage: sysycc [options] <input_file>\n"
                   << "Options:\n"
+                  << "  -I<dir>            Add include search directory\n"
+                  << "  -I <dir>           Add include search directory\n"
                   << "  -o <output_file>   Specify output file\n"
                   << "  --dump-tokens      Dump tokens\n"
                   << "  --dump-parse       Dump parse result\n"
@@ -43,6 +48,7 @@ class Cli {
     void set_compiler_option(sysycc::ComplierOption &option) const {
         option.set_input_file(input_file_);
         option.set_output_file(output_file_);
+        option.set_include_directories(include_directories_);
         option.set_dump_tokens(dump_tokens_);
         option.set_dump_parse(dump_parse_);
         option.set_dump_ast(dump_ast_);

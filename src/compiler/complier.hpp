@@ -1,11 +1,12 @@
 #pragma once
 
-#include "compiler/complier_option.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
+#include "compiler/complier_option.hpp"
 #include "compiler/pass/pass.hpp"
 
 namespace sysycc {
 
+// Owns the compiler pipeline and drives all registered passes.
 class Complier {
   private:
     ComplierOption option_;

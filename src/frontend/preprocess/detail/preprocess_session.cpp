@@ -1,0 +1,322 @@
+#include "frontend/preprocess/detail/preprocess_session.hpp"
+
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace sysycc::preprocess::detail {
+
+PreprocessSession::PreprocessSession(CompilerContext &context)
+    : context_(context) {}
+
+PassResult PreprocessSession::Run() {
+    runtime_.clear();
+    macro_table_.clear();
+    conditional_stack_.clear();
+
+    const PassResult result = preprocess_file(context_.get_input_file());
+    if (!result.ok) {
+        context_.set_preprocessed_file_path("");
+        return result;
+    }
+
+    std::string output_file_path;
+    const PassResult write_result = write_preprocessed_file(output_file_path);
+    if (!write_result.ok) {
+        context_.set_preprocessed_file_path("");
+        return write_result;
+    }
+
+    context_.set_preprocessed_file_path(std::move(output_file_path));
+    return PassResult::Success();
+}
+
+PassResult PreprocessSession::evaluate_if_condition(const Directive &directive,
+                                                    bool &condition) const {
+    const std::vector<std::string> &arguments = directive.get_arguments();
+    if (arguments.empty()) {
+        return PassResult::Failure("invalid " + directive.get_keyword() +
+                                   " directive: missing condition");
+    }
+
+    long long value = 0;
+    const PassResult evaluate_result = constant_expression_evaluator_.evaluate(
+        arguments[0], macro_table_, value);
+    if (!evaluate_result.ok) {
+        return evaluate_result;
+    }
+
+    condition = value != 0;
+    return PassResult::Success();
+}
+
+PassResult
+PreprocessSession::strip_comments_from_line(const std::string &line,
+                                            std::string &stripped_line) {
+    stripped_line.clear();
+
+    std::size_t index = 0;
+    while (index < line.size()) {
+        if (runtime_.get_in_block_comment()) {
+            const std::size_t comment_end = line.find("*/", index);
+            if (comment_end == std::string::npos) {
+                return PassResult::Success();
+            }
+
+            runtime_.set_in_block_comment(false);
+            index = comment_end + 2;
+            continue;
+        }
+
+        if (index + 1 < line.size() && line[index] == '/' &&
+            line[index + 1] == '/') {
+            break;
+        }
+
+        if (index + 1 < line.size() && line[index] == '/' &&
+            line[index + 1] == '*') {
+            runtime_.set_in_block_comment(true);
+            index += 2;
+            continue;
+        }
+
+        stripped_line.push_back(line[index]);
+        ++index;
+    }
+
+    return PassResult::Success();
+}
+
+PassResult
+PreprocessSession::handle_non_directive_line(const std::string &line) {
+    if (conditional_stack_.is_in_active_region()) {
+        runtime_.append_output_line(
+            macro_expander_.expand_line(line, macro_table_));
+    }
+
+    return PassResult::Success();
+}
+
+PassResult
+PreprocessSession::handle_conditional_directive(const Directive &directive) {
+    const std::vector<std::string> &arguments = directive.get_arguments();
+    bool condition = false;
+
+    switch (directive.get_kind()) {
+    case DirectiveKind::Ifdef:
+        if (arguments.empty()) {
+            return PassResult::Failure("invalid " + directive.get_keyword() +
+                                       " directive: missing condition");
+        }
+        condition = macro_table_.has_macro(arguments[0]);
+        return conditional_stack_.push_if(condition);
+    case DirectiveKind::Ifndef:
+        if (arguments.empty()) {
+            return PassResult::Failure("invalid " + directive.get_keyword() +
+                                       " directive: missing condition");
+        }
+        condition = !macro_table_.has_macro(arguments[0]);
+        return conditional_stack_.push_if(condition);
+    case DirectiveKind::If: {
+        const PassResult condition_result =
+            evaluate_if_condition(directive, condition);
+        if (!condition_result.ok) {
+            return condition_result;
+        }
+        return conditional_stack_.push_if(condition);
+    }
+    case DirectiveKind::Elif: {
+        const PassResult condition_result =
+            evaluate_if_condition(directive, condition);
+        if (!condition_result.ok) {
+            return condition_result;
+        }
+        return conditional_stack_.handle_elif(condition);
+    }
+    case DirectiveKind::Else:
+        return conditional_stack_.handle_else();
+    case DirectiveKind::Endif:
+        return conditional_stack_.handle_endif();
+    default:
+        return PassResult::Failure("not a conditional directive");
+    }
+}
+
+PassResult PreprocessSession::handle_include_directive(
+    const std::string &line, const Directive &directive,
+    const std::string &current_file_path) {
+    if (directive.get_kind() != DirectiveKind::Include) {
+        return PassResult::Failure("not an include directive");
+    }
+
+    const std::vector<std::string> &arguments = directive.get_arguments();
+    if (arguments.empty()) {
+        return PassResult::Failure(
+            "invalid #include directive: missing include path");
+    }
+
+    const std::string expanded_include_token =
+        macro_expander_.expand_line(arguments[0], macro_table_);
+
+    std::string resolved_file_path;
+    const PassResult resolve_result = include_resolver_.resolve_local_include(
+        line, current_file_path, context_.get_include_directories(),
+        expanded_include_token, resolved_file_path);
+    if (!resolve_result.ok) {
+        return resolve_result;
+    }
+
+    return preprocess_file(resolved_file_path);
+}
+
+PassResult PreprocessSession::handle_macro_directive(
+    const std::string &line, int line_number, const Directive &directive) {
+    const std::vector<std::string> &arguments = directive.get_arguments();
+
+    if (directive.get_kind() == DirectiveKind::Define) {
+        if (arguments.empty()) {
+            return PassResult::Failure(
+                "invalid #define directive: missing macro name");
+        }
+
+        std::string replacement;
+        if (arguments.size() > 1) {
+            replacement = arguments[1];
+        }
+
+        return macro_table_.define_macro(MacroDefinition(
+            arguments[0], replacement, directive.get_is_function_like_macro(),
+            directive.get_macro_parameters(),
+            SourceSpan(line_number, 1, line_number,
+                       static_cast<int>(line.size()))));
+    }
+
+    if (directive.get_kind() == DirectiveKind::Undef) {
+        if (arguments.empty()) {
+            return PassResult::Failure(
+                "invalid #undef directive: missing macro name");
+        }
+
+        macro_table_.undefine_macro(arguments[0]);
+        return PassResult::Success();
+    }
+
+    return PassResult::Failure("not a macro directive");
+}
+
+PassResult
+PreprocessSession::process_line(const std::string &line, int line_number,
+                                const std::string &current_file_path) {
+    std::string stripped_line;
+    const PassResult strip_result =
+        strip_comments_from_line(line, stripped_line);
+    if (!strip_result.ok) {
+        return strip_result;
+    }
+
+    if (!directive_parser_.is_directive(stripped_line)) {
+        return handle_non_directive_line(stripped_line);
+    }
+
+    Directive directive;
+    const PassResult parse_result =
+        directive_parser_.parse(stripped_line, directive);
+    if (!parse_result.ok) {
+        return parse_result;
+    }
+
+    const PassResult conditional_result =
+        handle_conditional_directive(directive);
+    if (conditional_result.ok) {
+        return conditional_result;
+    }
+    if (conditional_result.message != "not a conditional directive") {
+        return conditional_result;
+    }
+
+    if (!conditional_stack_.is_in_active_region()) {
+        return PassResult::Success();
+    }
+
+    const PassResult include_result =
+        handle_include_directive(stripped_line, directive, current_file_path);
+    if (include_result.ok) {
+        return include_result;
+    }
+    if (include_result.message != "not an include directive") {
+        return include_result;
+    }
+
+    const PassResult macro_result =
+        handle_macro_directive(stripped_line, line_number, directive);
+    if (macro_result.ok) {
+        return macro_result;
+    }
+    if (macro_result.message != "not a macro directive") {
+        return macro_result;
+    }
+
+    return PassResult::Failure("unsupported preprocess directive: " +
+                               directive.get_keyword());
+}
+
+PassResult PreprocessSession::write_preprocessed_file(
+    std::string &output_file_path) const {
+    const std::filesystem::path output_dir("build/intermediate_results");
+    std::filesystem::create_directories(output_dir);
+
+    const std::filesystem::path input_path(context_.get_input_file());
+    const std::filesystem::path output_path =
+        output_dir / (input_path.stem().string() + ".preprocessed.sy");
+
+    std::ofstream ofs(output_path);
+    if (!ofs.is_open()) {
+        return PassResult::Failure(
+            "failed to open preprocessed output file in intermediate_results");
+    }
+
+    ofs << runtime_.build_output_text();
+    if (!ofs.good()) {
+        return PassResult::Failure("failed to write preprocessed output file");
+    }
+
+    output_file_path = output_path.string();
+    return PassResult::Success();
+}
+
+PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
+    std::vector<std::string> lines;
+    const PassResult load_result = file_loader_.read_lines(file_path, lines);
+    if (!load_result.ok) {
+        return load_result;
+    }
+
+    const std::size_t conditional_frame_count_before =
+        conditional_stack_.get_frame_count();
+    runtime_.push_file(file_path);
+
+    for (std::size_t index = 0; index < lines.size(); ++index) {
+        const PassResult result =
+            process_line(lines[index], static_cast<int>(index + 1), file_path);
+        if (!result.ok) {
+            runtime_.pop_file();
+            return result;
+        }
+    }
+
+    runtime_.pop_file();
+    if (runtime_.get_in_block_comment()) {
+        return PassResult::Failure(
+            "unterminated block comment in preprocessor");
+    }
+    if (conditional_stack_.get_frame_count() !=
+        conditional_frame_count_before) {
+        return PassResult::Failure("missing #endif directive");
+    }
+
+    return PassResult::Success();
+}
+
+} // namespace sysycc::preprocess::detail
