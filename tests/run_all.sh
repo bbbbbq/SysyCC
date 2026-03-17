@@ -20,15 +20,20 @@ assert_result_file() {
     fi
 }
 
-for script in "${SCRIPT_DIR}"/*.sh; do
-    if [[ "${script}" == "${SCRIPT_DIR}/run_all.sh" ]]; then
+for test_dir in "${SCRIPT_DIR}"/*/; do
+    if [[ ! -d "${test_dir}" ]]; then
         continue
     fi
 
-    test_name="$(basename "${script}" .sh)"
+    run_script="${test_dir}run.sh"
+    if [[ ! -x "${run_script}" ]]; then
+        continue
+    fi
+
+    test_name="$(basename "${test_dir}")"
 
     echo "==> Running ${test_name}"
-    "${script}"
+    "${run_script}"
 
     assert_result_file "${RESULT_DIR}/${test_name}.preprocessed.sy"
     assert_result_file "${RESULT_DIR}/${test_name}.tokens.txt"
