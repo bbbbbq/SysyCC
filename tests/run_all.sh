@@ -5,26 +5,76 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RESULT_DIR="${PROJECT_ROOT}/build/intermediate_results"
+SUMMARY_FILE="${PROJECT_ROOT}/build/test_result.md"
+
+TEST_NAMES=()
+TEST_STATUSES=()
+TEST_DETAILS=()
 
 assert_result_file() {
     local file_path="$1"
 
     if [[ ! -f "${file_path}" ]]; then
-        echo "error: missing result file: ${file_path}" >&2
-        exit 1
+        echo "missing result file: ${file_path}"
+        return 1
     fi
 
     if [[ ! -s "${file_path}" ]]; then
-        echo "error: empty result file: ${file_path}" >&2
-        exit 1
+        echo "empty result file: ${file_path}"
+        return 1
     fi
+
+    return 0
+}
+
+record_result() {
+    local test_name="$1"
+    local test_status="$2"
+    local test_detail="$3"
+
+    TEST_NAMES+=("${test_name}")
+    TEST_STATUSES+=("${test_status}")
+    TEST_DETAILS+=("${test_detail}")
+}
+
+escape_table_cell() {
+    local value="$1"
+    value="${value//|/\\|}"
+    value="${value//$'\n'/<br>}"
+    printf '%s' "${value}"
+}
+
+write_summary_table() {
+    local overall_status="$1"
+
+    mkdir -p "$(dirname "${SUMMARY_FILE}")"
+    {
+        echo "# Test Result"
+        echo
+        echo "- Overall: ${overall_status}"
+        echo
+        echo "| Test | Status | Detail |"
+        echo "| --- | --- | --- |"
+
+        local index
+        for index in "${!TEST_NAMES[@]}"; do
+            printf '| %s | %s | %s |\n' \
+                "$(escape_table_cell "${TEST_NAMES[index]}")" \
+                "$(escape_table_cell "${TEST_STATUSES[index]}")" \
+                "$(escape_table_cell "${TEST_DETAILS[index]}")"
+        done
+    } >"${SUMMARY_FILE}"
+
+    echo
+    echo "==> Result"
+    cat "${SUMMARY_FILE}"
 }
 
 should_require_nonempty_artifacts() {
     local test_name="$1"
 
     case "${test_name}" in
-        macro_literal_expansion_bug|function_macro_argument_literal_bug|include_cycle_bug|invalid_macro_name_bug|invalid_token_diagnostic|lexer_global_state_bug|lexer_parse_node_mode_guard|empty_token_stream_behavior|preprocess_dispatch_sentinel_bug)
+        macro_literal_expansion_bug|function_macro_argument_literal_bug|include_cycle_bug|invalid_macro_name_bug|invalid_token_diagnostic|lexer_global_state_bug|lexer_parse_node_mode_guard|empty_token_stream_behavior|preprocess_dispatch_sentinel_bug|ast_unknown_guard)
             return 1
             ;;
         *)
@@ -32,6 +82,8 @@ should_require_nonempty_artifacts() {
             ;;
     esac
 }
+
+OVERALL_FAILURE=0
 
 for test_dir in "${SCRIPT_DIR}"/*/; do
     if [[ ! -d "${test_dir}" ]]; then
@@ -46,17 +98,44 @@ for test_dir in "${SCRIPT_DIR}"/*/; do
     test_name="$(basename "${test_dir}")"
 
     echo "==> Running ${test_name}"
-    "${run_script}"
+    if ! "${run_script}"; then
+        record_result "${test_name}" "FAIL" "run.sh exited with non-zero status"
+        OVERALL_FAILURE=1
+        continue
+    fi
 
     if should_require_nonempty_artifacts "${test_name}"; then
-        assert_result_file "${RESULT_DIR}/${test_name}.preprocessed.sy"
-        assert_result_file "${RESULT_DIR}/${test_name}.tokens.txt"
-        assert_result_file "${RESULT_DIR}/${test_name}.parse.txt"
+        detail_messages=()
+        test_failed=0
 
-        echo "    verified ${test_name}.preprocessed.sy"
-        echo "    verified ${test_name}.tokens.txt"
-        echo "    verified ${test_name}.parse.txt"
+        for artifact_suffix in preprocessed.sy tokens.txt parse.txt; do
+            artifact_path="${RESULT_DIR}/${test_name}.${artifact_suffix}"
+            if artifact_message="$(assert_result_file "${artifact_path}")"; then
+                echo "    verified ${test_name}.${artifact_suffix}"
+                detail_messages+=("verified ${test_name}.${artifact_suffix}")
+            else
+                echo "error: ${artifact_message}" >&2
+                detail_messages+=("${artifact_message}")
+                OVERALL_FAILURE=1
+                test_failed=1
+            fi
+        done
+
+        if [[ "${test_failed}" -eq 0 ]]; then
+            record_result "${test_name}" "PASS" "artifacts verified"
+        else
+            record_result "${test_name}" "FAIL" "$(printf '%s; ' "${detail_messages[@]}" | sed 's/; $//')"
+        fi
     else
         echo "    verified ${test_name} via dedicated run.sh assertions"
+        record_result "${test_name}" "PASS" "verified via dedicated run.sh assertions"
     fi
 done
+
+if [[ "${OVERALL_FAILURE}" -eq 0 ]]; then
+    write_summary_table "PASS"
+    exit 0
+fi
+
+write_summary_table "FAIL"
+exit 1
