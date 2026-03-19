@@ -12,6 +12,7 @@ source file
 -> preprocess
 -> lexer
 -> parser
+-> ast
 ```
 
 ## Preprocess
@@ -114,6 +115,31 @@ source file
 - token source span tracking
 - exact token kind storage for downstream passes and token dumps
 
+## AST
+
+- initial AST lowering pass
+- parser tree to AST translation rooted at `TranslationUnit`
+- currently lowered nodes:
+  - `FunctionDecl`
+  - `ParamDecl`
+  - `VarDecl`
+  - `ConstDecl`
+  - `BlockStmt`
+  - `DeclStmt`
+  - `ExprStmt`
+  - `IfStmt`
+  - `WhileStmt`
+  - `ContinueStmt`
+  - `ReturnStmt`
+  - `IntegerLiteralExpr`
+  - `IdentifierExpr`
+  - `BinaryExpr`
+  - `AssignExpr`
+  - `CallExpr`
+  - `IndexExpr`
+  - `InitListExpr`
+- AST dump output to `build/intermediate_results/*.ast.txt`
+
 ### Not Implemented
 
 - dedicated lexer tests for newly recognized C-style tokens beyond the current parser grammar
@@ -198,6 +224,6 @@ source file
 
 1. Consume `-I` paths for more include forms, especially `#include <...>`.
 2. Improve preprocess diagnostics with clearer file and line reporting.
-3. Introduce AST nodes after parse tree generation.
+3. Expand AST lowering coverage for more statements, expressions, and type forms.
 4. Add a `SemanticPass`.
 5. Expand SysY22 coverage only where it matches the project target language.
