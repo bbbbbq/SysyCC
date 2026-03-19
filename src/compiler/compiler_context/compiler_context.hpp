@@ -62,6 +62,7 @@ enum class TokenKind {
     Semicolon,
     Comma,
     Colon,
+    Dot,
     LParen,
     RParen,
     LBracket,
@@ -150,6 +151,7 @@ class Token {
         case TokenKind::Semicolon:
         case TokenKind::Comma:
         case TokenKind::Colon:
+        case TokenKind::Dot:
         case TokenKind::LParen:
         case TokenKind::RParen:
         case TokenKind::LBracket:
@@ -267,6 +269,8 @@ class Token {
             return "Comma";
         case TokenKind::Colon:
             return "Colon";
+        case TokenKind::Dot:
+            return "Dot";
         case TokenKind::LParen:
             return "LParen";
         case TokenKind::RParen:

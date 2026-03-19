@@ -24,7 +24,7 @@ void yyerror(void *scanner, const char *message);
 %token <node> INC DEC BITAND BITOR BITXOR BITNOT SHL SHR ARROW
 %token <node> ASSIGN EQ NE LT LE GT GE
 %token <node> NOT AND OR
-%token <node> SEMICOLON COMMA COLON
+%token <node> SEMICOLON COMMA COLON DOT
 %token <node> LPAREN RPAREN LBRACKET RBRACKET LBRACE RBRACE
 
 %type <node> comp_unit comp_unit_items comp_unit_item
@@ -465,6 +465,8 @@ postfix_expr
     | postfix_expr LPAREN argument_expr_list RPAREN
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2, $3, $4}); }
     | postfix_expr ARROW IDENTIFIER
+      { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2, $3}); }
+    | postfix_expr DOT IDENTIFIER
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2, $3}); }
     | postfix_expr INC
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2}); }

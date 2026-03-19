@@ -908,7 +908,8 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
 
     if (ParseTreeMatcher::label_equals(node, "postfix_expr") &&
         node->children.size() == 3 &&
-        ParseTreeMatcher::label_starts_with(node->children[1].get(), "ARROW")) {
+        (ParseTreeMatcher::label_starts_with(node->children[1].get(), "ARROW") ||
+         ParseTreeMatcher::label_starts_with(node->children[1].get(), "DOT"))) {
         const std::string member_name = ParseTreeMatcher::extract_terminal_suffix(
             node->children[2].get(), "IDENTIFIER");
         return std::make_unique<MemberExpr>(

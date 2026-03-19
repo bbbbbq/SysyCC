@@ -121,6 +121,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::Comma;
     case COLON:
         return TokenKind::Colon;
+    case DOT:
+        return TokenKind::Dot;
     case LPAREN:
         return TokenKind::LParen;
     case RPAREN:

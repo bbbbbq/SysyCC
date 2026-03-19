@@ -106,6 +106,7 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 ";"                         { return make_token(SEMICOLON, "SEMICOLON", (sysycc::LexerState *)yyextra, yytext, yylval); }
 ","                         { return make_token(COMMA, "COMMA", (sysycc::LexerState *)yyextra, yytext, yylval); }
 ":"                         { return make_token(COLON, "COLON", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"."                         { return make_token(DOT, "DOT", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "("                         { return make_token(LPAREN, "LPAREN", (sysycc::LexerState *)yyextra, yytext, yylval); }
 ")"                         { return make_token(RPAREN, "RPAREN", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "["                         { return make_token(LBRACKET, "LBRACKET", (sysycc::LexerState *)yyextra, yytext, yylval); }
