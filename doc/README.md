@@ -10,8 +10,10 @@ doc/
     ├── cli.md
     ├── common.md
     ├── compiler.md
-    ├── frontend.md
+    ├── lexer.md
     ├── manual.md
+    ├── parser.md
+    ├── preprocess.md
     ├── scripts.md
     ├── tests.md
     └── legacy-pass.md
@@ -51,10 +53,12 @@ main
 - [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md): command line parsing and option mapping
 - [common.md](/Users/caojunze424/code/SysyCC/doc/modules/common.md): shared lightweight value types
 - [compiler.md](/Users/caojunze424/code/SysyCC/doc/modules/compiler.md): compiler core objects and pass scheduling
-- [frontend.md](/Users/caojunze424/code/SysyCC/doc/modules/frontend.md): lexer, parser, grammar templates, and parse runtime
+- [lexer.md](/Users/caojunze424/code/SysyCC/doc/modules/lexer.md): lexical analysis pass, flex template, and token output behavior
 - [manual.md](/Users/caojunze424/code/SysyCC/doc/modules/manual.md): external manuals and language references
+- [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md): syntax analysis pass, bison grammar, and parse runtime
+- [preprocess.md](/Users/caojunze424/code/SysyCC/doc/modules/preprocess.md): preprocessing pass, internal helper components, and intermediate source generation
 - [scripts.md](/Users/caojunze424/code/SysyCC/doc/modules/scripts.md): developer helper scripts
-- [tests.md](/Users/caojunze424/code/SysyCC/doc/modules/tests.md): test directories, helper scripts, per-case assets, and targeted bug reproducers, now covering include-path, expression, function-like macro, comment-literal, parser-extension, and preprocess-regression tests
+- [tests.md](/Users/caojunze424/code/SysyCC/doc/modules/tests.md): test directories, helper scripts, per-case assets, and targeted bug reproducers, all runnable through the top-level regression entry, now covering include-path, expression, function-like macro, comment-literal, parser-extension, preprocess-regression, lexer-diagnostic, exact-token-kind, and lexer-structure tests
 - [legacy-pass.md](/Users/caojunze424/code/SysyCC/doc/modules/legacy-pass.md): legacy compatibility files under `src/pass/`
 
 ## Current Status
@@ -74,5 +78,7 @@ main
 
 1. [compiler.md](/Users/caojunze424/code/SysyCC/doc/modules/compiler.md)
 2. [class-relationships.md](/Users/caojunze424/code/SysyCC/doc/modules/class-relationships.md)
-3. [frontend.md](/Users/caojunze424/code/SysyCC/doc/modules/frontend.md)
-4. [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md)
+3. [preprocess.md](/Users/caojunze424/code/SysyCC/doc/modules/preprocess.md)
+4. [lexer.md](/Users/caojunze424/code/SysyCC/doc/modules/lexer.md)
+5. [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md)
+6. [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md)

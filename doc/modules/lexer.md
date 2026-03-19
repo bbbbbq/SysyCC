@@ -1,0 +1,45 @@
+# Lexer Module
+
+## Scope
+
+The lexer module contains the lexical-analysis pass, the flex source template,
+and the generated scanner source used by the active pipeline.
+
+## Directory Layout
+
+```text
+src/frontend/lexer/
+├── lexer.hpp
+├── lexer.cpp
+├── lexer.l
+└── lexer_scanner.cpp
+```
+
+## Responsibilities
+
+- open the preprocessed source file or original input file
+- invoke `yylex()`
+- collect token streams with exact token kinds such as `KwInt`, `IntLiteral`,
+  and `ShiftLeft`
+- dump token results into `build/intermediate_results/*.tokens.txt`
+- keep lex-only runs free of parse-tree node allocation side effects
+- allow empty token streams and leave empty-input policy to later stages
+- assume comments were already removed by preprocess
+
+## Key Files
+
+- [lexer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp)
+- [lexer.cpp](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.cpp)
+- [lexer.l](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.l)
+- [lexer_scanner.cpp](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer_scanner.cpp)
+
+## Output Artifacts
+
+- token dump text files in `build/intermediate_results`
+- token stream entries stored in [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+
+## Notes
+
+- The lexer now uses a reentrant flex scanner with one [LexerState](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp) instance per scanner session.
+- The lexer pass disables scanner-side parse-tree terminal-node creation during
+  lex-only runs.
