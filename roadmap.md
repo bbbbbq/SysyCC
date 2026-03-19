@@ -105,7 +105,7 @@ source file
   - `++ --`
   - `& | ^ ~`
   - `<< >>`
-  - `->`
+  - `. ->`
   - `= == != < <= > >=`
   - `! && ||`
 - punctuators
@@ -172,7 +172,6 @@ source file
 - comma operator expressions
 - ternary operator
   - `?:`
-- direct member access with `.`
 - pointer-to-member combinations beyond basic `->`
 - richer declarator/type lowering beyond the current pointer and array forms
 
@@ -219,8 +218,8 @@ source file
   - integer-zero null pointer constants assigned or passed to pointer targets
   - array-to-pointer decay for pointer-compatible call and assignment checks
   - pointer arithmetic for `pointer +/- integer` and `pointer - pointer`
-  - invalid `->` base types
-  - missing struct members accessed through `->`
+  - invalid `.` / `->` base types
+  - missing struct members accessed through `.` / `->`
   - non-void functions that may exit without returning a value
   - recursive integer constant-expression evaluation for character literals and unary/binary operator trees
 
@@ -229,7 +228,6 @@ source file
 - more complete implicit conversion and usual arithmetic conversion rules
 - floating-point constant folding
 - full pointer arithmetic rules
-- direct member access with `.`
 - full argument passing rules for arrays and pointer decay
 - full lvalue / modifiable-lvalue rules
 - function declaration compatibility and redeclaration checks
@@ -290,7 +288,7 @@ source file
   - integer primary expressions
   - float / char / string primary expressions
   - function calls
-  - postfix `[]`, `()`, `->`, `++`, `--`
+  - postfix `[]`, `()`, `.`, `->`, `++`, `--`
   - unary `+ - ! ~ & *`
   - prefix `++ --`
   - multiplicative `* / %`
@@ -309,7 +307,6 @@ source file
   - `?:`
 - declarations based on user-defined types
 - user-defined type names in later declarations after `typedef`
-- direct member access with `.`
 - pointer-to-member combinations beyond basic `->`
 - struct / union grammar beyond current `struct` support
 

@@ -896,7 +896,8 @@ Role:
   `VarDecl`, `ConstDecl`, `PointerTypeNode`, `BlockStmt`, `ReturnStmt`,
   `IntegerLiteralExpr`, `FloatLiteralExpr`, `CharLiteralExpr`,
   `StringLiteralExpr`, `IdentifierExpr`, `UnaryExpr`, `PrefixExpr`,
-  `PostfixExpr`, `BinaryExpr`, `CallExpr`, `IndexExpr`, `MemberExpr`,
+  `PostfixExpr`, `BinaryExpr`, `CallExpr`, `IndexExpr`, `MemberExpr`
+  (for both `.` and `->`),
   `InitListExpr`, and `Unknown*` placeholders
 
 ### `sysycc::SemanticModel`, `SemanticDiagnostic`, `SemanticSymbol`, `SemanticType`, and semantic helpers

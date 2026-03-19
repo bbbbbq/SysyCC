@@ -20,7 +20,7 @@ src/frontend/lexer/
 - open the preprocessed source file or original input file
 - invoke `yylex()`
 - collect token streams with exact token kinds such as `KwInt`, `IntLiteral`,
-  and `ShiftLeft`
+  `ShiftLeft`, and `Dot`
 - dump token results into `build/intermediate_results/*.tokens.txt`
 - keep lex-only runs free of parse-tree node allocation side effects
 - allow empty token streams and leave empty-input policy to later stages

@@ -45,6 +45,7 @@ Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.s
 - [tests/ast_float_return_type](/Users/caojunze424/code/SysyCC/tests/ast_float_return_type)
 - [tests/ast_function_call](/Users/caojunze424/code/SysyCC/tests/ast_function_call)
 - [tests/ast_member_access](/Users/caojunze424/code/SysyCC/tests/ast_member_access)
+- [tests/dot_member_access](/Users/caojunze424/code/SysyCC/tests/dot_member_access)
 - [tests/ast_nested_init_list](/Users/caojunze424/code/SysyCC/tests/ast_nested_init_list)
 - [tests/ast_pointer_types](/Users/caojunze424/code/SysyCC/tests/ast_pointer_types)
 - [tests/ast_stmt_extensions](/Users/caojunze424/code/SysyCC/tests/ast_stmt_extensions)
@@ -102,8 +103,8 @@ Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.s
 ## Responsibilities
 
 - provide minimal valid SysY22 source examples arranged per directory (`tests/<name>/`)
-- cover functions, control flow, arrays, literal formats, literal-aware comment stripping, preprocessing, nested conditional directives, object and function-like macros, stringification, token pasting, local includes, include search paths, expression-based `#if` branches, precise operator token kinds, broader C-style parser extensions, and AST lowering checks for nested init lists, source spans, pointer declarators, `->` member access, and completeness guarding
-- cover the first semantic-analysis rules for undefined identifiers, redefinitions, function-call arity, function-call argument types, non-function call targets, assignment types, lvalue checks, return-type checking, condition/index/unary operator constraints, and `->` operand/member validation
+- cover functions, control flow, arrays, literal formats, literal-aware comment stripping, preprocessing, nested conditional directives, object and function-like macros, stringification, token pasting, local includes, include search paths, expression-based `#if` branches, precise operator token kinds, broader C-style parser extensions, and AST lowering checks for nested init lists, source spans, pointer declarators, `.` / `->` member access, and completeness guarding
+- cover the first semantic-analysis rules for undefined identifiers, redefinitions, function-call arity, function-call argument types, non-function call targets, assignment types, lvalue checks, return-type checking, condition/index/unary operator constraints, and `.` / `->` operand/member validation
 - cover the next semantic-analysis rules for binary-operator operand constraints, `break` / `continue` / `case` / `default` control-flow context checks, compatible pointer equality, and integer constant-expression validation for case labels and array dimensions
 - cover duplicate `case` detection, duplicate `default` detection, and missing-return diagnostics for non-void functions
 - cover pointer arithmetic, array-to-pointer decay in calls, null-pointer constant assignment, and character-literal constant expressions

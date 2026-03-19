@@ -29,7 +29,7 @@ src/frontend/parser/
   extensions
 - parse float / char / string literals, pointer declarators, `for`,
   `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`,
-  and `->`
+  and both `.` / `->` member access
 
 ## Key Files
 

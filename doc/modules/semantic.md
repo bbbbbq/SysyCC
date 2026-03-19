@@ -109,8 +109,8 @@ The current implementation has a first batch of real semantic rules:
   - non-constant `case` labels
   - non-constant integer `const` initializers
   - non-constant enumerator values
-  - invalid `->` use on non-`pointer-to-struct` operands
-  - access to missing struct members through `->`
+  - invalid `.` / `->` use on unsupported base types
+  - access to missing struct members through `.` / `->`
   - non-void functions whose current body may exit without returning a value
 - semantic pass success now depends on whether any `Error` diagnostics were
   produced during AST traversal
@@ -141,7 +141,8 @@ The current implementation has a first batch of real semantic rules:
   implicit-conversion rules, floating-point constant folding, or broader
   control-flow diagnostics beyond the current duplicate-`case`/missing-return
   checks.
-- `ExprAnalyzer` is ready to analyze both `.` and `->` member expressions, but
-  the current parser/AST pipeline still only lowers `->` end-to-end.
+- `ExprAnalyzer` now receives both `.` and `->` member expressions from the
+  parser/AST pipeline and applies the same struct-member lookup rules to each
+  operator.
 - The recent refactor keeps `SemanticAnalyzer` thin so future semantic work can
   continue in specialized helpers instead of growing one class indefinitely.
