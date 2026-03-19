@@ -1,0 +1,5 @@
+#define 123ABC 7
+
+int main() {
+    return 0;
+}
