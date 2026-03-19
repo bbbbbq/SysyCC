@@ -1,0 +1,13 @@
+struct A {
+    int value;
+};
+
+struct B {
+    int value;
+};
+
+int main() {
+    struct A *lhs = 0;
+    struct B *rhs = 0;
+    return lhs == rhs;
+}

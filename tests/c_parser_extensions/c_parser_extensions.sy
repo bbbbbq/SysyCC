@@ -18,7 +18,8 @@ int main() {
     struct Node node;
     struct Node *p = &node;
     p->value = 0;
-    puts("ok");
+    putch('o');
+    putch('k');
 
     for (a = 0; a < 3; a++) {
         do {

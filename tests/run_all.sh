@@ -74,7 +74,7 @@ should_require_nonempty_artifacts() {
     local test_name="$1"
 
     case "${test_name}" in
-        macro_literal_expansion_bug|function_macro_argument_literal_bug|include_cycle_bug|invalid_macro_name_bug|invalid_token_diagnostic|lexer_global_state_bug|lexer_parse_node_mode_guard|empty_token_stream_behavior|preprocess_dispatch_sentinel_bug|ast_unknown_guard)
+        macro_literal_expansion_bug|function_macro_argument_literal_bug|include_cycle_bug|invalid_macro_name_bug|invalid_token_diagnostic|lexer_global_state_bug|lexer_parse_node_mode_guard|empty_token_stream_behavior|preprocess_dispatch_sentinel_bug|ast_unknown_guard|semantic_undefined_identifier|semantic_redefinition|semantic_call_arity|semantic_call_type|semantic_call_target|semantic_return_type|semantic_arrow_type|semantic_assign_type|semantic_assign_lvalue|semantic_member_field|semantic_condition_type|semantic_index_base|semantic_index_type|semantic_unary_address|semantic_unary_deref|semantic_prefix_operand|semantic_postfix_operand|semantic_binary_arithmetic|semantic_binary_bitwise|semantic_binary_logical|semantic_break_context|semantic_continue_context|semantic_case_context|semantic_default_context|semantic_case_constant|semantic_duplicate_case|semantic_multiple_default|semantic_missing_return|semantic_array_dimension_constant|semantic_equality_pointer|semantic_relational_pointer)
             return 1
             ;;
         *)

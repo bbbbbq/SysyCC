@@ -1,0 +1,9 @@
+struct Node {
+    int value;
+};
+
+int main() {
+    struct Node *lhs = 0;
+    struct Node *rhs = 0;
+    return lhs < rhs;
+}

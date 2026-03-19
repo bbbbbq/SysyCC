@@ -39,3 +39,28 @@ assert_basic_frontend_outputs() {
     grep -q '^parse_success: true$' "${parse_file}"
     grep -q '^parse_message: parse succeeded$' "${parse_file}"
 }
+
+assert_compiler_fails_with_message() {
+    local compiler_binary="$1"
+    local input_file="$2"
+    local expected_message="$3"
+
+    local output
+    local exit_code
+
+    set +e
+    output="$("${compiler_binary}" "${input_file}" 2>&1)"
+    exit_code=$?
+    set -e
+
+    if [[ "${exit_code}" -eq 0 ]]; then
+        echo "error: compiler unexpectedly succeeded for ${input_file}" >&2
+        return 1
+    fi
+
+    if [[ "${output}" != *"${expected_message}"* ]]; then
+        echo "error: expected semantic diagnostic not found" >&2
+        echo "${output}" >&2
+        return 1
+    fi
+}

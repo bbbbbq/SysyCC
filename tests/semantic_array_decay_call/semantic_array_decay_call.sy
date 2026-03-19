@@ -1,0 +1,9 @@
+void take_ptr(int *ptr) {
+    return;
+}
+
+int main() {
+    int values[4];
+    take_ptr(values);
+    return 0;
+}
