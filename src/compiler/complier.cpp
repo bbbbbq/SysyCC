@@ -7,6 +7,7 @@
 #include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser.hpp"
 #include "frontend/preprocess/preprocess.hpp"
+#include "frontend/semantic/semantic_pass.hpp"
 
 namespace sysycc {
 
@@ -27,6 +28,7 @@ void Complier::InitializePasses() {
     pass_manager_.AddPass(std::make_unique<LexerPass>());
     pass_manager_.AddPass(std::make_unique<ParserPass>());
     pass_manager_.AddPass(std::make_unique<AstPass>());
+    pass_manager_.AddPass(std::make_unique<SemanticPass>());
     pipeline_initialized_ = true;
 }
 

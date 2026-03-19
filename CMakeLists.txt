@@ -58,6 +58,21 @@ add_executable(${PROJECT_NAME}
     src/frontend/preprocess/detail/macro_table.cpp
     src/frontend/preprocess/detail/preprocess_runtime.cpp
     src/frontend/preprocess/detail/preprocess_session.cpp
+    src/frontend/semantic/model/semantic_diagnostic.cpp
+    src/frontend/semantic/model/semantic_model.cpp
+    src/frontend/semantic/semantic_pass.cpp
+    src/frontend/semantic/model/semantic_symbol.cpp
+    src/frontend/semantic/model/semantic_type.cpp
+    src/frontend/semantic/support/builtin_symbols.cpp
+    src/frontend/semantic/type_system/constant_evaluator.cpp
+    src/frontend/semantic/type_system/conversion_checker.cpp
+    src/frontend/semantic/analysis/decl_analyzer.cpp
+    src/frontend/semantic/analysis/expr_analyzer.cpp
+    src/frontend/semantic/support/scope_stack.cpp
+    src/frontend/semantic/analysis/semantic_analyzer.cpp
+    src/frontend/semantic/support/semantic_context.cpp
+    src/frontend/semantic/analysis/stmt_analyzer.cpp
+    src/frontend/semantic/type_system/type_resolver.cpp
     src/main.cpp
 )
 

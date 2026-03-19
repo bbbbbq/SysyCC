@@ -7,6 +7,7 @@
 #include "common/source_span.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/parser/parser_runtime.hpp"
+#include "frontend/semantic/model/semantic_model.hpp"
 
 namespace sysycc {
 
@@ -309,6 +310,7 @@ class CompilerContext {
     std::string ast_dump_file_path_;
     std::unique_ptr<ParseTreeNode> parse_tree_root_;
     std::unique_ptr<AstNode> ast_root_;
+    std::unique_ptr<SemanticModel> semantic_model_;
 
   public:
     CompilerContext() = default;
@@ -405,5 +407,17 @@ class CompilerContext {
         ast_root_.reset();
         ast_complete_ = false;
     }
+
+    const SemanticModel *get_semantic_model() const noexcept {
+        return semantic_model_.get();
+    }
+
+    SemanticModel *get_semantic_model() noexcept { return semantic_model_.get(); }
+
+    void set_semantic_model(std::unique_ptr<SemanticModel> semantic_model) {
+        semantic_model_ = std::move(semantic_model);
+    }
+
+    void clear_semantic_model() { semantic_model_.reset(); }
 };
 } // namespace sysycc
