@@ -206,7 +206,7 @@ PreprocessSession::handle_conditional_directive(const Directive &directive) {
     case DirectiveKind::Endif:
         return conditional_stack_.handle_endif();
     default:
-        return PassResult::Failure("not a conditional directive");
+        return PassResult::Failure("unexpected conditional directive kind");
     }
 }
 
@@ -214,7 +214,7 @@ PassResult PreprocessSession::handle_include_directive(
     const std::string &line, const Directive &directive,
     const std::string &current_file_path) {
     if (directive.get_kind() != DirectiveKind::Include) {
-        return PassResult::Failure("not an include directive");
+        return PassResult::Failure("unexpected include directive kind");
     }
 
     const std::vector<std::string> &arguments = directive.get_arguments();
@@ -269,7 +269,7 @@ PassResult PreprocessSession::handle_macro_directive(
         return PassResult::Success();
     }
 
-    return PassResult::Failure("not a macro directive");
+    return PassResult::Failure("unexpected macro directive kind");
 }
 
 PassResult
@@ -293,35 +293,31 @@ PreprocessSession::process_line(const std::string &line, int line_number,
         return parse_result;
     }
 
-    const PassResult conditional_result =
-        handle_conditional_directive(directive);
-    if (conditional_result.ok) {
-        return conditional_result;
-    }
-    if (conditional_result.message != "not a conditional directive") {
-        return conditional_result;
+    switch (directive.get_kind()) {
+    case DirectiveKind::Ifdef:
+    case DirectiveKind::Ifndef:
+    case DirectiveKind::If:
+    case DirectiveKind::Elif:
+    case DirectiveKind::Else:
+    case DirectiveKind::Endif:
+        return handle_conditional_directive(directive);
+    default:
+        break;
     }
 
     if (!conditional_stack_.is_in_active_region()) {
         return PassResult::Success();
     }
 
-    const PassResult include_result =
-        handle_include_directive(stripped_line, directive, current_file_path);
-    if (include_result.ok) {
-        return include_result;
-    }
-    if (include_result.message != "not an include directive") {
-        return include_result;
-    }
-
-    const PassResult macro_result =
-        handle_macro_directive(stripped_line, line_number, directive);
-    if (macro_result.ok) {
-        return macro_result;
-    }
-    if (macro_result.message != "not a macro directive") {
-        return macro_result;
+    switch (directive.get_kind()) {
+    case DirectiveKind::Include:
+        return handle_include_directive(stripped_line, directive,
+                                        current_file_path);
+    case DirectiveKind::Define:
+    case DirectiveKind::Undef:
+        return handle_macro_directive(stripped_line, line_number, directive);
+    default:
+        break;
     }
 
     return PassResult::Failure("unsupported preprocess directive: " +
