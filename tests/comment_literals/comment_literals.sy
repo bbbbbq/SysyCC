@@ -1,0 +1,6 @@
+int/**/main() {
+    "http://example.com//not-comment";
+    "/*still a string literal*/";
+    '/';
+    return 0;
+}

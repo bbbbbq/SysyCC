@@ -26,8 +26,13 @@ Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.s
 - [tests/macro_literal_expansion_bug](/Users/caojunze424/code/SysyCC/tests/macro_literal_expansion_bug) (targeted reproducer, not part of `run_all.sh`)
 - [tests/function_macro_argument_literal_bug](/Users/caojunze424/code/SysyCC/tests/function_macro_argument_literal_bug) (targeted reproducer, not part of `run_all.sh`)
 - [tests/include_cycle_bug](/Users/caojunze424/code/SysyCC/tests/include_cycle_bug) (targeted reproducer, not part of `run_all.sh`)
+- [tests/invalid_token_diagnostic](/Users/caojunze424/code/SysyCC/tests/invalid_token_diagnostic) (targeted lexer diagnostic check, not part of `run_all.sh`)
 - [tests/invalid_macro_name_bug](/Users/caojunze424/code/SysyCC/tests/invalid_macro_name_bug) (targeted reproducer, not part of `run_all.sh`)
+- [tests/lexer_global_state_bug](/Users/caojunze424/code/SysyCC/tests/lexer_global_state_bug) (static structure check, not part of `run_all.sh`)
+- [tests/lexer_parse_node_mode_guard](/Users/caojunze424/code/SysyCC/tests/lexer_parse_node_mode_guard) (static lexer/parser separation check, not part of `run_all.sh`)
 - [tests/minimal](/Users/caojunze424/code/SysyCC/tests/minimal)
+- [tests/empty_token_stream_behavior](/Users/caojunze424/code/SysyCC/tests/empty_token_stream_behavior) (targeted lexer empty-stream check, not part of `run_all.sh`)
+- [tests/precise_token_kinds](/Users/caojunze424/code/SysyCC/tests/precise_token_kinds)
 - [tests/preprocess_dispatch_sentinel_bug](/Users/caojunze424/code/SysyCC/tests/preprocess_dispatch_sentinel_bug) (static structure check, not part of `run_all.sh`)
 - [tests/ifdef](/Users/caojunze424/code/SysyCC/tests/ifdef)
 - [tests/ifndef](/Users/caojunze424/code/SysyCC/tests/ifndef)
@@ -45,7 +50,7 @@ Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.s
 - cover functions, control flow, arrays, literal formats, literal-aware comment stripping, preprocessing, object and function-like macros, stringification, token pasting, local includes, include search paths, conditional directives, expression-based `#if` branches, and broader C-style parser extensions
 - support one-click local runs via each folder’s `run.sh`
 - serve as smoke tests during development and validate intermediate outputs
-- keep focused bug reproducers available for manual validation without forcing the main regression suite to fail
+- keep focused bug reproducers and structure checks runnable through the same top-level regression entry
 
 ## Current Test Flow
 
@@ -57,10 +62,10 @@ Each test directory provides a `run.sh` script that will:
 
 `run_all.sh` will execute every test directory under `tests/` that contains an executable `run.sh`.
 
-The dedicated bug reproducers [tests/macro_literal_expansion_bug](/Users/caojunze424/code/SysyCC/tests/macro_literal_expansion_bug), [tests/function_macro_argument_literal_bug](/Users/caojunze424/code/SysyCC/tests/function_macro_argument_literal_bug), [tests/include_cycle_bug](/Users/caojunze424/code/SysyCC/tests/include_cycle_bug), [tests/invalid_macro_name_bug](/Users/caojunze424/code/SysyCC/tests/invalid_macro_name_bug), and [tests/preprocess_dispatch_sentinel_bug](/Users/caojunze424/code/SysyCC/tests/preprocess_dispatch_sentinel_bug) are intentionally excluded from `run_all.sh` until the underlying preprocess issues are fixed.
-
-It also validates that each test produced:
+For ordinary success-path tests, `run_all.sh` also validates that each test produced:
 
 - `build/intermediate_results/<test_name>.preprocessed.sy`
 - `build/intermediate_results/<test_name>.tokens.txt`
 - `build/intermediate_results/<test_name>.parse.txt`
+
+For targeted failure-diagnostic, empty-stream, or static-structure checks such as [tests/invalid_token_diagnostic](/Users/caojunze424/code/SysyCC/tests/invalid_token_diagnostic), [tests/empty_token_stream_behavior](/Users/caojunze424/code/SysyCC/tests/empty_token_stream_behavior), [tests/lexer_global_state_bug](/Users/caojunze424/code/SysyCC/tests/lexer_global_state_bug), and [tests/preprocess_dispatch_sentinel_bug](/Users/caojunze424/code/SysyCC/tests/preprocess_dispatch_sentinel_bug), `run_all.sh` treats the assertions inside each test's own `run.sh` as the source of truth and does not require non-empty intermediate result files.

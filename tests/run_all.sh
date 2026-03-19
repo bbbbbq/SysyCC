@@ -20,6 +20,19 @@ assert_result_file() {
     fi
 }
 
+should_require_nonempty_artifacts() {
+    local test_name="$1"
+
+    case "${test_name}" in
+        macro_literal_expansion_bug|function_macro_argument_literal_bug|include_cycle_bug|invalid_macro_name_bug|invalid_token_diagnostic|lexer_global_state_bug|lexer_parse_node_mode_guard|empty_token_stream_behavior|preprocess_dispatch_sentinel_bug)
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+}
+
 for test_dir in "${SCRIPT_DIR}"/*/; do
     if [[ ! -d "${test_dir}" ]]; then
         continue
@@ -35,11 +48,15 @@ for test_dir in "${SCRIPT_DIR}"/*/; do
     echo "==> Running ${test_name}"
     "${run_script}"
 
-    assert_result_file "${RESULT_DIR}/${test_name}.preprocessed.sy"
-    assert_result_file "${RESULT_DIR}/${test_name}.tokens.txt"
-    assert_result_file "${RESULT_DIR}/${test_name}.parse.txt"
+    if should_require_nonempty_artifacts "${test_name}"; then
+        assert_result_file "${RESULT_DIR}/${test_name}.preprocessed.sy"
+        assert_result_file "${RESULT_DIR}/${test_name}.tokens.txt"
+        assert_result_file "${RESULT_DIR}/${test_name}.parse.txt"
 
-    echo "    verified ${test_name}.preprocessed.sy"
-    echo "    verified ${test_name}.tokens.txt"
-    echo "    verified ${test_name}.parse.txt"
+        echo "    verified ${test_name}.preprocessed.sy"
+        echo "    verified ${test_name}.tokens.txt"
+        echo "    verified ${test_name}.parse.txt"
+    else
+        echo "    verified ${test_name} via dedicated run.sh assertions"
+    fi
 done

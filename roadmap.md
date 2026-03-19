@@ -30,6 +30,7 @@ source file
 - comment stripping
   - `// ...`
   - `/* ... */`
+  - preserves string and character literal contents while removing comments
 - local include
   - `#include "file.h"`
   - search current file directory first
@@ -111,6 +112,7 @@ source file
   - malformed integer forms
   - unknown characters
 - token source span tracking
+- exact token kind storage for downstream passes and token dumps
 
 ### Not Implemented
 
