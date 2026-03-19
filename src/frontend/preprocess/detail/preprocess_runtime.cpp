@@ -34,6 +34,7 @@ const std::string &PreprocessRuntime::get_current_file() const noexcept {
 }
 
 bool PreprocessRuntime::has_file_in_stack(const std::string &file_path) const noexcept {
+    // The active file stack doubles as a lightweight include-cycle detector.
     for (const std::string &current_file_path : file_stack_) {
         if (current_file_path == file_path) {
             return true;

@@ -293,6 +293,8 @@ PreprocessSession::process_line(const std::string &line, int line_number,
         return parse_result;
     }
 
+    // Route directives by kind directly instead of relying on sentinel error
+    // strings from helper functions.
     switch (directive.get_kind()) {
     case DirectiveKind::Ifdef:
     case DirectiveKind::Ifndef:
@@ -349,6 +351,7 @@ PassResult PreprocessSession::write_preprocessed_file(
 }
 
 PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
+    // Reject recursive re-entry before descending into the next include.
     if (runtime_.has_file_in_stack(file_path)) {
         return PassResult::Failure("include cycle detected: " + file_path);
     }

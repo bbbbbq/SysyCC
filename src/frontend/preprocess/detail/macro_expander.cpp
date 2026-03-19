@@ -205,6 +205,8 @@ std::string MacroExpander::expand_text(
     while (index < line.size()) {
         const char current = line[index];
 
+        // Keep literals opaque to the preprocessor so identifier-like text
+        // inside them is not treated as a macro name.
         if (in_string_literal) {
             output.push_back(current);
             if (escaping) {
@@ -341,6 +343,8 @@ bool MacroExpander::parse_macro_arguments(const std::string &line,
     std::size_t index = open_paren_index + 1;
     while (index < line.size()) {
         const char ch = line[index];
+        // Argument splitting must ignore delimiters that appear inside string
+        // and character literals.
         if (in_string_literal) {
             current_argument.push_back(ch);
             if (escaping) {

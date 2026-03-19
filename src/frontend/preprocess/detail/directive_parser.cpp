@@ -86,6 +86,8 @@ PassResult DirectiveParser::parse(const std::string &line,
         std::getline(iss, remainder);
         remainder = trim_left(remainder);
 
+        // Reject names that cannot ever participate in identifier-based macro
+        // lookup before we continue parsing the rest of the directive.
         if (!remainder.empty() && !is_identifier_start(remainder[0])) {
             return PassResult::Failure(
                 "invalid #define directive: invalid macro name");
