@@ -13,6 +13,7 @@ Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.s
 
 - [tests/array_init](/Users/caojunze424/code/SysyCC/tests/array_init) (run.sh + array_init.sy)
 - [tests/comment_preprocess](/Users/caojunze424/code/SysyCC/tests/comment_preprocess)
+- [tests/comment_literals](/Users/caojunze424/code/SysyCC/tests/comment_literals)
 - [tests/c_parser_extensions](/Users/caojunze424/code/SysyCC/tests/c_parser_extensions)
 - [tests/control_flow](/Users/caojunze424/code/SysyCC/tests/control_flow)
 - [tests/elif](/Users/caojunze424/code/SysyCC/tests/elif)
@@ -22,7 +23,12 @@ Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.s
 - [tests/include_path](/Users/caojunze424/code/SysyCC/tests/include_path)
 - [tests/conditional_expr](/Users/caojunze424/code/SysyCC/tests/conditional_expr)
 - [tests/literal_formats](/Users/caojunze424/code/SysyCC/tests/literal_formats)
+- [tests/macro_literal_expansion_bug](/Users/caojunze424/code/SysyCC/tests/macro_literal_expansion_bug) (targeted reproducer, not part of `run_all.sh`)
+- [tests/function_macro_argument_literal_bug](/Users/caojunze424/code/SysyCC/tests/function_macro_argument_literal_bug) (targeted reproducer, not part of `run_all.sh`)
+- [tests/include_cycle_bug](/Users/caojunze424/code/SysyCC/tests/include_cycle_bug) (targeted reproducer, not part of `run_all.sh`)
+- [tests/invalid_macro_name_bug](/Users/caojunze424/code/SysyCC/tests/invalid_macro_name_bug) (targeted reproducer, not part of `run_all.sh`)
 - [tests/minimal](/Users/caojunze424/code/SysyCC/tests/minimal)
+- [tests/preprocess_dispatch_sentinel_bug](/Users/caojunze424/code/SysyCC/tests/preprocess_dispatch_sentinel_bug) (static structure check, not part of `run_all.sh`)
 - [tests/ifdef](/Users/caojunze424/code/SysyCC/tests/ifdef)
 - [tests/ifndef](/Users/caojunze424/code/SysyCC/tests/ifndef)
 - [tests/if0](/Users/caojunze424/code/SysyCC/tests/if0)
@@ -36,9 +42,10 @@ Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.s
 ## Responsibilities
 
 - provide minimal valid SysY22 source examples arranged per directory (`tests/<name>/`)
-- cover functions, control flow, arrays, literal formats, comment stripping, preprocessing, object and function-like macros, stringification, token pasting, local includes, include search paths, conditional directives, expression-based `#if` branches, and broader C-style parser extensions
+- cover functions, control flow, arrays, literal formats, literal-aware comment stripping, preprocessing, object and function-like macros, stringification, token pasting, local includes, include search paths, conditional directives, expression-based `#if` branches, and broader C-style parser extensions
 - support one-click local runs via each folder’s `run.sh`
 - serve as smoke tests during development and validate intermediate outputs
+- keep focused bug reproducers available for manual validation without forcing the main regression suite to fail
 
 ## Current Test Flow
 
@@ -49,6 +56,8 @@ Each test directory provides a `run.sh` script that will:
 - run `SysyCC` on its matching `*.sy` file
 
 `run_all.sh` will execute every test directory under `tests/` that contains an executable `run.sh`.
+
+The dedicated bug reproducers [tests/macro_literal_expansion_bug](/Users/caojunze424/code/SysyCC/tests/macro_literal_expansion_bug), [tests/function_macro_argument_literal_bug](/Users/caojunze424/code/SysyCC/tests/function_macro_argument_literal_bug), [tests/include_cycle_bug](/Users/caojunze424/code/SysyCC/tests/include_cycle_bug), [tests/invalid_macro_name_bug](/Users/caojunze424/code/SysyCC/tests/invalid_macro_name_bug), and [tests/preprocess_dispatch_sentinel_bug](/Users/caojunze424/code/SysyCC/tests/preprocess_dispatch_sentinel_bug) are intentionally excluded from `run_all.sh` until the underlying preprocess issues are fixed.
 
 It also validates that each test produced:
 

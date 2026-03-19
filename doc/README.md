@@ -54,14 +54,14 @@ main
 - [frontend.md](/Users/caojunze424/code/SysyCC/doc/modules/frontend.md): lexer, parser, grammar templates, and parse runtime
 - [manual.md](/Users/caojunze424/code/SysyCC/doc/modules/manual.md): external manuals and language references
 - [scripts.md](/Users/caojunze424/code/SysyCC/doc/modules/scripts.md): developer helper scripts
-- [tests.md](/Users/caojunze424/code/SysyCC/doc/modules/tests.md): test directories, helper scripts, and per-case assets, now covering include-path, expression, function-like macro, and parser-extension tests
+- [tests.md](/Users/caojunze424/code/SysyCC/doc/modules/tests.md): test directories, helper scripts, per-case assets, and targeted bug reproducers, now covering include-path, expression, function-like macro, comment-literal, parser-extension, and preprocess-regression tests
 - [legacy-pass.md](/Users/caojunze424/code/SysyCC/doc/modules/legacy-pass.md): legacy compatibility files under `src/pass/`
 
 ## Current Status
 
 - Preprocessed source dumps are written to `build/intermediate_results/*.preprocessed.sy`.
 - The project can tokenize and parse a subset of SysY22.
-- The preprocess stage strips `//` and `/* ... */` comments, supports object macros, `#include "..."` with current-directory and `-I` search paths, plus `#ifdef/#ifndef/#elif/#else/#endif`.
+- The preprocess stage strips `//` and `/* ... */` comments with string/character literal awareness, supports object macros, `#include "..."` with current-directory and `-I` search paths, plus `#ifdef/#ifndef/#elif/#else/#endif`.
 - The preprocess stage also supports fixed-arity function-like macros such as `#define ADD(a, b) ((a) + (b))`, including `#` stringification and `##` token pasting.
 - The preprocess stage evaluates simple `#if/#elif` constant expressions including identifiers, `defined(...)`, `&&`, and arithmetic such as `1 + 2`.
 - The CLI can collect `-I` include directories into compiler options and the preprocess stage now consumes them for include-path resolution.

@@ -1,0 +1,8 @@
+#define URL 123
+#define X 456
+
+int main() {
+    "URL";
+    'X';
+    return 0;
+}
