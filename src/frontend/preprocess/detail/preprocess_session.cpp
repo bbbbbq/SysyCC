@@ -1,5 +1,6 @@
 #include "frontend/preprocess/detail/preprocess_session.hpp"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -7,6 +8,26 @@
 #include <vector>
 
 namespace sysycc::preprocess::detail {
+
+namespace {
+
+bool ends_with_whitespace(const std::string &text) {
+    if (text.empty()) {
+        return false;
+    }
+
+    return std::isspace(static_cast<unsigned char>(text.back())) != 0;
+}
+
+void append_comment_placeholder(std::string &text) {
+    if (text.empty() || ends_with_whitespace(text)) {
+        return;
+    }
+
+    text.push_back(' ');
+}
+
+} // namespace
 
 PreprocessSession::PreprocessSession(CompilerContext &context)
     : context_(context) {}
@@ -57,6 +78,9 @@ PreprocessSession::strip_comments_from_line(const std::string &line,
                                             std::string &stripped_line) {
     stripped_line.clear();
 
+    bool in_string_literal = false;
+    bool in_char_literal = false;
+    bool escaping = false;
     std::size_t index = 0;
     while (index < line.size()) {
         if (runtime_.get_in_block_comment()) {
@@ -70,6 +94,47 @@ PreprocessSession::strip_comments_from_line(const std::string &line,
             continue;
         }
 
+        const char current = line[index];
+        if (in_string_literal) {
+            stripped_line.push_back(current);
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '"') {
+                in_string_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (in_char_literal) {
+            stripped_line.push_back(current);
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '\'') {
+                in_char_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (current == '"') {
+            in_string_literal = true;
+            stripped_line.push_back(current);
+            ++index;
+            continue;
+        }
+
+        if (current == '\'') {
+            in_char_literal = true;
+            stripped_line.push_back(current);
+            ++index;
+            continue;
+        }
+
         if (index + 1 < line.size() && line[index] == '/' &&
             line[index + 1] == '/') {
             break;
@@ -77,12 +142,13 @@ PreprocessSession::strip_comments_from_line(const std::string &line,
 
         if (index + 1 < line.size() && line[index] == '/' &&
             line[index + 1] == '*') {
+            append_comment_placeholder(stripped_line);
             runtime_.set_in_block_comment(true);
             index += 2;
             continue;
         }
 
-        stripped_line.push_back(line[index]);
+        stripped_line.push_back(current);
         ++index;
     }
 
@@ -287,6 +353,10 @@ PassResult PreprocessSession::write_preprocessed_file(
 }
 
 PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
+    if (runtime_.has_file_in_stack(file_path)) {
+        return PassResult::Failure("include cycle detected: " + file_path);
+    }
+
     std::vector<std::string> lines;
     const PassResult load_result = file_loader_.read_lines(file_path, lines);
     if (!load_result.ok) {

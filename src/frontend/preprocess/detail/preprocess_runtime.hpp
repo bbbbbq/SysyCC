@@ -26,6 +26,7 @@ class PreprocessRuntime {
     void push_file(std::string file_path);
     void pop_file();
     const std::string &get_current_file() const noexcept;
+    bool has_file_in_stack(const std::string &file_path) const noexcept;
     bool get_in_block_comment() const noexcept { return in_block_comment_; }
     void set_in_block_comment(bool in_block_comment) noexcept {
         in_block_comment_ = in_block_comment;

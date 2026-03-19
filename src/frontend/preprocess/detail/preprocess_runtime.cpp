@@ -33,6 +33,16 @@ const std::string &PreprocessRuntime::get_current_file() const noexcept {
     return file_stack_.back();
 }
 
+bool PreprocessRuntime::has_file_in_stack(const std::string &file_path) const noexcept {
+    for (const std::string &current_file_path : file_stack_) {
+        if (current_file_path == file_path) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 std::string PreprocessRuntime::build_output_text() const {
     std::ostringstream oss;
     for (std::size_t index = 0; index < output_lines_.size(); ++index) {
