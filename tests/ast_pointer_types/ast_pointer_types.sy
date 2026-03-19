@@ -1,0 +1,12 @@
+typedef int *IntPtr;
+
+struct Node {
+    int value;
+    struct Node *next;
+};
+
+int main(int *input) {
+    int value = 0;
+    int *ptr = &value;
+    return *ptr + *input;
+}

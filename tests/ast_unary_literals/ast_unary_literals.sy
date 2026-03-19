@@ -1,0 +1,15 @@
+int main() {
+    int x = 1;
+    int *p;
+    -x;
+    !x;
+    ~x;
+    --x;
+    x--;
+    &x;
+    *p;
+    2.5;
+    'z';
+    "hello";
+    return x;
+}

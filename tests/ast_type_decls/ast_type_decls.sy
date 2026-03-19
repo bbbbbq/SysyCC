@@ -1,0 +1,15 @@
+struct Pair {
+    int x;
+    int y;
+};
+
+enum Flag {
+    ZERO,
+    ONE
+};
+
+typedef int Size;
+
+int main() {
+    return 0;
+}
