@@ -53,6 +53,41 @@ Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.s
 - [tests/ast_unknown_guard](/Users/caojunze424/code/SysyCC/tests/ast_unknown_guard) (targeted AST completeness check)
 - [tests/ast_unknown_expr](/Users/caojunze424/code/SysyCC/tests/ast_unknown_expr)
 - [tests/ast_void_return](/Users/caojunze424/code/SysyCC/tests/ast_void_return)
+- [tests/semantic_undefined_identifier](/Users/caojunze424/code/SysyCC/tests/semantic_undefined_identifier) (targeted semantic diagnostic check)
+- [tests/semantic_redefinition](/Users/caojunze424/code/SysyCC/tests/semantic_redefinition) (targeted semantic diagnostic check)
+- [tests/semantic_call_arity](/Users/caojunze424/code/SysyCC/tests/semantic_call_arity) (targeted semantic diagnostic check)
+- [tests/semantic_call_type](/Users/caojunze424/code/SysyCC/tests/semantic_call_type) (targeted semantic diagnostic check)
+- [tests/semantic_call_target](/Users/caojunze424/code/SysyCC/tests/semantic_call_target) (targeted semantic diagnostic check)
+- [tests/semantic_return_type](/Users/caojunze424/code/SysyCC/tests/semantic_return_type) (targeted semantic diagnostic check)
+- [tests/semantic_arrow_type](/Users/caojunze424/code/SysyCC/tests/semantic_arrow_type) (targeted semantic diagnostic check)
+- [tests/semantic_assign_type](/Users/caojunze424/code/SysyCC/tests/semantic_assign_type) (targeted semantic diagnostic check)
+- [tests/semantic_assign_lvalue](/Users/caojunze424/code/SysyCC/tests/semantic_assign_lvalue) (targeted semantic diagnostic check)
+- [tests/semantic_member_field](/Users/caojunze424/code/SysyCC/tests/semantic_member_field) (targeted semantic diagnostic check)
+- [tests/semantic_condition_type](/Users/caojunze424/code/SysyCC/tests/semantic_condition_type) (targeted semantic diagnostic check)
+- [tests/semantic_index_base](/Users/caojunze424/code/SysyCC/tests/semantic_index_base) (targeted semantic diagnostic check)
+- [tests/semantic_index_type](/Users/caojunze424/code/SysyCC/tests/semantic_index_type) (targeted semantic diagnostic check)
+- [tests/semantic_unary_address](/Users/caojunze424/code/SysyCC/tests/semantic_unary_address) (targeted semantic diagnostic check)
+- [tests/semantic_unary_deref](/Users/caojunze424/code/SysyCC/tests/semantic_unary_deref) (targeted semantic diagnostic check)
+- [tests/semantic_prefix_operand](/Users/caojunze424/code/SysyCC/tests/semantic_prefix_operand) (targeted semantic diagnostic check)
+- [tests/semantic_postfix_operand](/Users/caojunze424/code/SysyCC/tests/semantic_postfix_operand) (targeted semantic diagnostic check)
+- [tests/semantic_binary_arithmetic](/Users/caojunze424/code/SysyCC/tests/semantic_binary_arithmetic) (targeted semantic diagnostic check)
+- [tests/semantic_binary_bitwise](/Users/caojunze424/code/SysyCC/tests/semantic_binary_bitwise) (targeted semantic diagnostic check)
+- [tests/semantic_binary_logical](/Users/caojunze424/code/SysyCC/tests/semantic_binary_logical) (targeted semantic diagnostic check)
+- [tests/semantic_break_context](/Users/caojunze424/code/SysyCC/tests/semantic_break_context) (targeted semantic diagnostic check)
+- [tests/semantic_continue_context](/Users/caojunze424/code/SysyCC/tests/semantic_continue_context) (targeted semantic diagnostic check)
+- [tests/semantic_case_context](/Users/caojunze424/code/SysyCC/tests/semantic_case_context) (targeted semantic diagnostic check)
+- [tests/semantic_default_context](/Users/caojunze424/code/SysyCC/tests/semantic_default_context) (targeted semantic diagnostic check)
+- [tests/semantic_case_constant](/Users/caojunze424/code/SysyCC/tests/semantic_case_constant) (targeted semantic diagnostic check)
+- [tests/semantic_duplicate_case](/Users/caojunze424/code/SysyCC/tests/semantic_duplicate_case) (targeted semantic diagnostic check)
+- [tests/semantic_multiple_default](/Users/caojunze424/code/SysyCC/tests/semantic_multiple_default) (targeted semantic diagnostic check)
+- [tests/semantic_missing_return](/Users/caojunze424/code/SysyCC/tests/semantic_missing_return) (targeted semantic diagnostic check)
+- [tests/semantic_pointer_arithmetic](/Users/caojunze424/code/SysyCC/tests/semantic_pointer_arithmetic)
+- [tests/semantic_array_decay_call](/Users/caojunze424/code/SysyCC/tests/semantic_array_decay_call)
+- [tests/semantic_null_pointer_assignment](/Users/caojunze424/code/SysyCC/tests/semantic_null_pointer_assignment)
+- [tests/semantic_char_constant_expr](/Users/caojunze424/code/SysyCC/tests/semantic_char_constant_expr)
+- [tests/semantic_array_dimension_constant](/Users/caojunze424/code/SysyCC/tests/semantic_array_dimension_constant) (targeted semantic diagnostic check)
+- [tests/semantic_equality_pointer](/Users/caojunze424/code/SysyCC/tests/semantic_equality_pointer) (targeted semantic diagnostic check)
+- [tests/semantic_relational_pointer](/Users/caojunze424/code/SysyCC/tests/semantic_relational_pointer) (targeted semantic diagnostic check)
 - [tests/preprocess_dispatch_sentinel_bug](/Users/caojunze424/code/SysyCC/tests/preprocess_dispatch_sentinel_bug) (static structure check)
 - [tests/ifdef](/Users/caojunze424/code/SysyCC/tests/ifdef)
 - [tests/ifndef](/Users/caojunze424/code/SysyCC/tests/ifndef)
@@ -68,6 +103,10 @@ Each test now lives in its own subdirectory (`tests/<name>/`) containing the `.s
 
 - provide minimal valid SysY22 source examples arranged per directory (`tests/<name>/`)
 - cover functions, control flow, arrays, literal formats, literal-aware comment stripping, preprocessing, nested conditional directives, object and function-like macros, stringification, token pasting, local includes, include search paths, expression-based `#if` branches, precise operator token kinds, broader C-style parser extensions, and AST lowering checks for nested init lists, source spans, pointer declarators, `->` member access, and completeness guarding
+- cover the first semantic-analysis rules for undefined identifiers, redefinitions, function-call arity, function-call argument types, non-function call targets, assignment types, lvalue checks, return-type checking, condition/index/unary operator constraints, and `->` operand/member validation
+- cover the next semantic-analysis rules for binary-operator operand constraints, `break` / `continue` / `case` / `default` control-flow context checks, compatible pointer equality, and integer constant-expression validation for case labels and array dimensions
+- cover duplicate `case` detection, duplicate `default` detection, and missing-return diagnostics for non-void functions
+- cover pointer arithmetic, array-to-pointer decay in calls, null-pointer constant assignment, and character-literal constant expressions
 - support one-click local runs via each folder’s `run.sh`
 - serve as smoke tests during development and validate intermediate outputs
 - keep focused bug reproducers and structure checks runnable through the same top-level regression entry
@@ -93,7 +132,7 @@ For ordinary success-path tests, `run_all.sh` also validates that each test prod
 - `build/intermediate_results/<test_name>.tokens.txt`
 - `build/intermediate_results/<test_name>.parse.txt`
 
-For targeted failure-diagnostic, empty-stream, AST-completeness, or static-structure checks such as [tests/invalid_token_diagnostic](/Users/caojunze424/code/SysyCC/tests/invalid_token_diagnostic), [tests/empty_token_stream_behavior](/Users/caojunze424/code/SysyCC/tests/empty_token_stream_behavior), [tests/ast_unknown_guard](/Users/caojunze424/code/SysyCC/tests/ast_unknown_guard), [tests/lexer_global_state_bug](/Users/caojunze424/code/SysyCC/tests/lexer_global_state_bug), and [tests/preprocess_dispatch_sentinel_bug](/Users/caojunze424/code/SysyCC/tests/preprocess_dispatch_sentinel_bug), `run_all.sh` still executes the test but treats the assertions inside each test's own `run.sh` as the source of truth and does not require non-empty intermediate result files.
+For targeted failure-diagnostic, semantic-diagnostic, empty-stream, AST-completeness, or static-structure checks such as [tests/invalid_token_diagnostic](/Users/caojunze424/code/SysyCC/tests/invalid_token_diagnostic), [tests/semantic_undefined_identifier](/Users/caojunze424/code/SysyCC/tests/semantic_undefined_identifier), [tests/semantic_redefinition](/Users/caojunze424/code/SysyCC/tests/semantic_redefinition), [tests/semantic_call_arity](/Users/caojunze424/code/SysyCC/tests/semantic_call_arity), [tests/semantic_call_type](/Users/caojunze424/code/SysyCC/tests/semantic_call_type), [tests/semantic_call_target](/Users/caojunze424/code/SysyCC/tests/semantic_call_target), [tests/semantic_return_type](/Users/caojunze424/code/SysyCC/tests/semantic_return_type), [tests/semantic_arrow_type](/Users/caojunze424/code/SysyCC/tests/semantic_arrow_type), [tests/semantic_assign_type](/Users/caojunze424/code/SysyCC/tests/semantic_assign_type), [tests/semantic_assign_lvalue](/Users/caojunze424/code/SysyCC/tests/semantic_assign_lvalue), [tests/semantic_member_field](/Users/caojunze424/code/SysyCC/tests/semantic_member_field), [tests/semantic_condition_type](/Users/caojunze424/code/SysyCC/tests/semantic_condition_type), [tests/semantic_index_base](/Users/caojunze424/code/SysyCC/tests/semantic_index_base), [tests/semantic_index_type](/Users/caojunze424/code/SysyCC/tests/semantic_index_type), [tests/semantic_unary_address](/Users/caojunze424/code/SysyCC/tests/semantic_unary_address), [tests/semantic_unary_deref](/Users/caojunze424/code/SysyCC/tests/semantic_unary_deref), [tests/semantic_prefix_operand](/Users/caojunze424/code/SysyCC/tests/semantic_prefix_operand), [tests/semantic_postfix_operand](/Users/caojunze424/code/SysyCC/tests/semantic_postfix_operand), [tests/semantic_binary_arithmetic](/Users/caojunze424/code/SysyCC/tests/semantic_binary_arithmetic), [tests/semantic_binary_bitwise](/Users/caojunze424/code/SysyCC/tests/semantic_binary_bitwise), [tests/semantic_binary_logical](/Users/caojunze424/code/SysyCC/tests/semantic_binary_logical), [tests/semantic_break_context](/Users/caojunze424/code/SysyCC/tests/semantic_break_context), [tests/semantic_continue_context](/Users/caojunze424/code/SysyCC/tests/semantic_continue_context), [tests/semantic_case_context](/Users/caojunze424/code/SysyCC/tests/semantic_case_context), [tests/semantic_default_context](/Users/caojunze424/code/SysyCC/tests/semantic_default_context), [tests/semantic_case_constant](/Users/caojunze424/code/SysyCC/tests/semantic_case_constant), [tests/semantic_duplicate_case](/Users/caojunze424/code/SysyCC/tests/semantic_duplicate_case), [tests/semantic_multiple_default](/Users/caojunze424/code/SysyCC/tests/semantic_multiple_default), [tests/semantic_missing_return](/Users/caojunze424/code/SysyCC/tests/semantic_missing_return), [tests/semantic_array_dimension_constant](/Users/caojunze424/code/SysyCC/tests/semantic_array_dimension_constant), [tests/semantic_equality_pointer](/Users/caojunze424/code/SysyCC/tests/semantic_equality_pointer), [tests/semantic_relational_pointer](/Users/caojunze424/code/SysyCC/tests/semantic_relational_pointer), [tests/empty_token_stream_behavior](/Users/caojunze424/code/SysyCC/tests/empty_token_stream_behavior), [tests/ast_unknown_guard](/Users/caojunze424/code/SysyCC/tests/ast_unknown_guard), [tests/lexer_global_state_bug](/Users/caojunze424/code/SysyCC/tests/lexer_global_state_bug), and [tests/preprocess_dispatch_sentinel_bug](/Users/caojunze424/code/SysyCC/tests/preprocess_dispatch_sentinel_bug), `run_all.sh` still executes the test but treats the assertions inside each test's own `run.sh` as the source of truth and does not require non-empty intermediate result files.
 
 The generated summary table records, for every executed test:
 

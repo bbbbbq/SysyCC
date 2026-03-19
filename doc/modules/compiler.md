@@ -41,6 +41,7 @@ The shared data container for passes. It stores:
 - token list
 - parse tree root
 - ast root
+- semantic model
 - dump output paths
 
 ### `PassManager`
@@ -56,7 +57,7 @@ The scheduler and owner of pass objects. It is responsible for:
 At the current stage, the initialized pipeline is:
 
 ```text
-PreprocessPass -> LexerPass -> ParserPass -> AstPass
+PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass
 ```
 
 ## Notes

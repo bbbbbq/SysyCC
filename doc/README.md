@@ -15,6 +15,7 @@ doc/
     ├── manual.md
     ├── parser.md
     ├── preprocess.md
+    ├── semantic.md
     ├── scripts.md
     ├── tests.md
     └── legacy-pass.md
@@ -35,6 +36,7 @@ pipeline. The current implementation focuses on these stages:
 - lexical analysis
 - syntax analysis
 - AST lowering
+- semantic analysis
 - intermediate result dumping
 
 The executable entry is [main.cpp](/Users/caojunze424/code/SysyCC/src/main.cpp).
@@ -49,6 +51,7 @@ main
       -> LexerPass
       -> ParserPass
       -> AstPass
+      -> SemanticPass
 ```
 
 ## Module Map
@@ -63,6 +66,7 @@ main
 - [manual.md](/Users/caojunze424/code/SysyCC/doc/modules/manual.md): external manuals and language references
 - [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md): syntax analysis pass, bison grammar, and parse runtime
 - [preprocess.md](/Users/caojunze424/code/SysyCC/doc/modules/preprocess.md): preprocessing pass, internal helper components, and intermediate source generation
+- [semantic.md](/Users/caojunze424/code/SysyCC/doc/modules/semantic.md): semantic pass, semantic model, scope management, builtin symbol installation, and first semantic rules
 - [scripts.md](/Users/caojunze424/code/SysyCC/doc/modules/scripts.md): developer helper scripts
 - [tests.md](/Users/caojunze424/code/SysyCC/doc/modules/tests.md): test directories, helper scripts, per-case assets, and targeted bug reproducers, all runnable through the top-level regression entry, now covering include-path, nested preprocess conditionals, expression and AST lowering, pointer/member-access AST checks, AST completeness guarding, function-like macro, comment-literal, parser-extension, lexer-diagnostic, exact-token-kind, operator-mix, and lexer-structure tests
 - [legacy-pass.md](/Users/caojunze424/code/SysyCC/doc/modules/legacy-pass.md): legacy compatibility files under `src/pass/`
@@ -78,9 +82,11 @@ main
 - Token dumps are written to `build/intermediate_results/*.tokens.txt`.
 - Parse tree dumps are written to `build/intermediate_results/*.parse.txt`.
 - AST dumps are written to `build/intermediate_results/*.ast.txt`.
+- semantic results are stored in memory as a `SemanticModel` attached to `CompilerContext`.
 - The parser now accepts a broader C-style subset including `float`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, and `->`.
 - The AST stage now lowers core declaration, expression, and control-flow nodes such as parameters, declarations, assignments, calls, `if`, `while`, `for`, `do ... while`, `switch/case/default`, pointer declarators, `->` member access, plus parsed `struct`, `enum`, and `typedef` declarations into a compiler-facing tree.
 - `AstPass` now records AST completeness in `CompilerContext` and rejects incomplete ASTs when `--dump-ast` explicitly requests AST output.
+- `SemanticPass` now installs builtin runtime-library symbols, creates a semantic model, records symbol/type bindings and foldable integer constant-expression values over complete ASTs, rejects semantic errors such as undefined identifiers, redefinitions, non-function call targets, call arity/type mismatches, assignment type/lvalue mismatches, return mismatches, missing return paths in non-void functions, invalid binary/condition/index/unary operands, invalid `break` / `continue` / `case` / `default` placement, duplicate `case` / `default` labels inside one `switch`, non-constant array dimensions and `case` labels, array-to-pointer decay mismatches, invalid pointer arithmetic, invalid null-pointer assignments, and invalid or missing `->` member access, and skips strict checking when AST lowering is still incomplete.
 - A local HTML graph page can be generated from parse output.
 
 ## Recommended Reading Order
@@ -91,4 +97,5 @@ main
 4. [lexer.md](/Users/caojunze424/code/SysyCC/doc/modules/lexer.md)
 5. [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md)
 6. [ast.md](/Users/caojunze424/code/SysyCC/doc/modules/ast.md)
-7. [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md)
+7. [semantic.md](/Users/caojunze424/code/SysyCC/doc/modules/semantic.md)
+8. [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md)

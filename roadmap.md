@@ -13,6 +13,7 @@ source file
 -> lexer
 -> parser
 -> ast
+-> semantic
 ```
 
 ## Preprocess
@@ -124,25 +125,122 @@ source file
   - `ParamDecl`
   - `VarDecl`
   - `ConstDecl`
+  - `FieldDecl`
+  - `StructDecl`
+  - `EnumDecl`
+  - `EnumeratorDecl`
+  - `TypedefDecl`
   - `BlockStmt`
   - `DeclStmt`
   - `ExprStmt`
   - `IfStmt`
   - `WhileStmt`
+  - `ForStmt`
+  - `DoWhileStmt`
+  - `SwitchStmt`
+  - `CaseStmt`
+  - `DefaultStmt`
+  - `BreakStmt`
   - `ContinueStmt`
   - `ReturnStmt`
   - `IntegerLiteralExpr`
+  - `FloatLiteralExpr`
+  - `CharLiteralExpr`
+  - `StringLiteralExpr`
   - `IdentifierExpr`
+  - `UnaryExpr`
+  - `PrefixExpr`
+  - `PostfixExpr`
   - `BinaryExpr`
   - `AssignExpr`
   - `CallExpr`
   - `IndexExpr`
+  - `MemberExpr`
   - `InitListExpr`
+  - `BuiltinTypeNode`
+  - `PointerTypeNode`
+  - `StructTypeNode`
+  - `EnumTypeNode`
+- AST source span propagation from parse tree
+- AST completeness tracking in `CompilerContext`
 - AST dump output to `build/intermediate_results/*.ast.txt`
 
 ### Not Implemented
 
 - dedicated lexer tests for newly recognized C-style tokens beyond the current parser grammar
+- fully complete AST lowering for all parser-accepted constructs
+- comma operator expressions
+- ternary operator
+  - `?:`
+- direct member access with `.`
+- pointer-to-member combinations beyond basic `->`
+- richer declarator/type lowering beyond the current pointer and array forms
+
+## Semantic
+
+### Implemented
+
+- semantic pass integrated after AST lowering
+- builtin runtime-library symbol installation
+- lexical scope stack and symbol registration for
+  - functions
+  - parameters
+  - variables
+  - constants
+  - typedef names
+  - struct names
+  - enum names
+  - enumerators
+- AST-node-to-type and AST-node-to-symbol bindings
+- first integer constant-expression value tracking in `SemanticModel`
+- semantic diagnostics for
+  - undefined identifiers
+  - same-scope redefinitions
+  - function-call arity mismatches
+  - function-call argument type mismatches
+  - calls to non-function objects
+  - assignment type mismatches
+  - assignments to non-assignable targets
+  - `return` type mismatches
+  - invalid arithmetic, bitwise, shift, logical, relational, and equality operands
+  - non-scalar condition expressions
+  - non-pointer / non-array index bases
+  - non-integer array subscripts
+  - non-constant array dimensions
+  - invalid operands for unary `&`, `*`, `+`, `-`, `!`, `~`
+  - invalid operands for prefix/postfix `++`
+  - invalid `break` / `continue` placement
+  - invalid `case` / `default` placement
+  - duplicate `case` labels within one `switch`
+  - multiple `default` labels within one `switch`
+  - non-constant `case` labels
+  - non-constant integer `const` initializers
+  - non-constant enumerator values
+  - integer-zero null pointer constants assigned or passed to pointer targets
+  - array-to-pointer decay for pointer-compatible call and assignment checks
+  - pointer arithmetic for `pointer +/- integer` and `pointer - pointer`
+  - invalid `->` base types
+  - missing struct members accessed through `->`
+  - non-void functions that may exit without returning a value
+  - recursive integer constant-expression evaluation for character literals and unary/binary operator trees
+
+### Not Implemented
+
+- more complete implicit conversion and usual arithmetic conversion rules
+- floating-point constant folding
+- full pointer arithmetic rules
+- direct member access with `.`
+- full argument passing rules for arrays and pointer decay
+- full lvalue / modifiable-lvalue rules
+- function declaration compatibility and redeclaration checks
+- unreachable-code and control-flow diagnostics
+- enum value auto-increment rules
+- complete constant-expression evaluation for all semantic contexts
+- constant-expression range / overflow diagnostics
+- struct initialization semantic checks
+- array initializer shape and bounds checks
+- builtin runtime-library signature coverage beyond the current set
+- semantic output dumping for inspection
 
 ## Parser
 
@@ -206,11 +304,6 @@ source file
 
 ### Not Implemented
 
-- AST generation as a separate semantic tree
-- semantic analysis
-- type checking
-- symbol table checks
-- constant folding in the compiler core
 - comma operator expressions
 - ternary operator
   - `?:`
@@ -224,6 +317,6 @@ source file
 
 1. Consume `-I` paths for more include forms, especially `#include <...>`.
 2. Improve preprocess diagnostics with clearer file and line reporting.
-3. Expand AST lowering coverage for more statements, expressions, and type forms.
-4. Add a `SemanticPass`.
-5. Expand SysY22 coverage only where it matches the project target language.
+3. Expand AST lowering coverage for the remaining parser-accepted constructs.
+4. Deepen semantic analysis around control flow, conversions, and constant evaluation.
+5. Start preparing the post-semantic pipeline for IR generation.

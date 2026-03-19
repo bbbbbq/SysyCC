@@ -39,6 +39,7 @@ classDiagram
         -parse_tree_root_
         -ast_root_
         -ast_complete_
+        -semantic_model_
         -token_dump_file_path_
         -parse_dump_file_path_
         -ast_dump_file_path_
@@ -64,6 +65,9 @@ classDiagram
     }
 
     class AstPass {
+    }
+
+    class SemanticPass {
     }
 
     class LexerState {
@@ -142,6 +146,101 @@ classDiagram
         -SourceSpan source_span_
         +get_kind()
         +get_source_span()
+    }
+
+    class SemanticModel {
+        -success_
+        -diagnostics_
+        -node_types_
+        -symbol_bindings_
+        -integer_constant_values_
+        +get_success()
+        +get_diagnostics()
+        +get_node_type()
+        +get_symbol_binding()
+        +get_integer_constant_value()
+    }
+
+    class SemanticDiagnostic {
+        -severity_
+        -message_
+        -source_span_
+        +get_severity()
+        +get_message()
+        +get_source_span()
+    }
+
+    class SemanticSymbol {
+        -kind_
+        -name_
+        -type_
+        -decl_node_
+        +get_kind()
+        +get_name()
+        +get_type()
+        +get_decl_node()
+    }
+
+    class SemanticType {
+        -kind_
+        +get_kind()
+    }
+
+    class SemanticAnalyzer {
+        +Analyze(translation_unit, semantic_context, scope_stack)
+    }
+
+    class DeclAnalyzer {
+        +analyze_decl(decl, semantic_context, scope_stack)
+    }
+
+    class StmtAnalyzer {
+        +analyze_stmt(stmt, semantic_context, scope_stack)
+    }
+
+    class ExprAnalyzer {
+        +analyze_expr(expr, semantic_context, scope_stack)
+    }
+
+    class TypeResolver {
+        +resolve_type(type_node, semantic_context)
+        +apply_array_dimensions(base_type, dimensions, semantic_context)
+    }
+
+    class ConversionChecker {
+        +is_assignable_type(target, value)
+        +is_scalar_type(type)
+        +is_integer_like_type(type)
+    }
+
+    class ConstantEvaluator {
+        +get_integer_constant_value(node, semantic_context)
+        +is_integer_constant_expr(expr, semantic_context, conversion_checker)
+    }
+
+    class SemanticContext {
+        -compiler_context_
+        -semantic_model_
+        -current_function_
+        -current_return_type_
+        -loop_depth_
+        -switch_depth_
+        +get_compiler_context()
+        +get_semantic_model()
+        +get_loop_depth()
+        +get_switch_depth()
+    }
+
+    class ScopeStack {
+        -scopes_
+        +push_scope()
+        +pop_scope()
+        +define(symbol)
+        +lookup(name)
+    }
+
+    class BuiltinSymbols {
+        +install(semantic_model, scope_stack)
     }
 
     class TranslationUnit {
@@ -423,11 +522,13 @@ classDiagram
     Pass <|-- LexerPass
     Pass <|-- ParserPass
     Pass <|-- AstPass
+    Pass <|-- SemanticPass
     LexerPass ..> CompilerContext : writes tokens
     LexerPass *-- LexerState
     ParserPass *-- LexerState
     ParserPass ..> CompilerContext : writes parse tree
     AstPass ..> CompilerContext : writes ast root
+    SemanticPass ..> CompilerContext : writes semantic model
     PreprocessPass ..> CompilerContext : writes preprocessed file path
     PreprocessPass ..> PreprocessSession
     PreprocessSession *-- PreprocessorRuntime
@@ -441,6 +542,7 @@ classDiagram
     CompilerContext *-- Token
     CompilerContext *-- ParseTreeNode
     CompilerContext *-- AstNode
+    CompilerContext *-- SemanticModel
     AstNode <|-- TranslationUnit
     AstNode <|-- FunctionDecl
     AstNode <|-- ParamDecl
@@ -495,6 +597,31 @@ classDiagram
     PointerTypeNode *-- StructTypeNode
     ReturnStmt *-- IntegerLiteralExpr
     MemberExpr *-- IdentifierExpr
+    SemanticPass ..> SemanticAnalyzer
+    SemanticAnalyzer ..> DeclAnalyzer
+    SemanticAnalyzer ..> StmtAnalyzer
+    SemanticAnalyzer ..> ExprAnalyzer
+    SemanticAnalyzer ..> TypeResolver
+    SemanticAnalyzer ..> ConversionChecker
+    SemanticAnalyzer ..> ConstantEvaluator
+    SemanticPass ..> SemanticContext
+    SemanticPass ..> ScopeStack
+    SemanticPass ..> BuiltinSymbols
+    DeclAnalyzer ..> ExprAnalyzer
+    DeclAnalyzer ..> TypeResolver
+    DeclAnalyzer ..> ConversionChecker
+    DeclAnalyzer ..> ConstantEvaluator
+    StmtAnalyzer ..> DeclAnalyzer
+    StmtAnalyzer ..> ExprAnalyzer
+    StmtAnalyzer ..> ConversionChecker
+    StmtAnalyzer ..> ConstantEvaluator
+    ExprAnalyzer ..> TypeResolver
+    ExprAnalyzer ..> ConversionChecker
+    ExprAnalyzer ..> ConstantEvaluator
+    SemanticContext *-- SemanticModel
+    SemanticModel *-- SemanticDiagnostic
+    SemanticModel *-- SemanticSymbol
+    SemanticModel *-- SemanticType
     Token *-- SourceSpan
 ```
 
@@ -512,6 +639,7 @@ main
       -> LexerPass
       -> ParserPass
       -> AstPass
+      -> SemanticPass
 ```
 
 ## Class Roles
@@ -573,6 +701,7 @@ Role:
 - store parse tree root
 - store ast root
 - store whether the current ast is complete enough for ast-consuming stages
+- store semantic analysis results in a separate semantic model
 - store intermediate output paths
 
 ### `sysycc::Pass`
@@ -591,6 +720,7 @@ Current concrete subclasses:
 - `LexerPass`
 - `ParserPass`
 - `AstPass`
+- `SemanticPass`
 
 ### `sysycc::PreprocessPass`
 
@@ -624,6 +754,7 @@ Current pipeline order:
 - `LexerPass`
 - `ParserPass`
 - `AstPass`
+- `SemanticPass`
 
 ### `sysycc::LexerPass` and `sysycc::ParserPass`
 
@@ -655,6 +786,20 @@ Role:
 - preserve compiler-facing declarations for parsed `struct`, `enum`, and `typedef` syntax instead of dropping them into `UnknownDecl`
 - record whether the lowered AST is complete via `CompilerContext::get_ast_complete()`
 - reject AST results that still contain `Unknown*` placeholders when AST dumping is explicitly requested
+
+### `sysycc::SemanticPass`
+
+Defined in:
+
+- [semantic_pass.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/semantic_pass.hpp)
+- [semantic_pass.cpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/semantic_pass.cpp)
+
+Role:
+
+- consume the lowered AST after `AstPass`
+- create a `SemanticModel` and store it back into [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+- install builtin runtime-library symbols before traversing user AST nodes
+- record a first layer of symbol and type bindings without yet enforcing full semantic rules
 
 ### `sysycc::LexerState`
 
@@ -754,6 +899,48 @@ Role:
   `PostfixExpr`, `BinaryExpr`, `CallExpr`, `IndexExpr`, `MemberExpr`,
   `InitListExpr`, and `Unknown*` placeholders
 
+### `sysycc::SemanticModel`, `SemanticDiagnostic`, `SemanticSymbol`, `SemanticType`, and semantic helpers
+
+Defined in:
+
+- [semantic_model.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/model/semantic_model.hpp)
+- [semantic_diagnostic.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/model/semantic_diagnostic.hpp)
+- [semantic_symbol.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/model/semantic_symbol.hpp)
+- [semantic_type.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/model/semantic_type.hpp)
+- [semantic_analyzer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/analysis/semantic_analyzer.hpp)
+- [decl_analyzer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/analysis/decl_analyzer.hpp)
+- [stmt_analyzer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/analysis/stmt_analyzer.hpp)
+- [expr_analyzer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/analysis/expr_analyzer.hpp)
+- [type_resolver.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/type_system/type_resolver.hpp)
+- [conversion_checker.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/type_system/conversion_checker.hpp)
+- [constant_evaluator.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/type_system/constant_evaluator.hpp)
+- [semantic_context.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/support/semantic_context.hpp)
+- [scope_stack.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/support/scope_stack.hpp)
+- [builtin_symbols.hpp](/Users/caojunze424/code/SysyCC/src/frontend/semantic/support/builtin_symbols.hpp)
+
+Role:
+
+- `SemanticModel`: store semantic success, diagnostics, node-type bindings,
+  node-symbol bindings, and foldable integer constant-expression values
+- `SemanticDiagnostic`: represent one semantic warning/error with a source span
+- `SemanticSymbol`: represent one resolved declaration symbol
+- `SemanticType`: represent semantic types such as builtin, pointer, array, function, struct, and enum
+- `SemanticAnalyzer`: orchestrate the specialized semantic helpers over one
+  complete AST
+- `DeclAnalyzer`: enforce declaration-level rules and register non-function
+  symbols
+- `StmtAnalyzer`: enforce statement/control-flow rules
+- `ExprAnalyzer`: enforce expression/operator rules and bind expression types
+- `TypeResolver`: lower AST type nodes into semantic types
+- `ConversionChecker`: answer type-compatibility and operand-category questions
+- `ConstantEvaluator`: query and store foldable integer constant-expression
+  results
+- `SemanticContext`: carry one analysis run's transient state
+- `ScopeStack`: manage nested lexical scopes
+- `BuiltinSymbols`: install runtime-library builtins into the initial scope
+- `SemanticPass`: run strict semantic checks only after AST lowering is marked
+  complete, while still attaching a semantic model to the compiler context
+
 ## Notes
 
 - The active pass system lives under
@@ -765,6 +952,6 @@ Role:
   [src/frontend/preprocess](/Users/caojunze424/code/SysyCC/src/frontend/preprocess).
 - The files under [src/pass](/Users/caojunze424/code/SysyCC/src/pass) are not
   the primary class relationship path anymore.
-- The current architecture is front-end focused and now includes an initial AST
-  layer, but semantic analysis classes and IR classes have not been introduced
-  yet.
+- The current architecture is front-end focused and now includes AST and an
+  initial semantic-analysis layer, but IR classes and backend code generation
+  have not been introduced yet.
