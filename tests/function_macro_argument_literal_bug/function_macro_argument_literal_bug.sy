@@ -1,0 +1,6 @@
+#define PAIR(a, b) a
+
+int main() {
+    PAIR("left,right", 0);
+    return 0;
+}

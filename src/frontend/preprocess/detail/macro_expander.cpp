@@ -335,9 +335,52 @@ bool MacroExpander::parse_macro_arguments(const std::string &line,
     arguments.clear();
     std::string current_argument;
     int depth = 1;
+    bool in_string_literal = false;
+    bool in_char_literal = false;
+    bool escaping = false;
     std::size_t index = open_paren_index + 1;
     while (index < line.size()) {
         const char ch = line[index];
+        if (in_string_literal) {
+            current_argument.push_back(ch);
+            if (escaping) {
+                escaping = false;
+            } else if (ch == '\\') {
+                escaping = true;
+            } else if (ch == '"') {
+                in_string_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (in_char_literal) {
+            current_argument.push_back(ch);
+            if (escaping) {
+                escaping = false;
+            } else if (ch == '\\') {
+                escaping = true;
+            } else if (ch == '\'') {
+                in_char_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (ch == '"') {
+            in_string_literal = true;
+            current_argument.push_back(ch);
+            ++index;
+            continue;
+        }
+
+        if (ch == '\'') {
+            in_char_literal = true;
+            current_argument.push_back(ch);
+            ++index;
+            continue;
+        }
+
         if (ch == '(') {
             ++depth;
             current_argument.push_back(ch);
