@@ -6,12 +6,13 @@
 #include <memory>
 #include <string>
 
+#include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser_runtime.hpp"
 
-extern FILE *yyin;
-extern int yyparse(void);
-extern void yyrestart(FILE *);
-extern void reset_lexer_state(void);
+extern int yyparse(yyscan_t scanner);
+extern int yylex_init_extra(void *user_defined, yyscan_t *scanner);
+extern int yylex_destroy(yyscan_t yyscanner);
+extern void yyset_in(FILE *input_file, yyscan_t yyscanner);
 
 namespace sysycc {
 
@@ -40,7 +41,6 @@ const char *ParserPass::Name() const { return "ParserPass"; }
 
 PassResult ParserPass::Run(CompilerContext &context) {
     parser_runtime_reset();
-    reset_lexer_state();
 
     const std::string &parser_input_file =
         context.get_preprocessed_file_path().empty()
@@ -50,10 +50,21 @@ PassResult ParserPass::Run(CompilerContext &context) {
     if (input == nullptr) {
         return PassResult::Failure("failed to open input file for parser");
     }
-    yyrestart(input);
-    yyin = input;
 
-    const int parse_result = yyparse();
+    LexerState lexer_state;
+    lexer_state.reset();
+    lexer_state.set_emit_parse_nodes(true);
+
+    yyscan_t scanner = nullptr;
+    if (yylex_init_extra(&lexer_state, &scanner) != 0) {
+        std::fclose(input);
+        return PassResult::Failure("failed to initialize parser scanner");
+    }
+
+    yyset_in(input, scanner);
+
+    const int parse_result = yyparse(scanner);
+    yylex_destroy(scanner);
     std::fclose(input);
 
     context.set_parse_tree_root(take_parse_tree_root());

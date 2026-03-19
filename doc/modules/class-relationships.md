@@ -60,6 +60,24 @@ classDiagram
     class ParserPass {
     }
 
+    class LexerState {
+        -line_
+        -column_
+        -token_line_begin_
+        -token_column_begin_
+        -token_line_end_
+        -token_column_end_
+        -emit_parse_nodes_
+        +reset()
+        +update_position()
+        +get_token_line_begin()
+        +get_token_column_begin()
+        +get_token_line_end()
+        +get_token_column_end()
+        +get_emit_parse_nodes()
+        +set_emit_parse_nodes()
+    }
+
     class PreprocessPass {
     }
 
@@ -91,9 +109,14 @@ classDiagram
     }
 
     class Token {
-        +TokenKind kind
-        +string text
-        +SourceSpan source_span
+        -TokenKind kind_
+        -string text_
+        -SourceSpan source_span_
+        +get_kind()
+        +get_text()
+        +get_source_span()
+        +get_category()
+        +get_kind_name()
     }
 
     class SourceSpan {
@@ -117,6 +140,8 @@ classDiagram
     Pass <|-- LexerPass
     Pass <|-- ParserPass
     LexerPass ..> CompilerContext : writes tokens
+    LexerPass *-- LexerState
+    ParserPass *-- LexerState
     ParserPass ..> CompilerContext : writes parse tree
     PreprocessPass ..> CompilerContext : writes preprocessed file path
     PreprocessPass ..> PreprocessSession
@@ -203,7 +228,7 @@ Role:
 - act as the shared data bus for passes
 - store preprocessed intermediate file path
 - store include search directories for preprocessing
-- store token stream
+- store token stream with exact lexical token kinds plus derived categories
 - store parse tree root
 - store intermediate output paths
 
@@ -266,6 +291,21 @@ Role:
 
 - connect generated `flex`/`bison` code directly with the pass system
 - move lexer and parser output into [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+- keep lexer-only runs free of parser-runtime terminal-node allocation
+- enable scanner-side terminal-node creation only for parser-driven runs
+- create independent scanner sessions with their own lexer runtime state
+
+### `sysycc::LexerState`
+
+Defined in:
+
+- [lexer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp)
+
+Role:
+
+- store one scanner session's line/column tracking
+- store the current token source span
+- control whether scanner actions should emit parse-tree terminal nodes
 
 ### `sysycc::preprocess::detail::PreprocessSession`
 

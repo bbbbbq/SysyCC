@@ -11,22 +11,285 @@ namespace sysycc {
 
 enum class TokenKind {
     Identifier,
+    IntLiteral,
+    FloatLiteral,
+    CharLiteral,
+    StringLiteral,
+    KwConst,
+    KwInt,
+    KwVoid,
+    KwFloat,
+    KwIf,
+    KwElse,
+    KwWhile,
+    KwFor,
+    KwDo,
+    KwSwitch,
+    KwCase,
+    KwDefault,
+    KwBreak,
+    KwContinue,
+    KwReturn,
+    KwStruct,
+    KwEnum,
+    KwTypedef,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    Increment,
+    Decrement,
+    BitAnd,
+    BitOr,
+    BitXor,
+    BitNot,
+    ShiftLeft,
+    ShiftRight,
+    Arrow,
+    Assign,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    LogicalNot,
+    LogicalAnd,
+    LogicalOr,
+    Semicolon,
+    Comma,
+    Colon,
+    LParen,
+    RParen,
+    LBracket,
+    RBracket,
+    LBrace,
+    RBrace,
+    EndOfFile,
+    Invalid,
+};
+
+enum class TokenCategory {
+    Identifier,
     Keyword,
     Literal,
     Operator,
     Punctuation,
+    Special,
 };
 
 // Represents one token produced by lexical analysis.
 class Token {
   public:
-    TokenKind kind;
-    std::string text;
-    SourceSpan source_span;
-
     Token(TokenKind kind, std::string text, SourceSpan source_span = {})
-        : kind(kind), text(std::move(text)),
-          source_span(std::move(source_span)) {}
+        : kind_(kind), text_(std::move(text)),
+          source_span_(std::move(source_span)) {}
+
+    TokenKind get_kind() const noexcept { return kind_; }
+
+    const std::string &get_text() const noexcept { return text_; }
+
+    const SourceSpan &get_source_span() const noexcept { return source_span_; }
+
+    TokenCategory get_category() const noexcept {
+        switch (kind_) {
+        case TokenKind::Identifier:
+            return TokenCategory::Identifier;
+        case TokenKind::IntLiteral:
+        case TokenKind::FloatLiteral:
+        case TokenKind::CharLiteral:
+        case TokenKind::StringLiteral:
+            return TokenCategory::Literal;
+        case TokenKind::KwConst:
+        case TokenKind::KwInt:
+        case TokenKind::KwVoid:
+        case TokenKind::KwFloat:
+        case TokenKind::KwIf:
+        case TokenKind::KwElse:
+        case TokenKind::KwWhile:
+        case TokenKind::KwFor:
+        case TokenKind::KwDo:
+        case TokenKind::KwSwitch:
+        case TokenKind::KwCase:
+        case TokenKind::KwDefault:
+        case TokenKind::KwBreak:
+        case TokenKind::KwContinue:
+        case TokenKind::KwReturn:
+        case TokenKind::KwStruct:
+        case TokenKind::KwEnum:
+        case TokenKind::KwTypedef:
+            return TokenCategory::Keyword;
+        case TokenKind::Plus:
+        case TokenKind::Minus:
+        case TokenKind::Star:
+        case TokenKind::Slash:
+        case TokenKind::Percent:
+        case TokenKind::Increment:
+        case TokenKind::Decrement:
+        case TokenKind::BitAnd:
+        case TokenKind::BitOr:
+        case TokenKind::BitXor:
+        case TokenKind::BitNot:
+        case TokenKind::ShiftLeft:
+        case TokenKind::ShiftRight:
+        case TokenKind::Arrow:
+        case TokenKind::Assign:
+        case TokenKind::Equal:
+        case TokenKind::NotEqual:
+        case TokenKind::Less:
+        case TokenKind::LessEqual:
+        case TokenKind::Greater:
+        case TokenKind::GreaterEqual:
+        case TokenKind::LogicalNot:
+        case TokenKind::LogicalAnd:
+        case TokenKind::LogicalOr:
+            return TokenCategory::Operator;
+        case TokenKind::Semicolon:
+        case TokenKind::Comma:
+        case TokenKind::Colon:
+        case TokenKind::LParen:
+        case TokenKind::RParen:
+        case TokenKind::LBracket:
+        case TokenKind::RBracket:
+        case TokenKind::LBrace:
+        case TokenKind::RBrace:
+            return TokenCategory::Punctuation;
+        case TokenKind::EndOfFile:
+        case TokenKind::Invalid:
+            return TokenCategory::Special;
+        }
+
+        return TokenCategory::Special;
+    }
+
+    const char *get_kind_name() const noexcept {
+        switch (kind_) {
+        case TokenKind::Identifier:
+            return "Identifier";
+        case TokenKind::IntLiteral:
+            return "IntLiteral";
+        case TokenKind::FloatLiteral:
+            return "FloatLiteral";
+        case TokenKind::CharLiteral:
+            return "CharLiteral";
+        case TokenKind::StringLiteral:
+            return "StringLiteral";
+        case TokenKind::KwConst:
+            return "KwConst";
+        case TokenKind::KwInt:
+            return "KwInt";
+        case TokenKind::KwVoid:
+            return "KwVoid";
+        case TokenKind::KwFloat:
+            return "KwFloat";
+        case TokenKind::KwIf:
+            return "KwIf";
+        case TokenKind::KwElse:
+            return "KwElse";
+        case TokenKind::KwWhile:
+            return "KwWhile";
+        case TokenKind::KwFor:
+            return "KwFor";
+        case TokenKind::KwDo:
+            return "KwDo";
+        case TokenKind::KwSwitch:
+            return "KwSwitch";
+        case TokenKind::KwCase:
+            return "KwCase";
+        case TokenKind::KwDefault:
+            return "KwDefault";
+        case TokenKind::KwBreak:
+            return "KwBreak";
+        case TokenKind::KwContinue:
+            return "KwContinue";
+        case TokenKind::KwReturn:
+            return "KwReturn";
+        case TokenKind::KwStruct:
+            return "KwStruct";
+        case TokenKind::KwEnum:
+            return "KwEnum";
+        case TokenKind::KwTypedef:
+            return "KwTypedef";
+        case TokenKind::Plus:
+            return "Plus";
+        case TokenKind::Minus:
+            return "Minus";
+        case TokenKind::Star:
+            return "Star";
+        case TokenKind::Slash:
+            return "Slash";
+        case TokenKind::Percent:
+            return "Percent";
+        case TokenKind::Increment:
+            return "Increment";
+        case TokenKind::Decrement:
+            return "Decrement";
+        case TokenKind::BitAnd:
+            return "BitAnd";
+        case TokenKind::BitOr:
+            return "BitOr";
+        case TokenKind::BitXor:
+            return "BitXor";
+        case TokenKind::BitNot:
+            return "BitNot";
+        case TokenKind::ShiftLeft:
+            return "ShiftLeft";
+        case TokenKind::ShiftRight:
+            return "ShiftRight";
+        case TokenKind::Arrow:
+            return "Arrow";
+        case TokenKind::Assign:
+            return "Assign";
+        case TokenKind::Equal:
+            return "Equal";
+        case TokenKind::NotEqual:
+            return "NotEqual";
+        case TokenKind::Less:
+            return "Less";
+        case TokenKind::LessEqual:
+            return "LessEqual";
+        case TokenKind::Greater:
+            return "Greater";
+        case TokenKind::GreaterEqual:
+            return "GreaterEqual";
+        case TokenKind::LogicalNot:
+            return "LogicalNot";
+        case TokenKind::LogicalAnd:
+            return "LogicalAnd";
+        case TokenKind::LogicalOr:
+            return "LogicalOr";
+        case TokenKind::Semicolon:
+            return "Semicolon";
+        case TokenKind::Comma:
+            return "Comma";
+        case TokenKind::Colon:
+            return "Colon";
+        case TokenKind::LParen:
+            return "LParen";
+        case TokenKind::RParen:
+            return "RParen";
+        case TokenKind::LBracket:
+            return "LBracket";
+        case TokenKind::RBracket:
+            return "RBracket";
+        case TokenKind::LBrace:
+            return "LBrace";
+        case TokenKind::RBrace:
+            return "RBrace";
+        case TokenKind::EndOfFile:
+            return "EndOfFile";
+        case TokenKind::Invalid:
+            return "Invalid";
+        }
+
+        return "Unknown";
+    }
+
+  private:
+    TokenKind kind_;
+    std::string text_;
+    SourceSpan source_span_;
 };
 
 // Acts as the shared data bus across compiler passes.

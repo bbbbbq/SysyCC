@@ -1,48 +1,32 @@
+%option reentrant
+%option bison-bridge
 %option noyywrap
 %option nounput
 %option noinput
 
 %{
+#include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser.tab.h"
 #include "frontend/parser/parser_runtime.hpp"
 
-static int g_line = 1;
-static int g_column = 1;
-static int g_token_line_begin = 1;
-static int g_token_column_begin = 1;
-static int g_token_line_end = 1;
-static int g_token_column_end = 1;
-
-void reset_lexer_state(void);
-int lexer_current_line_begin(void);
-int lexer_current_column_begin(void);
-int lexer_current_line_end(void);
-int lexer_current_column_end(void);
-
-static void update_position(const char *text, int length) {
-    g_token_line_begin = g_line;
-    g_token_column_begin = g_column;
-    g_token_line_end = g_line;
-    g_token_column_end = g_column;
-
-    for (int i = 0; i < length; ++i) {
-        g_token_line_end = g_line;
-        g_token_column_end = g_column;
-        if (text[i] == '\n') {
-            ++g_line;
-            g_column = 1;
-        } else {
-            ++g_column;
-        }
+static void update_position(sysycc::LexerState *state, const char *text,
+                            int length) {
+    if (state == nullptr) {
+        return;
     }
+    state->update_position(text, length);
 }
 
-static int make_token(int token, const char *label) {
-    yylval.node = sysycc::make_terminal_node(label, yytext);
+static int make_token(int token, const char *label,
+                      sysycc::LexerState *state, const char *text,
+                      YYSTYPE *yylval_param) {
+    if (state != nullptr && state->get_emit_parse_nodes()) {
+        yylval_param->node = sysycc::make_terminal_node(label, text);
+    }
     return token;
 }
 
-#define YY_USER_ACTION update_position(yytext, yyleng);
+#define YY_USER_ACTION update_position((sysycc::LexerState *)yyextra, yytext, yyleng);
 %}
 
 DIGIT       [0-9]
@@ -69,96 +53,71 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 [ \t\r\f\v]+                { }
 \n                          { }
 
-"const"                     { return make_token(CONST, "CONST"); }
-"int"                       { return make_token(INT, "INT"); }
-"void"                      { return make_token(VOID, "VOID"); }
-"float"                     { return make_token(FLOAT, "FLOAT"); }
-"if"                        { return make_token(IF, "IF"); }
-"else"                      { return make_token(ELSE, "ELSE"); }
-"while"                     { return make_token(WHILE, "WHILE"); }
-"for"                       { return make_token(FOR, "FOR"); }
-"do"                        { return make_token(DO, "DO"); }
-"switch"                    { return make_token(SWITCH, "SWITCH"); }
-"case"                      { return make_token(CASE, "CASE"); }
-"default"                   { return make_token(DEFAULT, "DEFAULT"); }
-"break"                     { return make_token(BREAK, "BREAK"); }
-"continue"                  { return make_token(CONTINUE, "CONTINUE"); }
-"return"                    { return make_token(RETURN, "RETURN"); }
-"struct"                    { return make_token(STRUCT, "STRUCT"); }
-"enum"                      { return make_token(ENUM, "ENUM"); }
-"typedef"                   { return make_token(TYPEDEF, "TYPEDEF"); }
+"const"                     { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"int"                       { return make_token(INT, "INT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"void"                      { return make_token(VOID, "VOID", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"float"                     { return make_token(FLOAT, "FLOAT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"if"                        { return make_token(IF, "IF", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"else"                      { return make_token(ELSE, "ELSE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"while"                     { return make_token(WHILE, "WHILE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"for"                       { return make_token(FOR, "FOR", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"do"                        { return make_token(DO, "DO", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"switch"                    { return make_token(SWITCH, "SWITCH", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"case"                      { return make_token(CASE, "CASE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"default"                   { return make_token(DEFAULT, "DEFAULT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"break"                     { return make_token(BREAK, "BREAK", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"continue"                  { return make_token(CONTINUE, "CONTINUE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"return"                    { return make_token(RETURN, "RETURN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"struct"                    { return make_token(STRUCT, "STRUCT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"enum"                      { return make_token(ENUM, "ENUM", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"typedef"                   { return make_token(TYPEDEF, "TYPEDEF", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
-"++"                        { return make_token(INC, "INC"); }
-"--"                        { return make_token(DEC, "DEC"); }
-"->"                        { return make_token(ARROW, "ARROW"); }
-"<<"                        { return make_token(SHL, "SHL"); }
-">>"                        { return make_token(SHR, "SHR"); }
-"=="                        { return make_token(EQ, "EQ"); }
-"!="                        { return make_token(NE, "NE"); }
-"<="                        { return make_token(LE, "LE"); }
-">="                        { return make_token(GE, "GE"); }
-"&&"                        { return make_token(AND, "AND"); }
-"||"                        { return make_token(OR, "OR"); }
+"++"                        { return make_token(INC, "INC", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"--"                        { return make_token(DEC, "DEC", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"->"                        { return make_token(ARROW, "ARROW", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"<<"                        { return make_token(SHL, "SHL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+">>"                        { return make_token(SHR, "SHR", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"=="                        { return make_token(EQ, "EQ", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"!="                        { return make_token(NE, "NE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"<="                        { return make_token(LE, "LE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+">="                        { return make_token(GE, "GE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"&&"                        { return make_token(AND, "AND", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"||"                        { return make_token(OR, "OR", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
-"+"                         { return make_token(PLUS, "PLUS"); }
-"-"                         { return make_token(MINUS, "MINUS"); }
-"*"                         { return make_token(MUL, "MUL"); }
-"/"                         { return make_token(DIV, "DIV"); }
-"%"                         { return make_token(MOD, "MOD"); }
-"&"                         { return make_token(BITAND, "BITAND"); }
-"|"                         { return make_token(BITOR, "BITOR"); }
-"^"                         { return make_token(BITXOR, "BITXOR"); }
-"~"                         { return make_token(BITNOT, "BITNOT"); }
-"="                         { return make_token(ASSIGN, "ASSIGN"); }
-"<"                         { return make_token(LT, "LT"); }
-">"                         { return make_token(GT, "GT"); }
-"!"                         { return make_token(NOT, "NOT"); }
+"+"                         { return make_token(PLUS, "PLUS", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"-"                         { return make_token(MINUS, "MINUS", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"*"                         { return make_token(MUL, "MUL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"/"                         { return make_token(DIV, "DIV", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"%"                         { return make_token(MOD, "MOD", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"&"                         { return make_token(BITAND, "BITAND", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"|"                         { return make_token(BITOR, "BITOR", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"^"                         { return make_token(BITXOR, "BITXOR", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"~"                         { return make_token(BITNOT, "BITNOT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"="                         { return make_token(ASSIGN, "ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"<"                         { return make_token(LT, "LT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+">"                         { return make_token(GT, "GT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"!"                         { return make_token(NOT, "NOT", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
-";"                         { return make_token(SEMICOLON, "SEMICOLON"); }
-","                         { return make_token(COMMA, "COMMA"); }
-":"                         { return make_token(COLON, "COLON"); }
-"("                         { return make_token(LPAREN, "LPAREN"); }
-")"                         { return make_token(RPAREN, "RPAREN"); }
-"["                         { return make_token(LBRACKET, "LBRACKET"); }
-"]"                         { return make_token(RBRACKET, "RBRACKET"); }
-"{"                         { return make_token(LBRACE, "LBRACE"); }
-"}"                         { return make_token(RBRACE, "RBRACE"); }
+";"                         { return make_token(SEMICOLON, "SEMICOLON", (sysycc::LexerState *)yyextra, yytext, yylval); }
+","                         { return make_token(COMMA, "COMMA", (sysycc::LexerState *)yyextra, yytext, yylval); }
+":"                         { return make_token(COLON, "COLON", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"("                         { return make_token(LPAREN, "LPAREN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+")"                         { return make_token(RPAREN, "RPAREN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"["                         { return make_token(LBRACKET, "LBRACKET", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"]"                         { return make_token(RBRACKET, "RBRACKET", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"{"                         { return make_token(LBRACE, "LBRACE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"}"                         { return make_token(RBRACE, "RBRACE", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
-{STRING_CONST}              { return make_token(STRING_LITERAL, "STRING_LITERAL"); }
-{CHAR_CONST}                { return make_token(CHAR_LITERAL, "CHAR_LITERAL"); }
-{FLOAT_CONST}               { return make_token(FLOAT_LITERAL, "FLOAT_LITERAL"); }
-{HEX_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL"); }
-{OCT_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL"); }
-{DEC_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL"); }
-{INVALID_HEX}               { return make_token(INVALID, "INVALID"); }
-{INVALID_OCT}               { return make_token(INVALID, "INVALID"); }
-{IDENT}                     { return make_token(IDENTIFIER, "IDENTIFIER"); }
+{STRING_CONST}              { return make_token(STRING_LITERAL, "STRING_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{CHAR_CONST}                { return make_token(CHAR_LITERAL, "CHAR_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{FLOAT_CONST}               { return make_token(FLOAT_LITERAL, "FLOAT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{HEX_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{OCT_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{DEC_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{INVALID_HEX}               { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{INVALID_OCT}               { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{IDENT}                     { return make_token(IDENTIFIER, "IDENTIFIER", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
-.                           { return make_token(INVALID, "INVALID"); }
+.                           { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
 %%
-
-void reset_lexer_state(void) {
-    g_line = 1;
-    g_column = 1;
-    g_token_line_begin = 1;
-    g_token_column_begin = 1;
-    g_token_line_end = 1;
-    g_token_column_end = 1;
-}
-
-int lexer_current_line_begin(void) {
-    return g_token_line_begin;
-}
-
-int lexer_current_column_begin(void) {
-    return g_token_column_begin;
-}
-
-int lexer_current_line_end(void) {
-    return g_token_line_end;
-}
-
-int lexer_current_column_end(void) {
-    return g_token_column_end;
-}

@@ -3,8 +3,9 @@
 
 #include "frontend/parser/parser_runtime.hpp"
 
-int yylex(void);
-void yyerror(const char *message);
+typedef union YYSTYPE YYSTYPE;
+int yylex(YYSTYPE *yylval_param, void *scanner);
+void yyerror(void *scanner, const char *message);
 %}
 
 %union {
@@ -12,6 +13,9 @@ void yyerror(const char *message);
 }
 
 %glr-parser
+%pure-parser
+%parse-param { void *scanner }
+%lex-param { void *scanner }
 
 %token <node> INVALID
 %token <node> CONST INT VOID FLOAT IF ELSE WHILE FOR DO SWITCH CASE DEFAULT BREAK CONTINUE RETURN STRUCT ENUM TYPEDEF
@@ -515,6 +519,6 @@ init_val_list
 
 %%
 
-void yyerror(const char *message) {
+void yyerror(void * /*scanner*/, const char *message) {
     std::fprintf(stderr, "parser error: %s\n", message);
 }
