@@ -134,6 +134,8 @@ type_specifier
 basic_type
     : INT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
+    | VOID
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
     | FLOAT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
     ;

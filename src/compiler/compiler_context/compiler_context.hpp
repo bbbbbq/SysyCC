@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "common/source_span.hpp"
+#include "frontend/ast/ast_node.hpp"
 #include "frontend/parser/parser_runtime.hpp"
 
 namespace sysycc {
@@ -302,9 +303,12 @@ class CompilerContext {
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
     bool dump_ast_ = false;
+    bool ast_complete_ = false;
     std::string token_dump_file_path_;
     std::string parse_dump_file_path_;
+    std::string ast_dump_file_path_;
     std::unique_ptr<ParseTreeNode> parse_tree_root_;
+    std::unique_ptr<AstNode> ast_root_;
 
   public:
     CompilerContext() = default;
@@ -349,6 +353,12 @@ class CompilerContext {
 
     void set_dump_ast(bool dump_ast) noexcept { dump_ast_ = dump_ast; }
 
+    bool get_ast_complete() const noexcept { return ast_complete_; }
+
+    void set_ast_complete(bool ast_complete) noexcept {
+        ast_complete_ = ast_complete;
+    }
+
     bool get_dump_parse() const noexcept { return dump_parse_; }
 
     void set_dump_parse(bool dump_parse) noexcept { dump_parse_ = dump_parse; }
@@ -375,6 +385,25 @@ class CompilerContext {
 
     void set_parse_tree_root(std::unique_ptr<ParseTreeNode> parse_tree_root) {
         parse_tree_root_ = std::move(parse_tree_root);
+    }
+
+    const std::string &get_ast_dump_file_path() const noexcept {
+        return ast_dump_file_path_;
+    }
+
+    void set_ast_dump_file_path(std::string ast_dump_file_path) {
+        ast_dump_file_path_ = std::move(ast_dump_file_path);
+    }
+
+    const AstNode *get_ast_root() const noexcept { return ast_root_.get(); }
+
+    void set_ast_root(std::unique_ptr<AstNode> ast_root) {
+        ast_root_ = std::move(ast_root);
+    }
+
+    void clear_ast_root() {
+        ast_root_.reset();
+        ast_complete_ = false;
     }
 };
 } // namespace sysycc

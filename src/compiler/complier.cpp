@@ -3,6 +3,7 @@
 #include <memory>
 #include <utility>
 
+#include "frontend/ast/ast_pass.hpp"
 #include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser.hpp"
 #include "frontend/preprocess/preprocess.hpp"
@@ -25,6 +26,7 @@ void Complier::InitializePasses() {
     pass_manager_.AddPass(std::make_unique<PreprocessPass>());
     pass_manager_.AddPass(std::make_unique<LexerPass>());
     pass_manager_.AddPass(std::make_unique<ParserPass>());
+    pass_manager_.AddPass(std::make_unique<AstPass>());
     pipeline_initialized_ = true;
 }
 

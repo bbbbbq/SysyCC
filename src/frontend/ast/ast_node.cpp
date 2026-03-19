@@ -1,0 +1,548 @@
+#include "frontend/ast/ast_node.hpp"
+
+#include <utility>
+
+namespace sysycc {
+
+AstNode::AstNode(AstKind kind, SourceSpan source_span)
+    : kind_(kind), source_span_(std::move(source_span)) {}
+
+AstKind AstNode::get_kind() const noexcept { return kind_; }
+
+const SourceSpan &AstNode::get_source_span() const noexcept {
+    return source_span_;
+}
+
+Decl::Decl(AstKind kind, SourceSpan source_span)
+    : AstNode(kind, std::move(source_span)) {}
+
+Stmt::Stmt(AstKind kind, SourceSpan source_span)
+    : AstNode(kind, std::move(source_span)) {}
+
+Expr::Expr(AstKind kind, SourceSpan source_span)
+    : AstNode(kind, std::move(source_span)) {}
+
+TypeNode::TypeNode(AstKind kind, SourceSpan source_span)
+    : AstNode(kind, std::move(source_span)) {}
+
+TranslationUnit::TranslationUnit(SourceSpan source_span)
+    : AstNode(AstKind::TranslationUnit, std::move(source_span)) {}
+
+std::vector<std::unique_ptr<Decl>> &TranslationUnit::get_top_level_decls()
+    noexcept {
+    return top_level_decls_;
+}
+
+const std::vector<std::unique_ptr<Decl>> &
+TranslationUnit::get_top_level_decls() const noexcept {
+    return top_level_decls_;
+}
+
+void TranslationUnit::add_top_level_decl(std::unique_ptr<Decl> decl) {
+    if (decl == nullptr) {
+        return;
+    }
+    top_level_decls_.push_back(std::move(decl));
+}
+
+BuiltinTypeNode::BuiltinTypeNode(std::string name, SourceSpan source_span)
+    : TypeNode(AstKind::BuiltinType, std::move(source_span)),
+      name_(std::move(name)) {}
+
+const std::string &BuiltinTypeNode::get_name() const noexcept { return name_; }
+
+PointerTypeNode::PointerTypeNode(std::unique_ptr<TypeNode> pointee_type,
+                                 SourceSpan source_span)
+    : TypeNode(AstKind::PointerType, std::move(source_span)),
+      pointee_type_(std::move(pointee_type)) {}
+
+const TypeNode *PointerTypeNode::get_pointee_type() const noexcept {
+    return pointee_type_.get();
+}
+
+StructTypeNode::StructTypeNode(std::string name, SourceSpan source_span)
+    : TypeNode(AstKind::StructType, std::move(source_span)),
+      name_(std::move(name)) {}
+
+const std::string &StructTypeNode::get_name() const noexcept { return name_; }
+
+EnumTypeNode::EnumTypeNode(std::string name, SourceSpan source_span)
+    : TypeNode(AstKind::EnumType, std::move(source_span)), name_(std::move(name)) {}
+
+const std::string &EnumTypeNode::get_name() const noexcept { return name_; }
+
+UnknownTypeNode::UnknownTypeNode(std::string summary, SourceSpan source_span)
+    : TypeNode(AstKind::UnknownType, std::move(source_span)),
+      summary_(std::move(summary)) {}
+
+const std::string &UnknownTypeNode::get_summary() const noexcept {
+    return summary_;
+}
+
+FunctionDecl::FunctionDecl(std::string name,
+                           std::unique_ptr<TypeNode> return_type,
+                           std::vector<std::unique_ptr<Decl>> parameters,
+                           std::unique_ptr<Stmt> body, SourceSpan source_span)
+    : Decl(AstKind::FunctionDecl, std::move(source_span)),
+      name_(std::move(name)), return_type_(std::move(return_type)),
+      parameters_(std::move(parameters)), body_(std::move(body)) {}
+
+const std::string &FunctionDecl::get_name() const noexcept { return name_; }
+
+const TypeNode *FunctionDecl::get_return_type() const noexcept {
+    return return_type_.get();
+}
+
+const std::vector<std::unique_ptr<Decl>> &FunctionDecl::get_parameters() const
+    noexcept {
+    return parameters_;
+}
+
+const Stmt *FunctionDecl::get_body() const noexcept { return body_.get(); }
+
+ParamDecl::ParamDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
+                     std::vector<std::unique_ptr<Expr>> dimensions,
+                     SourceSpan source_span)
+    : Decl(AstKind::ParamDecl, std::move(source_span)), name_(std::move(name)),
+      declared_type_(std::move(declared_type)),
+      dimensions_(std::move(dimensions)) {}
+
+const std::string &ParamDecl::get_name() const noexcept { return name_; }
+
+const TypeNode *ParamDecl::get_declared_type() const noexcept {
+    return declared_type_.get();
+}
+
+const std::vector<std::unique_ptr<Expr>> &ParamDecl::get_dimensions() const
+    noexcept {
+    return dimensions_;
+}
+
+FieldDecl::FieldDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
+                     std::vector<std::unique_ptr<Expr>> dimensions,
+                     SourceSpan source_span)
+    : Decl(AstKind::FieldDecl, std::move(source_span)), name_(std::move(name)),
+      declared_type_(std::move(declared_type)),
+      dimensions_(std::move(dimensions)) {}
+
+const std::string &FieldDecl::get_name() const noexcept { return name_; }
+
+const TypeNode *FieldDecl::get_declared_type() const noexcept {
+    return declared_type_.get();
+}
+
+const std::vector<std::unique_ptr<Expr>> &FieldDecl::get_dimensions() const
+    noexcept {
+    return dimensions_;
+}
+
+VarDecl::VarDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
+                 std::vector<std::unique_ptr<Expr>> dimensions,
+                 std::unique_ptr<Expr> initializer, SourceSpan source_span)
+    : Decl(AstKind::VarDecl, std::move(source_span)), name_(std::move(name)),
+      declared_type_(std::move(declared_type)),
+      dimensions_(std::move(dimensions)), initializer_(std::move(initializer)) {
+}
+
+const std::string &VarDecl::get_name() const noexcept { return name_; }
+
+const TypeNode *VarDecl::get_declared_type() const noexcept {
+    return declared_type_.get();
+}
+
+const std::vector<std::unique_ptr<Expr>> &VarDecl::get_dimensions() const
+    noexcept {
+    return dimensions_;
+}
+
+const Expr *VarDecl::get_initializer() const noexcept {
+    return initializer_.get();
+}
+
+ConstDecl::ConstDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
+                     std::vector<std::unique_ptr<Expr>> dimensions,
+                     std::unique_ptr<Expr> initializer, SourceSpan source_span)
+    : Decl(AstKind::ConstDecl, std::move(source_span)), name_(std::move(name)),
+      declared_type_(std::move(declared_type)),
+      dimensions_(std::move(dimensions)), initializer_(std::move(initializer)) {
+}
+
+const std::string &ConstDecl::get_name() const noexcept { return name_; }
+
+const TypeNode *ConstDecl::get_declared_type() const noexcept {
+    return declared_type_.get();
+}
+
+const std::vector<std::unique_ptr<Expr>> &ConstDecl::get_dimensions() const
+    noexcept {
+    return dimensions_;
+}
+
+const Expr *ConstDecl::get_initializer() const noexcept {
+    return initializer_.get();
+}
+
+StructDecl::StructDecl(std::string name, SourceSpan source_span)
+    : Decl(AstKind::StructDecl, std::move(source_span)), name_(std::move(name)) {}
+
+const std::string &StructDecl::get_name() const noexcept { return name_; }
+
+const std::vector<std::unique_ptr<Decl>> &StructDecl::get_fields() const noexcept {
+    return fields_;
+}
+
+void StructDecl::add_field(std::unique_ptr<Decl> field) {
+    if (field == nullptr) {
+        return;
+    }
+    fields_.push_back(std::move(field));
+}
+
+EnumeratorDecl::EnumeratorDecl(std::string name, std::unique_ptr<Expr> value,
+                               SourceSpan source_span)
+    : Decl(AstKind::EnumeratorDecl, std::move(source_span)),
+      name_(std::move(name)), value_(std::move(value)) {}
+
+const std::string &EnumeratorDecl::get_name() const noexcept { return name_; }
+
+const Expr *EnumeratorDecl::get_value() const noexcept { return value_.get(); }
+
+EnumDecl::EnumDecl(std::string name, SourceSpan source_span)
+    : Decl(AstKind::EnumDecl, std::move(source_span)), name_(std::move(name)) {}
+
+const std::string &EnumDecl::get_name() const noexcept { return name_; }
+
+const std::vector<std::unique_ptr<Decl>> &EnumDecl::get_enumerators() const noexcept {
+    return enumerators_;
+}
+
+void EnumDecl::add_enumerator(std::unique_ptr<Decl> enumerator) {
+    if (enumerator == nullptr) {
+        return;
+    }
+    enumerators_.push_back(std::move(enumerator));
+}
+
+TypedefDecl::TypedefDecl(std::string name, std::unique_ptr<TypeNode> aliased_type,
+                         std::vector<std::unique_ptr<Expr>> dimensions,
+                         SourceSpan source_span)
+    : Decl(AstKind::TypedefDecl, std::move(source_span)),
+      name_(std::move(name)), aliased_type_(std::move(aliased_type)),
+      dimensions_(std::move(dimensions)) {}
+
+const std::string &TypedefDecl::get_name() const noexcept { return name_; }
+
+const TypeNode *TypedefDecl::get_aliased_type() const noexcept {
+    return aliased_type_.get();
+}
+
+const std::vector<std::unique_ptr<Expr>> &TypedefDecl::get_dimensions() const noexcept {
+    return dimensions_;
+}
+
+UnknownDecl::UnknownDecl(std::string summary, SourceSpan source_span)
+    : Decl(AstKind::UnknownDecl, std::move(source_span)),
+      summary_(std::move(summary)) {}
+
+const std::string &UnknownDecl::get_summary() const noexcept {
+    return summary_;
+}
+
+BlockStmt::BlockStmt(SourceSpan source_span)
+    : Stmt(AstKind::BlockStmt, std::move(source_span)) {}
+
+std::vector<std::unique_ptr<Stmt>> &BlockStmt::get_statements() noexcept {
+    return statements_;
+}
+
+const std::vector<std::unique_ptr<Stmt>> &BlockStmt::get_statements() const
+    noexcept {
+    return statements_;
+}
+
+void BlockStmt::add_statement(std::unique_ptr<Stmt> statement) {
+    if (statement == nullptr) {
+        return;
+    }
+    statements_.push_back(std::move(statement));
+}
+
+DeclStmt::DeclStmt(SourceSpan source_span)
+    : Stmt(AstKind::DeclStmt, std::move(source_span)) {}
+
+const std::vector<std::unique_ptr<Decl>> &DeclStmt::get_declarations() const
+    noexcept {
+    return declarations_;
+}
+
+void DeclStmt::add_declaration(std::unique_ptr<Decl> declaration) {
+    if (declaration == nullptr) {
+        return;
+    }
+    declarations_.push_back(std::move(declaration));
+}
+
+ExprStmt::ExprStmt(std::unique_ptr<Expr> expression, SourceSpan source_span)
+    : Stmt(AstKind::ExprStmt, std::move(source_span)),
+      expression_(std::move(expression)) {}
+
+const Expr *ExprStmt::get_expression() const noexcept {
+    return expression_.get();
+}
+
+IfStmt::IfStmt(std::unique_ptr<Expr> condition, std::unique_ptr<Stmt> then_branch,
+               std::unique_ptr<Stmt> else_branch, SourceSpan source_span)
+    : Stmt(AstKind::IfStmt, std::move(source_span)),
+      condition_(std::move(condition)), then_branch_(std::move(then_branch)),
+      else_branch_(std::move(else_branch)) {}
+
+const Expr *IfStmt::get_condition() const noexcept { return condition_.get(); }
+
+const Stmt *IfStmt::get_then_branch() const noexcept {
+    return then_branch_.get();
+}
+
+const Stmt *IfStmt::get_else_branch() const noexcept {
+    return else_branch_.get();
+}
+
+WhileStmt::WhileStmt(std::unique_ptr<Expr> condition, std::unique_ptr<Stmt> body,
+                     SourceSpan source_span)
+    : Stmt(AstKind::WhileStmt, std::move(source_span)),
+      condition_(std::move(condition)), body_(std::move(body)) {}
+
+const Expr *WhileStmt::get_condition() const noexcept { return condition_.get(); }
+
+const Stmt *WhileStmt::get_body() const noexcept { return body_.get(); }
+
+DoWhileStmt::DoWhileStmt(std::unique_ptr<Stmt> body,
+                         std::unique_ptr<Expr> condition, SourceSpan source_span)
+    : Stmt(AstKind::DoWhileStmt, std::move(source_span)),
+      body_(std::move(body)), condition_(std::move(condition)) {}
+
+const Stmt *DoWhileStmt::get_body() const noexcept { return body_.get(); }
+
+const Expr *DoWhileStmt::get_condition() const noexcept {
+    return condition_.get();
+}
+
+ForStmt::ForStmt(std::unique_ptr<Expr> init, std::unique_ptr<Expr> condition,
+                 std::unique_ptr<Expr> step, std::unique_ptr<Stmt> body,
+                 SourceSpan source_span)
+    : Stmt(AstKind::ForStmt, std::move(source_span)), init_(std::move(init)),
+      condition_(std::move(condition)), step_(std::move(step)),
+      body_(std::move(body)) {}
+
+const Expr *ForStmt::get_init() const noexcept { return init_.get(); }
+
+const Expr *ForStmt::get_condition() const noexcept { return condition_.get(); }
+
+const Expr *ForStmt::get_step() const noexcept { return step_.get(); }
+
+const Stmt *ForStmt::get_body() const noexcept { return body_.get(); }
+
+SwitchStmt::SwitchStmt(std::unique_ptr<Expr> condition,
+                       std::unique_ptr<Stmt> body, SourceSpan source_span)
+    : Stmt(AstKind::SwitchStmt, std::move(source_span)),
+      condition_(std::move(condition)), body_(std::move(body)) {}
+
+const Expr *SwitchStmt::get_condition() const noexcept {
+    return condition_.get();
+}
+
+const Stmt *SwitchStmt::get_body() const noexcept { return body_.get(); }
+
+CaseStmt::CaseStmt(std::unique_ptr<Expr> value, std::unique_ptr<Stmt> body,
+                   SourceSpan source_span)
+    : Stmt(AstKind::CaseStmt, std::move(source_span)), value_(std::move(value)),
+      body_(std::move(body)) {}
+
+const Expr *CaseStmt::get_value() const noexcept { return value_.get(); }
+
+const Stmt *CaseStmt::get_body() const noexcept { return body_.get(); }
+
+DefaultStmt::DefaultStmt(std::unique_ptr<Stmt> body, SourceSpan source_span)
+    : Stmt(AstKind::DefaultStmt, std::move(source_span)),
+      body_(std::move(body)) {}
+
+const Stmt *DefaultStmt::get_body() const noexcept { return body_.get(); }
+
+BreakStmt::BreakStmt(SourceSpan source_span)
+    : Stmt(AstKind::BreakStmt, std::move(source_span)) {}
+
+ContinueStmt::ContinueStmt(SourceSpan source_span)
+    : Stmt(AstKind::ContinueStmt, std::move(source_span)) {}
+
+ReturnStmt::ReturnStmt(std::unique_ptr<Expr> value, SourceSpan source_span)
+    : Stmt(AstKind::ReturnStmt, std::move(source_span)),
+      value_(std::move(value)) {}
+
+const Expr *ReturnStmt::get_value() const noexcept { return value_.get(); }
+
+UnknownStmt::UnknownStmt(std::string summary, SourceSpan source_span)
+    : Stmt(AstKind::UnknownStmt, std::move(source_span)),
+      summary_(std::move(summary)) {}
+
+const std::string &UnknownStmt::get_summary() const noexcept {
+    return summary_;
+}
+
+IntegerLiteralExpr::IntegerLiteralExpr(std::string value_text,
+                                       SourceSpan source_span)
+    : Expr(AstKind::IntegerLiteralExpr, std::move(source_span)),
+      value_text_(std::move(value_text)) {}
+
+const std::string &IntegerLiteralExpr::get_value_text() const noexcept {
+    return value_text_;
+}
+
+FloatLiteralExpr::FloatLiteralExpr(std::string value_text,
+                                   SourceSpan source_span)
+    : Expr(AstKind::FloatLiteralExpr, std::move(source_span)),
+      value_text_(std::move(value_text)) {}
+
+const std::string &FloatLiteralExpr::get_value_text() const noexcept {
+    return value_text_;
+}
+
+CharLiteralExpr::CharLiteralExpr(std::string value_text, SourceSpan source_span)
+    : Expr(AstKind::CharLiteralExpr, std::move(source_span)),
+      value_text_(std::move(value_text)) {}
+
+const std::string &CharLiteralExpr::get_value_text() const noexcept {
+    return value_text_;
+}
+
+StringLiteralExpr::StringLiteralExpr(std::string value_text,
+                                     SourceSpan source_span)
+    : Expr(AstKind::StringLiteralExpr, std::move(source_span)),
+      value_text_(std::move(value_text)) {}
+
+const std::string &StringLiteralExpr::get_value_text() const noexcept {
+    return value_text_;
+}
+
+IdentifierExpr::IdentifierExpr(std::string name, SourceSpan source_span)
+    : Expr(AstKind::IdentifierExpr, std::move(source_span)),
+      name_(std::move(name)) {}
+
+const std::string &IdentifierExpr::get_name() const noexcept { return name_; }
+
+UnaryExpr::UnaryExpr(std::string operator_text, std::unique_ptr<Expr> operand,
+                     SourceSpan source_span)
+    : Expr(AstKind::UnaryExpr, std::move(source_span)),
+      operator_text_(std::move(operator_text)), operand_(std::move(operand)) {}
+
+const std::string &UnaryExpr::get_operator_text() const noexcept {
+    return operator_text_;
+}
+
+const Expr *UnaryExpr::get_operand() const noexcept { return operand_.get(); }
+
+PrefixExpr::PrefixExpr(std::string operator_text, std::unique_ptr<Expr> operand,
+                       SourceSpan source_span)
+    : Expr(AstKind::PrefixExpr, std::move(source_span)),
+      operator_text_(std::move(operator_text)), operand_(std::move(operand)) {}
+
+const std::string &PrefixExpr::get_operator_text() const noexcept {
+    return operator_text_;
+}
+
+const Expr *PrefixExpr::get_operand() const noexcept { return operand_.get(); }
+
+PostfixExpr::PostfixExpr(std::string operator_text,
+                         std::unique_ptr<Expr> operand, SourceSpan source_span)
+    : Expr(AstKind::PostfixExpr, std::move(source_span)),
+      operator_text_(std::move(operator_text)), operand_(std::move(operand)) {}
+
+const std::string &PostfixExpr::get_operator_text() const noexcept {
+    return operator_text_;
+}
+
+const Expr *PostfixExpr::get_operand() const noexcept { return operand_.get(); }
+
+BinaryExpr::BinaryExpr(std::string operator_text, std::unique_ptr<Expr> lhs,
+                       std::unique_ptr<Expr> rhs, SourceSpan source_span)
+    : Expr(AstKind::BinaryExpr, std::move(source_span)),
+      operator_text_(std::move(operator_text)), lhs_(std::move(lhs)),
+      rhs_(std::move(rhs)) {}
+
+const std::string &BinaryExpr::get_operator_text() const noexcept {
+    return operator_text_;
+}
+
+const Expr *BinaryExpr::get_lhs() const noexcept { return lhs_.get(); }
+
+const Expr *BinaryExpr::get_rhs() const noexcept { return rhs_.get(); }
+
+AssignExpr::AssignExpr(std::unique_ptr<Expr> target, std::unique_ptr<Expr> value,
+                       SourceSpan source_span)
+    : Expr(AstKind::AssignExpr, std::move(source_span)),
+      target_(std::move(target)), value_(std::move(value)) {}
+
+const Expr *AssignExpr::get_target() const noexcept { return target_.get(); }
+
+const Expr *AssignExpr::get_value() const noexcept { return value_.get(); }
+
+CallExpr::CallExpr(std::unique_ptr<Expr> callee,
+                   std::vector<std::unique_ptr<Expr>> arguments,
+                   SourceSpan source_span)
+    : Expr(AstKind::CallExpr, std::move(source_span)),
+      callee_(std::move(callee)), arguments_(std::move(arguments)) {}
+
+const Expr *CallExpr::get_callee() const noexcept { return callee_.get(); }
+
+const std::vector<std::unique_ptr<Expr>> &CallExpr::get_arguments() const
+    noexcept {
+    return arguments_;
+}
+
+IndexExpr::IndexExpr(std::unique_ptr<Expr> base, std::unique_ptr<Expr> index,
+                     SourceSpan source_span)
+    : Expr(AstKind::IndexExpr, std::move(source_span)),
+      base_(std::move(base)), index_(std::move(index)) {}
+
+const Expr *IndexExpr::get_base() const noexcept { return base_.get(); }
+
+const Expr *IndexExpr::get_index() const noexcept { return index_.get(); }
+
+MemberExpr::MemberExpr(std::string operator_text, std::unique_ptr<Expr> base,
+                       std::string member_name, SourceSpan source_span)
+    : Expr(AstKind::MemberExpr, std::move(source_span)),
+      operator_text_(std::move(operator_text)), base_(std::move(base)),
+      member_name_(std::move(member_name)) {}
+
+const std::string &MemberExpr::get_operator_text() const noexcept {
+    return operator_text_;
+}
+
+const Expr *MemberExpr::get_base() const noexcept { return base_.get(); }
+
+const std::string &MemberExpr::get_member_name() const noexcept {
+    return member_name_;
+}
+
+InitListExpr::InitListExpr(SourceSpan source_span)
+    : Expr(AstKind::InitListExpr, std::move(source_span)) {}
+
+const std::vector<std::unique_ptr<Expr>> &InitListExpr::get_elements() const
+    noexcept {
+    return elements_;
+}
+
+void InitListExpr::add_element(std::unique_ptr<Expr> element) {
+    if (element == nullptr) {
+        return;
+    }
+    elements_.push_back(std::move(element));
+}
+
+UnknownExpr::UnknownExpr(std::string summary, SourceSpan source_span)
+    : Expr(AstKind::UnknownExpr, std::move(source_span)),
+      summary_(std::move(summary)) {}
+
+const std::string &UnknownExpr::get_summary() const noexcept {
+    return summary_;
+}
+
+} // namespace sysycc

@@ -9,7 +9,7 @@
 
 namespace sysycc {
 
-enum class PassKind { Preprocess, Lex, Parse, Semantic, IRGen, CodeGen };
+enum class PassKind { Preprocess, Lex, Parse, Ast, Semantic, IRGen, CodeGen };
 
 struct PassResult {
     bool ok = true;

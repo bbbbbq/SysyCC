@@ -39,6 +39,12 @@ add_executable(${PROJECT_NAME}
     src/cli/cli.cpp
     src/compiler/complier.cpp
     src/compiler/pass/pass.cpp
+    src/frontend/ast/ast_dump.cpp
+    src/frontend/ast/ast_node.cpp
+    src/frontend/ast/ast_pass.cpp
+    src/frontend/ast/detail/ast_builder.cpp
+    src/frontend/ast/detail/ast_builder_context.cpp
+    src/frontend/ast/detail/parse_tree_matcher.cpp
     src/frontend/lexer/lexer.cpp
     src/frontend/parser/parser.cpp
     src/frontend/parser/parser_runtime.cpp
