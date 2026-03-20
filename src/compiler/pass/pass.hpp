@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include <memory>
 #include <string>
 #include <utility>
@@ -9,7 +10,15 @@
 
 namespace sysycc {
 
-enum class PassKind { Preprocess, Lex, Parse, Ast, Semantic, IRGen, CodeGen };
+enum class PassKind : uint8_t {
+    Preprocess,
+    Lex,
+    Parse,
+    Ast,
+    Semantic,
+    IRGen,
+    CodeGen,
+};
 
 struct PassResult {
     bool ok = true;

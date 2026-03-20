@@ -2,6 +2,21 @@
 
 namespace sysycc {
 
+// Stores one source position as line and column.
+class SourcePosition {
+  private:
+    int line_ = 0;
+    int column_ = 0;
+
+  public:
+    SourcePosition() = default;
+    SourcePosition(int line, int column)  // NOLINT(bugprone-easily-swappable-parameters)
+        : line_(line), column_(column) {}
+
+    int get_line() const noexcept { return line_; }
+    int get_column() const noexcept { return column_; }
+};
+
 // Stores the begin and end position of a source fragment.
 class SourceSpan {
   private:
@@ -13,9 +28,9 @@ class SourceSpan {
   public:
     SourceSpan() = default;
 
-    SourceSpan(int line_begin, int col_begin, int line_end, int col_end)
-        : line_begin_(line_begin), col_begin_(col_begin), line_end_(line_end),
-          col_end_(col_end) {}
+    SourceSpan(SourcePosition begin, SourcePosition end)
+        : line_begin_(begin.get_line()), col_begin_(begin.get_column()),
+          line_end_(end.get_line()), col_end_(end.get_column()) {}
 
     int get_line_begin() const noexcept { return line_begin_; }
 

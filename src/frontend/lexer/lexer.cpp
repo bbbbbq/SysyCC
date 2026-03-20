@@ -195,10 +195,11 @@ PassResult LexerPass::Run(CompilerContext &context) {
         const char *lexeme = yyget_text(scanner);
 
         if (token == INVALID) {
-            const SourceSpan source_span(lexer_state.get_token_line_begin(),
-                                         lexer_state.get_token_column_begin(),
-                                         lexer_state.get_token_line_end(),
-                                         lexer_state.get_token_column_end());
+            const SourceSpan source_span(
+                SourcePosition(lexer_state.get_token_line_begin(),
+                               lexer_state.get_token_column_begin()),
+                SourcePosition(lexer_state.get_token_line_end(),
+                               lexer_state.get_token_column_end()));
             const std::string invalid_message =
                 FormatInvalidTokenMessage(lexeme, source_span);
             yylex_destroy(scanner);
@@ -208,10 +209,10 @@ PassResult LexerPass::Run(CompilerContext &context) {
 
         context.add_token(
             Token(ToTokenKind(token), lexeme == nullptr ? "" : lexeme,
-                  SourceSpan(lexer_state.get_token_line_begin(),
-                             lexer_state.get_token_column_begin(),
-                             lexer_state.get_token_line_end(),
-                             lexer_state.get_token_column_end())));
+                  SourceSpan(SourcePosition(lexer_state.get_token_line_begin(),
+                                            lexer_state.get_token_column_begin()),
+                             SourcePosition(lexer_state.get_token_line_end(),
+                                            lexer_state.get_token_column_end()))));
     }
 
     yylex_destroy(scanner);

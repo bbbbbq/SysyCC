@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 #include <memory>
 #include <string>
 #include <utility>
@@ -11,7 +12,7 @@
 
 namespace sysycc {
 
-enum class TokenKind {
+enum class TokenKind : uint8_t {
     Identifier,
     IntLiteral,
     FloatLiteral,
@@ -73,7 +74,7 @@ enum class TokenKind {
     Invalid,
 };
 
-enum class TokenCategory {
+enum class TokenCategory : uint8_t {
     Identifier,
     Keyword,
     Literal,
@@ -87,7 +88,7 @@ class Token {
   public:
     Token(TokenKind kind, std::string text, SourceSpan source_span = {})
         : kind_(kind), text_(std::move(text)),
-          source_span_(std::move(source_span)) {}
+          source_span_(source_span) {}
 
     TokenKind get_kind() const noexcept { return kind_; }
 

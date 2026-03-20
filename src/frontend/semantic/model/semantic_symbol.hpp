@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include <string>
 
 namespace sysycc {
@@ -7,7 +8,7 @@ namespace sysycc {
 class AstNode;
 class SemanticType;
 
-enum class SymbolKind {
+enum class SymbolKind : uint8_t {
     Variable,
     Constant,
     Function,

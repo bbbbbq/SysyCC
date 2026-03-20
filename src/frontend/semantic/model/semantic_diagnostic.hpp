@@ -1,12 +1,13 @@
 #pragma once
 
+#include <stdint.h>
 #include <string>
 
 #include "common/source_span.hpp"
 
 namespace sysycc {
 
-enum class DiagnosticSeverity {
+enum class DiagnosticSeverity : uint8_t {
     Error,
     Warning,
 };

@@ -1,9 +1,11 @@
 #pragma once
 
+#include <stdint.h>
+
 namespace sysycc {
 
 // Enumerates every AST node kind currently modeled by the frontend.
-enum class AstKind {
+enum class AstKind : uint8_t {
     TranslationUnit,
     BuiltinType,
     PointerType,

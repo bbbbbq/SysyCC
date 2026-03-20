@@ -36,6 +36,8 @@ SourceSpan merge_child_spans(std::initializer_list<void *> children) {
 
 void parser_runtime_reset() { g_parse_tree_root.reset(); }
 
+// The `label` and `text` strings have distinct parser-runtime semantics.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void *make_terminal_node(const char *label, const char *text,
                          SourceSpan source_span) {
     std::string node_label = label == nullptr ? "token" : label;
@@ -43,7 +45,7 @@ void *make_terminal_node(const char *label, const char *text,
         node_label += " ";
         node_label += text;
     }
-    return new ParseTreeNode(std::move(node_label), std::move(source_span));
+    return new ParseTreeNode(std::move(node_label), source_span);
 }
 
 void *make_nonterminal_node(const char *label,

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdint.h>
 #include <string>
 #include <vector>
 
@@ -7,7 +8,7 @@
 
 namespace sysycc::preprocess::detail {
 
-enum class DirectiveKind {
+enum class DirectiveKind : uint8_t {
     Define,
     Undef,
     Include,

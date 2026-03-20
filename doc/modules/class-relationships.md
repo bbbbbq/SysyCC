@@ -136,6 +136,13 @@ classDiagram
         -col_end_
     }
 
+    class SourcePosition {
+        -line_
+        -column_
+        +get_line()
+        +get_column()
+    }
+
     class ParseTreeNode {
         +string label
         +children
@@ -623,6 +630,7 @@ classDiagram
     SemanticModel *-- SemanticSymbol
     SemanticModel *-- SemanticType
     Token *-- SourceSpan
+    SourceSpan ..> SourcePosition
 ```
 
 ## Main Execution Path

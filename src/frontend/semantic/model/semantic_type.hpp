@@ -1,11 +1,12 @@
 #pragma once
 
+#include <stdint.h>
 #include <string>
 #include <vector>
 
 namespace sysycc {
 
-enum class SemanticTypeKind {
+enum class SemanticTypeKind : uint8_t {
     Builtin,
     Pointer,
     Array,

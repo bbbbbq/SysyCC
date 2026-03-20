@@ -11,19 +11,24 @@ multiple compilation stages.
 
 ## Responsibilities
 
+- represent individual source code positions
 - represent source code location ranges
 - provide a reusable span type for lexer, parser, AST, and diagnostics
 
 ## Current Types
 
+### `SourcePosition`
+
+`SourcePosition` models one concrete source location using:
+
+- line
+- column
+
 ### `SourceSpan`
 
-`SourceSpan` models a half-open source location idea using:
+`SourceSpan` models a source location range using:
 
-- line begin
-- column begin
-- line end
-- column end
+- begin `SourcePosition`
+- end `SourcePosition`
 
-It is currently used by [Token](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp).
-
+It is currently used by [Token](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp), parse-tree nodes, AST nodes, and semantic diagnostics.

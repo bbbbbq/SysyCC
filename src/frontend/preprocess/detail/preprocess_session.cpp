@@ -37,14 +37,14 @@ PassResult PreprocessSession::Run() {
     macro_table_.clear();
     conditional_stack_.clear();
 
-    const PassResult result = preprocess_file(context_.get_input_file());
+    PassResult result = preprocess_file(context_.get_input_file());
     if (!result.ok) {
         context_.set_preprocessed_file_path("");
         return result;
     }
 
     std::string output_file_path;
-    const PassResult write_result = write_preprocessed_file(output_file_path);
+    PassResult write_result = write_preprocessed_file(output_file_path);
     if (!write_result.ok) {
         context_.set_preprocessed_file_path("");
         return write_result;
@@ -63,7 +63,7 @@ PassResult PreprocessSession::evaluate_if_condition(const Directive &directive,
     }
 
     long long value = 0;
-    const PassResult evaluate_result = constant_expression_evaluator_.evaluate(
+    PassResult evaluate_result = constant_expression_evaluator_.evaluate(
         arguments[0], macro_table_, value);
     if (!evaluate_result.ok) {
         return evaluate_result;
@@ -186,7 +186,7 @@ PreprocessSession::handle_conditional_directive(const Directive &directive) {
         condition = !macro_table_.has_macro(arguments[0]);
         return conditional_stack_.push_if(condition);
     case DirectiveKind::If: {
-        const PassResult condition_result =
+        PassResult condition_result =
             evaluate_if_condition(directive, condition);
         if (!condition_result.ok) {
             return condition_result;
@@ -194,7 +194,7 @@ PreprocessSession::handle_conditional_directive(const Directive &directive) {
         return conditional_stack_.push_if(condition);
     }
     case DirectiveKind::Elif: {
-        const PassResult condition_result =
+        PassResult condition_result =
             evaluate_if_condition(directive, condition);
         if (!condition_result.ok) {
             return condition_result;
@@ -227,7 +227,7 @@ PassResult PreprocessSession::handle_include_directive(
         macro_expander_.expand_line(arguments[0], macro_table_);
 
     std::string resolved_file_path;
-    const PassResult resolve_result = include_resolver_.resolve_local_include(
+    PassResult resolve_result = include_resolver_.resolve_local_include(
         line, current_file_path, context_.get_include_directories(),
         expanded_include_token, resolved_file_path);
     if (!resolve_result.ok) {
@@ -255,8 +255,9 @@ PassResult PreprocessSession::handle_macro_directive(
         return macro_table_.define_macro(MacroDefinition(
             arguments[0], replacement, directive.get_is_function_like_macro(),
             directive.get_macro_parameters(),
-            SourceSpan(line_number, 1, line_number,
-                       static_cast<int>(line.size()))));
+            SourceSpan(SourcePosition(line_number, 1),
+                       SourcePosition(line_number,
+                                      static_cast<int>(line.size())))));
     }
 
     if (directive.get_kind() == DirectiveKind::Undef) {
@@ -276,7 +277,7 @@ PassResult
 PreprocessSession::process_line(const std::string &line, int line_number,
                                 const std::string &current_file_path) {
     std::string stripped_line;
-    const PassResult strip_result =
+    PassResult strip_result =
         strip_comments_from_line(line, stripped_line);
     if (!strip_result.ok) {
         return strip_result;
@@ -287,7 +288,7 @@ PreprocessSession::process_line(const std::string &line, int line_number,
     }
 
     Directive directive;
-    const PassResult parse_result =
+    PassResult parse_result =
         directive_parser_.parse(stripped_line, directive);
     if (!parse_result.ok) {
         return parse_result;
@@ -357,7 +358,7 @@ PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
     }
 
     std::vector<std::string> lines;
-    const PassResult load_result = file_loader_.read_lines(file_path, lines);
+    PassResult load_result = file_loader_.read_lines(file_path, lines);
     if (!load_result.ok) {
         return load_result;
     }
@@ -367,7 +368,7 @@ PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
     runtime_.push_file(file_path);
 
     for (std::size_t index = 0; index < lines.size(); ++index) {
-        const PassResult result =
+        PassResult result =
             process_line(lines[index], static_cast<int>(index + 1), file_path);
         if (!result.ok) {
             runtime_.pop_file();
