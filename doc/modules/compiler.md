@@ -42,6 +42,7 @@ The shared data container for passes. It stores:
 - parse tree root
 - ast root
 - semantic model
+- diagnostic engine
 - dump output paths
 
 ### `PassManager`
@@ -64,3 +65,6 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass
 
 - The file and class names currently use `Complier` instead of `Compiler`.
 - `PassResult` carries pass success state and a short message.
+- [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+  also owns one shared diagnostic engine so passes can emit stage-tagged
+  diagnostics through one uniform interface.

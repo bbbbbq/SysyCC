@@ -11,6 +11,7 @@ doc/
     ├── common.md
     ├── compiler.md
     ├── ast.md
+    ├── diagnostic.md
     ├── lexer.md
     ├── manual.md
     ├── parser.md
@@ -62,6 +63,7 @@ main
 - [common.md](/Users/caojunze424/code/SysyCC/doc/modules/common.md): shared lightweight value types
 - [compiler.md](/Users/caojunze424/code/SysyCC/doc/modules/compiler.md): compiler core objects and pass scheduling
 - [ast.md](/Users/caojunze424/code/SysyCC/doc/modules/ast.md): AST node hierarchy, AST pass, and parse-tree lowering helpers
+- [diagnostic.md](/Users/caojunze424/code/SysyCC/doc/modules/diagnostic.md): shared diagnostic records and the compiler-wide diagnostic engine
 - [lexer.md](/Users/caojunze424/code/SysyCC/doc/modules/lexer.md): lexical analysis pass, flex template, and token output behavior
 - [manual.md](/Users/caojunze424/code/SysyCC/doc/modules/manual.md): external manuals and language references
 - [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md): syntax analysis pass, bison grammar, and parse runtime
@@ -85,6 +87,7 @@ main
 - Parse tree dumps are written to `build/intermediate_results/*.parse.txt`.
 - AST dumps are written to `build/intermediate_results/*.ast.txt`.
 - semantic results are stored in memory as a `SemanticModel` attached to `CompilerContext`.
+- pass-independent diagnostics are stored in memory as a `DiagnosticEngine` attached to `CompilerContext`.
 - The parser now accepts a broader C-style subset including `float`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, and both `.` / `->` member access.
 - The AST stage now lowers core declaration, expression, and control-flow nodes such as parameters, declarations, assignments, calls, `if`, `while`, `for`, `do ... while`, `switch/case/default`, pointer declarators, `.` / `->` member access, plus parsed `struct`, `enum`, and `typedef` declarations into a compiler-facing tree.
 - `AstPass` now records AST completeness in `CompilerContext` and rejects incomplete ASTs when `--dump-ast` explicitly requests AST output.
@@ -95,9 +98,10 @@ main
 
 1. [compiler.md](/Users/caojunze424/code/SysyCC/doc/modules/compiler.md)
 2. [class-relationships.md](/Users/caojunze424/code/SysyCC/doc/modules/class-relationships.md)
-3. [preprocess.md](/Users/caojunze424/code/SysyCC/doc/modules/preprocess.md)
-4. [lexer.md](/Users/caojunze424/code/SysyCC/doc/modules/lexer.md)
-5. [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md)
-6. [ast.md](/Users/caojunze424/code/SysyCC/doc/modules/ast.md)
-7. [semantic.md](/Users/caojunze424/code/SysyCC/doc/modules/semantic.md)
-8. [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md)
+3. [diagnostic.md](/Users/caojunze424/code/SysyCC/doc/modules/diagnostic.md)
+4. [preprocess.md](/Users/caojunze424/code/SysyCC/doc/modules/preprocess.md)
+5. [lexer.md](/Users/caojunze424/code/SysyCC/doc/modules/lexer.md)
+6. [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md)
+7. [ast.md](/Users/caojunze424/code/SysyCC/doc/modules/ast.md)
+8. [semantic.md](/Users/caojunze424/code/SysyCC/doc/modules/semantic.md)
+9. [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md)

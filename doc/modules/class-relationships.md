@@ -40,6 +40,7 @@ classDiagram
         -ast_root_
         -ast_complete_
         -semantic_model_
+        -diagnostic_engine_
         -token_dump_file_path_
         -parse_dump_file_path_
         -ast_dump_file_path_
@@ -68,6 +69,28 @@ classDiagram
     }
 
     class SemanticPass {
+    }
+
+    class Diagnostic {
+        -level_
+        -stage_
+        -message_
+        -source_span_
+        +get_level()
+        +get_stage()
+        +get_message()
+        +get_source_span()
+    }
+
+    class DiagnosticEngine {
+        -diagnostics_
+        +get_diagnostics()
+        +clear()
+        +has_error()
+        +add_diagnostic()
+        +add_error()
+        +add_warning()
+        +add_note()
     }
 
     class LexerState {
@@ -537,6 +560,11 @@ classDiagram
     AstPass ..> CompilerContext : writes ast root
     SemanticPass ..> CompilerContext : writes semantic model
     PreprocessPass ..> CompilerContext : writes preprocessed file path
+    PreprocessPass ..> DiagnosticEngine : emits diagnostics
+    LexerPass ..> DiagnosticEngine : emits diagnostics
+    ParserPass ..> DiagnosticEngine : emits diagnostics
+    AstPass ..> DiagnosticEngine : emits diagnostics
+    SemanticPass ..> DiagnosticEngine : emits diagnostics
     PreprocessPass ..> PreprocessSession
     PreprocessSession *-- PreprocessorRuntime
     PreprocessorRuntime *-- MacroDefinition
@@ -550,6 +578,8 @@ classDiagram
     CompilerContext *-- ParseTreeNode
     CompilerContext *-- AstNode
     CompilerContext *-- SemanticModel
+    CompilerContext *-- DiagnosticEngine
+    DiagnosticEngine *-- Diagnostic
     AstNode <|-- TranslationUnit
     AstNode <|-- FunctionDecl
     AstNode <|-- ParamDecl
@@ -630,6 +660,7 @@ classDiagram
     SemanticModel *-- SemanticSymbol
     SemanticModel *-- SemanticType
     Token *-- SourceSpan
+    Diagnostic *-- SourceSpan
     SourceSpan ..> SourcePosition
 ```
 
@@ -710,6 +741,7 @@ Role:
 - store ast root
 - store whether the current ast is complete enough for ast-consuming stages
 - store semantic analysis results in a separate semantic model
+- store compiler-wide diagnostics in a shared diagnostic engine
 - store intermediate output paths
 
 ### `sysycc::Pass`
@@ -807,7 +839,24 @@ Role:
 - consume the lowered AST after `AstPass`
 - create a `SemanticModel` and store it back into [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 - install builtin runtime-library symbols before traversing user AST nodes
-- record a first layer of symbol and type bindings without yet enforcing full semantic rules
+- emit unified stage-tagged diagnostics into the shared diagnostic engine
+- record semantic diagnostics in both the `SemanticModel` and the compiler-wide diagnostic engine
+
+### `sysycc::Diagnostic` and `sysycc::DiagnosticEngine`
+
+Defined in:
+
+- [diagnostic.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic.hpp)
+- [diagnostic_engine.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic_engine.hpp)
+
+Role:
+
+- represent one pass-independent diagnostic entry with level, stage, message,
+  and [SourceSpan](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
+- provide one shared collection interface through
+  [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+- let preprocessing, lexing, parsing, AST lowering, and semantic analysis emit
+  diagnostics through one common API
 
 ### `sysycc::LexerState`
 
