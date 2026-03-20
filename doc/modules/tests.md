@@ -11,6 +11,8 @@ Tests are now grouped by pipeline stage:
 
 ```text
 tests/
+├── fuzz/
+│   └── generate_and_build_csmith_cases.sh
 ├── ast/
 │   └── <case>/
 ├── ir/
@@ -54,6 +56,7 @@ Representative paths:
 - [tests/preprocess/comment_preprocess](/Users/caojunze424/code/SysyCC/tests/preprocess/comment_preprocess)
 - [tests/preprocess/function_macro](/Users/caojunze424/code/SysyCC/tests/preprocess/function_macro)
 - [tests/preprocess/include_path](/Users/caojunze424/code/SysyCC/tests/preprocess/include_path)
+- [tests/preprocess/system_include_iso646](/Users/caojunze424/code/SysyCC/tests/preprocess/system_include_iso646)
 - [tests/preprocess/preprocess_nested_conditionals](/Users/caojunze424/code/SysyCC/tests/preprocess/preprocess_nested_conditionals)
 
 ### `tests/lexer/`
@@ -135,13 +138,159 @@ runtime stub, feed stdin, and compare stdout, including:
 - integer input via `getint`
 - integer output via `putint`
 - character output via `putch`
+- arithmetic loops such as `for` and `do-while`
+- `switch/case/default` dispatch
+- short-circuit boolean control flow with runtime-visible behavior
+- fixed-size scalarized data-structure scenarios such as:
+  - stack / queue / deque
+  - ring buffer
+  - linked-list-style cursor traversal
+  - BST-style lookup
+  - priority queue ordering
+  - sorted list insertion
+  - set membership
+  - key-to-value map lookup
 - runtime-style link validation for emitted LLVM `declare` statements
 
 Representative paths:
 
 - [tests/run/run_echo_int](/Users/caojunze424/code/SysyCC/tests/run/run_echo_int)
 - [tests/run/run_sum_two_ints](/Users/caojunze424/code/SysyCC/tests/run/run_sum_two_ints)
+- [tests/run/run_factorial_for](/Users/caojunze424/code/SysyCC/tests/run/run_factorial_for)
+- [tests/run/run_switch_dispatch](/Users/caojunze424/code/SysyCC/tests/run/run_switch_dispatch)
+- [tests/run/run_short_circuit_guard](/Users/caojunze424/code/SysyCC/tests/run/run_short_circuit_guard)
+- [tests/run/run_do_while_sum](/Users/caojunze424/code/SysyCC/tests/run/run_do_while_sum)
+- [tests/run/run_stack_lifo](/Users/caojunze424/code/SysyCC/tests/run/run_stack_lifo)
+- [tests/run/run_queue_fifo](/Users/caojunze424/code/SysyCC/tests/run/run_queue_fifo)
+- [tests/run/run_ring_buffer_wrap](/Users/caojunze424/code/SysyCC/tests/run/run_ring_buffer_wrap)
+- [tests/run/run_deque_pop_ends](/Users/caojunze424/code/SysyCC/tests/run/run_deque_pop_ends)
+- [tests/run/run_linked_list_sum](/Users/caojunze424/code/SysyCC/tests/run/run_linked_list_sum)
+- [tests/run/run_bst_search](/Users/caojunze424/code/SysyCC/tests/run/run_bst_search)
+- [tests/run/run_priority_queue_pop](/Users/caojunze424/code/SysyCC/tests/run/run_priority_queue_pop)
+- [tests/run/run_sorted_list_insert](/Users/caojunze424/code/SysyCC/tests/run/run_sorted_list_insert)
+- [tests/run/run_set_membership](/Users/caojunze424/code/SysyCC/tests/run/run_set_membership)
+- [tests/run/run_map_lookup](/Users/caojunze424/code/SysyCC/tests/run/run_map_lookup)
 - [tests/run/support/runtime_stub.c](/Users/caojunze424/code/SysyCC/tests/run/support/runtime_stub.c)
+
+Each runtime case also maintains its own `build/` directory under
+`tests/run/<case>/build/`, where the case stores copied frontend artifacts,
+the emitted LLVM IR used for host compilation, and the final linked executable.
+
+### `tests/fuzz/`
+
+Fuzz-input generation helpers that are not part of the ordinary regression
+matrix. The current scripts are:
+
+- [tests/fuzz/generate_and_build_csmith_cases.sh](/Users/caojunze424/code/SysyCC/tests/fuzz/generate_and_build_csmith_cases.sh)
+- [tests/fuzz/run_csmith_cases.sh](/Users/caojunze424/code/SysyCC/tests/fuzz/run_csmith_cases.sh)
+
+The script accepts either:
+
+- `<count>`
+- `--generate-only <count>`
+
+and creates numbered case directories such as `tests/fuzz/001/`,
+`tests/fuzz/002/`, and so on.
+
+By default it invokes the locally built Csmith binary at
+`tools/csmith/build/src/csmith`, generates one C source file named
+`fuzz_<id>.c` per directory, and then compiles each generated file with `clang`,
+automatically adding:
+
+- `-I tools/csmith/runtime`
+- `-I tools/csmith/build/runtime`
+
+so the generated source can resolve `#include "csmith.h"` and the runtime
+headers it transitively includes. Each numbered directory then contains:
+
+- `fuzz_<id>.c`
+- `fuzz_<id>.out`
+
+When `--generate-only` is used, the same numbered directories are created but
+only `fuzz_<id>.c` is generated.
+
+Example with generation only:
+
+```bash
+bash tests/fuzz/generate_and_build_csmith_cases.sh --generate-only 3
+```
+
+This produces:
+
+```text
+tests/fuzz/001/fuzz_001.c
+tests/fuzz/002/fuzz_002.c
+tests/fuzz/003/fuzz_003.c
+```
+
+Example with generation and compilation:
+
+```bash
+bash tests/fuzz/generate_and_build_csmith_cases.sh 2
+```
+
+This produces:
+
+```text
+tests/fuzz/001/fuzz_001.c
+tests/fuzz/001/fuzz_001.out
+tests/fuzz/002/fuzz_002.c
+tests/fuzz/002/fuzz_002.out
+```
+
+Generated numbered directories under `tests/fuzz/` are ignored by Git so the
+script can be used as a local fuzz-input workspace.
+
+`run_csmith_cases.sh` executes generated fuzz cases as a differential test
+between the host toolchain and `SysyCC`, then archives all intermediate results
+per numbered directory. It supports:
+
+- `all` to run every numbered case directory under `tests/fuzz/`
+- one or more specific case ids such as `001` or `1 4 7`
+
+For each requested case, the script:
+
+1. compiles `fuzz_<id>.c` with `clang`
+2. runs the `clang` binary with the case-local input file if present, or an
+   empty input file otherwise
+3. invokes `SysyCC` with `--dump-ir`
+4. if `SysyCC` succeeds, compiles the emitted LLVM IR with `clang`
+5. runs the `SysyCC`-produced executable with the same input
+6. compares stdout, stderr, and exit code
+
+If `SysyCC` compilation fails, the script keeps the compiler error output in the
+same case directory and records the failure in a top-level summary file:
+
+- [tests/fuzz/result.md](/Users/caojunze424/code/SysyCC/tests/fuzz/result.md)
+
+Each case directory then accumulates files such as:
+
+- `fuzz_<id>.clang.compile.stdout.txt`
+- `fuzz_<id>.clang.compile.stderr.txt`
+- `fuzz_<id>.clang.stdout.txt`
+- `fuzz_<id>.clang.stderr.txt`
+- `fuzz_<id>.clang.exit.txt`
+- `fuzz_<id>.sysycc.compile.stdout.txt`
+- `fuzz_<id>.sysycc.compile.stderr.txt`
+- `fuzz_<id>.sysycc.compile.exit.txt`
+- `fuzz_<id>.ll`
+- `fuzz_<id>.sysycc.link.stdout.txt`
+- `fuzz_<id>.sysycc.link.stderr.txt`
+- `fuzz_<id>.sysycc.link.exit.txt`
+- `fuzz_<id>.sysycc.stdout.txt`
+- `fuzz_<id>.sysycc.stderr.txt`
+- `fuzz_<id>.sysycc.exit.txt`
+- `fuzz_<id>.compare.txt`
+
+This makes it possible to inspect both compiler paths and the final output
+comparison for one specific numbered case directory.
+
+Example:
+
+```bash
+bash tests/fuzz/run_csmith_cases.sh 001
+bash tests/fuzz/run_csmith_cases.sh all
+```
 
 ### `tests/ir/`
 
@@ -186,3 +335,5 @@ self-validating through their own `run.sh`; `run_all.sh` records those as
 
 The same dedicated-assertion path is also used for `tests/run/`, because those
 cases validate executable stdout instead of only checking intermediate artifacts.
+Their per-case `build/` directories provide a stable place to inspect the
+runtime-focused intermediate files after a test run.

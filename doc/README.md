@@ -23,7 +23,9 @@ doc/
     └── legacy-pass.md
 ```
 Tests now live inside stage-specific case directories under `tests/<stage>/<case>/`, each bundling the `.sy` input and an executable `run.sh`.
-The runtime stage additionally provides `tests/run/support/runtime_stub.c` so execution-oriented cases can compile emitted LLVM IR and validate stdin/stdout behavior.
+The runtime stage additionally provides `tests/run/support/runtime_stub.c` so execution-oriented cases can compile emitted LLVM IR and validate stdin/stdout behavior across direct I/O, loops, `switch`, short-circuit control flow, and a growing set of scalarized data-structure scenarios such as stacks, queues, ring buffers, linked-list traversal, BST lookup, and map-style dispatch.
+Each runtime case stores copied intermediate artifacts and the final linked test executable under `tests/run/<case>/build/`.
+The separate [tests/fuzz](/Users/caojunze424/code/SysyCC/tests/fuzz) workspace now provides `generate_and_build_csmith_cases.sh` plus `run_csmith_cases.sh`: the first creates numbered fuzz-input directories such as `001/`, `002/`, and `003/` and optionally compiles them, while the second performs a differential run between host `clang` and `SysyCC` for either one chosen case like `001` or every numbered directory via `all`, archiving compiler logs, runtime stdout/stderr, exit codes, and a top-level summary in `tests/fuzz/result.md`.
 Shared assertions for success-path test scripts live in [tests/test_helpers.sh](/Users/caojunze424/code/SysyCC/tests/test_helpers.sh).
 The top-level regression entry [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh) now also writes a summary table to `build/test_result.md`.
 
@@ -81,9 +83,9 @@ main
 
 - Preprocessed source dumps are written to `build/intermediate_results/*.preprocessed.sy`.
 - The project can tokenize and parse a subset of SysY22.
-- The preprocess stage strips `//` and `/* ... */` comments with string/character literal awareness, supports object macros, `#include "..."` with current-directory and `-I` search paths, plus `#ifdef/#ifndef/#elif/#else/#endif`.
+- The preprocess stage strips `//` and `/* ... */` comments with string/character literal awareness, supports object macros, `#include "..."` plus `#include <...>` with current-directory, `-I`, and default system include search paths, plus `#ifdef/#ifndef/#elif/#else/#endif`.
 - The preprocess stage also supports fixed-arity function-like macros such as `#define ADD(a, b) ((a) + (b))`, including `#` stringification and `##` token pasting.
-- The preprocess stage evaluates simple `#if/#elif` constant expressions including identifiers, `defined(...)`, `&&`, and arithmetic such as `1 + 2`.
+- The preprocess stage evaluates simple `#if/#elif` constant expressions including identifiers, `defined(...)`, `&&`, and arithmetic such as `1 + 2`, and now tolerates `__has_include(...)` / `__has_include_next(...)` checks in system-header guards.
 - The CLI can collect `-I` include directories into compiler options and the preprocess stage now consumes them for include-path resolution.
 - The top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now provides `make check`, which runs `clang-tidy`, `cppcheck`, and `include-what-you-use` through helper scripts under [scripts/](/Users/caojunze424/code/SysyCC/scripts).
 - The static-check pipeline excludes generated parser headers from blocking `clang-tidy` diagnostics and keeps `cppcheck` focused on warning/performance/portability findings.
