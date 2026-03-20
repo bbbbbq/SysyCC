@@ -1,0 +1,24 @@
+int main() {
+    int slot0 = getint();
+    int slot1 = getint();
+    int slot2 = getint();
+    int head = 0;
+    int count = 3;
+
+    while (count > 0) {
+        if (head == 0) {
+            putint(slot0);
+        } else {
+            if (head == 1) {
+                putint(slot1);
+            } else {
+                putint(slot2);
+            }
+        }
+        putch(10);
+        head = head + 1;
+        count = count - 1;
+    }
+
+    return 0;
+}

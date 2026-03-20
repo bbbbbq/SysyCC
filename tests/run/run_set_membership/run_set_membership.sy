@@ -1,0 +1,23 @@
+int main() {
+    int item0 = getint();
+    int item1 = getint();
+    int item2 = getint();
+    int query = getint();
+    int found = 0;
+
+    if (query == item0) {
+        found = 1;
+    } else {
+        if (query == item1) {
+            found = 1;
+        } else {
+            if (query == item2) {
+                found = 1;
+            }
+        }
+    }
+
+    putint(found);
+    putch(10);
+    return 0;
+}

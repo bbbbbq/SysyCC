@@ -1,0 +1,30 @@
+int main() {
+    int value1 = getint();
+    int value2 = getint();
+    int value3 = getint();
+    int key = getint();
+    int result = 0;
+
+    switch (key) {
+    case 1: {
+        result = value1;
+        break;
+    }
+    case 2: {
+        result = value2;
+        break;
+    }
+    case 3: {
+        result = value3;
+        break;
+    }
+    default: {
+        result = 0;
+        break;
+    }
+    }
+
+    putint(result);
+    putch(10);
+    return 0;
+}

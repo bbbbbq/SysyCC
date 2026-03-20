@@ -1,0 +1,10 @@
+int main() {
+    int value = getint();
+    int result = 0;
+    if (value != 0 && 20 / value > 3) {
+        result = 1;
+    }
+    putint(result);
+    putch(10);
+    return 0;
+}

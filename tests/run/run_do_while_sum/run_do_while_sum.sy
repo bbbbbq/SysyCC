@@ -1,0 +1,11 @@
+int main() {
+    int count = getint();
+    int sum = 0;
+    do {
+        sum = sum + count;
+        count = count - 1;
+    } while (count > 0);
+    putint(sum);
+    putch(10);
+    return 0;
+}

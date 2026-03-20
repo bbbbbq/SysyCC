@@ -1,0 +1,26 @@
+int main() {
+    int value0 = getint();
+    int value1 = getint();
+    int value2 = getint();
+    int cursor = 1;
+    int sum = 0;
+
+    while (cursor != 0) {
+        if (cursor == 1) {
+            sum = sum + value0;
+            cursor = 2;
+        } else {
+            if (cursor == 2) {
+                sum = sum + value1;
+                cursor = 3;
+            } else {
+                sum = sum + value2;
+                cursor = 0;
+            }
+        }
+    }
+
+    putint(sum);
+    putch(10);
+    return 0;
+}
