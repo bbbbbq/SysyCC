@@ -1,0 +1,8 @@
+#define HEADER_NAME "macro_indirection_header.h"
+#define HEADER_TOKEN HEADER_NAME
+
+#include HEADER_TOKEN
+
+int main() {
+    return INDIRECT_VALUE;
+}

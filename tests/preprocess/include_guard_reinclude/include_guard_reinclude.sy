@@ -1,0 +1,6 @@
+#include "guarded_defs.h"
+#include "guarded_defs.h"
+
+int main() {
+    return only_once;
+}

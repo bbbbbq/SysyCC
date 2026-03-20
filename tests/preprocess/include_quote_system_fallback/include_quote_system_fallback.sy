@@ -1,0 +1,5 @@
+#include "system_only.h"
+
+int main() {
+    return SYSTEM_ONLY_VALUE;
+}

@@ -1,0 +1,9 @@
+#line 200 "virtual_input.sy"
+int main() {
+    return 0;
+}
+
+#line 300
+int helper() {
+    return 1;
+}

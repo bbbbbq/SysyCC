@@ -1,0 +1,15 @@
+#if __has_include("present_local_header.h")
+int local_result = 11;
+#else
+int local_result = -1;
+#endif
+
+#if __has_include(<present_system_header.h>)
+int system_result = 22;
+#else
+int system_result = -1;
+#endif
+
+int main() {
+    return local_result + system_result;
+}

@@ -1,0 +1,4 @@
+#include_next "nope.h"
+int main() {
+    return 0;
+}

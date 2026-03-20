@@ -1,0 +1,11 @@
+#if 0
+int selected = 1;
+#else
+int selected = 2;
+#elif 1
+int selected = 3;
+#endif
+
+int main() {
+    return selected;
+}

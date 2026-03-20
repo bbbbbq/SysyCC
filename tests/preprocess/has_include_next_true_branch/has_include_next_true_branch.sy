@@ -1,0 +1,5 @@
+#include <probe_next.h>
+
+int main() {
+    return next_result;
+}

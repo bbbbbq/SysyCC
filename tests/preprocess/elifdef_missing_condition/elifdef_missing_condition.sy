@@ -1,0 +1,5 @@
+#ifdef FLAG
+int value = 1;
+#elifdef
+int value = 2;
+#endif

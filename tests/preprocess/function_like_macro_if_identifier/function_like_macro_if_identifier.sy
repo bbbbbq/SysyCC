@@ -1,0 +1,11 @@
+#define FLAG(x) 1
+
+#if FLAG
+int selected = 1;
+#else
+int selected = 0;
+#endif
+
+int main() {
+    return selected;
+}

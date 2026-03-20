@@ -1,0 +1,21 @@
+#define PRESENT 1
+
+#ifdef PRESENT
+int selected = 1;
+#elifndef MISSING
+int selected = 2;
+#else
+int selected = 3;
+#endif
+
+#ifndef PRESENT
+int fallback = 4;
+#elifndef MISSING
+int fallback = 5;
+#else
+int fallback = 6;
+#endif
+
+int main() {
+    return selected + fallback;
+}

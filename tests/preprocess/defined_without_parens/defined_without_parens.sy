@@ -1,0 +1,17 @@
+#define FEATURE 1
+
+#if defined FEATURE && !defined MISSING
+int first = 3;
+#else
+int first = -1;
+#endif
+
+#if defined FEATURE ? !defined MISSING : 0
+int second = 4;
+#else
+int second = -1;
+#endif
+
+int main() {
+    return first + second;
+}

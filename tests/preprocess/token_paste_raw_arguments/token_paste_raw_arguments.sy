@@ -1,0 +1,9 @@
+#define X foo
+#define Y bar
+#define XY 19
+#define foobar 77
+#define CAT(a, b) a##b
+
+int main() {
+    return CAT(X, Y);
+}

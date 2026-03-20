@@ -1,0 +1,7 @@
+#pragma clang diagnostic push
+#include "pragma_once_header.h"
+#include "pragma_once_header.h"
+
+int main() {
+    return helper_value;
+}

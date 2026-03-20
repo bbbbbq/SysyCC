@@ -1,0 +1,16 @@
+#define ENABLED 1
+#define PICKED_VALUE \
+    40
+
+#if \
+    ENABLED
+#include \
+    "continued_value.h"
+#else
+#error wrong_branch_selected
+#endif
+
+int main() {
+    int picked = PICKED_VALUE;
+    return picked + CONTINUATION_VALUE;
+}

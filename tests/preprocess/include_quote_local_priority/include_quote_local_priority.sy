@@ -1,0 +1,5 @@
+#include "priority_value.h"
+
+int main() {
+    return PRIORITY_VALUE;
+}

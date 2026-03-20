@@ -1,0 +1,7 @@
+#if 0
+#include "missing_header_should_not_be_resolved.h"
+#endif
+
+int main() {
+    return 21;
+}

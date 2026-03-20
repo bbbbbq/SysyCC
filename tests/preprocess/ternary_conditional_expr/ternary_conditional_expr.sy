@@ -1,0 +1,18 @@
+#define A 0
+#define B 5
+
+#if A ? 11 : (B ? 22 : 33)
+int selected = 22;
+#else
+int selected = -1;
+#endif
+
+#if 1 ? (0 ? 44 : 55) : 66
+int nested = 55;
+#else
+int nested = -1;
+#endif
+
+int main() {
+    return selected + nested;
+}
