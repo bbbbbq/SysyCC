@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "common/diagnostic/diagnostic_engine.hpp"
+#include "backend/ir/ir_result.hpp"
 #include "common/source_span.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/parser/parser_runtime.hpp"
@@ -310,13 +311,16 @@ class CompilerContext {
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
     bool dump_ast_ = false;
+    bool dump_ir_ = false;
     bool ast_complete_ = false;
     std::string token_dump_file_path_;
     std::string parse_dump_file_path_;
     std::string ast_dump_file_path_;
+    std::string ir_dump_file_path_;
     std::unique_ptr<ParseTreeNode> parse_tree_root_;
     std::unique_ptr<AstNode> ast_root_;
     std::unique_ptr<SemanticModel> semantic_model_;
+    std::unique_ptr<IRResult> ir_result_;
     DiagnosticEngine diagnostic_engine_;
 
   public:
@@ -362,6 +366,10 @@ class CompilerContext {
 
     void set_dump_ast(bool dump_ast) noexcept { dump_ast_ = dump_ast; }
 
+    bool get_dump_ir() const noexcept { return dump_ir_; }
+
+    void set_dump_ir(bool dump_ir) noexcept { dump_ir_ = dump_ir; }
+
     bool get_ast_complete() const noexcept { return ast_complete_; }
 
     void set_ast_complete(bool ast_complete) noexcept {
@@ -404,6 +412,14 @@ class CompilerContext {
         ast_dump_file_path_ = std::move(ast_dump_file_path);
     }
 
+    const std::string &get_ir_dump_file_path() const noexcept {
+        return ir_dump_file_path_;
+    }
+
+    void set_ir_dump_file_path(std::string ir_dump_file_path) {
+        ir_dump_file_path_ = std::move(ir_dump_file_path);
+    }
+
     const AstNode *get_ast_root() const noexcept { return ast_root_.get(); }
 
     void set_ast_root(std::unique_ptr<AstNode> ast_root) {
@@ -426,6 +442,16 @@ class CompilerContext {
     }
 
     void clear_semantic_model() { semantic_model_.reset(); }
+
+    const IRResult *get_ir_result() const noexcept { return ir_result_.get(); }
+
+    IRResult *get_ir_result() noexcept { return ir_result_.get(); }
+
+    void set_ir_result(std::unique_ptr<IRResult> ir_result) {
+        ir_result_ = std::move(ir_result);
+    }
+
+    void clear_ir_result() { ir_result_.reset(); }
 
     const DiagnosticEngine &get_diagnostic_engine() const noexcept {
         return diagnostic_engine_;
