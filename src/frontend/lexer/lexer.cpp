@@ -6,6 +6,7 @@
 #include <sstream>
 #include <string>
 
+#include "common/diagnostic/diagnostic_engine.hpp"
 #include "common/source_span.hpp"
 #include "frontend/parser/parser.tab.h"
 
@@ -170,7 +171,10 @@ PassResult LexerPass::Run(CompilerContext &context) {
             : context.get_preprocessed_file_path();
     std::FILE *input = std::fopen(lexer_input_file.c_str(), "r");
     if (input == nullptr) {
-        return PassResult::Failure("failed to open input file for lexer");
+        const std::string message = "failed to open input file for lexer";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Lexer,
+                                                  message);
+        return PassResult::Failure(message);
     }
 
     LexerState lexer_state;
@@ -180,7 +184,10 @@ PassResult LexerPass::Run(CompilerContext &context) {
     yyscan_t scanner = nullptr;
     if (yylex_init_extra(&lexer_state, &scanner) != 0) {
         std::fclose(input);
-        return PassResult::Failure("failed to initialize lexer scanner");
+        const std::string message = "failed to initialize lexer scanner";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Lexer,
+                                                  message);
+        return PassResult::Failure(message);
     }
 
     yyset_in(input, scanner);
@@ -202,6 +209,9 @@ PassResult LexerPass::Run(CompilerContext &context) {
                                lexer_state.get_token_column_end()));
             const std::string invalid_message =
                 FormatInvalidTokenMessage(lexeme, source_span);
+            context.get_diagnostic_engine().add_error(DiagnosticStage::Lexer,
+                                                      invalid_message,
+                                                      source_span);
             yylex_destroy(scanner);
             std::fclose(input);
             return PassResult::Failure(invalid_message);
@@ -228,8 +238,11 @@ PassResult LexerPass::Run(CompilerContext &context) {
 
         std::ofstream ofs(output_file);
         if (!ofs.is_open()) {
-            return PassResult::Failure(
-                "failed to open token dump file in intermediate_results");
+            const std::string message =
+                "failed to open token dump file in intermediate_results";
+            context.get_diagnostic_engine().add_error(DiagnosticStage::Lexer,
+                                                      message);
+            return PassResult::Failure(message);
         }
 
         for (const Token &token : context.tokens()) {

@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "common/diagnostic/diagnostic_engine.hpp"
 #include "frontend/ast/ast_dump.hpp"
 #include "frontend/ast/detail/ast_builder.hpp"
 
@@ -269,7 +270,10 @@ PassResult AstPass::Run(CompilerContext &context) {
     context.clear_ast_root();
 
     if (context.get_parse_tree_root() == nullptr) {
-        return PassResult::Failure("failed to build ast: missing parse tree");
+        const std::string message = "failed to build ast: missing parse tree";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Ast,
+                                                  message);
+        return PassResult::Failure(message);
     }
 
     detail::AstBuilderContext builder_context(context.get_parse_tree_root());
@@ -286,7 +290,10 @@ PassResult AstPass::Run(CompilerContext &context) {
             output_dir / (input_path.stem().string() + ".ast.txt");
         std::ofstream ofs(output_file);
         if (!ofs.is_open()) {
-            return PassResult::Failure("failed to open ast dump file");
+            const std::string message = "failed to open ast dump file";
+            context.get_diagnostic_engine().add_error(DiagnosticStage::Ast,
+                                                      message);
+            return PassResult::Failure(message);
         }
 
         AstDumper dumper;
@@ -299,7 +306,11 @@ PassResult AstPass::Run(CompilerContext &context) {
     }
 
     if (!context.get_ast_complete() && context.get_dump_ast()) {
-        return PassResult::Failure("failed to build ast: ast contains unknown nodes");
+        const std::string message =
+            "failed to build ast: ast contains unknown nodes";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Ast,
+                                                  message);
+        return PassResult::Failure(message);
     }
 
     return PassResult::Success();

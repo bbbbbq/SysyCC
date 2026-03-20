@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include "common/diagnostic/diagnostic_engine.hpp"
 #include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser_runtime.hpp"
 
@@ -48,7 +49,10 @@ PassResult ParserPass::Run(CompilerContext &context) {
             : context.get_preprocessed_file_path();
     std::FILE *input = std::fopen(parser_input_file.c_str(), "r");
     if (input == nullptr) {
-        return PassResult::Failure("failed to open input file for parser");
+        const std::string message = "failed to open input file for parser";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Parser,
+                                                  message);
+        return PassResult::Failure(message);
     }
 
     LexerState lexer_state;
@@ -58,7 +62,10 @@ PassResult ParserPass::Run(CompilerContext &context) {
     yyscan_t scanner = nullptr;
     if (yylex_init_extra(&lexer_state, &scanner) != 0) {
         std::fclose(input);
-        return PassResult::Failure("failed to initialize parser scanner");
+        const std::string message = "failed to initialize parser scanner";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Parser,
+                                                  message);
+        return PassResult::Failure(message);
     }
 
     yyset_in(input, scanner);
@@ -82,8 +89,11 @@ PassResult ParserPass::Run(CompilerContext &context) {
 
         std::ofstream ofs(output_file);
         if (!ofs.is_open()) {
-            return PassResult::Failure(
-                "failed to open parse dump file in intermediate_results");
+            const std::string message =
+                "failed to open parse dump file in intermediate_results";
+            context.get_diagnostic_engine().add_error(DiagnosticStage::Parser,
+                                                      message);
+            return PassResult::Failure(message);
         }
 
         ofs << "input_file: " << context.get_input_file() << "\n";
@@ -95,8 +105,12 @@ PassResult ParserPass::Run(CompilerContext &context) {
         context.set_parse_dump_file_path(output_file.string());
     }
 
-    return parse_success ? PassResult{true, parse_message}
-                         : PassResult::Failure(parse_message);
+    if (!parse_success) {
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Parser,
+                                                  parse_message);
+        return PassResult::Failure(parse_message);
+    }
+    return PassResult{true, parse_message};
 }
 
 } // namespace sysycc

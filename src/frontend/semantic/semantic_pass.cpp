@@ -4,6 +4,7 @@
 #include <string>
 
 #include "frontend/ast/ast_node.hpp"
+#include "common/diagnostic/diagnostic.hpp"
 #include "frontend/semantic/support/builtin_symbols.hpp"
 #include "frontend/semantic/support/scope_stack.hpp"
 #include "frontend/semantic/analysis/semantic_analyzer.hpp"
@@ -41,6 +42,17 @@ std::string format_first_error_message(const SemanticModel &semantic_model) {
     return "semantic error";
 }
 
+DiagnosticLevel to_diagnostic_level(DiagnosticSeverity severity) {
+    switch (severity) {
+    case DiagnosticSeverity::Error:
+        return DiagnosticLevel::Error;
+    case DiagnosticSeverity::Warning:
+        return DiagnosticLevel::Warning;
+    }
+
+    return DiagnosticLevel::Error;
+}
+
 } // namespace
 
 PassKind SemanticPass::Kind() const { return PassKind::Semantic; }
@@ -51,8 +63,11 @@ PassResult SemanticPass::Run(CompilerContext &context) {
     context.clear_semantic_model();
 
     if (context.get_ast_root() == nullptr) {
-        return PassResult::Failure(
-            "failed to run semantic analysis: missing ast");
+        const std::string message =
+            "failed to run semantic analysis: missing ast";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Semantic,
+                                                  message);
+        return PassResult::Failure(message);
     }
 
     auto owned_semantic_model = std::make_unique<SemanticModel>();
@@ -78,6 +93,12 @@ PassResult SemanticPass::Run(CompilerContext &context) {
     }
 
     SemanticModel &semantic_model = semantic_context.get_semantic_model();
+    for (const SemanticDiagnostic &diagnostic : semantic_model.get_diagnostics()) {
+        context.get_diagnostic_engine().add_diagnostic(Diagnostic(
+            to_diagnostic_level(diagnostic.get_severity()),
+            DiagnosticStage::Semantic, diagnostic.get_message(),
+            diagnostic.get_source_span()));
+    }
     const bool success = !has_error_diagnostics(semantic_model);
     semantic_model.set_success(success);
 
