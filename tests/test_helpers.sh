@@ -15,7 +15,34 @@ build_and_link_ir_executable() {
     local runtime_source="$2"
     local output_binary="$3"
 
+    mkdir -p "$(dirname "${output_binary}")"
     clang "${ir_file}" "${runtime_source}" -o "${output_binary}"
+}
+
+copy_basic_frontend_outputs() {
+    local build_dir="$1"
+    local test_name="$2"
+    local output_dir="$3"
+    local result_dir="${build_dir}/intermediate_results"
+
+    mkdir -p "${output_dir}"
+    cp "${result_dir}/${test_name}.preprocessed.sy" "${output_dir}/"
+    cp "${result_dir}/${test_name}.tokens.txt" "${output_dir}/"
+    cp "${result_dir}/${test_name}.parse.txt" "${output_dir}/"
+}
+
+copy_optional_frontend_output() {
+    local build_dir="$1"
+    local test_name="$2"
+    local suffix="$3"
+    local output_dir="$4"
+    local result_dir="${build_dir}/intermediate_results"
+    local source_file="${result_dir}/${test_name}.${suffix}"
+
+    mkdir -p "${output_dir}"
+    if [[ -f "${source_file}" ]]; then
+        cp "${source_file}" "${output_dir}/"
+    fi
 }
 
 assert_file_nonempty() {

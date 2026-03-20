@@ -1,4 +1,8 @@
 build/
+tests/**/build/
+tests/fuzz/[0-9][0-9][0-9]/
+tests/fuzz/result.md
+tools/csmith/
 src/frontend/lexer/lexer_scanner.cpp
 src/frontend/parser/parser_generated.cpp
 src/frontend/parser/parser.tab.h
