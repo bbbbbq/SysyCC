@@ -30,7 +30,8 @@ The run configuration for one compilation task. It stores:
 
 - input file
 - output file
-- include search directories
+- user include search directories
+- default system include search directories
 - dump options
 
 ### `CompilerContext`
@@ -38,6 +39,8 @@ The run configuration for one compilation task. It stores:
 The shared data container for passes. It stores:
 
 - input file
+- user include search directories
+- system include search directories
 - token list
 - parse tree root
 - ast root

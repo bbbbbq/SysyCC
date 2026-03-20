@@ -41,10 +41,16 @@ src/frontend/preprocess/
 - run the preprocessing pass before lexer analysis
 - resolve `#include "..."` against the including file's current directory and
   `-I` include search paths
+- resolve `#include <...>` against default system include search paths
+- fall back from quoted includes to system include directories after exhausting
+  local and user-provided include search paths
 - support conditional directives (`#ifdef`, `#ifndef`, `#elif`, `#else`,
   `#endif`)
 - support simple `#if/#elif` constant expressions including identifiers,
   `defined(...)`, `&&`, and arithmetic
+- tolerate `__has_include(...)` and `__has_include_next(...)` checks in
+  preprocessor conditions by treating them as unavailable during expression
+  evaluation
 - split preprocessing logic across focused internal classes instead of one large
   pass implementation
 

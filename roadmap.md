@@ -5,6 +5,15 @@
 This file records the current language support status of the SysyCC front-end.
 It focuses on what syntax is already implemented and what is still missing.
 
+## Project Direction
+
+- `SysyCC` is intended to support both `SysY22` and `C` language workflows.
+- Near-term implementation choices should prefer shared infrastructure that can
+  serve both targets, instead of hard-coding the project around only one
+  language subset.
+- Subsequent feature work should follow test-driven development by adding or
+  updating focused tests before implementation and regression verification.
+
 ## Current Pipeline
 
 ```text
@@ -68,6 +77,11 @@ source file
   - `#include "file.h"`
   - search current file directory first
   - search CLI `-I` include directories next
+- system include
+  - `#include <file.h>`
+  - search default system include directories
+  - quoted includes fall back to system include directories after local and
+    user-provided include directories
 - conditional compilation
   - `#ifdef`
   - `#ifndef`
@@ -85,11 +99,11 @@ source file
   - equality operators: `==`, `!=`
   - logical operators: `&&`, `||`
   - parenthesized expressions
+  - `__has_include(...)`
+  - `__has_include_next(...)`
 
 ### Not Implemented
 
-- `#include <file.h>`
-- system header default search paths
 - complete C preprocessor compatibility
 - variadic macros
 - multi-line macro definitions using trailing `\`

@@ -25,6 +25,7 @@ classDiagram
         -input_file_
         -output_file_
         -include_directories_
+        -system_include_directories_
         -dump_tokens_
         -dump_parse_
         -dump_ast_
@@ -35,6 +36,7 @@ classDiagram
         -input_file_
         -preprocessed_file_path_
         -include_directories_
+        -system_include_directories_
         -tokens_
         -parse_tree_root_
         -ast_root_
@@ -205,6 +207,7 @@ classDiagram
     }
 
     class IncludeResolver {
+        +resolve_include()
     }
 
     class FileLoader {
@@ -1005,7 +1008,7 @@ Role:
 - `MacroExpander`: expand ordinary source lines with macro substitutions
 - `ConditionalStack`: manage nested `#if/#ifdef/#ifndef/#elif/#else/#endif` state
 - `DirectiveParser`: parse raw directive text into structured directives
-- `IncludeResolver`: resolve local `#include "..."` directives through current-directory and `-I` search paths
+- `IncludeResolver`: resolve both `#include "..."` and `#include <...>` through current-directory, user `-I`, and default system include search paths
 - `FileLoader`: load source files into line sequences
 - `MacroDefinition`: describe one object-like macro definition
 
