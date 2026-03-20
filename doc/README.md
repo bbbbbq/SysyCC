@@ -79,6 +79,8 @@ main
 - The preprocess stage also supports fixed-arity function-like macros such as `#define ADD(a, b) ((a) + (b))`, including `#` stringification and `##` token pasting.
 - The preprocess stage evaluates simple `#if/#elif` constant expressions including identifiers, `defined(...)`, `&&`, and arithmetic such as `1 + 2`.
 - The CLI can collect `-I` include directories into compiler options and the preprocess stage now consumes them for include-path resolution.
+- The top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now provides `make check`, which runs `clang-tidy`, `cppcheck`, and `include-what-you-use` through helper scripts under [scripts/](/Users/caojunze424/code/SysyCC/scripts).
+- The static-check pipeline excludes generated parser headers from blocking `clang-tidy` diagnostics and keeps `cppcheck` focused on warning/performance/portability findings.
 - Token dumps are written to `build/intermediate_results/*.tokens.txt`.
 - Parse tree dumps are written to `build/intermediate_results/*.parse.txt`.
 - AST dumps are written to `build/intermediate_results/*.ast.txt`.
