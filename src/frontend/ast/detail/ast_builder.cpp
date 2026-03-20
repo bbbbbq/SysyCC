@@ -889,15 +889,19 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
     }
 
     if (ParseTreeMatcher::label_equals(node, "postfix_expr") &&
+        node->children.size() == 3 &&
+        ParseTreeMatcher::label_starts_with(node->children[1].get(), "LPAREN") &&
+        ParseTreeMatcher::label_starts_with(node->children[2].get(), "RPAREN")) {
+        return std::make_unique<CallExpr>(build_expr(node->children[0].get()),
+                                          std::vector<std::unique_ptr<Expr>>{},
+                                          get_node_source_span(node));
+    }
+
+    if (ParseTreeMatcher::label_equals(node, "postfix_expr") &&
         node->children.size() == 4) {
         if (ParseTreeMatcher::label_starts_with(node->children[1].get(), "LPAREN")) {
-            std::vector<std::unique_ptr<Expr>> arguments;
-            if (!ParseTreeMatcher::label_equals(node->children[2].get(),
-                                                "argument_expr_list_opt")) {
-                arguments = build_argument_exprs(node->children[2].get());
-            } else if (!node->children[2]->children.empty()) {
-                arguments = build_argument_exprs(node->children[2]->children[0].get());
-            }
+            std::vector<std::unique_ptr<Expr>> arguments =
+                build_argument_exprs(node->children[2].get());
             return std::make_unique<CallExpr>(build_expr(node->children[0].get()),
                                               std::move(arguments),
                                               get_node_source_span(node));
