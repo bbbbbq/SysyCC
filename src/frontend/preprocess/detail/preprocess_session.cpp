@@ -227,8 +227,9 @@ PassResult PreprocessSession::handle_include_directive(
         macro_expander_.expand_line(arguments[0], macro_table_);
 
     std::string resolved_file_path;
-    PassResult resolve_result = include_resolver_.resolve_local_include(
+    PassResult resolve_result = include_resolver_.resolve_include(
         line, current_file_path, context_.get_include_directories(),
+        context_.get_system_include_directories(),
         expanded_include_token, resolved_file_path);
     if (!resolve_result.ok) {
         return resolve_result;

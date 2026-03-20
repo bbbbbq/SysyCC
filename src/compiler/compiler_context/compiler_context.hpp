@@ -307,6 +307,7 @@ class CompilerContext {
     std::string input_file_;
     std::string preprocessed_file_path_;
     std::vector<std::string> include_directories_;
+    std::vector<std::string> system_include_directories_;
     std::vector<Token> tokens_;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
@@ -346,6 +347,16 @@ class CompilerContext {
 
     void set_include_directories(std::vector<std::string> include_directories) {
         include_directories_ = std::move(include_directories);
+    }
+
+    const std::vector<std::string> &
+    get_system_include_directories() const noexcept {
+        return system_include_directories_;
+    }
+
+    void set_system_include_directories(
+        std::vector<std::string> system_include_directories) {
+        system_include_directories_ = std::move(system_include_directories);
     }
 
     const std::vector<Token> &tokens() const { return tokens_; }

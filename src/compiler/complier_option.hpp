@@ -1,10 +1,61 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace sysycc {
+
+namespace detail {
+
+inline std::vector<std::string> get_default_system_include_directories() {
+    std::vector<std::string> system_include_directories;
+
+#if defined(__APPLE__)
+    const std::filesystem::path clang_include_root(
+        "/Library/Developer/CommandLineTools/usr/lib/clang");
+    if (std::filesystem::exists(clang_include_root)) {
+        for (const auto &entry :
+             std::filesystem::directory_iterator(clang_include_root)) {
+            if (!entry.is_directory()) {
+                continue;
+            }
+
+            const std::filesystem::path include_path = entry.path() / "include";
+            if (std::filesystem::exists(include_path)) {
+                system_include_directories.push_back(include_path.string());
+            }
+        }
+    }
+
+    const std::filesystem::path sdk_include_path(
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include");
+    if (std::filesystem::exists(sdk_include_path)) {
+        system_include_directories.push_back(sdk_include_path.string());
+    }
+
+    const std::filesystem::path clt_include_path(
+        "/Library/Developer/CommandLineTools/usr/include");
+    if (std::filesystem::exists(clt_include_path)) {
+        system_include_directories.push_back(clt_include_path.string());
+    }
+#else
+    const std::filesystem::path local_include_path("/usr/local/include");
+    if (std::filesystem::exists(local_include_path)) {
+        system_include_directories.push_back(local_include_path.string());
+    }
+
+    const std::filesystem::path usr_include_path("/usr/include");
+    if (std::filesystem::exists(usr_include_path)) {
+        system_include_directories.push_back(usr_include_path.string());
+    }
+#endif
+
+    return system_include_directories;
+}
+
+} // namespace detail
 
 // Stores the configuration for one compiler invocation.
 class ComplierOption {
@@ -12,6 +63,8 @@ class ComplierOption {
     std::string input_file_;
     std::string output_file_;
     std::vector<std::string> include_directories_;
+    std::vector<std::string> system_include_directories_ =
+        detail::get_default_system_include_directories();
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
     bool dump_ast_ = false;
@@ -49,6 +102,16 @@ class ComplierOption {
 
     void add_include_directory(std::string include_directory) {
         include_directories_.push_back(std::move(include_directory));
+    }
+
+    const std::vector<std::string> &
+    get_system_include_directories() const noexcept {
+        return system_include_directories_;
+    }
+
+    void set_system_include_directories(
+        std::vector<std::string> system_include_directories) {
+        system_include_directories_ = std::move(system_include_directories);
     }
 
     bool dump_tokens() const noexcept { return dump_tokens_; }

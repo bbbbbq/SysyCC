@@ -15,6 +15,8 @@ namespace sysycc {
 Complier::Complier(ComplierOption option) : option_(std::move(option)) {
     context_.set_input_file(option_.get_input_file());
     context_.set_include_directories(option_.get_include_directories());
+    context_.set_system_include_directories(
+        option_.get_system_include_directories());
     context_.set_dump_tokens(option_.dump_tokens());
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
@@ -39,6 +41,8 @@ void Complier::set_option(ComplierOption option) {
     option_ = std::move(option);
     context_.set_input_file(option_.get_input_file());
     context_.set_include_directories(option_.get_include_directories());
+    context_.set_system_include_directories(
+        option_.get_system_include_directories());
     context_.set_dump_tokens(option_.dump_tokens());
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
@@ -63,6 +67,8 @@ PassResult Complier::Run() {
     context_.set_ir_dump_file_path("");
     context_.set_input_file(option_.get_input_file());
     context_.set_include_directories(option_.get_include_directories());
+    context_.set_system_include_directories(
+        option_.get_system_include_directories());
     context_.set_dump_tokens(option_.dump_tokens());
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());

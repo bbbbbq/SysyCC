@@ -163,6 +163,49 @@ class ExpressionParser {
             return PassResult::Success();
         }
 
+        if (consume("__has_include_next") || consume("__has_include")) {
+            skip_spaces();
+            if (!consume("(")) {
+                return PassResult::Failure(
+                    "missing '(' after __has_include in #if expression");
+            }
+
+            skip_spaces();
+            if (index_ >= expression_.size()) {
+                return PassResult::Failure(
+                    "missing header name in __has_include expression");
+            }
+
+            const char opening = expression_[index_];
+            if (opening != '"' && opening != '<') {
+                return PassResult::Failure(
+                    "invalid __has_include operand in #if expression");
+            }
+
+            const char closing = opening == '"' ? '"' : '>';
+            ++index_;
+            while (index_ < expression_.size() &&
+                   expression_[index_] != closing) {
+                ++index_;
+            }
+            if (index_ >= expression_.size()) {
+                return PassResult::Failure(
+                    "missing header terminator in __has_include expression");
+            }
+            ++index_;
+
+            skip_spaces();
+            if (!consume(")")) {
+                return PassResult::Failure(
+                    "missing ')' after __has_include operand");
+            }
+
+            // Treat __has_include-style checks as unavailable until the
+            // preprocessor grows full system-header probing support.
+            value = 0;
+            return PassResult::Success();
+        }
+
         if (consume("!")) {
             PassResult operand_result = parse_unary(value);
             if (!operand_result.ok) {
