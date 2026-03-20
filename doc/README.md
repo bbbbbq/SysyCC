@@ -12,6 +12,7 @@ doc/
     ├── compiler.md
     ├── ast.md
     ├── diagnostic.md
+    ├── ir.md
     ├── lexer.md
     ├── manual.md
     ├── parser.md
@@ -21,7 +22,8 @@ doc/
     ├── tests.md
     └── legacy-pass.md
 ```
-Tests live inside per-case directories under `tests/`, each bundling the `.sy` input and an executable `run.sh`.
+Tests now live inside stage-specific case directories under `tests/<stage>/<case>/`, each bundling the `.sy` input and an executable `run.sh`.
+The runtime stage additionally provides `tests/run/support/runtime_stub.c` so execution-oriented cases can compile emitted LLVM IR and validate stdin/stdout behavior.
 Shared assertions for success-path test scripts live in [tests/test_helpers.sh](/Users/caojunze424/code/SysyCC/tests/test_helpers.sh).
 The top-level regression entry [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh) now also writes a summary table to `build/test_result.md`.
 
@@ -53,6 +55,7 @@ main
       -> ParserPass
       -> AstPass
       -> SemanticPass
+      -> IRGenPass
 ```
 
 ## Module Map
@@ -64,13 +67,14 @@ main
 - [compiler.md](/Users/caojunze424/code/SysyCC/doc/modules/compiler.md): compiler core objects and pass scheduling
 - [ast.md](/Users/caojunze424/code/SysyCC/doc/modules/ast.md): AST node hierarchy, AST pass, and parse-tree lowering helpers
 - [diagnostic.md](/Users/caojunze424/code/SysyCC/doc/modules/diagnostic.md): shared diagnostic records and the compiler-wide diagnostic engine
+- [ir.md](/Users/caojunze424/code/SysyCC/doc/modules/ir.md): modular IR-generation skeleton with an abstract backend and an initial LLVM IR target
 - [lexer.md](/Users/caojunze424/code/SysyCC/doc/modules/lexer.md): lexical analysis pass, flex template, and token output behavior
 - [manual.md](/Users/caojunze424/code/SysyCC/doc/modules/manual.md): external manuals and language references
 - [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md): syntax analysis pass, bison grammar, and parse runtime
 - [preprocess.md](/Users/caojunze424/code/SysyCC/doc/modules/preprocess.md): preprocessing pass, internal helper components, and intermediate source generation
 - [semantic.md](/Users/caojunze424/code/SysyCC/doc/modules/semantic.md): semantic pass, semantic model, scope management, builtin symbol installation, and first semantic rules
 - [scripts.md](/Users/caojunze424/code/SysyCC/doc/modules/scripts.md): developer helper scripts
-- [tests.md](/Users/caojunze424/code/SysyCC/doc/modules/tests.md): test directories, helper scripts, per-case assets, and targeted bug reproducers, all runnable through the top-level regression entry, now covering include-path, nested preprocess conditionals, expression and AST lowering, pointer/member-access AST checks, AST completeness guarding, function-like macro, comment-literal, parser-extension, lexer-diagnostic, exact-token-kind, operator-mix, and lexer-structure tests
+- [tests.md](/Users/caojunze424/code/SysyCC/doc/modules/tests.md): stage-grouped test directories, helper scripts, and per-case assets, all runnable through the top-level regression entry
 - [legacy-pass.md](/Users/caojunze424/code/SysyCC/doc/modules/legacy-pass.md): legacy compatibility files under `src/pass/`
 
 ## Current Status
@@ -88,10 +92,14 @@ main
 - AST dumps are written to `build/intermediate_results/*.ast.txt`.
 - semantic results are stored in memory as a `SemanticModel` attached to `CompilerContext`.
 - pass-independent diagnostics are stored in memory as a `DiagnosticEngine` attached to `CompilerContext`.
+- IR results are now stored in memory as an `IRResult` attached to `CompilerContext`.
 - The parser now accepts a broader C-style subset including `float`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, and both `.` / `->` member access.
 - The AST stage now lowers core declaration, expression, and control-flow nodes such as parameters, declarations, assignments, calls, `if`, `while`, `for`, `do ... while`, `switch/case/default`, pointer declarators, `.` / `->` member access, plus parsed `struct`, `enum`, and `typedef` declarations into a compiler-facing tree.
 - `AstPass` now records AST completeness in `CompilerContext` and rejects incomplete ASTs when `--dump-ast` explicitly requests AST output.
 - `SemanticPass` now installs builtin runtime-library symbols, creates a semantic model, records symbol/type bindings and foldable integer constant-expression values over complete ASTs, rejects semantic errors such as undefined identifiers, redefinitions, non-function call targets, call arity/type mismatches, assignment type/lvalue mismatches, return mismatches, missing return paths in non-void functions, invalid binary/condition/index/unary operands, invalid `break` / `continue` / `case` / `default` placement, duplicate `case` / `default` labels inside one `switch`, non-constant array dimensions and `case` labels, array-to-pointer decay mismatches, invalid pointer arithmetic, invalid null-pointer assignments, and invalid or missing `.` / `->` member access, and skips strict checking when AST lowering is still incomplete.
+- `IRGenPass` now exists as a modular backend stage with an abstract `IRBackend`, an initial `LlvmIrBackend`, `IRResult` storage in `CompilerContext`, and a first LLVM IR lowering path for integer/void functions, integer locals, integer arithmetic and comparisons, short-circuit logical expressions, assignments, direct function calls, and basic `if` / `while` / `for` / `do-while` / `switch` / `break` / `continue` control flow.
+- The LLVM IR backend now also emits top-level `declare` statements for runtime-style external calls such as builtin `getint`, `putint`, and `putch`, which lets runtime regression cases compile emitted `.ll` into host executables.
+- IR dumps are written to `build/intermediate_results/*.ll` when `--dump-ir` is enabled.
 - A local HTML graph page can be generated from parse output.
 
 ## Recommended Reading Order
@@ -104,4 +112,5 @@ main
 6. [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md)
 7. [ast.md](/Users/caojunze424/code/SysyCC/doc/modules/ast.md)
 8. [semantic.md](/Users/caojunze424/code/SysyCC/doc/modules/semantic.md)
-9. [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md)
+9. [ir.md](/Users/caojunze424/code/SysyCC/doc/modules/ir.md)
+10. [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md)

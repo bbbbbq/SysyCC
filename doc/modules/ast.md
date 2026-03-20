@@ -118,20 +118,20 @@ result:
 - The current builder targets the parser runtime tree produced by
   [parser_runtime.hpp](/Users/caojunze424/code/SysyCC/src/frontend/parser/parser_runtime.hpp).
 - The first validation test for this module is
-  [tests/ast_minimal/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_minimal/run.sh).
+  [tests/ast/ast_minimal/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_minimal/run.sh).
 - Additional baseline AST tests live in:
-  - [tests/ast_multiple_functions/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_multiple_functions/run.sh)
-  - [tests/ast_float_return_type/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_float_return_type/run.sh)
-- [tests/ast_unknown_expr/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_unknown_expr/run.sh)
-- [tests/ast_function_call/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_function_call/run.sh)
-- [tests/ast_nested_init_list/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_nested_init_list/run.sh)
-- [tests/ast_pointer_types/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_pointer_types/run.sh)
-- [tests/ast_member_access/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_member_access/run.sh)
-- [tests/ast_source_span/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_source_span/run.sh)
-- [tests/ast_type_decls/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_type_decls/run.sh)
-- [tests/ast_top_level_decls/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_top_level_decls/run.sh)
-- [tests/ast_unknown_expr_preservation/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_unknown_expr_preservation/run.sh)
-- [tests/ast_unknown_guard/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_unknown_guard/run.sh)
-- [tests/ast_void_return/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_void_return/run.sh)
-- [tests/ast_control_flow/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_control_flow/run.sh)
-- [tests/ast_stmt_extensions/run.sh](/Users/caojunze424/code/SysyCC/tests/ast_stmt_extensions/run.sh)
+  - [tests/ast/ast_multiple_functions/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_multiple_functions/run.sh)
+  - [tests/ast/ast_float_return_type/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_float_return_type/run.sh)
+- [tests/ast/ast_unknown_expr/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_unknown_expr/run.sh)
+- [tests/ast/ast_function_call/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_function_call/run.sh)
+- [tests/ast/ast_nested_init_list/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_nested_init_list/run.sh)
+- [tests/ast/ast_pointer_types/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_pointer_types/run.sh)
+- [tests/ast/ast_member_access/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_member_access/run.sh)
+- [tests/ast/ast_source_span/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_source_span/run.sh)
+- [tests/ast/ast_type_decls/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_type_decls/run.sh)
+- [tests/ast/ast_top_level_decls/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_top_level_decls/run.sh)
+- [tests/ast/ast_unknown_expr_preservation/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_unknown_expr_preservation/run.sh)
+- [tests/ast/ast_unknown_guard/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_unknown_guard/run.sh)
+- [tests/ast/ast_void_return/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_void_return/run.sh)
+- [tests/ast/ast_control_flow/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_control_flow/run.sh)
+- [tests/ast/ast_stmt_extensions/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_stmt_extensions/run.sh)

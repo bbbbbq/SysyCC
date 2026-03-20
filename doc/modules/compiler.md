@@ -42,7 +42,9 @@ The shared data container for passes. It stores:
 - parse tree root
 - ast root
 - semantic model
+- ir result
 - diagnostic engine
+- ir dump output path
 - dump output paths
 
 ### `PassManager`
@@ -58,7 +60,7 @@ The scheduler and owner of pass objects. It is responsible for:
 At the current stage, the initialized pipeline is:
 
 ```text
-PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass
+PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass -> IRGenPass
 ```
 
 ## Notes
@@ -68,3 +70,5 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass
 - [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   also owns one shared diagnostic engine so passes can emit stage-tagged
   diagnostics through one uniform interface.
+- The backend stage currently emits textual LLVM IR dumps for the supported AST
+  subset, including multi-branch `switch` lowering.

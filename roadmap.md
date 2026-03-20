@@ -14,7 +14,38 @@ source file
 -> parser
 -> ast
 -> semantic
+-> ir
 ```
+
+## IR
+
+### Implemented
+
+- modular IR generation stage after semantic analysis
+- backend-independent `IRBackend` interface
+- initial LLVM IR backend
+- textual LLVM IR dump output to `build/intermediate_results/*.ll`
+- top-level LLVM `declare` emission for builtin runtime-style external calls
+- lowering for
+  - integer and void functions
+  - integer parameters and integer local variables
+  - integer literals, identifiers, assignments, arithmetic, comparisons, and
+    short-circuit logical expressions
+  - direct function calls
+  - `if`
+  - `while`
+  - `for`
+  - `do-while`
+  - `switch/case/default`
+  - `break`
+  - `continue`
+
+### Not Implemented
+
+- pointer-aware lowering
+- array lowering
+- runtime-library call lowering coverage beyond the current direct-call subset
+- `.ll -> .s` / object-file / linker driver pipeline
 
 ## Preprocess
 

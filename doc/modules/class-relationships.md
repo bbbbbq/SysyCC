@@ -40,10 +40,12 @@ classDiagram
         -ast_root_
         -ast_complete_
         -semantic_model_
+        -ir_result_
         -diagnostic_engine_
         -token_dump_file_path_
         -parse_dump_file_path_
         -ast_dump_file_path_
+        -ir_dump_file_path_
     }
 
     class PassManager {
@@ -71,6 +73,9 @@ classDiagram
     class SemanticPass {
     }
 
+    class IRGenPass {
+    }
+
     class Diagnostic {
         -level_
         -stage_
@@ -91,6 +96,70 @@ classDiagram
         +add_error()
         +add_warning()
         +add_note()
+    }
+
+    class IRResult {
+        -kind_
+        -text_
+        +get_kind()
+        +get_text()
+    }
+
+    class IRValue {
+        +text
+        +type
+    }
+
+    class IRFunctionParameter {
+        +name
+        +type
+    }
+
+    class IRBackend {
+        <<abstract>>
+        +get_kind()
+        +begin_module()
+        +end_module()
+        +begin_function(name, return_type, parameters)
+        +end_function()
+        +create_label(hint)
+        +emit_label(label)
+        +emit_branch(target_label)
+        +emit_cond_branch(condition, true_label, false_label)
+        +emit_integer_literal(value)
+        +emit_alloca(name, type)
+        +emit_store(address, value)
+        +emit_load(address, type)
+        +emit_binary(op, lhs, rhs, result_type)
+        +emit_call(callee, arguments, return_type)
+        +emit_return(value)
+        +emit_return_void()
+        +get_output_text()
+    }
+
+    class IRBuilder {
+        -backend_
+        +Build(context)
+    }
+
+    class LlvmIrBackend {
+    }
+
+    class IRContext {
+        -next_temp_id_
+        -next_label_id_
+        +reset()
+        +allocate_temp_id()
+        +allocate_label_id()
+        +get_temp_name()
+        +get_label_name()
+    }
+
+    class SymbolValueMap {
+        -values_
+        +clear()
+        +bind_value(node, value)
+        +get_value(node)
     }
 
     class LexerState {
@@ -553,12 +622,14 @@ classDiagram
     Pass <|-- ParserPass
     Pass <|-- AstPass
     Pass <|-- SemanticPass
+    Pass <|-- IRGenPass
     LexerPass ..> CompilerContext : writes tokens
     LexerPass *-- LexerState
     ParserPass *-- LexerState
     ParserPass ..> CompilerContext : writes parse tree
     AstPass ..> CompilerContext : writes ast root
     SemanticPass ..> CompilerContext : writes semantic model
+    IRGenPass ..> CompilerContext : writes ir result
     PreprocessPass ..> CompilerContext : writes preprocessed file path
     PreprocessPass ..> DiagnosticEngine : emits diagnostics
     LexerPass ..> DiagnosticEngine : emits diagnostics
@@ -578,6 +649,7 @@ classDiagram
     CompilerContext *-- ParseTreeNode
     CompilerContext *-- AstNode
     CompilerContext *-- SemanticModel
+    CompilerContext *-- IRResult
     CompilerContext *-- DiagnosticEngine
     DiagnosticEngine *-- Diagnostic
     AstNode <|-- TranslationUnit
@@ -635,6 +707,13 @@ classDiagram
     ReturnStmt *-- IntegerLiteralExpr
     MemberExpr *-- IdentifierExpr
     SemanticPass ..> SemanticAnalyzer
+    IRGenPass ..> IRBuilder
+    IRBuilder ..> IRBackend
+    IRBackend <|-- LlvmIrBackend
+    IRBackend ..> IRValue
+    IRBackend ..> IRFunctionParameter
+    IRBuilder ..> IRContext
+    IRBuilder ..> SymbolValueMap
     SemanticAnalyzer ..> DeclAnalyzer
     SemanticAnalyzer ..> StmtAnalyzer
     SemanticAnalyzer ..> ExprAnalyzer
@@ -679,6 +758,7 @@ main
       -> ParserPass
       -> AstPass
       -> SemanticPass
+      -> IRGenPass
 ```
 
 ## Class Roles
@@ -741,6 +821,7 @@ Role:
 - store ast root
 - store whether the current ast is complete enough for ast-consuming stages
 - store semantic analysis results in a separate semantic model
+- store one IR result and IR dump path for backend stages
 - store compiler-wide diagnostics in a shared diagnostic engine
 - store intermediate output paths
 
@@ -761,6 +842,7 @@ Current concrete subclasses:
 - `ParserPass`
 - `AstPass`
 - `SemanticPass`
+- `IRGenPass`
 
 ### `sysycc::PreprocessPass`
 
@@ -795,6 +877,7 @@ Current pipeline order:
 - `ParserPass`
 - `AstPass`
 - `SemanticPass`
+- `IRGenPass`
 
 ### `sysycc::LexerPass` and `sysycc::ParserPass`
 
@@ -841,6 +924,26 @@ Role:
 - install builtin runtime-library symbols before traversing user AST nodes
 - emit unified stage-tagged diagnostics into the shared diagnostic engine
 - record semantic diagnostics in both the `SemanticModel` and the compiler-wide diagnostic engine
+
+### `sysycc::IRGenPass`, `sysycc::IRBuilder`, `sysycc::IRBackend`, and `sysycc::LlvmIrBackend`
+
+Defined in:
+
+- [ir_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/ir_pass.hpp)
+- [ir_builder.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/ir_builder.hpp)
+- [ir_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/ir_backend.hpp)
+- [llvm_ir_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/llvm/llvm_ir_backend.hpp)
+
+Role:
+
+- prepare the backend stage after semantic analysis
+- keep `IRGenPass` as the only public backend pass entry
+- route generation through an abstract backend interface instead of exposing
+  LLVM details directly to the pass
+- provide `LlvmIrBackend` as the first concrete target while leaving room for
+  future IR backends
+- let `IRBackend` own top-level declaration emission so runtime-style external
+  calls can be declared without leaking LLVM syntax into `IRGenPass`
 
 ### `sysycc::Diagnostic` and `sysycc::DiagnosticEngine`
 
