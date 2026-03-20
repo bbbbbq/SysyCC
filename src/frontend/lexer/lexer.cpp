@@ -150,7 +150,12 @@ std::string FormatInvalidTokenMessage(const char *lexeme,
     std::ostringstream oss;
     oss << "lexer encountered invalid token '"
         << (lexeme == nullptr || lexeme[0] == '\0' ? "<unknown>" : lexeme)
-        << "' at " << source_span.get_line_begin() << ":"
+        << "' at ";
+    if (source_span.get_file() != nullptr &&
+        !source_span.get_file()->empty()) {
+        oss << source_span.get_file()->get_path() << ":";
+    }
+    oss << source_span.get_line_begin() << ":"
         << source_span.get_col_begin() << "-" << source_span.get_line_end()
         << ":" << source_span.get_col_end();
     return oss.str();
@@ -179,6 +184,7 @@ PassResult LexerPass::Run(CompilerContext &context) {
 
     LexerState lexer_state;
     lexer_state.reset();
+    lexer_state.set_source_file(get_source_file(lexer_input_file));
     lexer_state.set_emit_parse_nodes(false);
 
     yyscan_t scanner = nullptr;
@@ -203,9 +209,11 @@ PassResult LexerPass::Run(CompilerContext &context) {
 
         if (token == INVALID) {
             const SourceSpan source_span(
-                SourcePosition(lexer_state.get_token_line_begin(),
+                SourcePosition(lexer_state.get_source_file(),
+                               lexer_state.get_token_line_begin(),
                                lexer_state.get_token_column_begin()),
-                SourcePosition(lexer_state.get_token_line_end(),
+                SourcePosition(lexer_state.get_source_file(),
+                               lexer_state.get_token_line_end(),
                                lexer_state.get_token_column_end()));
             const std::string invalid_message =
                 FormatInvalidTokenMessage(lexeme, source_span);
@@ -219,9 +227,11 @@ PassResult LexerPass::Run(CompilerContext &context) {
 
         context.add_token(
             Token(ToTokenKind(token), lexeme == nullptr ? "" : lexeme,
-                  SourceSpan(SourcePosition(lexer_state.get_token_line_begin(),
+                  SourceSpan(SourcePosition(lexer_state.get_source_file(),
+                                            lexer_state.get_token_line_begin(),
                                             lexer_state.get_token_column_begin()),
-                             SourcePosition(lexer_state.get_token_line_end(),
+                             SourcePosition(lexer_state.get_source_file(),
+                                            lexer_state.get_token_line_end(),
                                             lexer_state.get_token_column_end()))));
     }
 
@@ -247,8 +257,12 @@ PassResult LexerPass::Run(CompilerContext &context) {
 
         for (const Token &token : context.tokens()) {
             const SourceSpan &source_span = token.get_source_span();
-            ofs << token.get_kind_name() << " " << token.get_text() << " "
-                << source_span.get_line_begin() << ":"
+            ofs << token.get_kind_name() << " " << token.get_text() << " ";
+            if (source_span.get_file() != nullptr &&
+                !source_span.get_file()->empty()) {
+                ofs << source_span.get_file()->get_path() << ":";
+            }
+            ofs << source_span.get_line_begin() << ":"
                 << source_span.get_col_begin() << "-"
                 << source_span.get_line_end() << ":"
                 << source_span.get_col_end() << "\n";

@@ -37,7 +37,8 @@ class PreprocessSession {
                                         const Directive &directive,
                                         const std::string &current_file_path);
     PassResult handle_macro_directive(const std::string &line, int line_number,
-                                      const Directive &directive);
+                                      const Directive &directive,
+                                      const std::string &current_file_path);
     PassResult process_line(const std::string &line, int line_number,
                             const std::string &current_file_path);
     PassResult write_preprocessed_file(std::string &output_file_path) const;

@@ -25,8 +25,7 @@ SourceSpan merge_child_spans(std::initializer_list<void *> children) {
             has_span = true;
             continue;
         }
-        merged_span.set_line_end(child->source_span.get_line_end());
-        merged_span.set_col_end(child->source_span.get_col_end());
+        merged_span.set_end(child->source_span.get_end());
     }
 
     return has_span ? merged_span : SourceSpan{};

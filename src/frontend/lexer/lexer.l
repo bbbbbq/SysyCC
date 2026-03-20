@@ -24,9 +24,11 @@ static int make_token(int token, const char *label,
         yylval_param->node = sysycc::make_terminal_node(
             label, text,
             sysycc::SourceSpan(
-                sysycc::SourcePosition(state->get_token_line_begin(),
+                sysycc::SourcePosition(state->get_source_file(),
+                                       state->get_token_line_begin(),
                                        state->get_token_column_begin()),
-                sysycc::SourcePosition(state->get_token_line_end(),
+                sysycc::SourcePosition(state->get_source_file(),
+                                       state->get_token_line_end(),
                                        state->get_token_column_end())));
     }
     return token;

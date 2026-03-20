@@ -45,6 +45,7 @@ add_executable(${PROJECT_NAME}
     src/cli/cli.cpp
     src/common/diagnostic/diagnostic.cpp
     src/common/diagnostic/diagnostic_engine.cpp
+    src/common/source_span.cpp
     src/compiler/complier.cpp
     src/compiler/pass/pass.cpp
     src/frontend/ast/ast_dump.cpp

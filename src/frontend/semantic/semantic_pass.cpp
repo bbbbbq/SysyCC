@@ -25,10 +25,17 @@ bool has_error_diagnostics(const SemanticModel &semantic_model) {
 }
 
 std::string format_source_span(const SourceSpan &source_span) {
-    return std::to_string(source_span.get_line_begin()) + ":" +
-           std::to_string(source_span.get_col_begin()) + "-" +
-           std::to_string(source_span.get_line_end()) + ":" +
-           std::to_string(source_span.get_col_end());
+    std::string formatted_span;
+    if (source_span.get_file() != nullptr &&
+        !source_span.get_file()->empty()) {
+        formatted_span += source_span.get_file()->get_path();
+        formatted_span += ":";
+    }
+    formatted_span += std::to_string(source_span.get_line_begin()) + ":" +
+                      std::to_string(source_span.get_col_begin()) + "-" +
+                      std::to_string(source_span.get_line_end()) + ":" +
+                      std::to_string(source_span.get_col_end());
+    return formatted_span;
 }
 
 std::string format_first_error_message(const SemanticModel &semantic_model) {

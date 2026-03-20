@@ -239,7 +239,8 @@ PassResult PreprocessSession::handle_include_directive(
 }
 
 PassResult PreprocessSession::handle_macro_directive(
-    const std::string &line, int line_number, const Directive &directive) {
+    const std::string &line, int line_number, const Directive &directive,
+    const std::string &current_file_path) {
     const std::vector<std::string> &arguments = directive.get_arguments();
 
     if (directive.get_kind() == DirectiveKind::Define) {
@@ -256,8 +257,10 @@ PassResult PreprocessSession::handle_macro_directive(
         return macro_table_.define_macro(MacroDefinition(
             arguments[0], replacement, directive.get_is_function_like_macro(),
             directive.get_macro_parameters(),
-            SourceSpan(SourcePosition(line_number, 1),
-                       SourcePosition(line_number,
+            SourceSpan(SourcePosition(get_source_file(current_file_path),
+                                      line_number, 1),
+                       SourcePosition(get_source_file(current_file_path),
+                                      line_number,
                                       static_cast<int>(line.size())))));
     }
 
@@ -319,7 +322,8 @@ PreprocessSession::process_line(const std::string &line, int line_number,
                                         current_file_path);
     case DirectiveKind::Define:
     case DirectiveKind::Undef:
-        return handle_macro_directive(stripped_line, line_number, directive);
+        return handle_macro_directive(stripped_line, line_number, directive,
+                                      current_file_path);
     default:
         break;
     }

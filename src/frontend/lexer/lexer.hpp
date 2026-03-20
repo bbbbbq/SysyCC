@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/source_span.hpp"
 #include "compiler/pass/pass.hpp"
 
 typedef void *yyscan_t;
@@ -9,6 +10,7 @@ namespace sysycc {
 // Stores per-scanner lexer state for reentrant scanning.
 class LexerState {
   private:
+    const SourceFile *source_file_ = nullptr;
     int line_ = 1;
     int column_ = 1;
     int token_line_begin_ = 1;
@@ -19,6 +21,7 @@ class LexerState {
 
   public:
     void reset() noexcept {
+        source_file_ = nullptr;
         line_ = 1;
         column_ = 1;
         token_line_begin_ = 1;
@@ -27,6 +30,12 @@ class LexerState {
         token_column_end_ = 1;
         emit_parse_nodes_ = false;
     }
+
+    void set_source_file(const SourceFile *source_file) noexcept {
+        source_file_ = source_file;
+    }
+
+    const SourceFile *get_source_file() const noexcept { return source_file_; }
 
     void update_position(const char *text, int length) noexcept {
         token_line_begin_ = line_;

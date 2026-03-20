@@ -23,7 +23,12 @@ void AstDumper::dump_source_span(const AstNode *node, std::ostream &os,
         return;
     }
     write_indent(os, indent);
-    os << "SourceSpan " << node->get_source_span().get_line_begin() << ":"
+    os << "SourceSpan ";
+    if (node->get_source_span().get_file() != nullptr &&
+        !node->get_source_span().get_file()->empty()) {
+        os << node->get_source_span().get_file()->get_path() << ":";
+    }
+    os << node->get_source_span().get_line_begin() << ":"
        << node->get_source_span().get_col_begin() << "-"
        << node->get_source_span().get_line_end() << ":"
        << node->get_source_span().get_col_end() << "\n";
