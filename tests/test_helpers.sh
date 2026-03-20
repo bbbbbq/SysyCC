@@ -6,8 +6,17 @@ build_project() {
     local project_root="$1"
     local build_dir="$2"
 
+    if [[ "${SYSYCC_TEST_SKIP_BUILD:-0}" == "1" ]]; then
+        return 0
+    fi
+
     cmake -S "${project_root}" -B "${build_dir}"
-    cmake --build "${build_dir}"
+
+    if [[ -n "${SYSYCC_TEST_BUILD_JOBS:-}" ]]; then
+        cmake --build "${build_dir}" --parallel "${SYSYCC_TEST_BUILD_JOBS}"
+    else
+        cmake --build "${build_dir}" --parallel
+    fi
 }
 
 build_and_link_ir_executable() {
@@ -93,7 +102,13 @@ assert_compiler_fails_with_message() {
         return 1
     fi
 
-    if [[ "${output}" != *"${expected_message}"* ]]; then
+    if [[ "${output}" == *"${expected_message}"* ]]; then
+        return 0
+    fi
+
+    local normalized_output
+    normalized_output="$(printf '%s' "${output}" | sed -E 's#[^[:space:]]+\.preprocessed\.sy:([0-9]+:[0-9]+-[0-9]+:[0-9]+)#\1#g')"
+    if [[ "${normalized_output}" != *"${expected_message}"* ]]; then
         echo "error: expected semantic diagnostic not found" >&2
         echo "${output}" >&2
         return 1

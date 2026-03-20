@@ -6,9 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 INPUT_FILE="${SCRIPT_DIR}/invalid_token_diagnostic.sy"
+PREPROCESSED_FILE="build/intermediate_results/invalid_token_diagnostic.preprocessed.sy"
 
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}"
-cmake --build "${BUILD_DIR}"
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 set +e
 OUTPUT="$("${BUILD_DIR}/SysyCC" --dump-tokens "${INPUT_FILE}" 2>&1)"
@@ -20,10 +22,10 @@ if [[ ${RC} -eq 0 ]]; then
     exit 1
 fi
 
-if [[ "${OUTPUT}" != *"lexer encountered invalid token '@' at 2:12-2:12"* ]]; then
+if [[ "${OUTPUT}" != *"lexer encountered invalid token '@' at ${PREPROCESSED_FILE}:2:12-2:12"* ]]; then
     echo "error: invalid token diagnostic is missing lexeme or source span" >&2
     echo "${OUTPUT}" >&2
     exit 1
 fi
 
-echo "verified: invalid token diagnostics include lexeme and source span"
+echo "verified: invalid token diagnostics include lexeme, source file, and source span"

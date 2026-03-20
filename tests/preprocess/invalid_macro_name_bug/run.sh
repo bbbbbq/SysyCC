@@ -7,8 +7,9 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 INPUT_FILE="${SCRIPT_DIR}/invalid_macro_name_bug.sy"
 
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}"
-cmake --build "${BUILD_DIR}"
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 set +e
 OUTPUT="$("${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse 2>&1)"

@@ -9,8 +9,9 @@ RESULT_DIR="${BUILD_DIR}/intermediate_results"
 INPUT_FILE="${SCRIPT_DIR}/function_macro_argument_literal_bug.sy"
 PREPROCESSED_FILE="${RESULT_DIR}/function_macro_argument_literal_bug.preprocessed.sy"
 
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}"
-cmake --build "${BUILD_DIR}"
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 if ! "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse >/dev/null 2>&1; then
     echo "error: compiler failed while checking function-like macro literal arguments" >&2

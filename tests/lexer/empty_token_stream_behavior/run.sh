@@ -8,8 +8,9 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 INPUT_FILE="${SCRIPT_DIR}/empty_token_stream_behavior.sy"
 RESULT_FILE="${BUILD_DIR}/intermediate_results/empty_token_stream_behavior.tokens.txt"
 
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}"
-cmake --build "${BUILD_DIR}"
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 set +e
 OUTPUT="$("${BUILD_DIR}/SysyCC" --dump-tokens --dump-parse "${INPUT_FILE}" 2>&1)"

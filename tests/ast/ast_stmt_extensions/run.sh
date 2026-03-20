@@ -8,8 +8,9 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 INPUT_FILE="${SCRIPT_DIR}/ast_stmt_extensions.sy"
 AST_FILE="${BUILD_DIR}/intermediate_results/ast_stmt_extensions.ast.txt"
 
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}"
-cmake --build "${BUILD_DIR}"
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" --dump-tokens --dump-parse --dump-ast "${INPUT_FILE}" >/tmp/sysycc_ast_stmt_extensions.out 2>&1
 
 grep -q "ForStmt" "${AST_FILE}"

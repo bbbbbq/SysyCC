@@ -8,8 +8,9 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 INPUT_FILE="${SCRIPT_DIR}/precise_token_kinds.sy"
 TOKENS_FILE="${BUILD_DIR}/intermediate_results/precise_token_kinds.tokens.txt"
 
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}"
-cmake --build "${BUILD_DIR}"
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" --dump-tokens --dump-parse "${INPUT_FILE}" >/tmp/sysycc_precise_token_kinds.out 2>&1
 
 grep -q "^KwInt int " "${TOKENS_FILE}"

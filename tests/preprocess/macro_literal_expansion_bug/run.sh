@@ -9,8 +9,9 @@ RESULT_DIR="${BUILD_DIR}/intermediate_results"
 INPUT_FILE="${SCRIPT_DIR}/macro_literal_expansion_bug.sy"
 PREPROCESSED_FILE="${RESULT_DIR}/macro_literal_expansion_bug.preprocessed.sy"
 
-cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}"
-cmake --build "${BUILD_DIR}"
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 if ! "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse; then
     echo "error: compiler failed while checking literal-safe macro expansion" >&2

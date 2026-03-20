@@ -6,10 +6,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RESULT_DIR="${PROJECT_ROOT}/build/intermediate_results"
 SUMMARY_FILE="${PROJECT_ROOT}/build/test_result.md"
+TEST_RESULT_DIR="${PROJECT_ROOT}/build/test_results"
+TEST_LOG_DIR="${PROJECT_ROOT}/build/test_logs"
 
 TEST_NAMES=()
 TEST_STATUSES=()
 TEST_DETAILS=()
+RUN_SCRIPTS=()
+DISPLAY_NAMES=()
+STAGE_NAMES=()
+CASE_NAMES=()
+CASE_KEYS=()
+CASE_LOG_FILES=()
+JOB_PIDS=()
+JOB_CASE_INDICES=()
+
+source "${SCRIPT_DIR}/test_helpers.sh"
 
 assert_result_file() {
     local file_path="$1"
@@ -28,13 +40,14 @@ assert_result_file() {
 }
 
 record_result() {
-    local test_name="$1"
-    local test_status="$2"
-    local test_detail="$3"
+    local index="$1"
+    local test_name="$2"
+    local test_status="$3"
+    local test_detail="$4"
 
-    TEST_NAMES+=("${test_name}")
-    TEST_STATUSES+=("${test_status}")
-    TEST_DETAILS+=("${test_detail}")
+    TEST_NAMES[index]="${test_name}"
+    TEST_STATUSES[index]="${test_status}"
+    TEST_DETAILS[index]="${test_detail}"
 }
 
 escape_table_cell() {
@@ -70,6 +83,46 @@ write_summary_table() {
     cat "${SUMMARY_FILE}"
 }
 
+detect_default_jobs() {
+    if command -v sysctl >/dev/null 2>&1; then
+        local jobs
+        jobs="$(sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || true)"
+        if [[ -n "${jobs}" ]]; then
+            printf '%s\n' "${jobs}"
+            return 0
+        fi
+    fi
+
+    if command -v getconf >/dev/null 2>&1; then
+        local jobs
+        jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+        if [[ -n "${jobs}" ]]; then
+            printf '%s\n' "${jobs}"
+            return 0
+        fi
+    fi
+
+    printf '4\n'
+}
+
+ensure_positive_integer() {
+    local value="$1"
+    local name="$2"
+
+    if [[ ! "${value}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "error: ${name} must be a positive integer, got '${value}'" >&2
+        exit 1
+    fi
+}
+
+make_case_key() {
+    local index="$1"
+    local stage_name="$2"
+    local test_name="$3"
+
+    printf '%03d_%s_%s' "$((index + 1))" "${stage_name}" "${test_name}"
+}
+
 should_require_nonempty_artifacts() {
     local stage_name="$1"
     local test_name="$2"
@@ -79,7 +132,7 @@ should_require_nonempty_artifacts() {
     fi
 
     case "${test_name}" in
-        macro_literal_expansion_bug|function_macro_argument_literal_bug|include_cycle_bug|invalid_macro_name_bug|invalid_token_diagnostic|lexer_global_state_bug|lexer_parse_node_mode_guard|empty_token_stream_behavior|preprocess_dispatch_sentinel_bug|ast_unknown_guard|semantic_undefined_identifier|semantic_redefinition|semantic_call_arity|semantic_call_type|semantic_call_target|semantic_return_type|semantic_arrow_type|semantic_assign_type|semantic_assign_lvalue|semantic_member_field|semantic_condition_type|semantic_index_base|semantic_index_type|semantic_unary_address|semantic_unary_deref|semantic_prefix_operand|semantic_postfix_operand|semantic_binary_arithmetic|semantic_binary_bitwise|semantic_binary_logical|semantic_break_context|semantic_continue_context|semantic_case_context|semantic_default_context|semantic_case_constant|semantic_duplicate_case|semantic_multiple_default|semantic_missing_return|semantic_array_dimension_constant|semantic_equality_pointer|semantic_relational_pointer)
+        macro_literal_expansion_bug|function_macro_argument_literal_bug|include_cycle_bug|invalid_macro_name_bug|define_invalid_parameter_name|define_duplicate_parameter_name|define_variadic_parameter_position|error_directive|unmatched_else|unmatched_endif|duplicate_else|elif_after_else|include_missing_path|include_next_missing|line_directive_invalid_number|defined_malformed|missing_endif|elifdef_missing_condition|line_directive_missing_number|include_empty_path|has_include_malformed|invalid_token_diagnostic|lexer_global_state_bug|lexer_parse_node_mode_guard|empty_token_stream_behavior|preprocess_dispatch_sentinel_bug|ast_unknown_guard|semantic_source_file|semantic_undefined_identifier|semantic_redefinition|semantic_call_arity|semantic_call_type|semantic_call_target|semantic_return_type|semantic_arrow_type|semantic_assign_type|semantic_assign_lvalue|semantic_member_field|semantic_condition_type|semantic_index_base|semantic_index_type|semantic_unary_address|semantic_unary_deref|semantic_prefix_operand|semantic_postfix_operand|semantic_binary_arithmetic|semantic_binary_bitwise|semantic_binary_logical|semantic_break_context|semantic_continue_context|semantic_case_context|semantic_default_context|semantic_case_constant|semantic_duplicate_case|semantic_multiple_default|semantic_missing_return|semantic_array_dimension_constant|semantic_equality_pointer|semantic_relational_pointer)
             return 1
             ;;
         *)
@@ -88,48 +141,196 @@ should_require_nonempty_artifacts() {
     esac
 }
 
-OVERALL_FAILURE=0
+discover_tests() {
+    while IFS= read -r -d '' run_script; do
+        local test_dir
+        local test_name
+        local stage_name
+        local display_name
+        local case_index
+        local case_key
 
-while IFS= read -r -d '' run_script; do
-    test_dir="$(dirname "${run_script}")"
-    test_name="$(basename "${test_dir}")"
-    stage_name="$(basename "$(dirname "${test_dir}")")"
-    display_name="${stage_name}/${test_name}"
+        test_dir="$(dirname "${run_script}")"
+        test_name="$(basename "${test_dir}")"
+        stage_name="$(basename "$(dirname "${test_dir}")")"
+        display_name="${stage_name}/${test_name}"
+        case_index="${#RUN_SCRIPTS[@]}"
+        case_key="$(make_case_key "${case_index}" "${stage_name}" "${test_name}")"
 
-    echo "==> Running ${display_name}"
-    if ! "${run_script}"; then
-        record_result "${display_name}" "FAIL" "run.sh exited with non-zero status"
-        OVERALL_FAILURE=1
-        continue
+        RUN_SCRIPTS+=("${run_script}")
+        DISPLAY_NAMES+=("${display_name}")
+        STAGE_NAMES+=("${stage_name}")
+        CASE_NAMES+=("${test_name}")
+        CASE_KEYS+=("${case_key}")
+        CASE_LOG_FILES+=("${TEST_LOG_DIR}/${case_key}.log")
+    done < <(find "${SCRIPT_DIR}" -mindepth 3 -maxdepth 3 -type f -name run.sh -perm -111 -print0 | sort -z)
+}
+
+run_case() {
+    local case_index="$1"
+    local run_script="${RUN_SCRIPTS[case_index]}"
+    local test_name="${CASE_NAMES[case_index]}"
+    local stage_name="${STAGE_NAMES[case_index]}"
+    local display_name="${DISPLAY_NAMES[case_index]}"
+    local case_key="${CASE_KEYS[case_index]}"
+    local status_file="${TEST_RESULT_DIR}/${case_key}.status"
+    local detail_file="${TEST_RESULT_DIR}/${case_key}.detail"
+    local log_file="${CASE_LOG_FILES[case_index]}"
+
+    {
+        echo "==> Running ${display_name}"
+
+        if ! "${run_script}"; then
+            printf 'FAIL\n' >"${status_file}"
+            printf 'run.sh exited with non-zero status\n' >"${detail_file}"
+            return 0
+        fi
+
+        if should_require_nonempty_artifacts "${stage_name}" "${test_name}"; then
+            local detail_messages=()
+            local test_failed=0
+            local artifact_suffix
+            local artifact_path
+            local artifact_message
+
+            for artifact_suffix in preprocessed.sy tokens.txt parse.txt; do
+                artifact_path="${RESULT_DIR}/${test_name}.${artifact_suffix}"
+                if artifact_message="$(assert_result_file "${artifact_path}")"; then
+                    echo "    verified ${test_name}.${artifact_suffix}"
+                    detail_messages+=("verified ${test_name}.${artifact_suffix}")
+                else
+                    echo "error: ${artifact_message}" >&2
+                    detail_messages+=("${artifact_message}")
+                    test_failed=1
+                fi
+            done
+
+            if [[ "${test_failed}" -eq 0 ]]; then
+                printf 'PASS\n' >"${status_file}"
+                printf 'artifacts verified\n' >"${detail_file}"
+            else
+                printf 'FAIL\n' >"${status_file}"
+                printf '%s\n' "$(printf '%s; ' "${detail_messages[@]}" | sed 's/; $//')" >"${detail_file}"
+            fi
+        else
+            echo "    verified ${display_name} via dedicated run.sh assertions"
+            printf 'PASS\n' >"${status_file}"
+            printf 'verified via dedicated run.sh assertions\n' >"${detail_file}"
+        fi
+    } >"${log_file}" 2>&1
+}
+
+active_job_count() {
+    local count=0
+    local pid
+
+    for pid in "${JOB_PIDS[@]-}"; do
+        if [[ -n "${pid}" ]]; then
+            count=$((count + 1))
+        fi
+    done
+
+    printf '%s\n' "${count}"
+}
+
+finalize_case() {
+    local case_index="$1"
+    local display_name="${DISPLAY_NAMES[case_index]}"
+    local case_key="${CASE_KEYS[case_index]}"
+    local log_file="${CASE_LOG_FILES[case_index]}"
+    local status_file="${TEST_RESULT_DIR}/${case_key}.status"
+    local detail_file="${TEST_RESULT_DIR}/${case_key}.detail"
+    local status="FAIL"
+    local detail="test runner did not produce a result"
+
+    if [[ -f "${status_file}" ]]; then
+        status="$(<"${status_file}")"
     fi
 
-    if should_require_nonempty_artifacts "${stage_name}" "${test_name}"; then
-        detail_messages=()
-        test_failed=0
+    if [[ -f "${detail_file}" ]]; then
+        detail="$(<"${detail_file}")"
+    fi
 
-        for artifact_suffix in preprocessed.sy tokens.txt parse.txt; do
-            artifact_path="${RESULT_DIR}/${test_name}.${artifact_suffix}"
-            if artifact_message="$(assert_result_file "${artifact_path}")"; then
-                echo "    verified ${test_name}.${artifact_suffix}"
-                detail_messages+=("verified ${test_name}.${artifact_suffix}")
-            else
-                echo "error: ${artifact_message}" >&2
-                detail_messages+=("${artifact_message}")
-                OVERALL_FAILURE=1
-                test_failed=1
+    record_result "${case_index}" "${display_name}" "${status}" "${detail}"
+
+    if [[ "${status}" == "PASS" ]]; then
+        echo "[PASS] ${display_name}"
+        return 0
+    fi
+
+    OVERALL_FAILURE=1
+    echo "[FAIL] ${display_name}"
+    echo "       ${detail}"
+    if [[ -f "${log_file}" ]]; then
+        echo "       log: ${log_file}"
+    fi
+}
+
+collect_one_finished_job() {
+    while true; do
+        local job_slot
+        local max_slots="${#JOB_PIDS[@]}"
+
+        for ((job_slot = 0; job_slot < max_slots; ++job_slot)); do
+            local pid="${JOB_PIDS[job_slot]-}"
+            local case_index="${JOB_CASE_INDICES[job_slot]-}"
+
+            if [[ -z "${pid}" ]]; then
+                continue
             fi
+
+            if kill -0 "${pid}" 2>/dev/null; then
+                continue
+            fi
+
+            if ! wait "${pid}"; then
+                :
+            fi
+
+            finalize_case "${case_index}"
+            JOB_PIDS[job_slot]=""
+            JOB_CASE_INDICES[job_slot]=""
+            return 0
         done
 
-        if [[ "${test_failed}" -eq 0 ]]; then
-            record_result "${display_name}" "PASS" "artifacts verified"
-        else
-            record_result "${display_name}" "FAIL" "$(printf '%s; ' "${detail_messages[@]}" | sed 's/; $//')"
-        fi
-    else
-        echo "    verified ${display_name} via dedicated run.sh assertions"
-        record_result "${display_name}" "PASS" "verified via dedicated run.sh assertions"
-    fi
-done < <(find "${SCRIPT_DIR}" -mindepth 3 -maxdepth 3 -type f -name run.sh -perm -111 -print0 | sort -z)
+        sleep 0.1
+    done
+}
+
+OVERALL_FAILURE=0
+DEFAULT_JOBS="$(detect_default_jobs)"
+JOBS="${JOBS:-${DEFAULT_JOBS}}"
+
+ensure_positive_integer "${JOBS}" "JOBS"
+
+mkdir -p "${TEST_RESULT_DIR}" "${TEST_LOG_DIR}"
+
+discover_tests
+
+if [[ "${#RUN_SCRIPTS[@]}" -eq 0 ]]; then
+    echo "no executable run.sh test cases found under ${SCRIPT_DIR}" >&2
+    exit 1
+fi
+
+echo "==> Building project once before running ${#RUN_SCRIPTS[@]} tests"
+export SYSYCC_TEST_BUILD_JOBS="${SYSYCC_TEST_BUILD_JOBS:-${JOBS}}"
+build_project "${PROJECT_ROOT}" "${PROJECT_ROOT}/build"
+export SYSYCC_TEST_SKIP_BUILD=1
+echo "==> Running tests with JOBS=${JOBS}"
+
+for case_index in "${!RUN_SCRIPTS[@]}"; do
+    while [[ "$(active_job_count)" -ge "${JOBS}" ]]; do
+        collect_one_finished_job
+    done
+
+    run_case "${case_index}" &
+    JOB_PIDS+=("$!")
+    JOB_CASE_INDICES+=("${case_index}")
+done
+
+while [[ "$(active_job_count)" -gt 0 ]]; do
+    collect_one_finished_job
+done
 
 if [[ "${OVERALL_FAILURE}" -eq 0 ]]; then
     write_summary_table "PASS"
