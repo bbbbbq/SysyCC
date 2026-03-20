@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <string>
 
+#include "frontend/preprocess/detail/include_resolver.hpp"
+
 namespace sysycc::preprocess::detail {
 
 namespace {
@@ -13,8 +15,21 @@ class ExpressionParser {
   private:
     const std::string &expression_;
     const MacroTable &macro_table_;
+    const std::string &current_file_path_;
+    const std::vector<std::string> &include_directories_;
+    const std::vector<std::string> &system_include_directories_;
     std::size_t index_ = 0;
     int depth_ = 0;
+
+    bool probe_include(bool include_next, const std::string &include_token) {
+        IncludeResolver include_resolver;
+        std::string resolved_file_path;
+        PassResult resolve_result = include_resolver.resolve_include(
+            include_token, current_file_path_, include_directories_,
+            system_include_directories_, include_next, include_token,
+            resolved_file_path);
+        return resolve_result.ok;
+    }
 
     void skip_spaces() {
         while (index_ < expression_.size() &&
@@ -30,6 +45,19 @@ class ExpressionParser {
             return false;
         }
         index_ += token.size();
+        return true;
+    }
+
+    bool consume_single_char_operator(char token, const char *double_token) {
+        skip_spaces();
+        if (index_ >= expression_.size() || expression_[index_] != token) {
+            return false;
+        }
+        if (double_token != nullptr &&
+            expression_.compare(index_, 2, double_token) == 0) {
+            return false;
+        }
+        ++index_;
         return true;
     }
 
@@ -104,20 +132,31 @@ class ExpressionParser {
             return PassResult::Success();
         }
 
+        // Function-like macros only participate in #if expression replacement
+        // when they are actually invoked. A bare identifier must behave like
+        // any other leftover identifier and evaluate to 0.
+        if (definition->get_is_function_like()) {
+            value = 0;
+            return PassResult::Success();
+        }
+
         if (depth_ > 16) {
             return PassResult::Failure(
                 "macro expansion too deep in #if expression");
         }
 
         ExpressionParser nested_parser(definition->get_replacement(),
-                                       macro_table_, depth_ + 1);
-        return nested_parser.parse_expression(value);
+                                       macro_table_, current_file_path_,
+                                       include_directories_,
+                                       system_include_directories_,
+                                       depth_ + 1);
+        return nested_parser.parse_complete_expression(value);
     }
 
     PassResult parse_primary(long long &value) {
         skip_spaces();
         if (consume("(")) {
-            PassResult expr_result = parse_expression(value);
+            PassResult expr_result = parse_subexpression(value);
             if (!expr_result.ok) {
                 return expr_result;
             }
@@ -163,7 +202,8 @@ class ExpressionParser {
             return PassResult::Success();
         }
 
-        if (consume("__has_include_next") || consume("__has_include")) {
+        const bool include_next = consume("__has_include_next");
+        if (include_next || consume("__has_include")) {
             skip_spaces();
             if (!consume("(")) {
                 return PassResult::Failure(
@@ -183,6 +223,7 @@ class ExpressionParser {
             }
 
             const char closing = opening == '"' ? '"' : '>';
+            const std::size_t start_index = index_;
             ++index_;
             while (index_ < expression_.size() &&
                    expression_[index_] != closing) {
@@ -192,6 +233,8 @@ class ExpressionParser {
                 return PassResult::Failure(
                     "missing header terminator in __has_include expression");
             }
+            const std::string include_token =
+                expression_.substr(start_index, index_ - start_index + 1);
             ++index_;
 
             skip_spaces();
@@ -200,9 +243,7 @@ class ExpressionParser {
                     "missing ')' after __has_include operand");
             }
 
-            // Treat __has_include-style checks as unavailable until the
-            // preprocessor grows full system-header probing support.
-            value = 0;
+            value = probe_include(include_next, include_token) ? 1 : 0;
             return PassResult::Success();
         }
 
@@ -225,6 +266,15 @@ class ExpressionParser {
                 return operand_result;
             }
             value = -value;
+            return PassResult::Success();
+        }
+
+        if (consume("~")) {
+            PassResult operand_result = parse_unary(value);
+            if (!operand_result.ok) {
+                return operand_result;
+            }
+            value = ~value;
             return PassResult::Success();
         }
 
@@ -306,8 +356,37 @@ class ExpressionParser {
         }
     }
 
-    PassResult parse_relational(long long &value) {
+    PassResult parse_shift(long long &value) {
         PassResult result = parse_additive(value);
+        if (!result.ok) {
+            return result;
+        }
+
+        while (true) {
+            if (consume("<<")) {
+                long long rhs = 0;
+                result = parse_additive(rhs);
+                if (!result.ok) {
+                    return result;
+                }
+                value <<= rhs;
+                continue;
+            }
+            if (consume(">>")) {
+                long long rhs = 0;
+                result = parse_additive(rhs);
+                if (!result.ok) {
+                    return result;
+                }
+                value >>= rhs;
+                continue;
+            }
+            return PassResult::Success();
+        }
+    }
+
+    PassResult parse_relational(long long &value) {
+        PassResult result = parse_shift(value);
         if (!result.ok) {
             return result;
         }
@@ -315,7 +394,7 @@ class ExpressionParser {
         while (true) {
             if (consume("<=")) {
                 long long rhs = 0;
-                result = parse_additive(rhs);
+                result = parse_shift(rhs);
                 if (!result.ok) {
                     return result;
                 }
@@ -324,7 +403,7 @@ class ExpressionParser {
             }
             if (consume(">=")) {
                 long long rhs = 0;
-                result = parse_additive(rhs);
+                result = parse_shift(rhs);
                 if (!result.ok) {
                     return result;
                 }
@@ -333,7 +412,7 @@ class ExpressionParser {
             }
             if (consume("<")) {
                 long long rhs = 0;
-                result = parse_additive(rhs);
+                result = parse_shift(rhs);
                 if (!result.ok) {
                     return result;
                 }
@@ -342,7 +421,7 @@ class ExpressionParser {
             }
             if (consume(">")) {
                 long long rhs = 0;
-                result = parse_additive(rhs);
+                result = parse_shift(rhs);
                 if (!result.ok) {
                     return result;
                 }
@@ -382,15 +461,69 @@ class ExpressionParser {
         }
     }
 
-    PassResult parse_logical_and(long long &value) {
+    PassResult parse_bitwise_and(long long &value) {
         PassResult result = parse_equality(value);
+        if (!result.ok) {
+            return result;
+        }
+
+        while (consume_single_char_operator('&', "&&")) {
+            long long rhs = 0;
+            result = parse_equality(rhs);
+            if (!result.ok) {
+                return result;
+            }
+            value &= rhs;
+        }
+
+        return PassResult::Success();
+    }
+
+    PassResult parse_bitwise_xor(long long &value) {
+        PassResult result = parse_bitwise_and(value);
+        if (!result.ok) {
+            return result;
+        }
+
+        while (consume("^")) {
+            long long rhs = 0;
+            result = parse_bitwise_and(rhs);
+            if (!result.ok) {
+                return result;
+            }
+            value ^= rhs;
+        }
+
+        return PassResult::Success();
+    }
+
+    PassResult parse_bitwise_or(long long &value) {
+        PassResult result = parse_bitwise_xor(value);
+        if (!result.ok) {
+            return result;
+        }
+
+        while (consume_single_char_operator('|', "||")) {
+            long long rhs = 0;
+            result = parse_bitwise_xor(rhs);
+            if (!result.ok) {
+                return result;
+            }
+            value |= rhs;
+        }
+
+        return PassResult::Success();
+    }
+
+    PassResult parse_logical_and(long long &value) {
+        PassResult result = parse_bitwise_or(value);
         if (!result.ok) {
             return result;
         }
 
         while (consume("&&")) {
             long long rhs = 0;
-            result = parse_equality(rhs);
+            result = parse_bitwise_or(rhs);
             if (!result.ok) {
                 return result;
             }
@@ -418,13 +551,80 @@ class ExpressionParser {
         return PassResult::Success();
     }
 
+    PassResult parse_conditional(long long &value) {
+        PassResult result = parse_logical_or(value);
+        if (!result.ok) {
+            return result;
+        }
+
+        skip_spaces();
+        if (!consume("?")) {
+            return PassResult::Success();
+        }
+
+        long long true_value = 0;
+        result = parse_conditional(true_value);
+        if (!result.ok) {
+            return result;
+        }
+
+        if (!consume(":")) {
+            return PassResult::Failure(
+                "missing ':' in #if conditional expression");
+        }
+
+        long long false_value = 0;
+        result = parse_conditional(false_value);
+        if (!result.ok) {
+            return result;
+        }
+
+        value = value != 0 ? true_value : false_value;
+        return PassResult::Success();
+    }
+
+    PassResult parse_comma(long long &value) {
+        PassResult result = parse_conditional(value);
+        if (!result.ok) {
+            return result;
+        }
+
+        while (consume(",")) {
+            long long rhs = 0;
+            result = parse_conditional(rhs);
+            if (!result.ok) {
+                return result;
+            }
+            value = rhs;
+        }
+
+        return PassResult::Success();
+    }
+
   public:
     ExpressionParser(const std::string &expression,
-                     const MacroTable &macro_table, int depth)
-        : expression_(expression), macro_table_(macro_table), depth_(depth) {}
+                     const MacroTable &macro_table,
+                     const std::string &current_file_path,
+                     const std::vector<std::string> &include_directories,
+                     const std::vector<std::string> &system_include_directories,
+                     int depth)
+        : expression_(expression), macro_table_(macro_table),
+          current_file_path_(current_file_path),
+          include_directories_(include_directories),
+          system_include_directories_(system_include_directories),
+          depth_(depth) {}
 
-    PassResult parse_expression(long long &value) {
-        PassResult result = parse_logical_or(value);
+    PassResult parse_subexpression(long long &value) {
+        PassResult result = parse_comma(value);
+        if (!result.ok) {
+            return result;
+        }
+
+        return PassResult::Success();
+    }
+
+    PassResult parse_complete_expression(long long &value) {
+        PassResult result = parse_subexpression(value);
         if (!result.ok) {
             return result;
         }
@@ -443,9 +643,13 @@ class ExpressionParser {
 
 PassResult ConstantExpressionEvaluator::evaluate(const std::string &expression,
                                                  const MacroTable &macro_table,
+                                                 const std::string &current_file_path,
+                                                 const std::vector<std::string> &include_directories,
+                                                 const std::vector<std::string> &system_include_directories,
                                                  long long &value) const {
-    ExpressionParser parser(expression, macro_table, 0);
-    return parser.parse_expression(value);
+    ExpressionParser parser(expression, macro_table, current_file_path,
+                            include_directories, system_include_directories, 0);
+    return parser.parse_complete_expression(value);
 }
 
 } // namespace sysycc::preprocess::detail

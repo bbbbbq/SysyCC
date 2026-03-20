@@ -12,6 +12,7 @@ namespace sysycc::preprocess::detail {
 class MacroExpander {
   private:
     std::string stringify_argument(const std::string &argument) const;
+    std::string join_arguments(const std::vector<std::string> &arguments) const;
     std::size_t find_parameter_index(
         const std::string &identifier,
         const std::vector<std::string> &parameters) const;
@@ -19,12 +20,14 @@ class MacroExpander {
     std::string apply_stringification(
         const std::string &replacement,
         const std::vector<std::string> &parameters,
-        const std::vector<std::string> &raw_arguments) const;
+        const std::vector<std::string> &raw_arguments,
+        const std::string &raw_variadic_arguments) const;
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     std::string apply_token_pasting(
         const std::string &replacement,
         const std::vector<std::string> &parameters,
-        const std::vector<std::string> &raw_arguments) const;
+        const std::vector<std::string> &raw_arguments,
+        const std::string &raw_variadic_arguments) const;
     std::string expand_text(const std::string &line,
                             const MacroTable &macro_table,
                             std::unordered_set<std::string> &active_macros,
@@ -38,7 +41,9 @@ class MacroExpander {
     substitute_parameters(const std::string &replacement,
                           const std::vector<std::string> &parameters,
                           const std::vector<std::string> &raw_arguments,
-                          const std::vector<std::string> &expanded_arguments) const;
+                          const std::vector<std::string> &expanded_arguments,
+                          const std::string &raw_variadic_arguments,
+                          const std::string &expanded_variadic_arguments) const;
 
   public:
     std::string expand_line(const std::string &line,

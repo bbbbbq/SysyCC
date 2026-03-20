@@ -57,6 +57,18 @@ std::string MacroExpander::stringify_argument(const std::string &argument) const
     return output;
 }
 
+std::string
+MacroExpander::join_arguments(const std::vector<std::string> &arguments) const {
+    std::string joined;
+    for (std::size_t index = 0; index < arguments.size(); ++index) {
+        if (index > 0) {
+            joined += ", ";
+        }
+        joined += arguments[index];
+    }
+    return joined;
+}
+
 std::size_t MacroExpander::find_parameter_index(
     const std::string &identifier,
     const std::vector<std::string> &parameters) const {
@@ -70,7 +82,7 @@ std::size_t MacroExpander::find_parameter_index(
 
 // `parameters` and `raw_arguments` share a type but represent distinct macro roles.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-std::string MacroExpander::apply_stringification(const std::string &replacement, const std::vector<std::string> &parameters, const std::vector<std::string> &raw_arguments) const { // NOLINT(bugprone-easily-swappable-parameters)
+std::string MacroExpander::apply_stringification(const std::string &replacement, const std::vector<std::string> &parameters, const std::vector<std::string> &raw_arguments, const std::string &raw_variadic_arguments) const { // NOLINT(bugprone-easily-swappable-parameters)
     std::string output;
     std::size_t index = 0;
     while (index < replacement.size()) {
@@ -105,6 +117,12 @@ std::string MacroExpander::apply_stringification(const std::string &replacement,
         }
 
         const std::string identifier = replacement.substr(next, end - next);
+        if (identifier == "__VA_ARGS__") {
+            output += stringify_argument(raw_variadic_arguments);
+            index = end;
+            continue;
+        }
+
         const std::size_t parameter_index =
             find_parameter_index(identifier, parameters);
         if (parameter_index == parameters.size()) {
@@ -122,7 +140,7 @@ std::string MacroExpander::apply_stringification(const std::string &replacement,
 
 // `parameters` and `raw_arguments` share a type but represent distinct macro roles.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-std::string MacroExpander::apply_token_pasting(const std::string &replacement, const std::vector<std::string> &parameters, const std::vector<std::string> &raw_arguments) const { // NOLINT(bugprone-easily-swappable-parameters)
+std::string MacroExpander::apply_token_pasting(const std::string &replacement, const std::vector<std::string> &parameters, const std::vector<std::string> &raw_arguments, const std::string &raw_variadic_arguments) const { // NOLINT(bugprone-easily-swappable-parameters)
     std::string output = replacement;
 
     while (true) {
@@ -170,12 +188,16 @@ std::string MacroExpander::apply_token_pasting(const std::string &replacement, c
             find_parameter_index(left_token, parameters);
         if (left_parameter_index != parameters.size()) {
             left_token = trim(raw_arguments[left_parameter_index]);
+        } else if (left_token == "__VA_ARGS__") {
+            left_token = trim(raw_variadic_arguments);
         }
 
         const std::size_t right_parameter_index =
             find_parameter_index(right_token, parameters);
         if (right_parameter_index != parameters.size()) {
             right_token = trim(raw_arguments[right_parameter_index]);
+        } else if (right_token == "__VA_ARGS__") {
+            right_token = trim(raw_variadic_arguments);
         }
 
         output.replace(left_begin, right_end - left_begin, left_token + right_token);
@@ -295,16 +317,31 @@ std::string MacroExpander::expand_text(
         std::vector<std::string> arguments;
         std::size_t invocation_end = next_index;
         if (!parse_macro_arguments(line, next_index, arguments,
-                                   invocation_end) ||
-            arguments.size() != definition->get_parameters().size()) {
+                                   invocation_end)) {
             output += identifier;
             active_macros.erase(identifier);
             index = end;
             continue;
         }
 
-        std::vector<std::string> raw_arguments = arguments;
-        for (std::string &argument : arguments) {
+        const std::size_t fixed_parameter_count =
+            definition->get_parameters().size();
+        const bool has_valid_argument_count =
+            definition->get_is_variadic()
+                ? arguments.size() >= fixed_parameter_count
+                : arguments.size() == fixed_parameter_count;
+        if (!has_valid_argument_count) {
+            output += identifier;
+            active_macros.erase(identifier);
+            index = end;
+            continue;
+        }
+
+        std::vector<std::string> raw_arguments(arguments.begin(),
+                                               arguments.begin() +
+                                                   fixed_parameter_count);
+        std::vector<std::string> expanded_arguments = raw_arguments;
+        for (std::string &argument : expanded_arguments) {
             std::unordered_set<std::string> argument_active_macros =
                 active_macros;
             argument_active_macros.erase(identifier);
@@ -312,10 +349,29 @@ std::string MacroExpander::expand_text(
                                    argument_active_macros, depth + 1);
         }
 
+        const std::vector<std::string> raw_variadic_argument_list(
+            arguments.begin() + fixed_parameter_count,
+            arguments.end());
+        std::vector<std::string> expanded_variadic_argument_list =
+            raw_variadic_argument_list;
+        for (std::string &argument : expanded_variadic_argument_list) {
+            std::unordered_set<std::string> argument_active_macros =
+                active_macros;
+            argument_active_macros.erase(identifier);
+            argument = expand_text(trim_right(trim_left(argument)), macro_table,
+                                   argument_active_macros, depth + 1);
+        }
+
+        const std::string raw_variadic_arguments =
+            join_arguments(raw_variadic_argument_list);
+        const std::string expanded_variadic_arguments =
+            join_arguments(expanded_variadic_argument_list);
+
         const std::string substituted =
             substitute_parameters(definition->get_replacement(),
                                   definition->get_parameters(), raw_arguments,
-                                  arguments);
+                                  expanded_arguments, raw_variadic_arguments,
+                                  expanded_variadic_arguments);
         output +=
             expand_text(substituted, macro_table, active_macros, depth + 1);
 
@@ -423,11 +479,13 @@ bool MacroExpander::parse_macro_arguments(const std::string &line,
 
 // Raw and expanded arguments intentionally travel as parallel vectors here.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-std::string MacroExpander::substitute_parameters(const std::string &replacement, const std::vector<std::string> &parameters, const std::vector<std::string> &raw_arguments, const std::vector<std::string> &expanded_arguments) const { // NOLINT(bugprone-easily-swappable-parameters)
+std::string MacroExpander::substitute_parameters(const std::string &replacement, const std::vector<std::string> &parameters, const std::vector<std::string> &raw_arguments, const std::vector<std::string> &expanded_arguments, const std::string &raw_variadic_arguments, const std::string &expanded_variadic_arguments) const { // NOLINT(bugprone-easily-swappable-parameters)
     const std::string stringified =
-        apply_stringification(replacement, parameters, raw_arguments);
+        apply_stringification(replacement, parameters, raw_arguments,
+                              raw_variadic_arguments);
     const std::string pasted =
-        apply_token_pasting(stringified, parameters, raw_arguments);
+        apply_token_pasting(stringified, parameters, raw_arguments,
+                            raw_variadic_arguments);
 
     std::string output;
     std::size_t index = 0;
@@ -444,6 +502,12 @@ std::string MacroExpander::substitute_parameters(const std::string &replacement,
         }
 
         const std::string identifier = pasted.substr(index, end - index);
+        if (identifier == "__VA_ARGS__") {
+            output += expanded_variadic_arguments;
+            index = end;
+            continue;
+        }
+
         const std::size_t parameter_index =
             find_parameter_index(identifier, parameters);
         if (parameter_index != parameters.size()) {

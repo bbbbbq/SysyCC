@@ -12,6 +12,7 @@ class Cli {
     std::string input_file_;
     std::string output_file_;
     std::vector<std::string> include_directories_;
+    std::vector<std::string> system_include_directories_;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
     bool dump_ast_ = false;
@@ -33,6 +34,7 @@ class Cli {
                   << "Options:\n"
                   << "  -I<dir>            Add include search directory\n"
                   << "  -I <dir>           Add include search directory\n"
+                  << "  -isystem <dir>     Add system include search directory\n"
                   << "  -o <output_file>   Specify output file\n"
                   << "  --dump-tokens      Dump tokens\n"
                   << "  --dump-parse       Dump parse result\n"
@@ -49,6 +51,14 @@ class Cli {
         option.set_input_file(input_file_);
         option.set_output_file(output_file_);
         option.set_include_directories(include_directories_);
+        std::vector<std::string> merged_system_include_directories =
+            option.get_system_include_directories();
+        merged_system_include_directories.insert(
+            merged_system_include_directories.begin(),
+            system_include_directories_.begin(),
+            system_include_directories_.end());
+        option.set_system_include_directories(
+            std::move(merged_system_include_directories));
         option.set_dump_tokens(dump_tokens_);
         option.set_dump_parse(dump_parse_);
         option.set_dump_ast(dump_ast_);

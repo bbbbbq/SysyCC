@@ -3,6 +3,7 @@
 #include <cctype>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace sysycc::preprocess::detail {
@@ -18,6 +19,17 @@ std::string trim_left(const std::string &text) {
     return text.substr(index);
 }
 
+std::string trim(const std::string &text) {
+    const std::string left_trimmed = trim_left(text);
+    std::size_t end = left_trimmed.size();
+    while (end > 0 &&
+           std::isspace(static_cast<unsigned char>(left_trimmed[end - 1])) !=
+               0) {
+        --end;
+    }
+    return left_trimmed.substr(0, end);
+}
+
 DirectiveKind to_directive_kind(const std::string &keyword) {
     if (keyword == "#define") {
         return DirectiveKind::Define;
@@ -27,6 +39,18 @@ DirectiveKind to_directive_kind(const std::string &keyword) {
     }
     if (keyword == "#include") {
         return DirectiveKind::Include;
+    }
+    if (keyword == "#include_next") {
+        return DirectiveKind::IncludeNext;
+    }
+    if (keyword == "#error") {
+        return DirectiveKind::Error;
+    }
+    if (keyword == "#pragma") {
+        return DirectiveKind::Pragma;
+    }
+    if (keyword == "#line") {
+        return DirectiveKind::Line;
     }
     if (keyword == "#ifdef") {
         return DirectiveKind::Ifdef;
@@ -39,6 +63,12 @@ DirectiveKind to_directive_kind(const std::string &keyword) {
     }
     if (keyword == "#elif") {
         return DirectiveKind::Elif;
+    }
+    if (keyword == "#elifdef") {
+        return DirectiveKind::Elifdef;
+    }
+    if (keyword == "#elifndef") {
+        return DirectiveKind::Elifndef;
     }
     if (keyword == "#else") {
         return DirectiveKind::Else;
@@ -55,6 +85,18 @@ bool is_identifier_start(char ch) {
 
 bool is_identifier_char(char ch) {
     return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+bool is_valid_identifier(const std::string &text) {
+    if (text.empty() || !is_identifier_start(text.front())) {
+        return false;
+    }
+    for (char ch : text) {
+        if (!is_identifier_char(ch)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -105,6 +147,7 @@ PassResult DirectiveParser::parse(const std::string &line,
         }
 
         bool is_function_like_macro = false;
+        bool is_variadic_macro = false;
         std::vector<std::string> macro_parameters;
         std::string replacement;
 
@@ -132,14 +175,48 @@ PassResult DirectiveParser::parse(const std::string &line,
                     remainder.substr(parameter_begin, index - parameter_begin);
                 std::istringstream parameter_stream(parameter_text);
                 std::string parameter;
+                std::unordered_set<std::string> parameter_names;
                 while (std::getline(parameter_stream, parameter, ',')) {
-                    parameter = trim_left(parameter);
-                    while (!parameter.empty() &&
-                           std::isspace(static_cast<unsigned char>(
-                               parameter.back())) != 0) {
-                        parameter.pop_back();
-                    }
+                    parameter = trim(parameter);
                     if (!parameter.empty()) {
+                        if (is_variadic_macro) {
+                            return PassResult::Failure(
+                                "invalid #define directive: variadic macro "
+                                "parameter must be last");
+                        }
+                        if (parameter == "...") {
+                            is_variadic_macro = true;
+                            continue;
+                        }
+                        if (parameter.size() >= 3 &&
+                            parameter.compare(parameter.size() - 3, 3,
+                                              "...") == 0) {
+                            parameter.erase(parameter.size() - 3);
+                            parameter = trim(parameter);
+                            if (!is_valid_identifier(parameter)) {
+                                return PassResult::Failure(
+                                    "invalid #define directive: invalid macro "
+                                    "parameter name");
+                            }
+                            if (!parameter_names.insert(parameter).second) {
+                                return PassResult::Failure(
+                                    "invalid #define directive: duplicate "
+                                    "macro parameter");
+                            }
+                            macro_parameters.push_back(parameter);
+                            is_variadic_macro = true;
+                            continue;
+                        }
+                        if (!is_valid_identifier(parameter)) {
+                            return PassResult::Failure(
+                                "invalid #define directive: invalid macro "
+                                "parameter name");
+                        }
+                        if (!parameter_names.insert(parameter).second) {
+                            return PassResult::Failure(
+                                "invalid #define directive: duplicate macro "
+                                "parameter");
+                        }
                         macro_parameters.push_back(parameter);
                     }
                 }
@@ -157,7 +234,8 @@ PassResult DirectiveParser::parse(const std::string &line,
 
         directive =
             Directive(kind, keyword, std::move(arguments),
-                      is_function_like_macro, std::move(macro_parameters));
+                      is_function_like_macro, is_variadic_macro,
+                      std::move(macro_parameters));
         return PassResult::Success();
     } else if (kind == DirectiveKind::If || kind == DirectiveKind::Elif) {
         std::string expression;
@@ -165,6 +243,24 @@ PassResult DirectiveParser::parse(const std::string &line,
         expression = trim_left(expression);
         if (!expression.empty()) {
             arguments.push_back(expression);
+        }
+    } else if (kind == DirectiveKind::Ifdef ||
+               kind == DirectiveKind::Ifndef ||
+               kind == DirectiveKind::Elifdef ||
+               kind == DirectiveKind::Elifndef) {
+        std::string argument;
+        iss >> argument;
+        if (!argument.empty()) {
+            arguments.push_back(argument);
+        }
+    } else if (kind == DirectiveKind::Error ||
+               kind == DirectiveKind::Pragma ||
+               kind == DirectiveKind::Line) {
+        std::string message;
+        std::getline(iss, message);
+        message = trim_left(message);
+        if (!message.empty()) {
+            arguments.push_back(message);
         }
     } else {
         std::string argument;

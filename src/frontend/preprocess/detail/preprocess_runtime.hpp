@@ -2,6 +2,7 @@
 
 #include <sstream>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -12,6 +13,8 @@ class PreprocessRuntime {
   private:
     std::vector<std::string> output_lines_;
     std::vector<std::string> file_stack_;
+    std::unordered_set<std::string> pragma_once_files_;
+    std::unordered_set<std::string> processed_files_;
     bool in_block_comment_ = false;
 
   public:
@@ -27,6 +30,9 @@ class PreprocessRuntime {
     void pop_file();
     const std::string &get_current_file() const noexcept;
     bool has_file_in_stack(const std::string &file_path) const noexcept;
+    void mark_pragma_once_file(const std::string &file_path);
+    void mark_file_processed(const std::string &file_path);
+    bool should_skip_file(const std::string &file_path) const noexcept;
     bool get_in_block_comment() const noexcept { return in_block_comment_; }
     void set_in_block_comment(bool in_block_comment) noexcept {
         in_block_comment_ = in_block_comment;

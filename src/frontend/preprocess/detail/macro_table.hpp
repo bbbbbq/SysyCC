@@ -17,6 +17,7 @@ class MacroDefinition {
     std::string name_;
     std::string replacement_;
     bool is_function_like_ = false;
+    bool is_variadic_ = false;
     std::vector<std::string> parameters_;
     SourceSpan source_span_;
 
@@ -25,10 +26,12 @@ class MacroDefinition {
 
     MacroDefinition(std::string name, std::string replacement,
                     bool is_function_like = false,
+                    bool is_variadic = false,
                     std::vector<std::string> parameters = {},
                     SourceSpan source_span = {})
         : name_(std::move(name)), replacement_(std::move(replacement)),
           is_function_like_(is_function_like),
+          is_variadic_(is_variadic),
           parameters_(std::move(parameters)),
           source_span_(source_span) {}
 
@@ -46,6 +49,12 @@ class MacroDefinition {
 
     void set_is_function_like(bool is_function_like) noexcept {
         is_function_like_ = is_function_like;
+    }
+
+    bool get_is_variadic() const noexcept { return is_variadic_; }
+
+    void set_is_variadic(bool is_variadic) noexcept {
+        is_variadic_ = is_variadic;
     }
 
     const std::vector<std::string> &get_parameters() const noexcept {

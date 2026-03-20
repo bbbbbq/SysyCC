@@ -3,6 +3,7 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,12 +20,28 @@ bool ends_with_whitespace(const std::string &text) {
     return std::isspace(static_cast<unsigned char>(text.back())) != 0;
 }
 
+bool ends_with_line_continuation(const std::string &text) {
+    return !text.empty() && text.back() == '\\';
+}
+
 void append_comment_placeholder(std::string &text) {
     if (text.empty() || ends_with_whitespace(text)) {
         return;
     }
 
     text.push_back(' ');
+}
+
+std::string build_logical_line(const std::vector<std::string> &lines,
+                               std::size_t &index) {
+    std::string logical_line = lines[index];
+    while (ends_with_line_continuation(logical_line) &&
+           index + 1 < lines.size()) {
+        logical_line.pop_back();
+        ++index;
+        logical_line += lines[index];
+    }
+    return logical_line;
 }
 
 } // namespace
@@ -64,7 +81,9 @@ PassResult PreprocessSession::evaluate_if_condition(const Directive &directive,
 
     long long value = 0;
     PassResult evaluate_result = constant_expression_evaluator_.evaluate(
-        arguments[0], macro_table_, value);
+        arguments[0], macro_table_, runtime_.get_current_file(),
+        context_.get_include_directories(),
+        context_.get_system_include_directories(), value);
     if (!evaluate_result.ok) {
         return evaluate_result;
     }
@@ -166,6 +185,53 @@ PreprocessSession::handle_non_directive_line(const std::string &line) {
 }
 
 PassResult
+handle_error_directive(const Directive &directive) {
+    const std::vector<std::string> &arguments = directive.get_arguments();
+    if (arguments.empty()) {
+        return PassResult::Failure("#error directive triggered");
+    }
+
+    return PassResult::Failure("#error: " + arguments[0]);
+}
+
+PassResult handle_pragma_directive(PreprocessRuntime &runtime,
+                                   const Directive &directive) {
+    const std::vector<std::string> &arguments = directive.get_arguments();
+    if (arguments.empty()) {
+        return PassResult::Success();
+    }
+
+    if (arguments[0] == "once") {
+        runtime.mark_pragma_once_file(runtime.get_current_file());
+    }
+
+    return PassResult::Success();
+}
+
+PassResult handle_line_directive(const Directive &directive) {
+    const std::vector<std::string> &arguments = directive.get_arguments();
+    if (arguments.empty()) {
+        return PassResult::Failure("invalid #line directive: missing line number");
+    }
+
+    std::istringstream payload(arguments[0]);
+    std::string line_number_text;
+    payload >> line_number_text;
+    if (line_number_text.empty()) {
+        return PassResult::Failure("invalid #line directive: missing line number");
+    }
+
+    for (char ch : line_number_text) {
+        if (std::isdigit(static_cast<unsigned char>(ch)) == 0) {
+            return PassResult::Failure(
+                "invalid #line directive: invalid line number");
+        }
+    }
+
+    return PassResult::Success();
+}
+
+PassResult
 PreprocessSession::handle_conditional_directive(const Directive &directive) {
     const std::vector<std::string> &arguments = directive.get_arguments();
     bool condition = false;
@@ -193,6 +259,20 @@ PreprocessSession::handle_conditional_directive(const Directive &directive) {
         }
         return conditional_stack_.push_if(condition);
     }
+    case DirectiveKind::Elifdef:
+        if (arguments.empty()) {
+            return PassResult::Failure("invalid " + directive.get_keyword() +
+                                       " directive: missing condition");
+        }
+        condition = macro_table_.has_macro(arguments[0]);
+        return conditional_stack_.handle_elif(condition);
+    case DirectiveKind::Elifndef:
+        if (arguments.empty()) {
+            return PassResult::Failure("invalid " + directive.get_keyword() +
+                                       " directive: missing condition");
+        }
+        condition = !macro_table_.has_macro(arguments[0]);
+        return conditional_stack_.handle_elif(condition);
     case DirectiveKind::Elif: {
         PassResult condition_result =
             evaluate_if_condition(directive, condition);
@@ -213,7 +293,8 @@ PreprocessSession::handle_conditional_directive(const Directive &directive) {
 PassResult PreprocessSession::handle_include_directive(
     const std::string &line, const Directive &directive,
     const std::string &current_file_path) {
-    if (directive.get_kind() != DirectiveKind::Include) {
+    if (directive.get_kind() != DirectiveKind::Include &&
+        directive.get_kind() != DirectiveKind::IncludeNext) {
         return PassResult::Failure("unexpected include directive kind");
     }
 
@@ -230,6 +311,7 @@ PassResult PreprocessSession::handle_include_directive(
     PassResult resolve_result = include_resolver_.resolve_include(
         line, current_file_path, context_.get_include_directories(),
         context_.get_system_include_directories(),
+        directive.get_kind() == DirectiveKind::IncludeNext,
         expanded_include_token, resolved_file_path);
     if (!resolve_result.ok) {
         return resolve_result;
@@ -256,6 +338,7 @@ PassResult PreprocessSession::handle_macro_directive(
 
         return macro_table_.define_macro(MacroDefinition(
             arguments[0], replacement, directive.get_is_function_like_macro(),
+            directive.get_is_variadic_macro(),
             directive.get_macro_parameters(),
             SourceSpan(SourcePosition(get_source_file(current_file_path),
                                       line_number, 1),
@@ -305,6 +388,8 @@ PreprocessSession::process_line(const std::string &line, int line_number,
     case DirectiveKind::Ifndef:
     case DirectiveKind::If:
     case DirectiveKind::Elif:
+    case DirectiveKind::Elifdef:
+    case DirectiveKind::Elifndef:
     case DirectiveKind::Else:
     case DirectiveKind::Endif:
         return handle_conditional_directive(directive);
@@ -318,8 +403,15 @@ PreprocessSession::process_line(const std::string &line, int line_number,
 
     switch (directive.get_kind()) {
     case DirectiveKind::Include:
+    case DirectiveKind::IncludeNext:
         return handle_include_directive(stripped_line, directive,
                                         current_file_path);
+    case DirectiveKind::Error:
+        return handle_error_directive(directive);
+    case DirectiveKind::Pragma:
+        return handle_pragma_directive(runtime_, directive);
+    case DirectiveKind::Line:
+        return handle_line_directive(directive);
     case DirectiveKind::Define:
     case DirectiveKind::Undef:
         return handle_macro_directive(stripped_line, line_number, directive,
@@ -357,6 +449,10 @@ PassResult PreprocessSession::write_preprocessed_file(
 }
 
 PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
+    if (runtime_.should_skip_file(file_path)) {
+        return PassResult::Success();
+    }
+
     // Reject recursive re-entry before descending into the next include.
     if (runtime_.has_file_in_stack(file_path)) {
         return PassResult::Failure("include cycle detected: " + file_path);
@@ -373,8 +469,10 @@ PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
     runtime_.push_file(file_path);
 
     for (std::size_t index = 0; index < lines.size(); ++index) {
+        const int line_number = static_cast<int>(index + 1);
+        const std::string logical_line = build_logical_line(lines, index);
         PassResult result =
-            process_line(lines[index], static_cast<int>(index + 1), file_path);
+            process_line(logical_line, line_number, file_path);
         if (!result.ok) {
             runtime_.pop_file();
             return result;
@@ -391,6 +489,7 @@ PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
         return PassResult::Failure("missing #endif directive");
     }
 
+    runtime_.mark_file_processed(file_path);
     return PassResult::Success();
 }
 

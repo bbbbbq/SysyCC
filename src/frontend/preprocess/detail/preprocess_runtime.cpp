@@ -7,6 +7,8 @@ PreprocessRuntime::PreprocessRuntime() = default;
 void PreprocessRuntime::clear() {
     output_lines_.clear();
     file_stack_.clear();
+    pragma_once_files_.clear();
+    processed_files_.clear();
     in_block_comment_ = false;
 }
 
@@ -42,6 +44,20 @@ bool PreprocessRuntime::has_file_in_stack(const std::string &file_path) const no
     }
 
     return false;
+}
+
+void PreprocessRuntime::mark_pragma_once_file(const std::string &file_path) {
+    pragma_once_files_.insert(file_path);
+}
+
+void PreprocessRuntime::mark_file_processed(const std::string &file_path) {
+    processed_files_.insert(file_path);
+}
+
+bool PreprocessRuntime::should_skip_file(
+    const std::string &file_path) const noexcept {
+    return pragma_once_files_.find(file_path) != pragma_once_files_.end() &&
+           processed_files_.find(file_path) != processed_files_.end();
 }
 
 std::string PreprocessRuntime::build_output_text() const {

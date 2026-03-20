@@ -12,10 +12,16 @@ enum class DirectiveKind : uint8_t {
     Define,
     Undef,
     Include,
+    IncludeNext,
+    Error,
+    Pragma,
+    Line,
     Ifdef,
     Ifndef,
     If,
     Elif,
+    Elifdef,
+    Elifndef,
     Else,
     Endif,
     Unknown,
@@ -28,6 +34,7 @@ class Directive {
     std::string keyword_;
     std::vector<std::string> arguments_;
     bool is_function_like_macro_ = false;
+    bool is_variadic_macro_ = false;
     std::vector<std::string> macro_parameters_;
 
   public:
@@ -36,10 +43,12 @@ class Directive {
     Directive(DirectiveKind kind, std::string keyword,
               std::vector<std::string> arguments,
               bool is_function_like_macro = false,
+              bool is_variadic_macro = false,
               std::vector<std::string> macro_parameters = {})
         : kind_(kind), keyword_(std::move(keyword)),
           arguments_(std::move(arguments)),
           is_function_like_macro_(is_function_like_macro),
+          is_variadic_macro_(is_variadic_macro),
           macro_parameters_(std::move(macro_parameters)) {}
 
     DirectiveKind get_kind() const noexcept { return kind_; }
@@ -50,6 +59,7 @@ class Directive {
     bool get_is_function_like_macro() const noexcept {
         return is_function_like_macro_;
     }
+    bool get_is_variadic_macro() const noexcept { return is_variadic_macro_; }
     const std::vector<std::string> &get_macro_parameters() const noexcept {
         return macro_parameters_;
     }
