@@ -57,7 +57,7 @@ void Cli::Run(int argc, char *argv[]) {
         if (arg == "-o") {
             if (i + 1 >= argc) {
                 has_error_ = true;
-                std::cerr << "error: missing output file after -o" << std::endl;
+                std::cerr << "error: missing output file after -o" << '\n';
                 PrintHelp();
                 return;
             }
@@ -70,7 +70,7 @@ void Cli::Run(int argc, char *argv[]) {
             if (i + 1 >= argc) {
                 has_error_ = true;
                 std::cerr << "error: missing include directory after -I"
-                          << std::endl;
+                          << '\n';
                 PrintHelp();
                 return;
             }
@@ -86,7 +86,7 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (!arg.empty() && arg[0] == '-') {
             has_error_ = true;
-            std::cerr << "error: unknown option: " << arg << std::endl;
+            std::cerr << "error: unknown option: " << arg << '\n';
             PrintHelp();
             return;
         }
@@ -98,14 +98,14 @@ void Cli::Run(int argc, char *argv[]) {
 
         has_error_ = true;
         std::cerr << "error: multiple input files are not supported: " << arg
-                  << std::endl;
+                  << '\n';
         PrintHelp();
         return;
     }
 
     if (input_file_.empty()) {
         has_error_ = true;
-        std::cerr << "error: missing input file" << std::endl;
+        std::cerr << "error: missing input file" << '\n';
         PrintHelp();
     }
 }

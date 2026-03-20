@@ -42,7 +42,7 @@ class Cli {
                   << "  -v, --version      Show version information and exit\n";
     }
     void PrintVersion() {
-        std::cout << "sysycc version " << version_ << std::endl;
+        std::cout << "sysycc version " << version_ << '\n';
     }
 
     void set_compiler_option(sysycc::ComplierOption &option) const {

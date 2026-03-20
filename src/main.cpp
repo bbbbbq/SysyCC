@@ -20,14 +20,14 @@ int main(int argc, char *argv[]) {
     cli.set_compiler_option(option);
     sysycc::Complier complier(option);
 
-    const sysycc::PassResult result = complier.Run();
+    sysycc::PassResult result = complier.Run();
     if (!result.ok) {
-        std::cerr << result.message << std::endl;
+        std::cerr << result.message << '\n';
         return 1;
     }
 
     if (!result.message.empty()) {
-        std::cout << result.message << std::endl;
+        std::cout << result.message << '\n';
     }
     return 0;
 }

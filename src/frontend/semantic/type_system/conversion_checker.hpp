@@ -46,6 +46,7 @@ class ConversionChecker {
                                   const ConstantEvaluator &constant_evaluator) const;
     const SemanticType *get_decayed_type(const SemanticType *type,
                                          SemanticModel &semantic_model) const;
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     bool is_same_or_decayed_pointer_target(const SemanticType *target,
                                            const SemanticType *value,
                                            SemanticModel &semantic_model) const;

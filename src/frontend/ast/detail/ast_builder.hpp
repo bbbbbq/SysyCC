@@ -34,6 +34,7 @@ class AstBuilder {
         const ParseTreeNode *node) const;
     std::unique_ptr<EnumDecl> build_enum_decl(const ParseTreeNode *node) const;
     std::unique_ptr<TypeNode> build_return_type(const ParseTreeNode *node) const;
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     std::unique_ptr<TypeNode> build_declared_type(
         const ParseTreeNode *type_specifier, const ParseTreeNode *declarator) const;
     std::vector<std::unique_ptr<Decl>> build_struct_fields(

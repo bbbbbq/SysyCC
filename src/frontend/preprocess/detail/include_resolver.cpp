@@ -19,10 +19,10 @@ std::string trim_left(const std::string &text) {
 
 } // namespace
 
-PassResult IncludeResolver::resolve_local_include(
-    const std::string &directive_line, const std::string &including_file_path,
-    const std::vector<std::string> &include_directories,
-    const std::string &include_token, std::string &resolved_file_path) const {
+// `directive_line` is only used for diagnostics; `including_file_path` drives
+// the search root.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+PassResult IncludeResolver::resolve_local_include(const std::string &directive_line, const std::string &including_file_path, const std::vector<std::string> &include_directories, const std::string &include_token, std::string &resolved_file_path) const { // NOLINT(bugprone-easily-swappable-parameters)
     if (include_token.size() < 2 || include_token.front() != '"' ||
         include_token.back() != '"') {
         return PassResult::Failure("unsupported #include form: " +

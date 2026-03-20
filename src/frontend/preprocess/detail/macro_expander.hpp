@@ -15,10 +15,12 @@ class MacroExpander {
     std::size_t find_parameter_index(
         const std::string &identifier,
         const std::vector<std::string> &parameters) const;
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     std::string apply_stringification(
         const std::string &replacement,
         const std::vector<std::string> &parameters,
         const std::vector<std::string> &raw_arguments) const;
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     std::string apply_token_pasting(
         const std::string &replacement,
         const std::vector<std::string> &parameters,
@@ -31,6 +33,7 @@ class MacroExpander {
                                std::size_t open_paren_index,
                                std::vector<std::string> &arguments,
                                std::size_t &end_index) const;
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     std::string
     substitute_parameters(const std::string &replacement,
                           const std::vector<std::string> &parameters,

@@ -30,7 +30,7 @@ class MacroDefinition {
         : name_(std::move(name)), replacement_(std::move(replacement)),
           is_function_like_(is_function_like),
           parameters_(std::move(parameters)),
-          source_span_(std::move(source_span)) {}
+          source_span_(source_span) {}
 
     const std::string &get_name() const noexcept { return name_; }
 
@@ -59,7 +59,7 @@ class MacroDefinition {
     const SourceSpan &get_source_span() const noexcept { return source_span_; }
 
     void set_source_span(SourceSpan source_span) {
-        source_span_ = std::move(source_span);
+        source_span_ = source_span;
     }
 };
 

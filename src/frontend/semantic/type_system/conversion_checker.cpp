@@ -294,9 +294,11 @@ const SemanticType *ConversionChecker::get_decayed_type(
         std::make_unique<PointerSemanticType>(array_type->get_element_type()));
 }
 
+// `target` and `value` are intentionally ordered to match assignment semantics.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool ConversionChecker::is_same_or_decayed_pointer_target(
     const SemanticType *target, const SemanticType *value,
-    SemanticModel &semantic_model) const {
+    SemanticModel &semantic_model) const { // NOLINT(bugprone-easily-swappable-parameters)
     if (!is_pointer_type(target)) {
         return false;
     }

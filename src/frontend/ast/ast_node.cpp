@@ -5,7 +5,7 @@
 namespace sysycc {
 
 AstNode::AstNode(AstKind kind, SourceSpan source_span)
-    : kind_(kind), source_span_(std::move(source_span)) {}
+    : kind_(kind), source_span_(source_span) {}
 
 AstKind AstNode::get_kind() const noexcept { return kind_; }
 
@@ -14,19 +14,19 @@ const SourceSpan &AstNode::get_source_span() const noexcept {
 }
 
 Decl::Decl(AstKind kind, SourceSpan source_span)
-    : AstNode(kind, std::move(source_span)) {}
+    : AstNode(kind, source_span) {}
 
 Stmt::Stmt(AstKind kind, SourceSpan source_span)
-    : AstNode(kind, std::move(source_span)) {}
+    : AstNode(kind, source_span) {}
 
 Expr::Expr(AstKind kind, SourceSpan source_span)
-    : AstNode(kind, std::move(source_span)) {}
+    : AstNode(kind, source_span) {}
 
 TypeNode::TypeNode(AstKind kind, SourceSpan source_span)
-    : AstNode(kind, std::move(source_span)) {}
+    : AstNode(kind, source_span) {}
 
 TranslationUnit::TranslationUnit(SourceSpan source_span)
-    : AstNode(AstKind::TranslationUnit, std::move(source_span)) {}
+    : AstNode(AstKind::TranslationUnit, source_span) {}
 
 std::vector<std::unique_ptr<Decl>> &TranslationUnit::get_top_level_decls()
     noexcept {
@@ -46,14 +46,14 @@ void TranslationUnit::add_top_level_decl(std::unique_ptr<Decl> decl) {
 }
 
 BuiltinTypeNode::BuiltinTypeNode(std::string name, SourceSpan source_span)
-    : TypeNode(AstKind::BuiltinType, std::move(source_span)),
+    : TypeNode(AstKind::BuiltinType, source_span),
       name_(std::move(name)) {}
 
 const std::string &BuiltinTypeNode::get_name() const noexcept { return name_; }
 
 PointerTypeNode::PointerTypeNode(std::unique_ptr<TypeNode> pointee_type,
                                  SourceSpan source_span)
-    : TypeNode(AstKind::PointerType, std::move(source_span)),
+    : TypeNode(AstKind::PointerType, source_span),
       pointee_type_(std::move(pointee_type)) {}
 
 const TypeNode *PointerTypeNode::get_pointee_type() const noexcept {
@@ -61,18 +61,18 @@ const TypeNode *PointerTypeNode::get_pointee_type() const noexcept {
 }
 
 StructTypeNode::StructTypeNode(std::string name, SourceSpan source_span)
-    : TypeNode(AstKind::StructType, std::move(source_span)),
+    : TypeNode(AstKind::StructType, source_span),
       name_(std::move(name)) {}
 
 const std::string &StructTypeNode::get_name() const noexcept { return name_; }
 
 EnumTypeNode::EnumTypeNode(std::string name, SourceSpan source_span)
-    : TypeNode(AstKind::EnumType, std::move(source_span)), name_(std::move(name)) {}
+    : TypeNode(AstKind::EnumType, source_span), name_(std::move(name)) {}
 
 const std::string &EnumTypeNode::get_name() const noexcept { return name_; }
 
 UnknownTypeNode::UnknownTypeNode(std::string summary, SourceSpan source_span)
-    : TypeNode(AstKind::UnknownType, std::move(source_span)),
+    : TypeNode(AstKind::UnknownType, source_span),
       summary_(std::move(summary)) {}
 
 const std::string &UnknownTypeNode::get_summary() const noexcept {
@@ -83,7 +83,7 @@ FunctionDecl::FunctionDecl(std::string name,
                            std::unique_ptr<TypeNode> return_type,
                            std::vector<std::unique_ptr<Decl>> parameters,
                            std::unique_ptr<Stmt> body, SourceSpan source_span)
-    : Decl(AstKind::FunctionDecl, std::move(source_span)),
+    : Decl(AstKind::FunctionDecl, source_span),
       name_(std::move(name)), return_type_(std::move(return_type)),
       parameters_(std::move(parameters)), body_(std::move(body)) {}
 
@@ -103,7 +103,7 @@ const Stmt *FunctionDecl::get_body() const noexcept { return body_.get(); }
 ParamDecl::ParamDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
                      std::vector<std::unique_ptr<Expr>> dimensions,
                      SourceSpan source_span)
-    : Decl(AstKind::ParamDecl, std::move(source_span)), name_(std::move(name)),
+    : Decl(AstKind::ParamDecl, source_span), name_(std::move(name)),
       declared_type_(std::move(declared_type)),
       dimensions_(std::move(dimensions)) {}
 
@@ -121,7 +121,7 @@ const std::vector<std::unique_ptr<Expr>> &ParamDecl::get_dimensions() const
 FieldDecl::FieldDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
                      std::vector<std::unique_ptr<Expr>> dimensions,
                      SourceSpan source_span)
-    : Decl(AstKind::FieldDecl, std::move(source_span)), name_(std::move(name)),
+    : Decl(AstKind::FieldDecl, source_span), name_(std::move(name)),
       declared_type_(std::move(declared_type)),
       dimensions_(std::move(dimensions)) {}
 
@@ -139,7 +139,7 @@ const std::vector<std::unique_ptr<Expr>> &FieldDecl::get_dimensions() const
 VarDecl::VarDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
                  std::vector<std::unique_ptr<Expr>> dimensions,
                  std::unique_ptr<Expr> initializer, SourceSpan source_span)
-    : Decl(AstKind::VarDecl, std::move(source_span)), name_(std::move(name)),
+    : Decl(AstKind::VarDecl, source_span), name_(std::move(name)),
       declared_type_(std::move(declared_type)),
       dimensions_(std::move(dimensions)), initializer_(std::move(initializer)) {
 }
@@ -162,7 +162,7 @@ const Expr *VarDecl::get_initializer() const noexcept {
 ConstDecl::ConstDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
                      std::vector<std::unique_ptr<Expr>> dimensions,
                      std::unique_ptr<Expr> initializer, SourceSpan source_span)
-    : Decl(AstKind::ConstDecl, std::move(source_span)), name_(std::move(name)),
+    : Decl(AstKind::ConstDecl, source_span), name_(std::move(name)),
       declared_type_(std::move(declared_type)),
       dimensions_(std::move(dimensions)), initializer_(std::move(initializer)) {
 }
@@ -183,7 +183,7 @@ const Expr *ConstDecl::get_initializer() const noexcept {
 }
 
 StructDecl::StructDecl(std::string name, SourceSpan source_span)
-    : Decl(AstKind::StructDecl, std::move(source_span)), name_(std::move(name)) {}
+    : Decl(AstKind::StructDecl, source_span), name_(std::move(name)) {}
 
 const std::string &StructDecl::get_name() const noexcept { return name_; }
 
@@ -200,7 +200,7 @@ void StructDecl::add_field(std::unique_ptr<Decl> field) {
 
 EnumeratorDecl::EnumeratorDecl(std::string name, std::unique_ptr<Expr> value,
                                SourceSpan source_span)
-    : Decl(AstKind::EnumeratorDecl, std::move(source_span)),
+    : Decl(AstKind::EnumeratorDecl, source_span),
       name_(std::move(name)), value_(std::move(value)) {}
 
 const std::string &EnumeratorDecl::get_name() const noexcept { return name_; }
@@ -208,7 +208,7 @@ const std::string &EnumeratorDecl::get_name() const noexcept { return name_; }
 const Expr *EnumeratorDecl::get_value() const noexcept { return value_.get(); }
 
 EnumDecl::EnumDecl(std::string name, SourceSpan source_span)
-    : Decl(AstKind::EnumDecl, std::move(source_span)), name_(std::move(name)) {}
+    : Decl(AstKind::EnumDecl, source_span), name_(std::move(name)) {}
 
 const std::string &EnumDecl::get_name() const noexcept { return name_; }
 
@@ -226,7 +226,7 @@ void EnumDecl::add_enumerator(std::unique_ptr<Decl> enumerator) {
 TypedefDecl::TypedefDecl(std::string name, std::unique_ptr<TypeNode> aliased_type,
                          std::vector<std::unique_ptr<Expr>> dimensions,
                          SourceSpan source_span)
-    : Decl(AstKind::TypedefDecl, std::move(source_span)),
+    : Decl(AstKind::TypedefDecl, source_span),
       name_(std::move(name)), aliased_type_(std::move(aliased_type)),
       dimensions_(std::move(dimensions)) {}
 
@@ -241,7 +241,7 @@ const std::vector<std::unique_ptr<Expr>> &TypedefDecl::get_dimensions() const no
 }
 
 UnknownDecl::UnknownDecl(std::string summary, SourceSpan source_span)
-    : Decl(AstKind::UnknownDecl, std::move(source_span)),
+    : Decl(AstKind::UnknownDecl, source_span),
       summary_(std::move(summary)) {}
 
 const std::string &UnknownDecl::get_summary() const noexcept {
@@ -249,7 +249,7 @@ const std::string &UnknownDecl::get_summary() const noexcept {
 }
 
 BlockStmt::BlockStmt(SourceSpan source_span)
-    : Stmt(AstKind::BlockStmt, std::move(source_span)) {}
+    : Stmt(AstKind::BlockStmt, source_span) {}
 
 std::vector<std::unique_ptr<Stmt>> &BlockStmt::get_statements() noexcept {
     return statements_;
@@ -268,7 +268,7 @@ void BlockStmt::add_statement(std::unique_ptr<Stmt> statement) {
 }
 
 DeclStmt::DeclStmt(SourceSpan source_span)
-    : Stmt(AstKind::DeclStmt, std::move(source_span)) {}
+    : Stmt(AstKind::DeclStmt, source_span) {}
 
 const std::vector<std::unique_ptr<Decl>> &DeclStmt::get_declarations() const
     noexcept {
@@ -283,7 +283,7 @@ void DeclStmt::add_declaration(std::unique_ptr<Decl> declaration) {
 }
 
 ExprStmt::ExprStmt(std::unique_ptr<Expr> expression, SourceSpan source_span)
-    : Stmt(AstKind::ExprStmt, std::move(source_span)),
+    : Stmt(AstKind::ExprStmt, source_span),
       expression_(std::move(expression)) {}
 
 const Expr *ExprStmt::get_expression() const noexcept {
@@ -292,7 +292,7 @@ const Expr *ExprStmt::get_expression() const noexcept {
 
 IfStmt::IfStmt(std::unique_ptr<Expr> condition, std::unique_ptr<Stmt> then_branch,
                std::unique_ptr<Stmt> else_branch, SourceSpan source_span)
-    : Stmt(AstKind::IfStmt, std::move(source_span)),
+    : Stmt(AstKind::IfStmt, source_span),
       condition_(std::move(condition)), then_branch_(std::move(then_branch)),
       else_branch_(std::move(else_branch)) {}
 
@@ -308,7 +308,7 @@ const Stmt *IfStmt::get_else_branch() const noexcept {
 
 WhileStmt::WhileStmt(std::unique_ptr<Expr> condition, std::unique_ptr<Stmt> body,
                      SourceSpan source_span)
-    : Stmt(AstKind::WhileStmt, std::move(source_span)),
+    : Stmt(AstKind::WhileStmt, source_span),
       condition_(std::move(condition)), body_(std::move(body)) {}
 
 const Expr *WhileStmt::get_condition() const noexcept { return condition_.get(); }
@@ -317,7 +317,7 @@ const Stmt *WhileStmt::get_body() const noexcept { return body_.get(); }
 
 DoWhileStmt::DoWhileStmt(std::unique_ptr<Stmt> body,
                          std::unique_ptr<Expr> condition, SourceSpan source_span)
-    : Stmt(AstKind::DoWhileStmt, std::move(source_span)),
+    : Stmt(AstKind::DoWhileStmt, source_span),
       body_(std::move(body)), condition_(std::move(condition)) {}
 
 const Stmt *DoWhileStmt::get_body() const noexcept { return body_.get(); }
@@ -329,7 +329,7 @@ const Expr *DoWhileStmt::get_condition() const noexcept {
 ForStmt::ForStmt(std::unique_ptr<Expr> init, std::unique_ptr<Expr> condition,
                  std::unique_ptr<Expr> step, std::unique_ptr<Stmt> body,
                  SourceSpan source_span)
-    : Stmt(AstKind::ForStmt, std::move(source_span)), init_(std::move(init)),
+    : Stmt(AstKind::ForStmt, source_span), init_(std::move(init)),
       condition_(std::move(condition)), step_(std::move(step)),
       body_(std::move(body)) {}
 
@@ -343,7 +343,7 @@ const Stmt *ForStmt::get_body() const noexcept { return body_.get(); }
 
 SwitchStmt::SwitchStmt(std::unique_ptr<Expr> condition,
                        std::unique_ptr<Stmt> body, SourceSpan source_span)
-    : Stmt(AstKind::SwitchStmt, std::move(source_span)),
+    : Stmt(AstKind::SwitchStmt, source_span),
       condition_(std::move(condition)), body_(std::move(body)) {}
 
 const Expr *SwitchStmt::get_condition() const noexcept {
@@ -354,7 +354,7 @@ const Stmt *SwitchStmt::get_body() const noexcept { return body_.get(); }
 
 CaseStmt::CaseStmt(std::unique_ptr<Expr> value, std::unique_ptr<Stmt> body,
                    SourceSpan source_span)
-    : Stmt(AstKind::CaseStmt, std::move(source_span)), value_(std::move(value)),
+    : Stmt(AstKind::CaseStmt, source_span), value_(std::move(value)),
       body_(std::move(body)) {}
 
 const Expr *CaseStmt::get_value() const noexcept { return value_.get(); }
@@ -362,25 +362,25 @@ const Expr *CaseStmt::get_value() const noexcept { return value_.get(); }
 const Stmt *CaseStmt::get_body() const noexcept { return body_.get(); }
 
 DefaultStmt::DefaultStmt(std::unique_ptr<Stmt> body, SourceSpan source_span)
-    : Stmt(AstKind::DefaultStmt, std::move(source_span)),
+    : Stmt(AstKind::DefaultStmt, source_span),
       body_(std::move(body)) {}
 
 const Stmt *DefaultStmt::get_body() const noexcept { return body_.get(); }
 
 BreakStmt::BreakStmt(SourceSpan source_span)
-    : Stmt(AstKind::BreakStmt, std::move(source_span)) {}
+    : Stmt(AstKind::BreakStmt, source_span) {}
 
 ContinueStmt::ContinueStmt(SourceSpan source_span)
-    : Stmt(AstKind::ContinueStmt, std::move(source_span)) {}
+    : Stmt(AstKind::ContinueStmt, source_span) {}
 
 ReturnStmt::ReturnStmt(std::unique_ptr<Expr> value, SourceSpan source_span)
-    : Stmt(AstKind::ReturnStmt, std::move(source_span)),
+    : Stmt(AstKind::ReturnStmt, source_span),
       value_(std::move(value)) {}
 
 const Expr *ReturnStmt::get_value() const noexcept { return value_.get(); }
 
 UnknownStmt::UnknownStmt(std::string summary, SourceSpan source_span)
-    : Stmt(AstKind::UnknownStmt, std::move(source_span)),
+    : Stmt(AstKind::UnknownStmt, source_span),
       summary_(std::move(summary)) {}
 
 const std::string &UnknownStmt::get_summary() const noexcept {
@@ -389,7 +389,7 @@ const std::string &UnknownStmt::get_summary() const noexcept {
 
 IntegerLiteralExpr::IntegerLiteralExpr(std::string value_text,
                                        SourceSpan source_span)
-    : Expr(AstKind::IntegerLiteralExpr, std::move(source_span)),
+    : Expr(AstKind::IntegerLiteralExpr, source_span),
       value_text_(std::move(value_text)) {}
 
 const std::string &IntegerLiteralExpr::get_value_text() const noexcept {
@@ -398,7 +398,7 @@ const std::string &IntegerLiteralExpr::get_value_text() const noexcept {
 
 FloatLiteralExpr::FloatLiteralExpr(std::string value_text,
                                    SourceSpan source_span)
-    : Expr(AstKind::FloatLiteralExpr, std::move(source_span)),
+    : Expr(AstKind::FloatLiteralExpr, source_span),
       value_text_(std::move(value_text)) {}
 
 const std::string &FloatLiteralExpr::get_value_text() const noexcept {
@@ -406,7 +406,7 @@ const std::string &FloatLiteralExpr::get_value_text() const noexcept {
 }
 
 CharLiteralExpr::CharLiteralExpr(std::string value_text, SourceSpan source_span)
-    : Expr(AstKind::CharLiteralExpr, std::move(source_span)),
+    : Expr(AstKind::CharLiteralExpr, source_span),
       value_text_(std::move(value_text)) {}
 
 const std::string &CharLiteralExpr::get_value_text() const noexcept {
@@ -415,7 +415,7 @@ const std::string &CharLiteralExpr::get_value_text() const noexcept {
 
 StringLiteralExpr::StringLiteralExpr(std::string value_text,
                                      SourceSpan source_span)
-    : Expr(AstKind::StringLiteralExpr, std::move(source_span)),
+    : Expr(AstKind::StringLiteralExpr, source_span),
       value_text_(std::move(value_text)) {}
 
 const std::string &StringLiteralExpr::get_value_text() const noexcept {
@@ -423,14 +423,14 @@ const std::string &StringLiteralExpr::get_value_text() const noexcept {
 }
 
 IdentifierExpr::IdentifierExpr(std::string name, SourceSpan source_span)
-    : Expr(AstKind::IdentifierExpr, std::move(source_span)),
+    : Expr(AstKind::IdentifierExpr, source_span),
       name_(std::move(name)) {}
 
 const std::string &IdentifierExpr::get_name() const noexcept { return name_; }
 
 UnaryExpr::UnaryExpr(std::string operator_text, std::unique_ptr<Expr> operand,
                      SourceSpan source_span)
-    : Expr(AstKind::UnaryExpr, std::move(source_span)),
+    : Expr(AstKind::UnaryExpr, source_span),
       operator_text_(std::move(operator_text)), operand_(std::move(operand)) {}
 
 const std::string &UnaryExpr::get_operator_text() const noexcept {
@@ -441,7 +441,7 @@ const Expr *UnaryExpr::get_operand() const noexcept { return operand_.get(); }
 
 PrefixExpr::PrefixExpr(std::string operator_text, std::unique_ptr<Expr> operand,
                        SourceSpan source_span)
-    : Expr(AstKind::PrefixExpr, std::move(source_span)),
+    : Expr(AstKind::PrefixExpr, source_span),
       operator_text_(std::move(operator_text)), operand_(std::move(operand)) {}
 
 const std::string &PrefixExpr::get_operator_text() const noexcept {
@@ -452,7 +452,7 @@ const Expr *PrefixExpr::get_operand() const noexcept { return operand_.get(); }
 
 PostfixExpr::PostfixExpr(std::string operator_text,
                          std::unique_ptr<Expr> operand, SourceSpan source_span)
-    : Expr(AstKind::PostfixExpr, std::move(source_span)),
+    : Expr(AstKind::PostfixExpr, source_span),
       operator_text_(std::move(operator_text)), operand_(std::move(operand)) {}
 
 const std::string &PostfixExpr::get_operator_text() const noexcept {
@@ -463,7 +463,7 @@ const Expr *PostfixExpr::get_operand() const noexcept { return operand_.get(); }
 
 BinaryExpr::BinaryExpr(std::string operator_text, std::unique_ptr<Expr> lhs,
                        std::unique_ptr<Expr> rhs, SourceSpan source_span)
-    : Expr(AstKind::BinaryExpr, std::move(source_span)),
+    : Expr(AstKind::BinaryExpr, source_span),
       operator_text_(std::move(operator_text)), lhs_(std::move(lhs)),
       rhs_(std::move(rhs)) {}
 
@@ -477,7 +477,7 @@ const Expr *BinaryExpr::get_rhs() const noexcept { return rhs_.get(); }
 
 AssignExpr::AssignExpr(std::unique_ptr<Expr> target, std::unique_ptr<Expr> value,
                        SourceSpan source_span)
-    : Expr(AstKind::AssignExpr, std::move(source_span)),
+    : Expr(AstKind::AssignExpr, source_span),
       target_(std::move(target)), value_(std::move(value)) {}
 
 const Expr *AssignExpr::get_target() const noexcept { return target_.get(); }
@@ -487,7 +487,7 @@ const Expr *AssignExpr::get_value() const noexcept { return value_.get(); }
 CallExpr::CallExpr(std::unique_ptr<Expr> callee,
                    std::vector<std::unique_ptr<Expr>> arguments,
                    SourceSpan source_span)
-    : Expr(AstKind::CallExpr, std::move(source_span)),
+    : Expr(AstKind::CallExpr, source_span),
       callee_(std::move(callee)), arguments_(std::move(arguments)) {}
 
 const Expr *CallExpr::get_callee() const noexcept { return callee_.get(); }
@@ -499,7 +499,7 @@ const std::vector<std::unique_ptr<Expr>> &CallExpr::get_arguments() const
 
 IndexExpr::IndexExpr(std::unique_ptr<Expr> base, std::unique_ptr<Expr> index,
                      SourceSpan source_span)
-    : Expr(AstKind::IndexExpr, std::move(source_span)),
+    : Expr(AstKind::IndexExpr, source_span),
       base_(std::move(base)), index_(std::move(index)) {}
 
 const Expr *IndexExpr::get_base() const noexcept { return base_.get(); }
@@ -508,7 +508,7 @@ const Expr *IndexExpr::get_index() const noexcept { return index_.get(); }
 
 MemberExpr::MemberExpr(std::string operator_text, std::unique_ptr<Expr> base,
                        std::string member_name, SourceSpan source_span)
-    : Expr(AstKind::MemberExpr, std::move(source_span)),
+    : Expr(AstKind::MemberExpr, source_span),
       operator_text_(std::move(operator_text)), base_(std::move(base)),
       member_name_(std::move(member_name)) {}
 
@@ -523,7 +523,7 @@ const std::string &MemberExpr::get_member_name() const noexcept {
 }
 
 InitListExpr::InitListExpr(SourceSpan source_span)
-    : Expr(AstKind::InitListExpr, std::move(source_span)) {}
+    : Expr(AstKind::InitListExpr, source_span) {}
 
 const std::vector<std::unique_ptr<Expr>> &InitListExpr::get_elements() const
     noexcept {
@@ -538,7 +538,7 @@ void InitListExpr::add_element(std::unique_ptr<Expr> element) {
 }
 
 UnknownExpr::UnknownExpr(std::string summary, SourceSpan source_span)
-    : Expr(AstKind::UnknownExpr, std::move(source_span)),
+    : Expr(AstKind::UnknownExpr, source_span),
       summary_(std::move(summary)) {}
 
 const std::string &UnknownExpr::get_summary() const noexcept {

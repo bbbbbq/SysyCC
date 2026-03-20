@@ -8,7 +8,7 @@ SemanticDiagnostic::SemanticDiagnostic(DiagnosticSeverity severity,
                                        std::string message,
                                        SourceSpan source_span)
     : severity_(severity), message_(std::move(message)),
-      source_span_(std::move(source_span)) {}
+      source_span_(source_span) {}
 
 DiagnosticSeverity SemanticDiagnostic::get_severity() const noexcept {
     return severity_;

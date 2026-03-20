@@ -68,9 +68,9 @@ std::size_t MacroExpander::find_parameter_index(
     return parameters.size();
 }
 
-std::string MacroExpander::apply_stringification(
-    const std::string &replacement, const std::vector<std::string> &parameters,
-    const std::vector<std::string> &raw_arguments) const {
+// `parameters` and `raw_arguments` share a type but represent distinct macro roles.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+std::string MacroExpander::apply_stringification(const std::string &replacement, const std::vector<std::string> &parameters, const std::vector<std::string> &raw_arguments) const { // NOLINT(bugprone-easily-swappable-parameters)
     std::string output;
     std::size_t index = 0;
     while (index < replacement.size()) {
@@ -120,9 +120,9 @@ std::string MacroExpander::apply_stringification(
     return output;
 }
 
-std::string MacroExpander::apply_token_pasting(
-    const std::string &replacement, const std::vector<std::string> &parameters,
-    const std::vector<std::string> &raw_arguments) const {
+// `parameters` and `raw_arguments` share a type but represent distinct macro roles.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+std::string MacroExpander::apply_token_pasting(const std::string &replacement, const std::vector<std::string> &parameters, const std::vector<std::string> &raw_arguments) const { // NOLINT(bugprone-easily-swappable-parameters)
     std::string output = replacement;
 
     while (true) {
@@ -421,10 +421,9 @@ bool MacroExpander::parse_macro_arguments(const std::string &line,
     return false;
 }
 
-std::string MacroExpander::substitute_parameters(
-    const std::string &replacement, const std::vector<std::string> &parameters,
-    const std::vector<std::string> &raw_arguments,
-    const std::vector<std::string> &expanded_arguments) const {
+// Raw and expanded arguments intentionally travel as parallel vectors here.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+std::string MacroExpander::substitute_parameters(const std::string &replacement, const std::vector<std::string> &parameters, const std::vector<std::string> &raw_arguments, const std::vector<std::string> &expanded_arguments) const { // NOLINT(bugprone-easily-swappable-parameters)
     const std::string stringified =
         apply_stringification(replacement, parameters, raw_arguments);
     const std::string pasted =

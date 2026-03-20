@@ -33,7 +33,7 @@ PassResult PassManager::Run(CompilerContext &context) {
             return PassResult::Failure("encountered null pass");
         }
 
-        const PassResult result = pass->Run(context);
+        PassResult result = pass->Run(context);
         if (!result.ok) {
             return result;
         }

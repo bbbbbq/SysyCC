@@ -322,6 +322,7 @@ AstBuilder::build_typedef_decls(const ParseTreeNode *node) const {
         }
     }
 
+    decls.reserve(declarators.size());
     for (const ParseTreeNode *declarator : declarators) {
         decls.push_back(std::make_unique<TypedefDecl>(
             extract_declarator_name(declarator),
@@ -461,8 +462,10 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
     return std::make_unique<UnknownTypeNode>(node->label, get_node_source_span(node));
 }
 
-std::unique_ptr<TypeNode> AstBuilder::build_declared_type(
-    const ParseTreeNode *type_specifier, const ParseTreeNode *declarator) const {
+// `type_specifier` and `declarator` are distinct parse-tree roles despite sharing
+// the same pointer type.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+std::unique_ptr<TypeNode> AstBuilder::build_declared_type(const ParseTreeNode *type_specifier, const ParseTreeNode *declarator) const { // NOLINT(bugprone-easily-swappable-parameters)
     std::unique_ptr<TypeNode> declared_type = build_return_type(type_specifier);
     if (declarator == nullptr) {
         return declared_type;
@@ -1002,6 +1005,7 @@ AstBuilder::build_argument_exprs(const ParseTreeNode *node) const {
     std::vector<std::unique_ptr<Expr>> arguments;
     std::vector<const ParseTreeNode *> expr_nodes;
     collect_argument_expr_nodes(node, expr_nodes);
+    arguments.reserve(expr_nodes.size());
     for (const ParseTreeNode *expr_node : expr_nodes) {
         arguments.push_back(build_expr(expr_node));
     }

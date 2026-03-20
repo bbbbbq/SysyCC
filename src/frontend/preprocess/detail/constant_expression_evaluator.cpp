@@ -117,7 +117,7 @@ class ExpressionParser {
     PassResult parse_primary(long long &value) {
         skip_spaces();
         if (consume("(")) {
-            const PassResult expr_result = parse_expression(value);
+            PassResult expr_result = parse_expression(value);
             if (!expr_result.ok) {
                 return expr_result;
             }
@@ -164,7 +164,7 @@ class ExpressionParser {
         }
 
         if (consume("!")) {
-            const PassResult operand_result = parse_unary(value);
+            PassResult operand_result = parse_unary(value);
             if (!operand_result.ok) {
                 return operand_result;
             }
@@ -177,7 +177,7 @@ class ExpressionParser {
         }
 
         if (consume("-")) {
-            const PassResult operand_result = parse_unary(value);
+            PassResult operand_result = parse_unary(value);
             if (!operand_result.ok) {
                 return operand_result;
             }

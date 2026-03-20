@@ -63,16 +63,14 @@ void SemanticModel::bind_integer_constant_value(const AstNode *node,
 }
 
 const SemanticType *SemanticModel::own_type(std::unique_ptr<SemanticType> type) {
-    const SemanticType *raw_type = type.get();
     owned_types_.push_back(std::move(type));
-    return raw_type;
+    return owned_types_.back().get();
 }
 
 const SemanticSymbol *
 SemanticModel::own_symbol(std::unique_ptr<SemanticSymbol> symbol) {
-    const SemanticSymbol *raw_symbol = symbol.get();
     owned_symbols_.push_back(std::move(symbol));
-    return raw_symbol;
+    return owned_symbols_.back().get();
 }
 
 } // namespace sysycc

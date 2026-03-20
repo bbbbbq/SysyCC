@@ -10,6 +10,7 @@ namespace sysycc::preprocess::detail {
 // Resolves local include paths for preprocessing.
 class IncludeResolver {
   public:
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     PassResult
     resolve_local_include(const std::string &directive_line,
                           const std::string &including_file_path,
