@@ -37,6 +37,8 @@ add_executable(${PROJECT_NAME}
     ${BISON_SysyParser_OUTPUTS}
     ${FLEX_SysyLexer_OUTPUTS}
     src/cli/cli.cpp
+    src/common/diagnostic/diagnostic.cpp
+    src/common/diagnostic/diagnostic_engine.cpp
     src/compiler/complier.cpp
     src/compiler/pass/pass.cpp
     src/frontend/ast/ast_dump.cpp

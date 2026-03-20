@@ -54,6 +54,7 @@ void Complier::AddPass(std::unique_ptr<Pass> pass) {
 }
 
 PassResult Complier::Run() {
+    context_.clear_diagnostic_engine();
     context_.set_input_file(option_.get_input_file());
     context_.set_include_directories(option_.get_include_directories());
     context_.set_dump_tokens(option_.dump_tokens());

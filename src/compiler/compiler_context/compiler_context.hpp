@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/diagnostic/diagnostic_engine.hpp"
 #include "common/source_span.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/parser/parser_runtime.hpp"
@@ -316,6 +317,7 @@ class CompilerContext {
     std::unique_ptr<ParseTreeNode> parse_tree_root_;
     std::unique_ptr<AstNode> ast_root_;
     std::unique_ptr<SemanticModel> semantic_model_;
+    DiagnosticEngine diagnostic_engine_;
 
   public:
     CompilerContext() = default;
@@ -424,5 +426,15 @@ class CompilerContext {
     }
 
     void clear_semantic_model() { semantic_model_.reset(); }
+
+    const DiagnosticEngine &get_diagnostic_engine() const noexcept {
+        return diagnostic_engine_;
+    }
+
+    DiagnosticEngine &get_diagnostic_engine() noexcept {
+        return diagnostic_engine_;
+    }
+
+    void clear_diagnostic_engine() { diagnostic_engine_.clear(); }
 };
 } // namespace sysycc
