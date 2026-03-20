@@ -10,6 +10,14 @@ build_project() {
     cmake --build "${build_dir}"
 }
 
+build_and_link_ir_executable() {
+    local ir_file="$1"
+    local runtime_source="$2"
+    local output_binary="$3"
+
+    clang "${ir_file}" "${runtime_source}" -o "${output_binary}"
+}
+
 assert_file_nonempty() {
     local file_path="$1"
 
@@ -63,4 +71,26 @@ assert_compiler_fails_with_message() {
         echo "${output}" >&2
         return 1
     fi
+}
+
+assert_program_output() {
+    local program_binary="$1"
+    local input_file="$2"
+    local expected_output_file="$3"
+
+    local actual_output_file
+    actual_output_file="$(mktemp)"
+    if ! "${program_binary}" <"${input_file}" >"${actual_output_file}"; then
+        echo "error: program execution failed: ${program_binary}" >&2
+        rm -f "${actual_output_file}"
+        return 1
+    fi
+
+    if ! diff -u "${expected_output_file}" "${actual_output_file}"; then
+        echo "error: program output mismatch" >&2
+        rm -f "${actual_output_file}"
+        return 1
+    fi
+
+    rm -f "${actual_output_file}"
 }

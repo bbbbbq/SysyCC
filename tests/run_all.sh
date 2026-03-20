@@ -71,7 +71,12 @@ write_summary_table() {
 }
 
 should_require_nonempty_artifacts() {
-    local test_name="$1"
+    local stage_name="$1"
+    local test_name="$2"
+
+    if [[ "${stage_name}" == "run" ]]; then
+        return 1
+    fi
 
     case "${test_name}" in
         macro_literal_expansion_bug|function_macro_argument_literal_bug|include_cycle_bug|invalid_macro_name_bug|invalid_token_diagnostic|lexer_global_state_bug|lexer_parse_node_mode_guard|empty_token_stream_behavior|preprocess_dispatch_sentinel_bug|ast_unknown_guard|semantic_undefined_identifier|semantic_redefinition|semantic_call_arity|semantic_call_type|semantic_call_target|semantic_return_type|semantic_arrow_type|semantic_assign_type|semantic_assign_lvalue|semantic_member_field|semantic_condition_type|semantic_index_base|semantic_index_type|semantic_unary_address|semantic_unary_deref|semantic_prefix_operand|semantic_postfix_operand|semantic_binary_arithmetic|semantic_binary_bitwise|semantic_binary_logical|semantic_break_context|semantic_continue_context|semantic_case_context|semantic_default_context|semantic_case_constant|semantic_duplicate_case|semantic_multiple_default|semantic_missing_return|semantic_array_dimension_constant|semantic_equality_pointer|semantic_relational_pointer)
@@ -85,26 +90,20 @@ should_require_nonempty_artifacts() {
 
 OVERALL_FAILURE=0
 
-for test_dir in "${SCRIPT_DIR}"/*/; do
-    if [[ ! -d "${test_dir}" ]]; then
-        continue
-    fi
-
-    run_script="${test_dir}run.sh"
-    if [[ ! -x "${run_script}" ]]; then
-        continue
-    fi
-
+while IFS= read -r -d '' run_script; do
+    test_dir="$(dirname "${run_script}")"
     test_name="$(basename "${test_dir}")"
+    stage_name="$(basename "$(dirname "${test_dir}")")"
+    display_name="${stage_name}/${test_name}"
 
-    echo "==> Running ${test_name}"
+    echo "==> Running ${display_name}"
     if ! "${run_script}"; then
-        record_result "${test_name}" "FAIL" "run.sh exited with non-zero status"
+        record_result "${display_name}" "FAIL" "run.sh exited with non-zero status"
         OVERALL_FAILURE=1
         continue
     fi
 
-    if should_require_nonempty_artifacts "${test_name}"; then
+    if should_require_nonempty_artifacts "${stage_name}" "${test_name}"; then
         detail_messages=()
         test_failed=0
 
@@ -122,15 +121,15 @@ for test_dir in "${SCRIPT_DIR}"/*/; do
         done
 
         if [[ "${test_failed}" -eq 0 ]]; then
-            record_result "${test_name}" "PASS" "artifacts verified"
+            record_result "${display_name}" "PASS" "artifacts verified"
         else
-            record_result "${test_name}" "FAIL" "$(printf '%s; ' "${detail_messages[@]}" | sed 's/; $//')"
+            record_result "${display_name}" "FAIL" "$(printf '%s; ' "${detail_messages[@]}" | sed 's/; $//')"
         fi
     else
-        echo "    verified ${test_name} via dedicated run.sh assertions"
-        record_result "${test_name}" "PASS" "verified via dedicated run.sh assertions"
+        echo "    verified ${display_name} via dedicated run.sh assertions"
+        record_result "${display_name}" "PASS" "verified via dedicated run.sh assertions"
     fi
-done
+done < <(find "${SCRIPT_DIR}" -mindepth 3 -maxdepth 3 -type f -name run.sh -perm -111 -print0 | sort -z)
 
 if [[ "${OVERALL_FAILURE}" -eq 0 ]]; then
     write_summary_table "PASS"

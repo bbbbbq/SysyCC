@@ -7,7 +7,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build/SysyCC",
             "args": [
-                "tests/minimal/minimal.sy"
+                "tests/parser/minimal/minimal.sy"
             ],
             "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
@@ -21,7 +21,7 @@
             "args": [
                 "--dump-tokens",
                 "--dump-parse",
-                "tests/minimal/minimal.sy"
+                "tests/parser/minimal/minimal.sy"
             ],
             "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
@@ -35,7 +35,7 @@
             "args": [
                 "--dump-tokens",
                 "--dump-parse",
-                "tests/function_macro/function_macro.sy"
+                "tests/preprocess/function_macro/function_macro.sy"
             ],
             "stopAtEntry": true,
             "cwd": "${workspaceFolder}",
