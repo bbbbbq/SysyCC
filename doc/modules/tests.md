@@ -49,12 +49,38 @@ Preprocessing regressions and reproducers, including:
 - stringification and token pasting
 - `#if/#ifdef/#ifndef/#elif/#else/#endif`
 - include search paths and include-cycle handling
+- targeted directive-diagnostic failures such as malformed `#include`,
+  unterminated conditionals, invalid `#line`, and malformed
+  `__has_include(...)`
 - focused bug reproducers and structure checks
 
 Representative paths:
 
 - [tests/preprocess/comment_preprocess](/Users/caojunze424/code/SysyCC/tests/preprocess/comment_preprocess)
+- [tests/preprocess/comma_conditional_expr](/Users/caojunze424/code/SysyCC/tests/preprocess/comma_conditional_expr)
 - [tests/preprocess/function_macro](/Users/caojunze424/code/SysyCC/tests/preprocess/function_macro)
+- [tests/preprocess/multiline_macro_define](/Users/caojunze424/code/SysyCC/tests/preprocess/multiline_macro_define)
+- [tests/preprocess/bitwise_conditional_expr](/Users/caojunze424/code/SysyCC/tests/preprocess/bitwise_conditional_expr)
+- [tests/preprocess/elifdef](/Users/caojunze424/code/SysyCC/tests/preprocess/elifdef)
+- [tests/preprocess/elifndef](/Users/caojunze424/code/SysyCC/tests/preprocess/elifndef)
+- [tests/preprocess/error_directive](/Users/caojunze424/code/SysyCC/tests/preprocess/error_directive)
+- [tests/preprocess/define_invalid_parameter_name](/Users/caojunze424/code/SysyCC/tests/preprocess/define_invalid_parameter_name)
+- [tests/preprocess/define_duplicate_parameter_name](/Users/caojunze424/code/SysyCC/tests/preprocess/define_duplicate_parameter_name)
+- [tests/preprocess/define_variadic_parameter_position](/Users/caojunze424/code/SysyCC/tests/preprocess/define_variadic_parameter_position)
+- [tests/preprocess/function_like_macro_if_identifier](/Users/caojunze424/code/SysyCC/tests/preprocess/function_like_macro_if_identifier)
+- [tests/preprocess/has_include_false_branch](/Users/caojunze424/code/SysyCC/tests/preprocess/has_include_false_branch)
+- [tests/preprocess/has_include_malformed](/Users/caojunze424/code/SysyCC/tests/preprocess/has_include_malformed)
+- [tests/preprocess/has_include_next_true_branch](/Users/caojunze424/code/SysyCC/tests/preprocess/has_include_next_true_branch)
+- [tests/preprocess/has_include_true_branch](/Users/caojunze424/code/SysyCC/tests/preprocess/has_include_true_branch)
+- [tests/preprocess/include_empty_path](/Users/caojunze424/code/SysyCC/tests/preprocess/include_empty_path)
+- [tests/preprocess/include_next](/Users/caojunze424/code/SysyCC/tests/preprocess/include_next)
+- [tests/preprocess/missing_endif](/Users/caojunze424/code/SysyCC/tests/preprocess/missing_endif)
+- [tests/preprocess/elifdef_missing_condition](/Users/caojunze424/code/SysyCC/tests/preprocess/elifdef_missing_condition)
+- [tests/preprocess/line_directive](/Users/caojunze424/code/SysyCC/tests/preprocess/line_directive)
+- [tests/preprocess/line_directive_missing_number](/Users/caojunze424/code/SysyCC/tests/preprocess/line_directive_missing_number)
+- [tests/preprocess/pragma_once](/Users/caojunze424/code/SysyCC/tests/preprocess/pragma_once)
+- [tests/preprocess/ternary_conditional_expr](/Users/caojunze424/code/SysyCC/tests/preprocess/ternary_conditional_expr)
+- [tests/preprocess/variadic_macro](/Users/caojunze424/code/SysyCC/tests/preprocess/variadic_macro)
 - [tests/preprocess/include_path](/Users/caojunze424/code/SysyCC/tests/preprocess/include_path)
 - [tests/preprocess/system_include_iso646](/Users/caojunze424/code/SysyCC/tests/preprocess/system_include_iso646)
 - [tests/preprocess/preprocess_nested_conditionals](/Users/caojunze424/code/SysyCC/tests/preprocess/preprocess_nested_conditionals)
@@ -129,6 +155,7 @@ Representative paths:
 - [tests/semantic/semantic_call_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_call_type)
 - [tests/semantic/semantic_duplicate_case](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_duplicate_case)
 - [tests/semantic/semantic_pointer_arithmetic](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_pointer_arithmetic)
+- [tests/semantic/semantic_source_file](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_source_file)
 
 ### `tests/run/`
 

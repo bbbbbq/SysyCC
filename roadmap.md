@@ -60,12 +60,36 @@ source file
 
 ### Implemented
 
+- supported directive syntax
+  - `#define NAME value`
+  - `#define ADD(a, b) ((a) + (b))`
+  - `#define LOG(...) __VA_ARGS__`
+  - `#error message`
+  - `#line 123`
+  - `#line 123 "file.h"`
+  - `#pragma once`
+  - `#pragma anything-else`
+  - `#undef NAME`
+  - `#include "file.h"`
+  - `#include <file.h>`
+  - `#include_next <file.h>`
+  - `#ifdef NAME`
+  - `#ifndef NAME`
+  - `#if expr`
+  - `#elif expr`
+  - `#elifdef NAME`
+  - `#elifndef NAME`
+  - `#else`
+  - `#endif`
 - object-like macros
   - `#define NAME value`
   - `#undef NAME`
 - function-like macros
   - `#define ADD(a, b) ((a) + (b))`
+  - `#define LOG(...) __VA_ARGS__`
+  - multi-line macro definitions using trailing `\`
   - fixed-arity parameter substitution
+  - variadic parameter substitution through `...` and `__VA_ARGS__`
   - nested macro invocation expansion
   - stringification operator `#`
   - token pasting operator `##`
@@ -82,37 +106,65 @@ source file
   - search default system include directories
   - quoted includes fall back to system include directories after local and
     user-provided include directories
+  - `#include_next <file.h>` continues from the next matching system include
+    directory after the current header
+- macro expansion syntax
+  - ordinary object-like replacement
+  - fixed-arity function-like replacement
+  - nested expansion in ordinary source lines
+  - `#param` stringification
+  - `lhs ## rhs` token pasting
 - conditional compilation
   - `#ifdef`
   - `#ifndef`
   - `#if`
   - `#elif`
+  - `#elifdef`
+  - `#elifndef`
   - `#else`
   - `#endif`
 - simple constant expressions in `#if` and `#elif`
   - integer literals
   - macro identifiers
   - `defined(NAME)`
-  - unary operators: `!`, unary `+`, unary `-`
-  - arithmetic operators: `*`, `/`, `%`, `+`, `-`
+  - unary operators: `!`, `~`, unary `+`, unary `-`
+  - arithmetic and shift operators: `*`, `/`, `%`, `+`, `-`, `<<`, `>>`
+  - bitwise operators: `&`, `^`, `|`
   - relational operators: `<`, `<=`, `>`, `>=`
   - equality operators: `==`, `!=`
   - logical operators: `&&`, `||`
+  - ternary `?:`
+  - comma operator
   - parenthesized expressions
   - `__has_include(...)`
   - `__has_include_next(...)`
 
 ### Not Implemented
 
+- unsupported directive syntax
 - complete C preprocessor compatibility
-- variadic macros
-- multi-line macro definitions using trailing `\`
-- `#error`
-- `#pragma`
-- `#line`
-- `#elifdef` / `#elifndef`
-- include guards / once optimization semantics
+- macro continuation syntax
+  - variadic continuation macros with trailing `\`
+- unsupported condition syntax in `#if/#elif`
+  - full `defined` / builtin probing compatibility beyond the current minimal
+    support
+- full downstream source-location remapping for accepted `#line` directives
+- pragma-specific semantics beyond `#pragma once`
 - comment-preserving location mapping across preprocess and lexer stages
+
+### Recommended Implementation Order
+
+For the next preprocess-compatibility stage, the recommended implementation
+order is:
+
+1. full `defined` / builtin probing compatibility beyond the current minimal support
+2. ternary conditional operator in `#if`
+   - `?:`
+3. comma operator in `#if`
+
+This order prioritizes features that most often block real system-header and
+`csmith` preprocessing before lower-frequency or more specialized preprocessor
+syntax.
 
 ## Lexer
 

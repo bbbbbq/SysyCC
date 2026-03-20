@@ -83,10 +83,10 @@ main
 
 - Preprocessed source dumps are written to `build/intermediate_results/*.preprocessed.sy`.
 - The project can tokenize and parse a subset of SysY22.
-- The preprocess stage strips `//` and `/* ... */` comments with string/character literal awareness, supports object macros, `#include "..."` plus `#include <...>` with current-directory, `-I`, and default system include search paths, plus `#ifdef/#ifndef/#elif/#else/#endif`.
-- The preprocess stage also supports fixed-arity function-like macros such as `#define ADD(a, b) ((a) + (b))`, including `#` stringification and `##` token pasting.
-- The preprocess stage evaluates simple `#if/#elif` constant expressions including identifiers, `defined(...)`, `&&`, and arithmetic such as `1 + 2`, and now tolerates `__has_include(...)` / `__has_include_next(...)` checks in system-header guards.
-- The CLI can collect `-I` include directories into compiler options and the preprocess stage now consumes them for include-path resolution.
+- The preprocess stage strips `//` and `/* ... */` comments with string/character literal awareness, supports object macros, `#include "..."`, `#include <...>`, `#include_next <...>`, and `#error` with current-directory, `-I`, `-isystem`, and default system include search paths, plus `#ifdef/#ifndef/#elif/#else/#endif`.
+- The preprocess stage also supports fixed-arity and variadic function-like macros such as `#define ADD(a, b) ((a) + (b))` and `#define LOG(...) __VA_ARGS__`, including continued macro definitions with trailing `\`, `#` stringification, and `##` token pasting.
+- The preprocess stage evaluates simple `#if/#elif` constant expressions including identifiers, `defined(...)`, arithmetic, bitwise operators, shifts, and logical operators such as `&&`, and now tolerates `__has_include(...)` / `__has_include_next(...)` checks in system-header guards.
+- The CLI can collect `-I` include directories and `-isystem` system include directories into compiler options and the preprocess stage now consumes them for include-path resolution.
 - The top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now provides `make check`, which runs `clang-tidy`, `cppcheck`, and `include-what-you-use` through helper scripts under [scripts/](/Users/caojunze424/code/SysyCC/scripts).
 - The static-check pipeline excludes generated parser headers from blocking `clang-tidy` diagnostics and keeps `cppcheck` focused on warning/performance/portability findings.
 - Token dumps are written to `build/intermediate_results/*.tokens.txt`.

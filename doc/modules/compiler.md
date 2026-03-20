@@ -32,6 +32,7 @@ The run configuration for one compilation task. It stores:
 - output file
 - user include search directories
 - default system include search directories
+- CLI-supplied system include search directories merged ahead of defaults
 - dump options
 
 ### `CompilerContext`
@@ -73,5 +74,10 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass -> IRGenPas
 - [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   also owns one shared diagnostic engine so passes can emit stage-tagged
   diagnostics through one uniform interface.
+- CLI-provided `-isystem` directories are merged into
+  [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
+  ahead of the default system include directories and then copied into
+  [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+  for preprocess include resolution.
 - The backend stage currently emits textual LLVM IR dumps for the supported AST
   subset, including multi-branch `switch` lowering.

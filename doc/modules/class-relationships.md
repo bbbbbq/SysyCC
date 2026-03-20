@@ -165,6 +165,7 @@ classDiagram
     }
 
     class LexerState {
+        -source_file_
         -line_
         -column_
         -token_line_begin_
@@ -173,6 +174,8 @@ classDiagram
         -token_column_end_
         -emit_parse_nodes_
         +reset()
+        +set_source_file()
+        +get_source_file()
         +update_position()
         +get_token_line_begin()
         +get_token_column_begin()
@@ -225,15 +228,19 @@ classDiagram
     }
 
     class SourceSpan {
-        -line_begin_
-        -col_begin_
-        -line_end_
-        -col_end_
+        -begin_
+        -end_
+    }
+
+    class SourceFile {
+        -path_
     }
 
     class SourcePosition {
+        -file_
         -line_
         -column_
+        +get_file()
         +get_line()
         +get_column()
     }
@@ -629,6 +636,8 @@ classDiagram
     LexerPass ..> CompilerContext : writes tokens
     LexerPass *-- LexerState
     ParserPass *-- LexerState
+    SourcePosition --> SourceFile
+    SourceSpan *-- SourcePosition
     ParserPass ..> CompilerContext : writes parse tree
     AstPass ..> CompilerContext : writes ast root
     SemanticPass ..> CompilerContext : writes semantic model
@@ -777,6 +786,8 @@ Role:
 - parse command line arguments
 - store temporary CLI state
 - translate CLI state into [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
+- collect user include directories from `-I`
+- collect system include directories from `-isystem`
 
 ### `sysycc::ComplierOption`
 
@@ -787,7 +798,7 @@ Defined in:
 Role:
 
 - store the configuration of one compile run
-- carry file paths, include search directories, and dump switches
+- carry file paths, user/system include search directories, and dump switches
 
 ### `sysycc::Complier`
 
@@ -972,7 +983,7 @@ Defined in:
 
 Role:
 
-- store one scanner session's line/column tracking
+- store one scanner session's current source file plus line/column tracking
 - store the current token source span
 - control whether scanner actions should emit parse-tree terminal nodes
 
@@ -1003,14 +1014,14 @@ Defined in:
 
 Role:
 
-- `PreprocessRuntime`: store preprocessing output lines and file traversal state
-- `MacroTable`: manage object-like macro definitions
-- `MacroExpander`: expand ordinary source lines with macro substitutions
-- `ConditionalStack`: manage nested `#if/#ifdef/#ifndef/#elif/#else/#endif` state
-- `DirectiveParser`: parse raw directive text into structured directives
-- `IncludeResolver`: resolve both `#include "..."` and `#include <...>` through current-directory, user `-I`, and default system include search paths
+- `PreprocessRuntime`: store preprocessing output lines, active include traversal state, and `#pragma once` skip metadata
+- `MacroTable`: manage object-like, fixed-arity function-like, and variadic function-like macro definitions
+- `MacroExpander`: expand ordinary source lines with macro substitutions, including variadic `__VA_ARGS__` replacement
+- `ConditionalStack`: manage nested `#if/#ifdef/#ifndef/#elif/#elifdef/#elifndef/#else/#endif` state
+- `DirectiveParser`: parse raw directive text into structured directives including `#include_next`, `#pragma`, `#line`, `#elifdef`, `#elifndef`, variadic macro definitions, and `#error`
+- `IncludeResolver`: resolve `#include "..."`, `#include <...>`, and `#include_next <...>` through current-directory, user `-I`, explicit `-isystem`, and default system include search paths
 - `FileLoader`: load source files into line sequences
-- `MacroDefinition`: describe one object-like macro definition
+- `MacroDefinition`: describe one object-like, fixed-arity function-like, or variadic function-like macro definition
 
 ### `sysycc::Token`
 
@@ -1028,11 +1039,28 @@ Role:
 Defined in:
 
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
+- [source_span.cpp](/Users/caojunze424/code/SysyCC/src/common/source_span.cpp)
 
 Role:
 
-- represent source code begin/end positions
+- represent source code begin/end positions as paired
+  [SourcePosition](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
+  values
 - serve as a reusable location object across modules
+
+### `sysycc::SourceFile` and `sysycc::SourcePosition`
+
+Defined in:
+
+- [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
+- [source_span.cpp](/Users/caojunze424/code/SysyCC/src/common/source_span.cpp)
+
+Role:
+
+- `SourceFile`: own one interned source path reused by tokens, parse-tree
+  nodes, AST nodes, and diagnostics
+- `SourcePosition`: store one concrete `(file, line, column)` location and act
+  as the building block for `SourceSpan`
 
 ### `sysycc::ParseTreeNode`
 
