@@ -1,0 +1,10 @@
+#  define OUTER_FLAG 1
+#  ifdef OUTER_FLAG
+#    define INNER_VALUE 42
+#  else
+int unreachable_else_branch = -1;
+#  endif
+
+#  undef OUTER_FLAG
+
+int spaced_directive_result = INNER_VALUE;

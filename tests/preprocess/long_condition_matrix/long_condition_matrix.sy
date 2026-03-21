@@ -1,0 +1,78 @@
+#define ENABLE_PRIMARY 1
+
+#if defined ENABLE_PRIMARY && !defined MISSING_FLAG
+int defined_branch = 1;
+#else
+int defined_branch = -1;
+#endif
+
+#if __has_include("feature_local.h")
+#include "feature_local.h"
+#else
+int local_feature_value = -10;
+#endif
+
+#if __has_include("feature_chain_local.h")
+#include "feature_chain_local.h"
+#else
+int chain_feature_total = -20;
+#endif
+
+#if 0
+#include "missing_in_dead_branch.h"
+#elifdef ENABLE_PRIMARY
+int elifdef_branch = 30;
+#elifndef NEVER_DEFINED
+int elifndef_branch = -30;
+#else
+int fallback_branch = -31;
+#endif
+
+#if !__has_cpp_attribute(nodiscard)
+int cpp_attribute_probe = 40;
+#else
+int cpp_attribute_probe = -40;
+#endif
+
+#if !__has_feature(cxx_exceptions)
+int feature_probe = 50;
+#else
+int feature_probe = -50;
+#endif
+
+#if !__has_extension(blocks)
+int extension_probe = 60;
+#else
+int extension_probe = -60;
+#endif
+
+#if !__has_builtin(__builtin_expect)
+int builtin_probe = 70;
+#else
+int builtin_probe = -70;
+#endif
+
+#if !__has_attribute(always_inline)
+int attribute_probe = 80;
+#else
+int attribute_probe = -80;
+#endif
+
+#if !__building_module(_Builtin_stddef)
+int building_module_probe = 90;
+#else
+int building_module_probe = -90;
+#endif
+
+int main() {
+    return defined_branch
+        + local_feature_value
+        + chain_feature_total
+        + elifdef_branch
+        + cpp_attribute_probe
+        + feature_probe
+        + extension_probe
+        + builtin_probe
+        + attribute_probe
+        + building_module_probe;
+}

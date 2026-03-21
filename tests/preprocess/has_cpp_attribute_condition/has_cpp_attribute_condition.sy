@@ -1,0 +1,9 @@
+#if !__has_cpp_attribute(clang::unsafe_buffer_usage)
+int cpp_attribute_probe_branch = 1;
+#else
+int cpp_attribute_probe_branch = -1;
+#endif
+
+int main() {
+    return cpp_attribute_probe_branch;
+}

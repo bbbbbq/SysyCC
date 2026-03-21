@@ -1,0 +1,2 @@
+#warning preprocess warning support smoke test
+int warning_directive_value = 7;
