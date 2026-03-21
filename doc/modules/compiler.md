@@ -42,6 +42,9 @@ The shared data container for passes. It stores:
 - input file
 - user include search directories
 - system include search directories
+- one [SourceLineMap](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
+  storing one logical source position per emitted preprocessed output line so
+  later stages can inherit preprocess `#line` remapping
 - token list
 - parse tree root
 - ast root

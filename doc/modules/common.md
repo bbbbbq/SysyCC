@@ -7,6 +7,8 @@ multiple compilation stages.
 
 ## Main Files
 
+- [source_manager.hpp](/Users/caojunze424/code/SysyCC/src/common/source_manager.hpp)
+- [source_line_map.hpp](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
 - [diagnostic.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic.hpp)
 - [diagnostic_engine.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic_engine.hpp)
@@ -16,6 +18,7 @@ multiple compilation stages.
 - intern shared source-file identities
 - represent individual source code positions
 - represent source code location ranges
+- represent one logical source position per emitted logical line
 - provide a reusable span type for lexer, parser, AST, semantic analysis, and diagnostics
 - provide pass-independent diagnostic records and a shared diagnostic collector
 
@@ -28,7 +31,7 @@ multiple compilation stages.
 - source path
 
 Its instances are currently interned through
-[source_span.cpp](/Users/caojunze424/code/SysyCC/src/common/source_span.cpp),
+[source_manager.hpp](/Users/caojunze424/code/SysyCC/src/common/source_manager.hpp),
 so later source positions and spans can keep lightweight file pointers without
 copying path strings into every location object.
 
@@ -52,6 +55,22 @@ It is currently used by [Token](/Users/caojunze424/code/SysyCC/src/compiler/comp
 Current user-visible formatting now commonly renders spans as:
 
 - `<path>:<line_begin>:<col_begin>-<line_end>:<col_end>`
+
+### `SourceLineMap`
+
+`SourceLineMap` models one line-granularity mapping from emitted logical lines
+to their logical
+[SourcePosition](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp).
+
+It is currently used to carry preprocess `#line` remapping through
+[CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+and into lexer/parser scanner sessions.
+
+### `SourceManager`
+
+`SourceManager` owns the stable `SourceFile` identities for one compiler run
+and is currently stored in
+[CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp).
 
 ### `Diagnostic`
 

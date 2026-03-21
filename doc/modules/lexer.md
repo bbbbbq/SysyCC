@@ -21,6 +21,9 @@ src/frontend/lexer/
 - invoke `yylex()`
 - collect token streams with exact token kinds such as `KwInt`, `IntLiteral`,
   `ShiftLeft`, and `Dot`
+- remap token source spans through preprocess-exported logical line positions
+  so `#line` file/line state can propagate into lexer diagnostics and parse-tree
+  terminal nodes
 - dump token results into `build/intermediate_results/*.tokens.txt`
 - keep lex-only runs free of parse-tree node allocation side effects
 - allow empty token streams and leave empty-input policy to later stages
@@ -41,5 +44,9 @@ src/frontend/lexer/
 ## Notes
 
 - The lexer now uses a reentrant flex scanner with one [LexerState](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp) instance per scanner session.
+- [LexerState](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp)
+  now consumes the preprocess line-position table from
+  [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+  and remaps token begin/end positions at line granularity.
 - The lexer pass disables scanner-side parse-tree terminal-node creation during
   lex-only runs.

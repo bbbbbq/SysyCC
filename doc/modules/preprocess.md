@@ -12,6 +12,21 @@ src/frontend/preprocess/
 ├── preprocess.hpp
 ├── preprocess.cpp
 └── detail/
+    ├── conditional/
+    │   ├── builtin_probe_evaluator.hpp
+    │   ├── clang_extension_provider.hpp
+    │   ├── clang_extension_provider.cpp
+    │   ├── gnu_extension_provider.hpp
+    │   ├── gnu_extension_provider.cpp
+    │   ├── nonstandard_extension_manager.hpp
+    │   ├── builtin_probe_evaluator.cpp
+    │   └── nonstandard_extension_manager.cpp
+    ├── directive/
+    │   ├── directive_executor.hpp
+    │   └── directive_executor.cpp
+    ├── source/
+    │   ├── source_mapper.hpp
+    │   └── source_mapper.cpp
     ├── conditional_stack.hpp
     ├── conditional_stack.cpp
     ├── directive_parser.hpp
@@ -24,6 +39,8 @@ src/frontend/preprocess/
     ├── macro_expander.cpp
     ├── macro_table.hpp
     ├── macro_table.cpp
+    ├── preprocess_context.hpp
+    ├── preprocess_context.cpp
     ├── preprocess_runtime.hpp
     ├── preprocess_runtime.cpp
     ├── preprocess_session.hpp
@@ -45,6 +62,8 @@ src/frontend/preprocess/
 - resolve `#include "..."` against the including file's current directory and
   `-I` include search paths
 - resolve `#include <...>` against default system include search paths
+- resolve `#include <...>` against CLI `-I` directories before explicit and
+  default system include search paths
 - resolve `#include_next <...>` by continuing the current system include
   search chain after the header that was already selected
 - fall back from quoted includes to system include directories after exhausting
@@ -53,9 +72,27 @@ src/frontend/preprocess/
   `#endif`)
 - support simple `#if/#elif` constant expressions including identifiers,
   `defined(...)`, arithmetic, bitwise, shifts, and logical operators
-- tolerate `__has_include(...)` and `__has_include_next(...)` checks in
-  preprocessor conditions by treating them as unavailable during expression
-  evaluation
+- probe `__has_include(...)` and `__has_include_next(...)` against the active
+  include search paths during preprocessor condition evaluation
+- parse common clang preprocessor builtin probes such as `__has_feature(...)`,
+  `__has_extension(...)`, `__has_builtin(...)`, `__has_attribute(...)`, and
+  `__has_cpp_attribute(...)`, and `__building_module(...)`
+- route builtin probe parsing through a dedicated internal helper instead of
+  keeping every probe special-case inside the core constant expression parser
+- route non-standard probe families through a manager/provider split so clang-
+  specific and GNU-specific compatibility can evolve independently
+- route directive execution through a dedicated internal helper instead of
+  keeping all directive semantics inside the preprocessing session driver
+- centralize shared preprocessing state inside a dedicated preprocess context
+  instead of scattering mutable state directly across the session and helpers
+- centralize include-stack tracking and `#line` logical-file remapping inside a
+  dedicated source mapper
+- export one logical source position per emitted preprocessed line so later
+  lexer/parser/semantic stages can inherit preprocess `#line` file and line
+  remapping
+- accept standard integer literal suffixes such as `U`, `L`, `UL`, `LL`, and
+  `ULL` in `#if/#elif` expressions
+- annotate line-local preprocess failures with `file:line: message`
 - split preprocessing logic across focused internal classes instead of one large
   pass implementation
 
@@ -64,17 +101,57 @@ src/frontend/preprocess/
 - [preprocess.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/preprocess.hpp)
 - [preprocess.cpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/preprocess.cpp)
 - [preprocess_session.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/preprocess_session.hpp)
+- [preprocess_context.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/preprocess_context.hpp)
+- [source_mapper.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/source/source_mapper.hpp)
 - [directive_parser.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/directive_parser.hpp)
+- [directive_executor.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/directive/directive_executor.hpp)
+- [builtin_probe_evaluator.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/builtin_probe_evaluator.hpp)
+- [nonstandard_extension_manager.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/nonstandard_extension_manager.hpp)
+- [clang_extension_provider.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/clang_extension_provider.hpp)
+- [gnu_extension_provider.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/gnu_extension_provider.hpp)
 - [macro_expander.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/macro_expander.hpp)
 - [file_loader.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/file_loader.hpp)
+
+## Current Internal Shape
+
+The active internal collaboration path is:
+
+```text
+PreprocessPass
+  -> PreprocessSession
+      -> PreprocessContext
+          -> SourceMapper
+      -> DirectiveParser
+      -> DirectiveExecutor
+      -> ConstantExpressionEvaluator
+          -> BuiltinProbeEvaluator
+              -> NonStandardExtensionManager
+                  -> ClangExtensionProvider
+                  -> GnuExtensionProvider
+      -> MacroExpander
+      -> IncludeResolver
+      -> FileLoader
+```
+
+`PreprocessSession` now acts primarily as the run driver, while
+`PreprocessContext` owns the mutable state that needs to survive across helper
+calls during one preprocessing pass. `SourceMapper` is the location-focused
+part of that shared state and is responsible for physical include nesting plus
+`#line`-driven logical remapping during preprocessing. `PreprocessRuntime` is
+now intentionally narrower and only keeps emitted output,
+[SourceLineMap](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
+data for emitted-line logical positions, comment state, and file-skip metadata
+such as `#pragma once` bookkeeping.
 
 ## Supported Syntax
 
 - directives
+  - optional whitespace between `#` and the directive keyword
   - `#define NAME value`
   - `#define ADD(a, b) ((a) + (b))`
   - `#define LOG(...) __VA_ARGS__`
   - `#error message`
+  - `#warning message`
   - `#line 123`
   - `#line 123 "file.h"`
   - `#pragma once`
@@ -104,11 +181,12 @@ src/frontend/preprocess/
   - quoted includes search the including file directory first
   - quoted includes then search CLI `-I` directories
   - quoted includes finally fall back to default system include directories
-  - angle includes search default system include directories
+  - angle includes search CLI `-I` directories first
+  - angle includes then search explicit and default system include directories
   - `#include_next <...>` continues from the next matching system include
     directory after the current header
 - `#if/#elif` expression subset
-  - integer literals
+  - integer literals, including standard unsigned and long suffixes
   - identifiers after macro replacement
   - `defined(NAME)`
   - unary `!`, unary `~`, unary `+`, unary `-`
@@ -122,6 +200,12 @@ src/frontend/preprocess/
   - parentheses
   - `__has_include(...)`
   - `__has_include_next(...)`
+  - `__has_feature(...)`
+  - `__has_extension(...)`
+  - `__has_builtin(...)`
+  - `__has_attribute(...)`
+  - `__has_cpp_attribute(...)`
+  - `__building_module(...)`
 
 ## Unsupported Syntax
 
@@ -130,7 +214,8 @@ src/frontend/preprocess/
     `__has_include` handling
 - other behavior gaps
   - complete C preprocessor compatibility
-  - full downstream source-location remapping for accepted `#line` directives
+  - exact column-preserving and macro-expansion-aware downstream source-location
+    remapping beyond the current emitted-line file/line mapping
   - pragma-specific semantics beyond `#pragma once`
   - comment-preserving source-location mapping into later stages
 

@@ -24,6 +24,8 @@ src/frontend/parser/
 - invoke `yyparse()`
 - collect parse trees
 - enable scanner-side terminal-node construction only while parser mode is active
+- let parser-mode scanner sessions inherit preprocess logical file/line
+  remapping so parse-tree terminal spans reflect accepted `#line` directives
 - dump parse results into `build/intermediate_results/*.parse.txt`
 - accept the current SysY22 core grammar plus a growing subset of C-style
   extensions

@@ -52,6 +52,8 @@ Preprocessing regressions and reproducers, including:
 - targeted directive-diagnostic failures such as malformed `#include`,
   unterminated conditionals, invalid `#line`, and malformed
   `__has_include(...)`
+- long-form integrated scenarios that combine macro pipelines, layered include
+  graphs, and multi-branch feature-probe conditions in one translation unit
 - focused bug reproducers and structure checks
 
 Representative paths:
@@ -61,6 +63,7 @@ Representative paths:
 - [tests/preprocess/function_macro](/Users/caojunze424/code/SysyCC/tests/preprocess/function_macro)
 - [tests/preprocess/multiline_macro_define](/Users/caojunze424/code/SysyCC/tests/preprocess/multiline_macro_define)
 - [tests/preprocess/bitwise_conditional_expr](/Users/caojunze424/code/SysyCC/tests/preprocess/bitwise_conditional_expr)
+- [tests/preprocess/clang_builtin_probe_condition](/Users/caojunze424/code/SysyCC/tests/preprocess/clang_builtin_probe_condition)
 - [tests/preprocess/elifdef](/Users/caojunze424/code/SysyCC/tests/preprocess/elifdef)
 - [tests/preprocess/elifndef](/Users/caojunze424/code/SysyCC/tests/preprocess/elifndef)
 - [tests/preprocess/error_directive](/Users/caojunze424/code/SysyCC/tests/preprocess/error_directive)
@@ -69,18 +72,27 @@ Representative paths:
 - [tests/preprocess/define_variadic_parameter_position](/Users/caojunze424/code/SysyCC/tests/preprocess/define_variadic_parameter_position)
 - [tests/preprocess/function_like_macro_if_identifier](/Users/caojunze424/code/SysyCC/tests/preprocess/function_like_macro_if_identifier)
 - [tests/preprocess/has_include_false_branch](/Users/caojunze424/code/SysyCC/tests/preprocess/has_include_false_branch)
+- [tests/preprocess/has_cpp_attribute_condition](/Users/caojunze424/code/SysyCC/tests/preprocess/has_cpp_attribute_condition)
 - [tests/preprocess/has_include_malformed](/Users/caojunze424/code/SysyCC/tests/preprocess/has_include_malformed)
 - [tests/preprocess/has_include_next_true_branch](/Users/caojunze424/code/SysyCC/tests/preprocess/has_include_next_true_branch)
 - [tests/preprocess/has_include_true_branch](/Users/caojunze424/code/SysyCC/tests/preprocess/has_include_true_branch)
+- [tests/preprocess/integer_suffix_conditional_expr](/Users/caojunze424/code/SysyCC/tests/preprocess/integer_suffix_conditional_expr)
 - [tests/preprocess/include_empty_path](/Users/caojunze424/code/SysyCC/tests/preprocess/include_empty_path)
 - [tests/preprocess/include_next](/Users/caojunze424/code/SysyCC/tests/preprocess/include_next)
 - [tests/preprocess/missing_endif](/Users/caojunze424/code/SysyCC/tests/preprocess/missing_endif)
 - [tests/preprocess/elifdef_missing_condition](/Users/caojunze424/code/SysyCC/tests/preprocess/elifdef_missing_condition)
 - [tests/preprocess/line_directive](/Users/caojunze424/code/SysyCC/tests/preprocess/line_directive)
+- [tests/preprocess/line_directive_logical_location](/Users/caojunze424/code/SysyCC/tests/preprocess/line_directive_logical_location)
 - [tests/preprocess/line_directive_missing_number](/Users/caojunze424/code/SysyCC/tests/preprocess/line_directive_missing_number)
+- [tests/preprocess/long_macro_pipeline](/Users/caojunze424/code/SysyCC/tests/preprocess/long_macro_pipeline)
+- [tests/preprocess/long_include_graph](/Users/caojunze424/code/SysyCC/tests/preprocess/long_include_graph)
+- [tests/preprocess/long_condition_matrix](/Users/caojunze424/code/SysyCC/tests/preprocess/long_condition_matrix)
+- [tests/preprocess/preprocess_error_location](/Users/caojunze424/code/SysyCC/tests/preprocess/preprocess_error_location)
 - [tests/preprocess/pragma_once](/Users/caojunze424/code/SysyCC/tests/preprocess/pragma_once)
+- [tests/preprocess/spaced_directive_keywords](/Users/caojunze424/code/SysyCC/tests/preprocess/spaced_directive_keywords)
 - [tests/preprocess/ternary_conditional_expr](/Users/caojunze424/code/SysyCC/tests/preprocess/ternary_conditional_expr)
 - [tests/preprocess/variadic_macro](/Users/caojunze424/code/SysyCC/tests/preprocess/variadic_macro)
+- [tests/preprocess/warning_directive](/Users/caojunze424/code/SysyCC/tests/preprocess/warning_directive)
 - [tests/preprocess/include_path](/Users/caojunze424/code/SysyCC/tests/preprocess/include_path)
 - [tests/preprocess/system_include_iso646](/Users/caojunze424/code/SysyCC/tests/preprocess/system_include_iso646)
 - [tests/preprocess/preprocess_nested_conditionals](/Users/caojunze424/code/SysyCC/tests/preprocess/preprocess_nested_conditionals)
@@ -98,8 +110,10 @@ Lexer-stage regressions and targeted diagnostics, including:
 Representative paths:
 
 - [tests/lexer/precise_token_kinds](/Users/caojunze424/code/SysyCC/tests/lexer/precise_token_kinds)
+- [tests/lexer/c_token_kinds](/Users/caojunze424/code/SysyCC/tests/lexer/c_token_kinds)
 - [tests/lexer/lexer_operator_mix](/Users/caojunze424/code/SysyCC/tests/lexer/lexer_operator_mix)
 - [tests/lexer/invalid_token_diagnostic](/Users/caojunze424/code/SysyCC/tests/lexer/invalid_token_diagnostic)
+- [tests/lexer/line_directive_logical_location](/Users/caojunze424/code/SysyCC/tests/lexer/line_directive_logical_location)
 
 ### `tests/parser/`
 
@@ -114,6 +128,8 @@ Parser-oriented frontend smoke tests, including:
 Representative paths:
 
 - [tests/parser/minimal](/Users/caojunze424/code/SysyCC/tests/parser/minimal)
+- [tests/parser/if_else](/Users/caojunze424/code/SysyCC/tests/parser/if_else)
+- [tests/parser/empty_statement](/Users/caojunze424/code/SysyCC/tests/parser/empty_statement)
 - [tests/parser/control_flow](/Users/caojunze424/code/SysyCC/tests/parser/control_flow)
 - [tests/parser/c_parser_extensions](/Users/caojunze424/code/SysyCC/tests/parser/c_parser_extensions)
 
@@ -132,6 +148,8 @@ AST lowering regressions, including:
 Representative paths:
 
 - [tests/ast/ast_minimal](/Users/caojunze424/code/SysyCC/tests/ast/ast_minimal)
+- [tests/ast/ast_dot_member_access](/Users/caojunze424/code/SysyCC/tests/ast/ast_dot_member_access)
+- [tests/ast/ast_index_expr](/Users/caojunze424/code/SysyCC/tests/ast/ast_index_expr)
 - [tests/ast/ast_pointer_types](/Users/caojunze424/code/SysyCC/tests/ast/ast_pointer_types)
 - [tests/ast/ast_source_span](/Users/caojunze424/code/SysyCC/tests/ast/ast_source_span)
 - [tests/ast/ast_stmt_extensions](/Users/caojunze424/code/SysyCC/tests/ast/ast_stmt_extensions)
@@ -152,10 +170,14 @@ Semantic-analysis regressions, including:
 Representative paths:
 
 - [tests/semantic/semantic_undefined_identifier](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_undefined_identifier)
+- [tests/semantic/semantic_const_initializer_constant](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_const_initializer_constant)
+- [tests/semantic/semantic_dot_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_dot_type)
+- [tests/semantic/semantic_array_decay_assignment](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_array_decay_assignment)
 - [tests/semantic/semantic_call_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_call_type)
 - [tests/semantic/semantic_duplicate_case](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_duplicate_case)
 - [tests/semantic/semantic_pointer_arithmetic](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_pointer_arithmetic)
 - [tests/semantic/semantic_source_file](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_source_file)
+- [tests/semantic/semantic_logical_source_file](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_logical_source_file)
 
 ### `tests/run/`
 
@@ -334,6 +356,7 @@ LLVM IR lowering regressions, including:
 Representative paths:
 
 - [tests/ir/ir_minimal](/Users/caojunze424/code/SysyCC/tests/ir/ir_minimal)
+- [tests/ir/ir_modulo](/Users/caojunze424/code/SysyCC/tests/ir/ir_modulo)
 - [tests/ir/ir_function_call](/Users/caojunze424/code/SysyCC/tests/ir/ir_function_call)
 - [tests/ir/ir_short_circuit](/Users/caojunze424/code/SysyCC/tests/ir/ir_short_circuit)
 - [tests/ir/ir_switch](/Users/caojunze424/code/SysyCC/tests/ir/ir_switch)

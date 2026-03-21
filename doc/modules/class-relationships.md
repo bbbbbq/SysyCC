@@ -37,6 +37,7 @@ classDiagram
         -preprocessed_file_path_
         -include_directories_
         -system_include_directories_
+        -preprocessed_line_map_
         -tokens_
         -parse_tree_root_
         -ast_root_
@@ -173,14 +174,18 @@ classDiagram
         -token_line_end_
         -token_column_end_
         -emit_parse_nodes_
+        -preprocessed_line_map_
         +reset()
         +set_source_file()
         +get_source_file()
+        +set_preprocessed_line_map()
         +update_position()
         +get_token_line_begin()
         +get_token_column_begin()
         +get_token_line_end()
         +get_token_column_end()
+        +get_token_begin_position()
+        +get_token_end_position()
         +get_emit_parse_nodes()
         +set_emit_parse_nodes()
     }
@@ -191,7 +196,49 @@ classDiagram
     class PreprocessSession {
     }
 
-    class PreprocessorRuntime {
+    class PreprocessContext {
+        +clear()
+        +get_compiler_context()
+        +get_runtime()
+        +get_macro_table()
+        +get_conditional_stack()
+        +get_source_mapper()
+        +get_include_directories()
+        +get_system_include_directories()
+        +get_input_file()
+    }
+
+    class PreprocessRuntime {
+        -output_lines_
+        -output_line_map_
+        -pragma_once_files_
+        -processed_files_
+        -in_block_comment_
+    }
+
+    class SourceLineMap {
+        -line_positions_
+        +clear()
+        +empty()
+        +get_line_count()
+        +add_line_position(position)
+        +get_line_position(line)
+        +get_line_positions()
+    }
+
+    class SourceMapper {
+        +clear()
+        +push_file(file_path)
+        +pop_file()
+        +has_file_in_stack(file_path)
+        +get_current_physical_file_path()
+        +apply_line_directive(physical_line, logical_line, logical_file_path)
+        +map_position(physical_line, column)
+        +map_span(line_begin, col_begin, line_end, col_end)
+    }
+
+    class ConstantExpressionEvaluator {
+        +evaluate(expression, macro_table, current_file_path, include_directories, system_include_directories, value)
     }
 
     class MacroDefinition {
@@ -204,6 +251,26 @@ classDiagram
     }
 
     class ConditionalStack {
+    }
+
+    class BuiltinProbeEvaluator {
+        +try_evaluate(expression, index, macro_table, current_file_path, include_directories, system_include_directories, value, handled)
+    }
+
+    class NonStandardExtensionManager {
+        +try_evaluate(expression, index, value, handled)
+    }
+
+    class ClangExtensionProvider {
+        +try_evaluate(expression, index, value, handled)
+    }
+
+    class GnuExtensionProvider {
+        +try_evaluate(expression, index, value, handled)
+    }
+
+    class DirectiveExecutor {
+        +execute(line, line_number, directive, current_file_path, preprocess_file_callback)
     }
 
     class DirectiveParser {
@@ -234,6 +301,11 @@ classDiagram
 
     class SourceFile {
         -path_
+    }
+
+    class SourceManager {
+        -source_files_
+        +get_source_file(path)
     }
 
     class SourcePosition {
@@ -636,8 +708,11 @@ classDiagram
     LexerPass ..> CompilerContext : writes tokens
     LexerPass *-- LexerState
     ParserPass *-- LexerState
+    CompilerContext *-- SourceManager
+    SourceManager *-- SourceFile
     SourcePosition --> SourceFile
     SourceSpan *-- SourcePosition
+    CompilerContext *-- SourceLineMap
     ParserPass ..> CompilerContext : writes parse tree
     AstPass ..> CompilerContext : writes ast root
     SemanticPass ..> CompilerContext : writes semantic model
@@ -649,14 +724,26 @@ classDiagram
     AstPass ..> DiagnosticEngine : emits diagnostics
     SemanticPass ..> DiagnosticEngine : emits diagnostics
     PreprocessPass ..> PreprocessSession
-    PreprocessSession *-- PreprocessorRuntime
-    PreprocessorRuntime *-- MacroDefinition
-    PreprocessSession *-- MacroTable
+    PreprocessSession *-- PreprocessContext
+    PreprocessSession *-- ConstantExpressionEvaluator
+    PreprocessSession *-- DirectiveExecutor
+    PreprocessContext *-- PreprocessRuntime
+    PreprocessContext *-- MacroTable
+    PreprocessContext *-- ConditionalStack
+    PreprocessContext *-- SourceMapper
+    PreprocessRuntime *-- SourceLineMap
+    MacroTable *-- MacroDefinition
     PreprocessSession *-- MacroExpander
-    PreprocessSession *-- ConditionalStack
     PreprocessSession *-- DirectiveParser
-    PreprocessSession *-- IncludeResolver
     PreprocessSession *-- FileLoader
+    ConstantExpressionEvaluator *-- BuiltinProbeEvaluator
+    BuiltinProbeEvaluator *-- NonStandardExtensionManager
+    NonStandardExtensionManager *-- ClangExtensionProvider
+    NonStandardExtensionManager *-- GnuExtensionProvider
+    DirectiveExecutor --> PreprocessContext
+    DirectiveExecutor --> ConstantExpressionEvaluator
+    DirectiveExecutor --> MacroExpander
+    DirectiveExecutor --> IncludeResolver
     CompilerContext *-- Token
     CompilerContext *-- ParseTreeNode
     CompilerContext *-- AstNode
@@ -829,6 +916,8 @@ Role:
 
 - act as the shared data bus for passes
 - store preprocessed intermediate file path
+- store one `SourceLineMap` for emitted preprocessed lines so later stages can
+  inherit preprocess `#line` remapping
 - store include search directories for preprocessing
 - store token stream with exact lexical token kinds plus derived categories
 - store parse tree root
@@ -985,6 +1074,8 @@ Role:
 
 - store one scanner session's current source file plus line/column tracking
 - store the current token source span
+- consume one preprocess-exported `SourceLineMap` so lexer and parser scanner
+  sessions can remap token file/line information after `#line`
 - control whether scanner actions should emit parse-tree terminal nodes
 
 ### `sysycc::preprocess::detail::PreprocessSession`
@@ -997,31 +1088,80 @@ Defined in:
 Role:
 
 - coordinate one full preprocessing run
-- dispatch lines between directive parsing, macro handling, include handling, and conditional handling
+- own the focused helper objects that participate in one preprocessing run
+- dispatch lines between directive parsing, directive execution, macro expansion, and output emission
 - write the final `.preprocessed.sy` artifact
 
-### `sysycc::preprocess::detail::PreprocessorRuntime`, `MacroTable`, `MacroExpander`, `ConditionalStack`, `DirectiveParser`, `IncludeResolver`, `FileLoader`, and `MacroDefinition`
+### `sysycc::preprocess::detail::PreprocessContext`
+
+Defined in:
+
+- [preprocess_context.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/preprocess_context.hpp)
+- [preprocess_context.cpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/preprocess_context.cpp)
+
+Role:
+
+- centralize mutable preprocessing session state instead of storing it directly across the session driver
+- own the current preprocessing runtime, macro table, conditional stack, and source mapper for one run
+- expose include-directory and input-file accessors by forwarding to `CompilerContext`
+
+### `sysycc::preprocess::detail::ConstantExpressionEvaluator`
+
+Defined in:
+
+- [constant_expression_evaluator.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/constant_expression_evaluator.hpp)
+- [constant_expression_evaluator.cpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/constant_expression_evaluator.cpp)
+
+Role:
+
+- evaluate `#if/#elif` constant expressions after macro replacement
+- delegate builtin probe parsing and resolution to a dedicated helper instead of owning every `__has_*` special case directly
+
+### `sysycc::preprocess::detail::DirectiveExecutor`
+
+Defined in:
+
+- [directive_executor.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/directive/directive_executor.hpp)
+- [directive_executor.cpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/directive/directive_executor.cpp)
+
+Role:
+
+- execute parsed directives against the active preprocessing state
+- centralize `#include`, macro-definition, conditional, `#pragma`, `#warning`, `#error`, and `#line` directive semantics outside the session driver
+
+### `sysycc::preprocess::detail::PreprocessRuntime`, `SourceMapper`, `MacroTable`, `MacroExpander`, `ConditionalStack`, `DirectiveParser`, `IncludeResolver`, `FileLoader`, `BuiltinProbeEvaluator`, `NonStandardExtensionManager`, `ClangExtensionProvider`, `GnuExtensionProvider`, and `MacroDefinition`
 
 Defined in:
 
 - [preprocess_runtime.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/preprocess_runtime.hpp)
+- [source_mapper.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/source/source_mapper.hpp)
 - [macro_table.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/macro_table.hpp)
 - [macro_expander.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/macro_expander.hpp)
 - [conditional_stack.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional_stack.hpp)
+- [builtin_probe_evaluator.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/builtin_probe_evaluator.hpp)
+- [nonstandard_extension_manager.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/nonstandard_extension_manager.hpp)
+- [clang_extension_provider.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/clang_extension_provider.hpp)
+- [gnu_extension_provider.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/gnu_extension_provider.hpp)
+- [directive_executor.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/directive/directive_executor.hpp)
 - [directive_parser.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/directive_parser.hpp)
 - [include_resolver.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/include_resolver.hpp)
 - [file_loader.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/file_loader.hpp)
 
 Role:
 
-- `PreprocessRuntime`: store preprocessing output lines, active include traversal state, and `#pragma once` skip metadata
+- `PreprocessRuntime`: store preprocessing output lines, emitted-line `SourceLineMap` data, block-comment state, and `#pragma once`/processed-file skip metadata
+- `SourceMapper`: track the active physical include stack and remap later preprocess diagnostics plus emitted-line logical source positions through `#line` file and line state
 - `MacroTable`: manage object-like, fixed-arity function-like, and variadic function-like macro definitions
 - `MacroExpander`: expand ordinary source lines with macro substitutions, including variadic `__VA_ARGS__` replacement
 - `ConditionalStack`: manage nested `#if/#ifdef/#ifndef/#elif/#elifdef/#elifndef/#else/#endif` state
+- `BuiltinProbeEvaluator`: parse and resolve preprocessor builtin probes such as `defined`, `__has_include`, and clang-style `__has_*` predicates
+- `NonStandardExtensionManager`: route non-standard probe families to provider-specific handlers
+- `ClangExtensionProvider`: parse clang/Apple-style non-standard builtin probes such as `__has_feature` and `__has_cpp_attribute`
+- `GnuExtensionProvider`: reserve one isolated provider for GNU/GCC-specific non-standard probes
 - `DirectiveParser`: parse raw directive text into structured directives including `#include_next`, `#pragma`, `#line`, `#elifdef`, `#elifndef`, variadic macro definitions, and `#error`
 - `IncludeResolver`: resolve `#include "..."`, `#include <...>`, and `#include_next <...>` through current-directory, user `-I`, explicit `-isystem`, and default system include search paths
 - `FileLoader`: load source files into line sequences
-- `MacroDefinition`: describe one object-like, fixed-arity function-like, or variadic function-like macro definition
+- `MacroDefinition`: describe one object-like, fixed-arity function-like, or variadic function-like macro definition owned by `MacroTable`
 
 ### `sysycc::Token`
 
@@ -1039,7 +1179,6 @@ Role:
 Defined in:
 
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
-- [source_span.cpp](/Users/caojunze424/code/SysyCC/src/common/source_span.cpp)
 
 Role:
 
@@ -1048,15 +1187,17 @@ Role:
   values
 - serve as a reusable location object across modules
 
-### `sysycc::SourceFile` and `sysycc::SourcePosition`
+### `sysycc::SourceManager`, `sysycc::SourceFile`, and `sysycc::SourcePosition`
 
 Defined in:
 
+- [source_manager.hpp](/Users/caojunze424/code/SysyCC/src/common/source_manager.hpp)
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
-- [source_span.cpp](/Users/caojunze424/code/SysyCC/src/common/source_span.cpp)
 
 Role:
 
+- `SourceManager`: own the stable `SourceFile` registry used across one
+  compiler run
 - `SourceFile`: own one interned source path reused by tokens, parse-tree
   nodes, AST nodes, and diagnostics
 - `SourcePosition`: store one concrete `(file, line, column)` location and act
