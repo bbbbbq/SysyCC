@@ -88,6 +88,8 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass -> IRGenPas
   subset, including multi-branch `switch` lowering.
 - [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   now also constructs one shared
+  [SourceLocationService](/Users/caojunze424/code/SysyCC/src/common/source_location_service.hpp),
+  which in turn builds downstream
   [SourceMappingView](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
-  for downstream lexer/parser scanner sessions, and that view now exposes
-  explicit physical and logical location queries.
+  instances for lexer/parser scanner sessions. Those views now expose explicit
+  physical and logical location queries.

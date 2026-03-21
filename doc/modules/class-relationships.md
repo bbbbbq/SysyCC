@@ -38,6 +38,7 @@ classDiagram
         -include_directories_
         -system_include_directories_
         -source_manager_
+        -source_location_service_
         -preprocessed_line_map_
         -tokens_
         -parse_tree_root_
@@ -50,7 +51,7 @@ classDiagram
         -parse_dump_file_path_
         -ast_dump_file_path_
         -ir_dump_file_path_
-        +build_source_mapping_view(physical_file_path)
+        +get_source_location_service()
     }
 
     class PassManager {
@@ -228,6 +229,14 @@ classDiagram
         +add_line_position(position)
         +get_line_position(line)
         +get_line_positions()
+    }
+
+    class SourceLocationService {
+        -source_manager_
+        -preprocessed_line_map_
+        +get_source_manager()
+        +get_preprocessed_line_map()
+        +build_source_mapping_view(physical_file_path)
     }
 
     class SourceMappingView {
@@ -727,11 +736,14 @@ classDiagram
     LexerPass *-- LexerState
     ParserPass *-- LexerState
     CompilerContext *-- SourceManager
+    CompilerContext *-- SourceLocationService
     SourceManager *-- SourceFile
     SourcePosition --> SourceFile
     SourceSpan *-- SourcePosition
     CompilerContext *-- SourceLineMap
-    CompilerContext ..> SourceMappingView : builds
+    SourceLocationService --> SourceManager
+    SourceLocationService --> SourceLineMap
+    SourceLocationService ..> SourceMappingView : builds
     LexerState *-- SourceMappingView
     ParserPass ..> CompilerContext : writes parse tree
     AstPass ..> CompilerContext : writes ast root
@@ -937,10 +949,10 @@ Role:
 - act as the shared data bus for passes
 - store preprocessed intermediate file path
 - own the shared `SourceManager` registry for front-end file identity
+- own one shared `SourceLocationService` so source-related lookup and view
+  construction do not live directly on the context object
 - store one `SourceLineMap` for emitted preprocessed lines so later stages can
   inherit preprocess `#line` remapping
-- build one downstream `SourceMappingView` from a physical file plus the
-  preprocessed emitted-line map
 - store include search directories for preprocessing
 - store token stream with exact lexical token kinds plus derived categories
 - store parse tree root
@@ -1216,11 +1228,12 @@ Role:
   values
 - serve as a reusable location object across modules
 
-### `sysycc::SourceManager`, `sysycc::SourceFile`, `sysycc::SourcePosition`, and `sysycc::SourceMappingView`
+### `sysycc::SourceManager`, `sysycc::SourceLocationService`, `sysycc::SourceFile`, `sysycc::SourcePosition`, and `sysycc::SourceMappingView`
 
 Defined in:
 
 - [source_manager.hpp](/Users/caojunze424/code/SysyCC/src/common/source_manager.hpp)
+- [source_location_service.hpp](/Users/caojunze424/code/SysyCC/src/common/source_location_service.hpp)
 - [source_mapping_view.hpp](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
 
@@ -1228,6 +1241,9 @@ Role:
 
 - `SourceManager`: own the stable `SourceFile` registry used across one
   compiler run
+- `SourceLocationService`: own the shared front-end source lookup facade that
+  combines `SourceManager` with the preprocess-exported `SourceLineMap` and is
+  now responsible for building downstream `SourceMappingView` objects
 - `SourceFile`: own one interned source path reused by tokens, parse-tree
   nodes, AST nodes, and diagnostics
 - `SourcePosition`: store one concrete `(file, line, column)` location and act

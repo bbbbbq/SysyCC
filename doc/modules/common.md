@@ -8,6 +8,7 @@ multiple compilation stages.
 ## Main Files
 
 - [source_manager.hpp](/Users/caojunze424/code/SysyCC/src/common/source_manager.hpp)
+- [source_location_service.hpp](/Users/caojunze424/code/SysyCC/src/common/source_location_service.hpp)
 - [source_line_map.hpp](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
 - [source_mapping_view.hpp](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
@@ -20,6 +21,8 @@ multiple compilation stages.
 - represent individual source code positions
 - represent source code location ranges
 - represent one logical source position per emitted logical line
+- provide one shared front-end source-location service over file identity plus
+  preprocess remapping state
 - provide one shared downstream view over physical files plus preprocess line remapping
 - provide a reusable span type for lexer, parser, AST, semantic analysis, and diagnostics
 - provide pass-independent diagnostic records and a shared diagnostic collector
@@ -58,6 +61,20 @@ Current user-visible formatting now commonly renders spans as:
 
 - `<path>:<line_begin>:<col_begin>-<line_end>:<col_end>`
 
+### `SourceLocationService`
+
+`SourceLocationService` owns no source data by itself. Instead, it ties
+together:
+
+- one shared [SourceManager](/Users/caojunze424/code/SysyCC/src/common/source_manager.hpp)
+- one shared [SourceLineMap](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
+
+It is currently owned by
+[CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+and is the single place that constructs downstream
+[SourceMappingView](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
+instances.
+
 ### `SourceLineMap`
 
 `SourceLineMap` models one line-granularity mapping from emitted logical lines
@@ -77,7 +94,7 @@ that combines:
 - one optional `SourceLineMap`
 
 It is currently constructed by
-[CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+[SourceLocationService](/Users/caojunze424/code/SysyCC/src/common/source_location_service.hpp)
 and consumed by
 [LexerState](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp).
 
@@ -89,7 +106,9 @@ preprocess file location or the remapped `#line` location.
 
 `SourceManager` owns the stable `SourceFile` identities for one compiler run
 and is currently stored in
-[CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp).
+[CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp),
+then exposed through
+[SourceLocationService](/Users/caojunze424/code/SysyCC/src/common/source_location_service.hpp).
 
 ### `Diagnostic`
 
