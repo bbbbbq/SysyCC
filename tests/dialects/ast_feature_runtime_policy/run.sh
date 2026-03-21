@@ -19,7 +19,7 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
     "${PROJECT_ROOT}/src/frontend/ast/ast_node.cpp" \
     "${PROJECT_ROOT}/src/frontend/ast/detail/ast_feature_validator.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/ast_feature_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/ast_feature_registry.cpp" \
     -o "${TEST_BINARY}"
 
 "${TEST_BINARY}"

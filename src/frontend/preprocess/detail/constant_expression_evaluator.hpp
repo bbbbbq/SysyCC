@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "frontend/dialects/dialect_manager.hpp"
+#include "frontend/dialects/core/dialect_manager.hpp"
 #include "compiler/pass/pass.hpp"
 #include "frontend/preprocess/detail/conditional/builtin_probe_evaluator.hpp"
 #include "frontend/preprocess/detail/macro_table.hpp"

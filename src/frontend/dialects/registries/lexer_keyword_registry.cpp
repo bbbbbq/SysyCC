@@ -1,4 +1,4 @@
-#include "frontend/dialects/lexer_keyword_registry.hpp"
+#include "frontend/dialects/registries/lexer_keyword_registry.hpp"
 
 #include "compiler/compiler_context/compiler_context.hpp"
 

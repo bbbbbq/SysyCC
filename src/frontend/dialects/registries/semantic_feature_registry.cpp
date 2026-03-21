@@ -1,4 +1,4 @@
-#include "frontend/dialects/semantic_feature_registry.hpp"
+#include "frontend/dialects/registries/semantic_feature_registry.hpp"
 
 namespace sysycc {
 

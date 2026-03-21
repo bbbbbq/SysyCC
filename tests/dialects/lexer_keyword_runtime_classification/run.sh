@@ -20,7 +20,7 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
     "${PROJECT_ROOT}/src/common/source_line_map.cpp" \
     "${PROJECT_ROOT}/src/common/source_mapping_view.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/lexer_keyword_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/lexer_keyword_registry.cpp" \
     "${PROJECT_ROOT}/src/frontend/lexer/lexer_scanner.cpp" \
     "${PROJECT_ROOT}/src/frontend/parser/parser_runtime.cpp" \
     -o "${TEST_BINARY}"

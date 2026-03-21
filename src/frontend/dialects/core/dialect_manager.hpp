@@ -4,18 +4,18 @@
 #include <string>
 #include <vector>
 
-#include "frontend/dialects/ast_feature_registry.hpp"
-#include "frontend/dialects/attribute_semantic_handler_registry.hpp"
-#include "frontend/dialects/builtin_type_semantic_handler_registry.hpp"
-#include "frontend/dialects/dialect.hpp"
-#include "frontend/dialects/ir_extension_lowering_registry.hpp"
-#include "frontend/dialects/ir_feature_registry.hpp"
-#include "frontend/dialects/lexer_keyword_registry.hpp"
-#include "frontend/dialects/parser_feature_registry.hpp"
-#include "frontend/dialects/preprocess_directive_handler_registry.hpp"
-#include "frontend/dialects/preprocess_feature_registry.hpp"
-#include "frontend/dialects/preprocess_probe_handler_registry.hpp"
-#include "frontend/dialects/semantic_feature_registry.hpp"
+#include "frontend/dialects/registries/ast_feature_registry.hpp"
+#include "frontend/dialects/registries/attribute_semantic_handler_registry.hpp"
+#include "frontend/dialects/registries/builtin_type_semantic_handler_registry.hpp"
+#include "frontend/dialects/core/dialect.hpp"
+#include "frontend/dialects/registries/ir_extension_lowering_registry.hpp"
+#include "frontend/dialects/registries/ir_feature_registry.hpp"
+#include "frontend/dialects/registries/lexer_keyword_registry.hpp"
+#include "frontend/dialects/registries/parser_feature_registry.hpp"
+#include "frontend/dialects/registries/preprocess_directive_handler_registry.hpp"
+#include "frontend/dialects/registries/preprocess_feature_registry.hpp"
+#include "frontend/dialects/registries/preprocess_probe_handler_registry.hpp"
+#include "frontend/dialects/registries/semantic_feature_registry.hpp"
 
 namespace sysycc {
 

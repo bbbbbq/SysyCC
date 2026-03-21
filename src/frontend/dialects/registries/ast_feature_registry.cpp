@@ -1,4 +1,4 @@
-#include "frontend/dialects/ast_feature_registry.hpp"
+#include "frontend/dialects/registries/ast_feature_registry.hpp"
 
 namespace sysycc {
 

@@ -1,4 +1,4 @@
-#include "frontend/dialects/builtin_types/builtin_type_extension_pack.hpp"
+#include "frontend/dialects/packs/builtin_types/builtin_type_extension_pack.hpp"
 
 #include "compiler/compiler_context/compiler_context.hpp"
 

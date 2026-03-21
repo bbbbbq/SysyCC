@@ -17,20 +17,20 @@ mkdir -p "${TEST_BUILD_DIR}"
 
 clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
-    "${PROJECT_ROOT}/src/frontend/dialects/ast_feature_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/attribute_semantic_handler_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/builtin_type_semantic_handler_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/dialect_manager.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/ir_extension_lowering_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/ir_feature_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/lexer_keyword_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/parser_feature_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/preprocess_directive_handler_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/preprocess_feature_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/preprocess_probe_handler_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/semantic_feature_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/clang/clang_dialect.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/gnu/gnu_dialect.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/ast_feature_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/attribute_semantic_handler_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/builtin_type_semantic_handler_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/core/dialect_manager.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/ir_extension_lowering_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/ir_feature_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/lexer_keyword_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/parser_feature_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/preprocess_directive_handler_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/preprocess_feature_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/preprocess_probe_handler_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/semantic_feature_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/packs/clang/clang_dialect.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/packs/gnu/gnu_dialect.cpp" \
     "${PROJECT_ROOT}/src/frontend/preprocess/detail/conditional/builtin_probe_evaluator.cpp" \
     "${PROJECT_ROOT}/src/frontend/preprocess/detail/conditional/clang_extension_provider.cpp" \
     "${PROJECT_ROOT}/src/frontend/preprocess/detail/conditional/gnu_extension_provider.cpp" \

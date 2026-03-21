@@ -1,4 +1,4 @@
-#include "frontend/dialects/ir_extension_lowering_registry.hpp"
+#include "frontend/dialects/registries/attribute_semantic_handler_registry.hpp"
 
 #include <utility>
 
@@ -13,8 +13,8 @@ const std::string &empty_owner_name() {
 
 } // namespace
 
-void IrExtensionLoweringRegistry::add_handler(
-    IrExtensionLoweringHandlerKind handler_kind, std::string owner_name) {
+void AttributeSemanticHandlerRegistry::add_handler(
+    AttributeSemanticHandlerKind handler_kind, std::string owner_name) {
     const auto iterator = owner_names_.find(handler_kind);
     if (iterator == owner_names_.end()) {
         owner_names_.emplace(handler_kind, std::move(owner_name));
@@ -31,13 +31,13 @@ void IrExtensionLoweringRegistry::add_handler(
                                    owner_name + "'");
 }
 
-bool IrExtensionLoweringRegistry::has_handler(
-    IrExtensionLoweringHandlerKind handler_kind) const noexcept {
+bool AttributeSemanticHandlerRegistry::has_handler(
+    AttributeSemanticHandlerKind handler_kind) const noexcept {
     return owner_names_.find(handler_kind) != owner_names_.end();
 }
 
-const std::string &IrExtensionLoweringRegistry::get_owner_name(
-    IrExtensionLoweringHandlerKind handler_kind) const noexcept {
+const std::string &AttributeSemanticHandlerRegistry::get_owner_name(
+    AttributeSemanticHandlerKind handler_kind) const noexcept {
     const auto iterator = owner_names_.find(handler_kind);
     if (iterator == owner_names_.end()) {
         return empty_owner_name();
@@ -46,7 +46,7 @@ const std::string &IrExtensionLoweringRegistry::get_owner_name(
 }
 
 const std::vector<std::string> &
-IrExtensionLoweringRegistry::get_registration_errors() const noexcept {
+AttributeSemanticHandlerRegistry::get_registration_errors() const noexcept {
     return registration_errors_;
 }
 

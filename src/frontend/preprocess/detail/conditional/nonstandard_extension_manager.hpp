@@ -4,7 +4,7 @@
 #include <string>
 
 #include "compiler/pass/pass.hpp"
-#include "frontend/dialects/preprocess_probe_handler_registry.hpp"
+#include "frontend/dialects/registries/preprocess_probe_handler_registry.hpp"
 #include "frontend/preprocess/detail/conditional/clang_extension_provider.hpp"
 #include "frontend/preprocess/detail/conditional/gnu_extension_provider.hpp"
 

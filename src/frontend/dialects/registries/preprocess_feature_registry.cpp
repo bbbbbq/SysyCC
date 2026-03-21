@@ -1,4 +1,4 @@
-#include "frontend/dialects/preprocess_feature_registry.hpp"
+#include "frontend/dialects/registries/preprocess_feature_registry.hpp"
 
 namespace sysycc {
 

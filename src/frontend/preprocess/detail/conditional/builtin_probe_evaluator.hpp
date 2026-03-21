@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "frontend/dialects/dialect_manager.hpp"
+#include "frontend/dialects/core/dialect_manager.hpp"
 #include "compiler/pass/pass.hpp"
 #include "frontend/preprocess/detail/conditional/nonstandard_extension_manager.hpp"
 #include "frontend/preprocess/detail/macro_table.hpp"

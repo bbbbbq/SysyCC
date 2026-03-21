@@ -6,7 +6,7 @@
 #include "compiler/compiler_context/compiler_context.hpp"
 #include "compiler/complier_option.hpp"
 #include "compiler/pass/pass.hpp"
-#include "frontend/dialects/dialect.hpp"
+#include "frontend/dialects/core/dialect.hpp"
 
 namespace sysycc {
 

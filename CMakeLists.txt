@@ -64,22 +64,22 @@ add_executable(${PROJECT_NAME}
     src/frontend/attribute/attribute_analyzer.cpp
     src/frontend/attribute/gnu_function_attribute_handler.cpp
     src/frontend/attribute/attribute_parser.cpp
-    src/frontend/dialects/ast_feature_registry.cpp
-    src/frontend/dialects/attribute_semantic_handler_registry.cpp
-    src/frontend/dialects/builtin_type_semantic_handler_registry.cpp
-    src/frontend/dialects/dialect_manager.cpp
-    src/frontend/dialects/ir_extension_lowering_registry.cpp
-    src/frontend/dialects/ir_feature_registry.cpp
-    src/frontend/dialects/lexer_keyword_registry.cpp
-    src/frontend/dialects/parser_feature_registry.cpp
-    src/frontend/dialects/preprocess_directive_handler_registry.cpp
-    src/frontend/dialects/preprocess_feature_registry.cpp
-    src/frontend/dialects/preprocess_probe_handler_registry.cpp
-    src/frontend/dialects/semantic_feature_registry.cpp
-    src/frontend/dialects/builtin_types/builtin_type_extension_pack.cpp
-    src/frontend/dialects/c99/c99_dialect.cpp
-    src/frontend/dialects/clang/clang_dialect.cpp
-    src/frontend/dialects/gnu/gnu_dialect.cpp
+    src/frontend/dialects/registries/ast_feature_registry.cpp
+    src/frontend/dialects/registries/attribute_semantic_handler_registry.cpp
+    src/frontend/dialects/registries/builtin_type_semantic_handler_registry.cpp
+    src/frontend/dialects/core/dialect_manager.cpp
+    src/frontend/dialects/registries/ir_extension_lowering_registry.cpp
+    src/frontend/dialects/registries/ir_feature_registry.cpp
+    src/frontend/dialects/registries/lexer_keyword_registry.cpp
+    src/frontend/dialects/registries/parser_feature_registry.cpp
+    src/frontend/dialects/registries/preprocess_directive_handler_registry.cpp
+    src/frontend/dialects/registries/preprocess_feature_registry.cpp
+    src/frontend/dialects/registries/preprocess_probe_handler_registry.cpp
+    src/frontend/dialects/registries/semantic_feature_registry.cpp
+    src/frontend/dialects/packs/builtin_types/builtin_type_extension_pack.cpp
+    src/frontend/dialects/packs/c99/c99_dialect.cpp
+    src/frontend/dialects/packs/clang/clang_dialect.cpp
+    src/frontend/dialects/packs/gnu/gnu_dialect.cpp
     src/frontend/lexer/lexer.cpp
     src/frontend/parser/parser.cpp
     src/frontend/parser/parser_feature_validator.cpp

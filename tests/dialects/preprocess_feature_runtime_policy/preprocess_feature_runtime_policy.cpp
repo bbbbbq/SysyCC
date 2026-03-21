@@ -3,9 +3,9 @@
 #include <memory>
 #include <string>
 
-#include "frontend/dialects/clang/clang_dialect.hpp"
-#include "frontend/dialects/dialect_manager.hpp"
-#include "frontend/dialects/gnu/gnu_dialect.hpp"
+#include "frontend/dialects/packs/clang/clang_dialect.hpp"
+#include "frontend/dialects/core/dialect_manager.hpp"
+#include "frontend/dialects/packs/gnu/gnu_dialect.hpp"
 #include "frontend/preprocess/detail/conditional/builtin_probe_evaluator.hpp"
 #include "frontend/preprocess/detail/macro_table.hpp"
 #include "frontend/preprocess/detail/predefined_macro_initializer.hpp"

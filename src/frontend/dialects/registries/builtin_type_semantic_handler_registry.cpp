@@ -1,4 +1,4 @@
-#include "frontend/dialects/preprocess_directive_handler_registry.hpp"
+#include "frontend/dialects/registries/builtin_type_semantic_handler_registry.hpp"
 
 #include <utility>
 
@@ -13,8 +13,8 @@ const std::string &empty_owner_name() {
 
 } // namespace
 
-void PreprocessDirectiveHandlerRegistry::add_handler(
-    PreprocessDirectiveHandlerKind handler_kind, std::string owner_name) {
+void BuiltinTypeSemanticHandlerRegistry::add_handler(
+    BuiltinTypeSemanticHandlerKind handler_kind, std::string owner_name) {
     const auto iterator = owner_names_.find(handler_kind);
     if (iterator == owner_names_.end()) {
         owner_names_.emplace(handler_kind, std::move(owner_name));
@@ -31,13 +31,13 @@ void PreprocessDirectiveHandlerRegistry::add_handler(
                                    owner_name + "'");
 }
 
-bool PreprocessDirectiveHandlerRegistry::has_handler(
-    PreprocessDirectiveHandlerKind handler_kind) const noexcept {
+bool BuiltinTypeSemanticHandlerRegistry::has_handler(
+    BuiltinTypeSemanticHandlerKind handler_kind) const noexcept {
     return owner_names_.find(handler_kind) != owner_names_.end();
 }
 
-const std::string &PreprocessDirectiveHandlerRegistry::get_owner_name(
-    PreprocessDirectiveHandlerKind handler_kind) const noexcept {
+const std::string &BuiltinTypeSemanticHandlerRegistry::get_owner_name(
+    BuiltinTypeSemanticHandlerKind handler_kind) const noexcept {
     const auto iterator = owner_names_.find(handler_kind);
     if (iterator == owner_names_.end()) {
         return empty_owner_name();
@@ -46,7 +46,7 @@ const std::string &PreprocessDirectiveHandlerRegistry::get_owner_name(
 }
 
 const std::vector<std::string> &
-PreprocessDirectiveHandlerRegistry::get_registration_errors() const noexcept {
+BuiltinTypeSemanticHandlerRegistry::get_registration_errors() const noexcept {
     return registration_errors_;
 }
 

@@ -3,8 +3,8 @@
 #include <memory>
 
 #include "frontend/ast/ast_node.hpp"
-#include "frontend/dialects/builtin_type_semantic_handler_registry.hpp"
-#include "frontend/dialects/semantic_feature_registry.hpp"
+#include "frontend/dialects/registries/builtin_type_semantic_handler_registry.hpp"
+#include "frontend/dialects/registries/semantic_feature_registry.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/integer_conversion_service.hpp"
 #include "frontend/semantic/type_system/extended_builtin_type_semantic_handler.hpp"

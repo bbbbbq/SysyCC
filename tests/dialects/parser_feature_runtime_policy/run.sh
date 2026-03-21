@@ -18,7 +18,7 @@ mkdir -p "${TEST_BUILD_DIR}"
 clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
     "${PROJECT_ROOT}/src/frontend/ast/detail/parse_tree_matcher.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/parser_feature_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/parser_feature_registry.cpp" \
     "${PROJECT_ROOT}/src/frontend/parser/parser_feature_validator.cpp" \
     "${PROJECT_ROOT}/src/frontend/parser/parser_runtime.cpp" \
     -o "${TEST_BINARY}"

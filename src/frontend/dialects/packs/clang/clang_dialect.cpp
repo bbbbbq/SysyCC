@@ -1,4 +1,4 @@
-#include "frontend/dialects/clang/clang_dialect.hpp"
+#include "frontend/dialects/packs/clang/clang_dialect.hpp"
 
 namespace sysycc {
 

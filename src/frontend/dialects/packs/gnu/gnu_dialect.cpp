@@ -1,4 +1,4 @@
-#include "frontend/dialects/gnu/gnu_dialect.hpp"
+#include "frontend/dialects/packs/gnu/gnu_dialect.hpp"
 
 #include "compiler/compiler_context/compiler_context.hpp"
 

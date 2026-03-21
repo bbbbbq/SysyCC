@@ -1,10 +1,10 @@
 #pragma once
 
-#include "frontend/dialects/dialect.hpp"
+#include "frontend/dialects/core/dialect.hpp"
 
 namespace sysycc {
 
-class BuiltinTypeExtensionPack : public FrontendDialect {
+class C99Dialect : public FrontendDialect {
   public:
     std::string_view get_name() const noexcept override;
 
@@ -18,9 +18,6 @@ class BuiltinTypeExtensionPack : public FrontendDialect {
 
     void contribute_semantic_features(
         SemanticFeatureRegistry &registry) const override;
-
-    void contribute_builtin_type_semantic_handlers(
-        BuiltinTypeSemanticHandlerRegistry &registry) const override;
 };
 
 } // namespace sysycc

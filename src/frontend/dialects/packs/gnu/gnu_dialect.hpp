@@ -1,6 +1,6 @@
 #pragma once
 
-#include "frontend/dialects/dialect.hpp"
+#include "frontend/dialects/core/dialect.hpp"
 
 namespace sysycc {
 

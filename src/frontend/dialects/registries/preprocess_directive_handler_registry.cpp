@@ -1,4 +1,4 @@
-#include "frontend/dialects/preprocess_probe_handler_registry.hpp"
+#include "frontend/dialects/registries/preprocess_directive_handler_registry.hpp"
 
 #include <utility>
 
@@ -13,8 +13,8 @@ const std::string &empty_owner_name() {
 
 } // namespace
 
-void PreprocessProbeHandlerRegistry::add_handler(
-    PreprocessProbeHandlerKind handler_kind, std::string owner_name) {
+void PreprocessDirectiveHandlerRegistry::add_handler(
+    PreprocessDirectiveHandlerKind handler_kind, std::string owner_name) {
     const auto iterator = owner_names_.find(handler_kind);
     if (iterator == owner_names_.end()) {
         owner_names_.emplace(handler_kind, std::move(owner_name));
@@ -31,13 +31,13 @@ void PreprocessProbeHandlerRegistry::add_handler(
                                    owner_name + "'");
 }
 
-bool PreprocessProbeHandlerRegistry::has_handler(
-    PreprocessProbeHandlerKind handler_kind) const noexcept {
+bool PreprocessDirectiveHandlerRegistry::has_handler(
+    PreprocessDirectiveHandlerKind handler_kind) const noexcept {
     return owner_names_.find(handler_kind) != owner_names_.end();
 }
 
-const std::string &PreprocessProbeHandlerRegistry::get_owner_name(
-    PreprocessProbeHandlerKind handler_kind) const noexcept {
+const std::string &PreprocessDirectiveHandlerRegistry::get_owner_name(
+    PreprocessDirectiveHandlerKind handler_kind) const noexcept {
     const auto iterator = owner_names_.find(handler_kind);
     if (iterator == owner_names_.end()) {
         return empty_owner_name();
@@ -46,7 +46,7 @@ const std::string &PreprocessProbeHandlerRegistry::get_owner_name(
 }
 
 const std::vector<std::string> &
-PreprocessProbeHandlerRegistry::get_registration_errors() const noexcept {
+PreprocessDirectiveHandlerRegistry::get_registration_errors() const noexcept {
     return registration_errors_;
 }
 

@@ -1,4 +1,4 @@
-#include "frontend/dialects/c99/c99_dialect.hpp"
+#include "frontend/dialects/packs/c99/c99_dialect.hpp"
 
 #include "compiler/compiler_context/compiler_context.hpp"
 

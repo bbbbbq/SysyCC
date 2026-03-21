@@ -1,4 +1,4 @@
-#include "frontend/dialects/ir_feature_registry.hpp"
+#include "frontend/dialects/registries/ir_feature_registry.hpp"
 
 namespace sysycc {
 

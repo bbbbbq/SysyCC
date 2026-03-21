@@ -3,7 +3,7 @@
 #include <string_view>
 
 #include "compiler/complier.hpp"
-#include "frontend/dialects/dialect.hpp"
+#include "frontend/dialects/core/dialect.hpp"
 
 using namespace sysycc;
 

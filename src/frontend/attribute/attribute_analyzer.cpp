@@ -4,7 +4,7 @@
 
 #include "compiler/compiler_context/compiler_context.hpp"
 #include "frontend/ast/ast_node.hpp"
-#include "frontend/dialects/attribute_semantic_handler_registry.hpp"
+#include "frontend/dialects/registries/attribute_semantic_handler_registry.hpp"
 #include "frontend/semantic/model/semantic_diagnostic.hpp"
 #include "frontend/semantic/support/semantic_context.hpp"
 

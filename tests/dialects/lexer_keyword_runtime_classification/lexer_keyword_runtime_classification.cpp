@@ -2,7 +2,7 @@
 #include <cstdio>
 #include <string_view>
 
-#include "frontend/dialects/lexer_keyword_registry.hpp"
+#include "frontend/dialects/registries/lexer_keyword_registry.hpp"
 #include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser.tab.h"
 

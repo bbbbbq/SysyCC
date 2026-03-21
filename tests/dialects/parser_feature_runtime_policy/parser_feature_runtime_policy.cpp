@@ -1,7 +1,7 @@
 #include <cassert>
 #include <memory>
 
-#include "frontend/dialects/parser_feature_registry.hpp"
+#include "frontend/dialects/registries/parser_feature_registry.hpp"
 #include "frontend/parser/parser_feature_validator.hpp"
 
 using namespace sysycc;

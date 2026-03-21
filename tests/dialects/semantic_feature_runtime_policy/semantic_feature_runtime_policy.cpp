@@ -1,7 +1,7 @@
 #include <cassert>
 
-#include "frontend/dialects/builtin_type_semantic_handler_registry.hpp"
-#include "frontend/dialects/semantic_feature_registry.hpp"
+#include "frontend/dialects/registries/builtin_type_semantic_handler_registry.hpp"
+#include "frontend/dialects/registries/semantic_feature_registry.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
 

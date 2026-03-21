@@ -3,8 +3,8 @@
 #include <string>
 
 #include "compiler/compiler_context/compiler_context.hpp"
-#include "frontend/dialects/dialect.hpp"
-#include "frontend/dialects/dialect_manager.hpp"
+#include "frontend/dialects/core/dialect.hpp"
+#include "frontend/dialects/core/dialect_manager.hpp"
 
 using namespace sysycc;
 

@@ -4,7 +4,7 @@
 
 #include "common/source_span.hpp"
 #include "frontend/ast/ast_node.hpp"
-#include "frontend/dialects/ast_feature_registry.hpp"
+#include "frontend/dialects/registries/ast_feature_registry.hpp"
 
 namespace sysycc::detail {
 

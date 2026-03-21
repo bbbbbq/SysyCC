@@ -1,4 +1,4 @@
-#include "frontend/dialects/parser_feature_registry.hpp"
+#include "frontend/dialects/registries/parser_feature_registry.hpp"
 
 namespace sysycc {
 

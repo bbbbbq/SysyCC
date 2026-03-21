@@ -1,4 +1,4 @@
-#include "frontend/dialects/dialect_manager.hpp"
+#include "frontend/dialects/core/dialect_manager.hpp"
 
 #include <cstddef>
 #include <utility>

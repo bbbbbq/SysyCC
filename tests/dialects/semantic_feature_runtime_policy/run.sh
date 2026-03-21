@@ -18,8 +18,8 @@ mkdir -p "${TEST_BUILD_DIR}"
 clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
     "${PROJECT_ROOT}/src/common/integer_literal.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/builtin_type_semantic_handler_registry.cpp" \
-    "${PROJECT_ROOT}/src/frontend/dialects/semantic_feature_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/builtin_type_semantic_handler_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/registries/semantic_feature_registry.cpp" \
     "${PROJECT_ROOT}/src/frontend/ast/ast_node.cpp" \
     "${PROJECT_ROOT}/src/frontend/semantic/model/semantic_diagnostic.cpp" \
     "${PROJECT_ROOT}/src/frontend/semantic/model/semantic_model.cpp" \
