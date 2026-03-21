@@ -77,8 +77,25 @@ void SourceMapper::apply_line_directive(int physical_line, int logical_line,
     }
 }
 
-SourcePosition SourceMapper::map_position(int physical_line,
-                                          int column) const noexcept {
+SourcePosition SourceMapper::get_physical_position(int physical_line,
+                                                   int column) const noexcept {
+    if (file_stack_.empty()) {
+        return {};
+    }
+
+    const FileFrame &frame = file_stack_.back();
+    return SourcePosition(frame.physical_file_, physical_line, column);
+}
+
+SourceSpan SourceMapper::get_physical_span(int line_begin, int col_begin,
+                                           int line_end,
+                                           int col_end) const noexcept {
+    return SourceSpan(get_physical_position(line_begin, col_begin),
+                      get_physical_position(line_end, col_end));
+}
+
+SourcePosition SourceMapper::get_logical_position(int physical_line,
+                                                  int column) const noexcept {
     if (file_stack_.empty()) {
         return {};
     }
@@ -93,10 +110,11 @@ SourcePosition SourceMapper::map_position(int physical_line,
     return SourcePosition(frame.logical_file_, logical_line, column);
 }
 
-SourceSpan SourceMapper::map_span(int line_begin, int col_begin, int line_end,
-                                  int col_end) const noexcept {
-    return SourceSpan(map_position(line_begin, col_begin),
-                      map_position(line_end, col_end));
+SourceSpan SourceMapper::get_logical_span(int line_begin, int col_begin,
+                                          int line_end,
+                                          int col_end) const noexcept {
+    return SourceSpan(get_logical_position(line_begin, col_begin),
+                      get_logical_position(line_end, col_end));
 }
 
 } // namespace sysycc::preprocess::detail

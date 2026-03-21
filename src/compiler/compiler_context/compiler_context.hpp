@@ -7,6 +7,7 @@
 
 #include "common/diagnostic/diagnostic_engine.hpp"
 #include "common/source_line_map.hpp"
+#include "common/source_mapping_view.hpp"
 #include "common/source_manager.hpp"
 #include "backend/ir/ir_result.hpp"
 #include "common/source_span.hpp"
@@ -494,6 +495,13 @@ class CompilerContext {
 
     const SourceManager &get_source_manager() const noexcept {
         return source_manager_;
+    }
+
+    SourceMappingView build_source_mapping_view(
+        const std::string &physical_file_path) {
+        return SourceMappingView(
+            source_manager_.get_source_file(physical_file_path),
+            &preprocessed_line_map_);
     }
 };
 } // namespace sysycc

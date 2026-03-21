@@ -58,8 +58,8 @@ PassResult DirectiveExecutor::handle_warning_directive(
 
     preprocess_context_.get_compiler_context().get_diagnostic_engine().add_warning(
         DiagnosticStage::Preprocess, message,
-        preprocess_context_.get_source_mapper().map_span(line_number, 1,
-                                                         line_number, 1));
+        preprocess_context_.get_source_mapper().get_logical_span(line_number, 1,
+                                                                 line_number, 1));
     return PassResult::Success();
 }
 
@@ -232,7 +232,7 @@ PassResult DirectiveExecutor::handle_macro_directive(
             arguments[0], replacement, directive.get_is_function_like_macro(),
             directive.get_is_variadic_macro(),
             directive.get_macro_parameters(),
-            preprocess_context_.get_source_mapper().map_span(
+            preprocess_context_.get_source_mapper().get_logical_span(
                 line_number, 1, line_number, static_cast<int>(line.size()))));
     }
 

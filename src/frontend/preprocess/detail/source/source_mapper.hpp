@@ -41,9 +41,24 @@ class SourceMapper {
     void apply_line_directive(int physical_line, int logical_line,
                               const std::string *logical_file_path);
 
-    SourcePosition map_position(int physical_line, int column) const noexcept;
+    SourcePosition get_physical_position(int physical_line,
+                                         int column) const noexcept;
+    SourceSpan get_physical_span(int line_begin, int col_begin, int line_end,
+                                 int col_end) const noexcept;
+
+    SourcePosition get_logical_position(int physical_line,
+                                        int column) const noexcept;
+    SourceSpan get_logical_span(int line_begin, int col_begin, int line_end,
+                                int col_end) const noexcept;
+
+    SourcePosition map_position(int physical_line, int column) const noexcept {
+        return get_logical_position(physical_line, column);
+    }
+
     SourceSpan map_span(int line_begin, int col_begin, int line_end,
-                        int col_end) const noexcept;
+                        int col_end) const noexcept {
+        return get_logical_span(line_begin, col_begin, line_end, col_end);
+    }
 };
 
 } // namespace sysycc::preprocess::detail

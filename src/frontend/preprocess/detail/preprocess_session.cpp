@@ -68,7 +68,7 @@ PassResult annotate_preprocess_error(const PassResult &result,
     }
 
     const SourcePosition position =
-        source_mapper.map_position(line_number, 1);
+        source_mapper.get_logical_position(line_number, 1);
     const SourceFile *source_file = position.get_file();
     const std::string file_path =
         source_file != nullptr ? source_file->get_path() : std::string();
@@ -199,8 +199,8 @@ PassResult PreprocessSession::handle_non_directive_line(const std::string &line,
         preprocess_context_.get_runtime().append_output_line(
             macro_expander_.expand_line(line,
                                         preprocess_context_.get_macro_table()),
-            preprocess_context_.get_source_mapper().map_position(line_number,
-                                                                 1));
+            preprocess_context_.get_source_mapper().get_logical_position(
+                line_number, 1));
     }
 
     return PassResult::Success();

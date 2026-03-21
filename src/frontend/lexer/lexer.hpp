@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/source_line_map.hpp"
+#include "common/source_mapping_view.hpp"
 #include "common/source_span.hpp"
 #include "compiler/pass/pass.hpp"
 
@@ -11,7 +11,7 @@ namespace sysycc {
 // Stores per-scanner lexer state for reentrant scanning.
 class LexerState {
   private:
-    const SourceFile *source_file_ = nullptr;
+    SourceMappingView source_mapping_view_;
     int line_ = 1;
     int column_ = 1;
     int token_line_begin_ = 1;
@@ -19,11 +19,10 @@ class LexerState {
     int token_line_end_ = 1;
     int token_column_end_ = 1;
     bool emit_parse_nodes_ = false;
-    const SourceLineMap *preprocessed_line_map_ = nullptr;
 
   public:
     void reset() noexcept {
-        source_file_ = nullptr;
+        source_mapping_view_ = SourceMappingView();
         line_ = 1;
         column_ = 1;
         token_line_begin_ = 1;
@@ -31,18 +30,14 @@ class LexerState {
         token_line_end_ = 1;
         token_column_end_ = 1;
         emit_parse_nodes_ = false;
-        preprocessed_line_map_ = nullptr;
     }
 
-    void set_source_file(const SourceFile *source_file) noexcept {
-        source_file_ = source_file;
+    void set_source_mapping_view(SourceMappingView source_mapping_view) noexcept {
+        source_mapping_view_ = source_mapping_view;
     }
 
-    const SourceFile *get_source_file() const noexcept { return source_file_; }
-
-    void set_preprocessed_line_map(
-        const SourceLineMap *preprocessed_line_map) noexcept {
-        preprocessed_line_map_ = preprocessed_line_map;
+    const SourceMappingView &get_source_mapping_view() const noexcept {
+        return source_mapping_view_;
     }
 
     void update_position(const char *text, int length) noexcept {
@@ -71,12 +66,32 @@ class LexerState {
 
     int get_token_column_end() const noexcept { return token_column_end_; }
 
+    SourcePosition get_token_begin_physical_position() const noexcept {
+        return source_mapping_view_.get_physical_position(token_line_begin_,
+                                                          token_column_begin_);
+    }
+
+    SourcePosition get_token_end_physical_position() const noexcept {
+        return source_mapping_view_.get_physical_position(token_line_end_,
+                                                          token_column_end_);
+    }
+
+    SourcePosition get_token_begin_logical_position() const noexcept {
+        return source_mapping_view_.get_logical_position(token_line_begin_,
+                                                         token_column_begin_);
+    }
+
+    SourcePosition get_token_end_logical_position() const noexcept {
+        return source_mapping_view_.get_logical_position(token_line_end_,
+                                                         token_column_end_);
+    }
+
     SourcePosition get_token_begin_position() const noexcept {
-        return get_mapped_position(token_line_begin_, token_column_begin_);
+        return get_token_begin_logical_position();
     }
 
     SourcePosition get_token_end_position() const noexcept {
-        return get_mapped_position(token_line_end_, token_column_end_);
+        return get_token_end_logical_position();
     }
 
     bool get_emit_parse_nodes() const noexcept { return emit_parse_nodes_; }
@@ -85,26 +100,6 @@ class LexerState {
         emit_parse_nodes_ = emit_parse_nodes;
     }
 
-  private:
-    SourcePosition get_mapped_position(int physical_line,
-                                       int column) const noexcept {
-        if (preprocessed_line_map_ == nullptr) {
-            return SourcePosition(source_file_, physical_line, column);
-        }
-
-        const SourcePosition *line_position =
-            preprocessed_line_map_->get_line_position(physical_line);
-        if (line_position == nullptr) {
-            return SourcePosition(source_file_, physical_line, column);
-        }
-        const SourceFile *file =
-            line_position->get_file() != nullptr ? line_position->get_file()
-                                                 : source_file_;
-        const int line =
-            line_position->get_line() > 0 ? line_position->get_line()
-                                          : physical_line;
-        return SourcePosition(file, line, column);
-    }
 };
 
 // Runs lexical analysis and stores the token stream into compiler context.
