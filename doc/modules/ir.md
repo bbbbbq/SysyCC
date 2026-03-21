@@ -46,6 +46,8 @@ The current IR module is intentionally a skeleton:
 - `IRBuilder` coordinates IR generation through an abstract `IRBackend`
 - `IRBackend` defines backend-independent emission hooks
 - `LlvmIrBackend` is the first concrete backend implementation
+- semantic function attributes can now flow from `SemanticModel` into
+  backend-independent IR emission
 - `IRResult` stores:
   - `IrKind`
   - IR text output
@@ -63,14 +65,15 @@ LLVM IR lowering path:
 - `IRGenPass` runs after semantic analysis
 - `IRBuilder` currently lowers a focused AST subset:
   - `TranslationUnit`
-  - `FunctionDecl` with integer or void return type
+  - `FunctionDecl` with integer, double, or void return type
   - `ParamDecl`
   - `BlockStmt`
-  - `DeclStmt` containing integer `VarDecl`
+  - `DeclStmt` containing integer or double `VarDecl`
   - `ExprStmt`
   - `IntegerLiteralExpr`
   - `IdentifierExpr`
   - `BinaryExpr` for `+ - * / % < <= > >= == != && ||`
+  - `ConditionalExpr` for integer ternary `?:`
   - `AssignExpr` with identifier targets
   - `CallExpr` whose callee is an identifier
   - `IfStmt`
@@ -92,6 +95,11 @@ LLVM IR lowering path:
   - integer comparisons lowered as `icmp` + `zext`
   - short-circuit lowering for `&&` and `||` through dedicated rhs/true/end
     blocks
+  - integer ternary lowering for `?:` through dedicated true/false/end blocks
+  - `double` parameter passing, local-variable allocation, loads/stores, and
+    direct returns
+  - function-level `__always_inline__` lowered from semantic function
+    attributes to LLVM `alwaysinline`
   - label creation, unconditional branches, and conditional branches
   - loop back edges and loop-exit branches for `while`, `for`, `do-while`,
     `break`, and `continue`

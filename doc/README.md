@@ -6,6 +6,7 @@
 doc/
 ├── README.md
 └── modules/
+    ├── attribute.md
     ├── class-relationships.md
     ├── cli.md
     ├── common.md
@@ -62,6 +63,7 @@ main
 
 ## Module Map
 
+- [attribute.md](/Users/caojunze424/code/SysyCC/doc/modules/attribute.md): GNU-style attribute parsing and structured attribute records
 - [roadmap.md](/Users/caojunze424/code/SysyCC/roadmap.md): current syntax support matrix and near-term implementation priorities
 - [class-relationships.md](/Users/caojunze424/code/SysyCC/doc/modules/class-relationships.md): current class ownership and collaboration graph
 - [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md): command line parsing and option mapping
@@ -86,6 +88,11 @@ main
 - The preprocess stage strips `//` and `/* ... */` comments with string/character literal awareness, supports object macros, `#include "..."`, `#include <...>`, `#include_next <...>`, and `#error` with current-directory, `-I`, `-isystem`, and default system include search paths, where angle includes now search `-I` before system directories, plus `#ifdef/#ifndef/#elif/#else/#endif`.
 - Internally, the preprocess module is now being split by responsibility, with dedicated `detail/conditional/` helpers for builtin probe handling plus a non-standard extension manager/provider layer, `detail/directive/` helpers for directive execution, a dedicated `PreprocessContext` that centralizes mutable preprocessing state, and a `detail/source/` mapper that tracks include nesting and preprocess-local `#line` remapping.
 - The preprocess stage also supports fixed-arity and variadic function-like macros such as `#define ADD(a, b) ((a) + (b))` and `#define LOG(...) __VA_ARGS__`, including continued macro definitions with trailing `\`, `#` stringification, and `##` token pasting.
+- The preprocess stage now seeds a minimal host/compiler predefined macro set
+  for system-header compatibility, distinguishes when `#if` versus `#elif`
+  conditions should be evaluated inside inactive conditional regions, and
+  tolerates conflicting macro redefinitions only when both definitions come
+  from system-header paths.
 - The preprocess stage evaluates simple `#if/#elif` constant expressions including identifiers, `defined(...)`, arithmetic, bitwise operators, shifts, and logical operators such as `&&`, tolerates `__has_include(...)` / `__has_include_next(...)` plus common clang-style builtin probes such as `__has_feature(...)`, `__has_attribute(...)`, and `__has_cpp_attribute(...)` in system-header guards, remaps preprocess-local diagnostics through `#line` logical file and line state, and now exports emitted-line logical source positions through a shared `SourceLineMap` so later lexer/parser/semantic spans can inherit preprocess file/line remapping.
 - The compiler core now also owns a shared `SourceManager` plus
   `SourceLocationService`, and downstream lexer/parser scanner sessions consume
@@ -106,11 +113,16 @@ main
 - successful runs now also surface shared non-fatal diagnostics such as
   preprocess `#warning` through the same formatter path
 - IR results are now stored in memory as an `IRResult` attached to `CompilerContext`.
-- The parser now accepts a broader C-style subset including `float`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, and both `.` / `->` member access.
-- The AST stage now lowers core declaration, expression, and control-flow nodes such as parameters, declarations, assignments, calls, `if`, `while`, `for`, `do ... while`, `switch/case/default`, pointer declarators, `.` / `->` member access, plus parsed `struct`, `enum`, and `typedef` declarations into a compiler-facing tree.
+- The parser now accepts a broader C-style subset including `float`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, ordinary ternary `?:`, both `.` / `->` member access, declaration-only `extern` / `inline` function prototypes, and GNU-style function attributes in declaration-specifier position.
+- The lexer and ordinary front-end constant handling now also accept standard integer literal suffixes such as `u`, `UL`, and `LL` in decimal, octal, and hexadecimal literals.
+- The AST stage now lowers core declaration, expression, and control-flow nodes such as parameters, declarations, assignments, conditional `?:`, calls, `if`, `while`, `for`, `do ... while`, `switch/case/default`, pointer declarators, `.` / `->` member access, plus parsed `struct`, `enum`, and `typedef` declarations into a compiler-facing tree.
 - `AstPass` now records AST completeness in `CompilerContext` and rejects incomplete ASTs when `--dump-ast` explicitly requests AST output.
-- `SemanticPass` now installs builtin runtime-library symbols, creates a semantic model, records symbol/type bindings and foldable integer constant-expression values over complete ASTs, rejects semantic errors such as undefined identifiers, redefinitions, non-function call targets, call arity/type mismatches, assignment type/lvalue mismatches, return mismatches, missing return paths in non-void functions, invalid binary/condition/index/unary operands, invalid `break` / `continue` / `case` / `default` placement, duplicate `case` / `default` labels inside one `switch`, non-constant array dimensions and `case` labels, array-to-pointer decay mismatches, invalid pointer arithmetic, invalid null-pointer assignments, and invalid or missing `.` / `->` member access, and skips strict checking when AST lowering is still incomplete.
-- `IRGenPass` now exists as a modular backend stage with an abstract `IRBackend`, an initial `LlvmIrBackend`, `IRResult` storage in `CompilerContext`, and a first LLVM IR lowering path for integer/void functions, integer locals, integer arithmetic and comparisons, short-circuit logical expressions, assignments, direct function calls, and basic `if` / `while` / `for` / `do-while` / `switch` / `break` / `continue` control flow.
+- `SemanticPass` now installs builtin runtime-library symbols, creates a semantic model, records symbol/type bindings and foldable integer constant-expression values over complete ASTs, rejects semantic errors such as undefined identifiers, redefinitions, non-function call targets, call arity/type mismatches, assignment type/lvalue mismatches, return mismatches, missing return paths in non-void functions, invalid binary/condition/index/unary operands, invalid ternary conditions or incompatible ternary branch types, invalid `break` / `continue` / `case` / `default` placement, duplicate `case` / `default` labels inside one `switch`, non-constant array dimensions and `case` labels, array-to-pointer decay mismatches, invalid pointer arithmetic, invalid null-pointer assignments, and invalid or missing `.` / `->` member access, and skips strict checking when AST lowering is still incomplete.
+- `IRGenPass` now exists as a modular backend stage with an abstract `IRBackend`, an initial `LlvmIrBackend`, `IRResult` storage in `CompilerContext`, and a first LLVM IR lowering path for integer/void functions, integer locals, integer arithmetic and comparisons, short-circuit logical expressions, integer ternary expressions, assignments, direct function calls, and basic `if` / `while` / `for` / `do-while` / `switch` / `break` / `continue` control flow.
+- Function-level GNU-style `__always_inline__` attributes preserved by the AST
+  now lower to LLVM `alwaysinline` in emitted IR through semantic
+  function-attribute bindings, while other currently recognized GNU function
+  attributes are rejected during semantic analysis.
 - The LLVM IR backend now also emits top-level `declare` statements for runtime-style external calls such as builtin `getint`, `putint`, and `putch`, which lets runtime regression cases compile emitted `.ll` into host executables.
 - IR dumps are written to `build/intermediate_results/*.ll` when `--dump-ir` is enabled.
 - A local HTML graph page can be generated from parse output.

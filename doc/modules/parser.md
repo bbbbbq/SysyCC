@@ -30,9 +30,19 @@ src/frontend/parser/
 - dump parse results into `build/intermediate_results/*.parse.txt`
 - accept the current SysY22 core grammar plus a growing subset of C-style
   extensions
-- parse float / char / string literals, pointer declarators, `for`,
+- parse float / double / char / string literals, pointer declarators, `for`,
   `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`,
-  and both `.` / `->` member access
+  ordinary expression-level ternary `?:`, both `.` / `->` member access, and
+  top-level `extern` / `inline` function prototype declarations
+- recognize GNU-style `__attribute__((...))` specifier sequences attached to
+  function declarations and definitions
+- accept declaration-only function prototypes such as `extern int foo(void);`
+  and `inline int foo(void);`, plus unnamed prototype parameters such as
+  `extern int bar(float);`
+- accept `long double` as a builtin declaration type, including prototype forms
+  such as `extern long double f(long double);`
+- capture parser syntax failures as structured parser-runtime error state so
+  CLI diagnostics can report the current token text and logical source span
 
 ## Key Files
 
@@ -48,6 +58,8 @@ src/frontend/parser/
 
 - parse dump text files in `build/intermediate_results`
 - parse tree runtime nodes stored in [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+- parser syntax diagnostics emitted through the shared
+  [DiagnosticEngine](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic_engine.hpp)
 
 ## Notes
 

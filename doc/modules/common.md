@@ -12,6 +12,7 @@ multiple compilation stages.
 - [source_line_map.hpp](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
 - [source_mapping_view.hpp](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
+- [integer_literal.hpp](/Users/caojunze424/code/SysyCC/src/common/integer_literal.hpp)
 - [diagnostic.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic.hpp)
 - [diagnostic_engine.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic_engine.hpp)
 
@@ -24,6 +25,7 @@ multiple compilation stages.
 - provide one shared front-end source-location service over file identity plus
   preprocess remapping state
 - provide one shared downstream view over physical files plus preprocess line remapping
+- provide one shared integer-literal parser for ordinary front-end literal text
 - provide a reusable span type for lexer, parser, AST, semantic analysis, and diagnostics
 - provide pass-independent diagnostic records and a shared diagnostic collector
 
@@ -124,3 +126,16 @@ then exposed through
 `DiagnosticEngine` stores the diagnostics collected during one compiler run and
 is currently owned by
 [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp).
+
+### `parse_integer_literal(...)`
+
+[integer_literal.hpp](/Users/caojunze424/code/SysyCC/src/common/integer_literal.hpp)
+now provides one shared helper that parses ordinary decimal, octal, and
+hexadecimal integer literals, including standard `U`/`L`/`LL` suffix
+combinations.
+
+It is currently used by:
+
+- semantic integer-literal constant binding
+- semantic integer constant folding
+- IR integer-literal lowering

@@ -39,6 +39,8 @@ src/frontend/preprocess/
     ├── macro_expander.cpp
     ├── macro_table.hpp
     ├── macro_table.cpp
+    ├── predefined_macro_initializer.hpp
+    ├── predefined_macro_initializer.cpp
     ├── preprocess_context.hpp
     ├── preprocess_context.cpp
     ├── preprocess_runtime.hpp
@@ -85,6 +87,8 @@ src/frontend/preprocess/
   keeping all directive semantics inside the preprocessing session driver
 - centralize shared preprocessing state inside a dedicated preprocess context
   instead of scattering mutable state directly across the session and helpers
+- seed one minimal host/compiler predefined macro set at preprocess startup so
+  system headers can probe platform and compiler identity
 - centralize include-stack tracking and `#line` logical-file remapping inside a
   dedicated source mapper
 - preserve the logical include chain for nested preprocess failures so
@@ -95,6 +99,8 @@ src/frontend/preprocess/
 - accept standard integer literal suffixes such as `U`, `L`, `UL`, `LL`, and
   `ULL` in `#if/#elif` expressions
 - annotate line-local preprocess failures with `file:line: message`
+- allow conflicting macro redefinitions to override earlier definitions only
+  when both definitions originate from system-header paths
 - split preprocessing logic across focused internal classes instead of one large
   pass implementation
 
@@ -112,6 +118,7 @@ src/frontend/preprocess/
 - [clang_extension_provider.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/clang_extension_provider.hpp)
 - [gnu_extension_provider.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/conditional/gnu_extension_provider.hpp)
 - [macro_expander.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/macro_expander.hpp)
+- [predefined_macro_initializer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/predefined_macro_initializer.hpp)
 - [file_loader.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/file_loader.hpp)
 
 ## Current Internal Shape
@@ -133,6 +140,7 @@ PreprocessPass
       -> MacroExpander
       -> IncludeResolver
       -> FileLoader
+      -> predefined_macro_initializer
 ```
 
 `PreprocessSession` now acts primarily as the run driver, while
@@ -146,6 +154,9 @@ keeps emitted output,
 [SourceLineMap](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
 data for emitted-line logical positions, comment state, and file-skip metadata
 such as `#pragma once` bookkeeping.
+At the start of each run, the session also seeds a minimal host predefined
+macro set, including standard hosted-C macros plus the current compiler and
+architecture identity macros used by common system headers.
 
 ## Supported Syntax
 
@@ -186,6 +197,17 @@ such as `#pragma once` bookkeeping.
   - nested expansion in ordinary source lines
   - stringification with `#`
   - token pasting with `##`
+  - equivalent redefinitions are accepted
+  - conflicting redefinitions remain errors for ordinary user code
+  - conflicting redefinitions are tolerated when both definitions come from
+    system-header paths
+- predefined macro seeding
+  - `__STDC__`
+  - `__STDC_HOSTED__`
+  - `__STDC_VERSION__`
+  - current host compiler identity macros such as `__clang__` and `__GNUC__`
+  - current host architecture/platform macros such as `__arm64__`,
+    `__aarch64__`, `__x86_64__`, `__APPLE__`, `__MACH__`, and `__LP64__`
 - include search behavior
   - quoted includes search the including file directory first
   - quoted includes then search CLI `-I` directories

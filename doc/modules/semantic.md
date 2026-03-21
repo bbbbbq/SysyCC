@@ -14,6 +14,7 @@ src/frontend/semantic/
 ├── model/
 │   ├── semantic_diagnostic.hpp
 │   ├── semantic_diagnostic.cpp
+│   ├── semantic_function_attribute.hpp
 │   ├── semantic_model.hpp
 │   ├── semantic_model.cpp
 │   ├── semantic_symbol.hpp
@@ -76,10 +77,24 @@ The current implementation has a first batch of real semantic rules:
 - semantic output data structures live in `model/`
 - builtin functions such as `getint`, `putint`, `putfloat`, `putch`,
   `starttime`, and `stoptime` are registered into the initial scope
+- builtin scalar type names now include `double` alongside `int`, `float`,
+  `char`, and `void`
+- declaration-side builtin scalar types now also include `long double`
+- top-level declaration-only function prototypes are accepted without requiring
+  a body
+- declaration-only prototypes now include `inline` forms alongside `extern`
+- preserved GNU attribute lists on function declarations are now analyzed
+  through a dedicated attribute analyzer
+- function-level `__always_inline__` is accepted as a supported semantic
+  function attribute
+- other recognized GNU function attributes currently produce semantic errors
+- unnamed prototype parameters contribute to function types but are not entered
+  into the local scope as named symbols
 - declaration analysis records symbols for functions, parameters, variables,
   constants, typedefs, structs, enums, and enumerators
 - expression analysis records basic type bindings for identifiers, literals,
-  unary/prefix/postfix expressions, calls, indexes, and member expressions
+  unary/prefix/postfix expressions, conditional expressions, calls, indexes,
+  and member expressions
 - semantic analysis now reports and rejects:
   - undefined identifiers
   - same-scope redefinitions
@@ -92,6 +107,8 @@ The current implementation has a first batch of real semantic rules:
   - invalid arithmetic, bitwise, shift, logical, relational, and equality
     binary operands
   - non-scalar condition expressions
+  - non-scalar ternary conditions
+  - ternary branches with incompatible result types
   - non-pointer index bases
   - non-integer array subscripts
   - non-constant array dimensions
@@ -131,6 +148,7 @@ The current implementation has a first batch of real semantic rules:
   - AST-node-to-type bindings
   - AST-node-to-symbol bindings
   - integer constant-expression values for foldable AST nodes
+  - semantic function-attribute bindings for analyzed `FunctionDecl` nodes
   - owned semantic types and symbols
 
 ## Notes

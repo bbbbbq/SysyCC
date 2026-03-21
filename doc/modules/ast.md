@@ -90,6 +90,7 @@ The current first-pass AST builder recognizes:
 - `PrefixExpr`
 - `PostfixExpr`
 - `BinaryExpr`
+- `ConditionalExpr`
 - `AssignExpr`
 - `CallExpr`
 - `IndexExpr`
@@ -111,6 +112,17 @@ result:
 - it returns failure when `--dump-ast` explicitly asks for AST output from an
   incomplete lowering
 
+Function lowering also preserves declaration-only prototypes:
+
+- `FunctionDecl::get_body()` may be `nullptr` when a top-level function ends
+  with `;`
+- declaration-only prototypes now include both `extern` and `inline` forms
+- `FunctionDecl` nodes now preserve parsed GNU attribute lists from
+  declaration-specifier position
+- unnamed prototype parameters remain `ParamDecl` nodes with an empty internal
+  name and appear as `<unnamed>` in AST dumps
+- builtin declaration lowering now includes `long double`
+
 ## Notes
 
 - The AST module is intentionally placed between parser output and future
@@ -121,15 +133,19 @@ result:
   [tests/ast/ast_minimal/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_minimal/run.sh).
 - Additional baseline AST tests live in:
   - [tests/ast/ast_multiple_functions/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_multiple_functions/run.sh)
-  - [tests/ast/ast_float_return_type/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_float_return_type/run.sh)
+- [tests/ast/ast_float_return_type/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_float_return_type/run.sh)
+- [tests/ast/ast_double_type/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_double_type/run.sh)
 - [tests/ast/ast_unknown_expr/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_unknown_expr/run.sh)
 - [tests/ast/ast_function_call/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_function_call/run.sh)
+- [tests/ast/ast_gnu_attribute_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_gnu_attribute_prototype/run.sh)
+- [tests/ast/ast_inline_function_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_inline_function_prototype/run.sh)
 - [tests/ast/ast_nested_init_list/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_nested_init_list/run.sh)
 - [tests/ast/ast_pointer_types/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_pointer_types/run.sh)
 - [tests/ast/ast_member_access/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_member_access/run.sh)
 - [tests/ast/ast_source_span/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_source_span/run.sh)
 - [tests/ast/ast_type_decls/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_type_decls/run.sh)
 - [tests/ast/ast_top_level_decls/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_top_level_decls/run.sh)
+- [tests/ast/ast_conditional_expr/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_conditional_expr/run.sh)
 - [tests/ast/ast_unknown_expr_preservation/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_unknown_expr_preservation/run.sh)
 - [tests/ast/ast_unknown_guard/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_unknown_guard/run.sh)
 - [tests/ast/ast_void_return/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_void_return/run.sh)

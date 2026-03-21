@@ -20,7 +20,8 @@ src/frontend/lexer/
 - open the preprocessed source file or original input file
 - invoke `yylex()`
 - collect token streams with exact token kinds such as `KwInt`, `IntLiteral`,
-  `ShiftLeft`, and `Dot`
+  `ShiftLeft`, `Question`, `Dot`, and GNU-extension keywords such as
+  `KwAttribute`
 - remap token source spans through preprocess-exported logical line positions
   so `#line` file/line state can propagate into lexer diagnostics and parse-tree
   terminal nodes

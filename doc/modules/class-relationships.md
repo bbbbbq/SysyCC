@@ -73,6 +73,19 @@ classDiagram
     class ParserPass {
     }
 
+    class AttributeParser {
+        +parse_gnu_attribute_specifier_seq(node, attachment_site)
+    }
+
+    class ParserErrorInfo {
+        -message_
+        -token_text_
+        -source_span_
+        +get_message()
+        +get_token_text()
+        +get_source_span()
+    }
+
     class AstPass {
     }
 
@@ -128,12 +141,17 @@ classDiagram
         +type
     }
 
+    class IRFunctionAttribute {
+        <<enum>>
+        AlwaysInline
+    }
+
     class IRBackend {
         <<abstract>>
         +get_kind()
         +begin_module()
         +end_module()
-        +begin_function(name, return_type, parameters)
+        +begin_function(name, return_type, parameters, attributes)
         +end_function()
         +create_label(hint)
         +emit_label(label)
@@ -256,6 +274,12 @@ classDiagram
         +get_physical_span(line_begin, col_begin, line_end, col_end)
         +get_logical_position(physical_line, column)
         +get_logical_span(line_begin, col_begin, line_end, col_end)
+    }
+
+    class ParseTreeNode {
+        +label
+        +source_span
+        +children
     }
 
     class SourceMapper {
@@ -468,11 +492,37 @@ classDiagram
         -name_
         -return_type_
         -parameters_
+        -attributes_
         -body_
         +get_name()
         +get_return_type()
         +get_parameters()
+        +get_attributes()
         +get_body()
+    }
+
+    class ParsedAttributeList {
+        -attachment_site_
+        -attributes_
+        +get_attachment_site()
+        +get_attributes()
+    }
+
+    class ParsedAttribute {
+        -syntax_kind_
+        -name_
+        -arguments_
+        +get_name()
+        +get_arguments()
+    }
+
+    class AttributeAnalyzer {
+        +analyze_function_attributes(function_decl, semantic_context)
+    }
+
+    class SemanticFunctionAttribute {
+        <<enum>>
+        AlwaysInline
     }
 
     class ParamDecl {
@@ -694,11 +744,20 @@ classDiagram
         +get_rhs()
     }
 
+    class ConditionalExpr {
+        -condition_
+        -true_expr_
+        -false_expr_
+        +get_condition()
+        +get_true_expr()
+        +get_false_expr()
+    }
+
     class AssignExpr {
-        -lhs_
-        -rhs_
-        +get_lhs()
-        +get_rhs()
+        -target_
+        -value_
+        +get_target()
+        +get_value()
     }
 
     class CallExpr {
@@ -790,6 +849,7 @@ classDiagram
     CompilerContext *-- SemanticModel
     CompilerContext *-- IRResult
     CompilerContext *-- DiagnosticEngine
+    AstPass ..> AttributeParser
     DiagnosticEngine *-- Diagnostic
     DiagnosticFormatter ..> DiagnosticEngine
     DiagnosticFormatter ..> Diagnostic
@@ -826,6 +886,7 @@ classDiagram
     AstNode <|-- PrefixExpr
     AstNode <|-- PostfixExpr
     AstNode <|-- BinaryExpr
+    AstNode <|-- ConditionalExpr
     AstNode <|-- CallExpr
     AstNode <|-- IndexExpr
     AstNode <|-- MemberExpr
@@ -839,6 +900,8 @@ classDiagram
     TranslationUnit *-- TypedefDecl
     TranslationUnit *-- VarDecl
     TranslationUnit *-- ConstDecl
+    FunctionDecl *-- ParsedAttributeList
+    ParsedAttributeList *-- ParsedAttribute
     StructDecl *-- FieldDecl
     EnumDecl *-- EnumeratorDecl
     TypedefDecl *-- PointerTypeNode
@@ -850,9 +913,11 @@ classDiagram
     SemanticPass ..> SemanticAnalyzer
     IRGenPass ..> IRBuilder
     IRBuilder ..> IRBackend
+    IRBuilder ..> SemanticModel
     IRBackend <|-- LlvmIrBackend
     IRBackend ..> IRValue
     IRBackend ..> IRFunctionParameter
+    IRBackend ..> IRFunctionAttribute
     IRBuilder ..> IRContext
     IRBuilder ..> SymbolValueMap
     SemanticAnalyzer ..> DeclAnalyzer
@@ -861,9 +926,11 @@ classDiagram
     SemanticAnalyzer ..> TypeResolver
     SemanticAnalyzer ..> ConversionChecker
     SemanticAnalyzer ..> ConstantEvaluator
+    SemanticAnalyzer ..> AttributeAnalyzer
     SemanticPass ..> SemanticContext
     SemanticPass ..> ScopeStack
     SemanticPass ..> BuiltinSymbols
+    SemanticModel ..> SemanticFunctionAttribute
     DeclAnalyzer ..> ExprAnalyzer
     DeclAnalyzer ..> TypeResolver
     DeclAnalyzer ..> ConversionChecker
@@ -1182,7 +1249,7 @@ Role:
 - execute parsed directives against the active preprocessing state
 - centralize `#include`, macro-definition, conditional, `#pragma`, `#warning`, `#error`, and `#line` directive semantics outside the session driver
 
-### `sysycc::preprocess::detail::PreprocessRuntime`, `SourceMapper`, `MacroTable`, `MacroExpander`, `ConditionalStack`, `DirectiveParser`, `IncludeResolver`, `FileLoader`, `BuiltinProbeEvaluator`, `NonStandardExtensionManager`, `ClangExtensionProvider`, `GnuExtensionProvider`, and `MacroDefinition`
+### `sysycc::preprocess::detail::PreprocessRuntime`, `SourceMapper`, `MacroTable`, `MacroExpander`, `ConditionalStack`, `DirectiveParser`, `IncludeResolver`, `FileLoader`, `BuiltinProbeEvaluator`, `NonStandardExtensionManager`, `ClangExtensionProvider`, `GnuExtensionProvider`, `MacroDefinition`, and `predefined_macro_initializer`
 
 Defined in:
 
@@ -1199,6 +1266,7 @@ Defined in:
 - [directive_parser.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/directive_parser.hpp)
 - [include_resolver.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/include_resolver.hpp)
 - [file_loader.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/file_loader.hpp)
+- [predefined_macro_initializer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/preprocess/detail/predefined_macro_initializer.hpp)
 
 Role:
 
@@ -1208,11 +1276,14 @@ Role:
   preprocess code can choose whether it wants emitted-file coordinates or
   remapped `#line` coordinates
 - `MacroTable`: manage object-like, fixed-arity function-like, and variadic function-like macro definitions
+- `MacroTable`: accept equivalent macro redefinitions and optionally allow
+  directive-level replacement when both definitions come from system headers
 - `MacroExpander`: expand ordinary source lines with macro substitutions, including variadic `__VA_ARGS__` replacement
-- `ConditionalStack`: manage nested `#if/#ifdef/#ifndef/#elif/#elifdef/#elifndef/#else/#endif` state
+- `ConditionalStack`: manage nested `#if/#ifdef/#ifndef/#elif/#elifdef/#elifndef/#else/#endif` state and expose whether `#if` and `#elif` conditions should be evaluated in the current frame
 - `BuiltinProbeEvaluator`: parse and resolve preprocessor builtin probes such as `defined`, `__has_include`, and clang-style `__has_*` predicates
 - `NonStandardExtensionManager`: route non-standard probe families to provider-specific handlers
 - `ClangExtensionProvider`: parse clang/Apple-style non-standard builtin probes such as `__has_feature` and `__has_cpp_attribute`
+- `predefined_macro_initializer`: seed a minimal host/compiler predefined macro set into `MacroTable` at preprocess-run startup
 - `GnuExtensionProvider`: reserve one isolated provider for GNU/GCC-specific non-standard probes
 - `DirectiveParser`: parse raw directive text into structured directives including `#include_next`, `#pragma`, `#line`, `#elifdef`, `#elifndef`, variadic macro definitions, and `#error`
 - `IncludeResolver`: resolve `#include "..."`, `#include <...>`, and `#include_next <...>` through current-directory, user `-I`, explicit `-isystem`, and default system include search paths
@@ -1294,7 +1365,7 @@ Role:
   `VarDecl`, `ConstDecl`, `PointerTypeNode`, `BlockStmt`, `ReturnStmt`,
   `IntegerLiteralExpr`, `FloatLiteralExpr`, `CharLiteralExpr`,
   `StringLiteralExpr`, `IdentifierExpr`, `UnaryExpr`, `PrefixExpr`,
-  `PostfixExpr`, `BinaryExpr`, `CallExpr`, `IndexExpr`, `MemberExpr`
+  `PostfixExpr`, `BinaryExpr`, `ConditionalExpr`, `CallExpr`, `IndexExpr`, `MemberExpr`
   (for both `.` and `->`),
   `InitListExpr`, and `Unknown*` placeholders
 
