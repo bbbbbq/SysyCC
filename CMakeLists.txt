@@ -46,6 +46,7 @@ add_executable(${PROJECT_NAME}
     src/common/diagnostic/diagnostic.cpp
     src/common/diagnostic/diagnostic_engine.cpp
     src/common/diagnostic/diagnostic_formatter.cpp
+    src/common/integer_literal.cpp
     src/common/source_line_map.cpp
     src/common/source_location_service.cpp
     src/common/source_mapping_view.cpp
@@ -58,6 +59,8 @@ add_executable(${PROJECT_NAME}
     src/frontend/ast/detail/ast_builder.cpp
     src/frontend/ast/detail/ast_builder_context.cpp
     src/frontend/ast/detail/parse_tree_matcher.cpp
+    src/frontend/attribute/attribute_analyzer.cpp
+    src/frontend/attribute/attribute_parser.cpp
     src/frontend/lexer/lexer.cpp
     src/frontend/parser/parser.cpp
     src/frontend/parser/parser_runtime.cpp
@@ -74,6 +77,7 @@ add_executable(${PROJECT_NAME}
     src/frontend/preprocess/detail/include_resolver.cpp
     src/frontend/preprocess/detail/macro_expander.cpp
     src/frontend/preprocess/detail/macro_table.cpp
+    src/frontend/preprocess/detail/predefined_macro_initializer.cpp
     src/frontend/preprocess/detail/preprocess_context.cpp
     src/frontend/preprocess/detail/preprocess_runtime.cpp
     src/frontend/preprocess/detail/source/source_mapper.cpp

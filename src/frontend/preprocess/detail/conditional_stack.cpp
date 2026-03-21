@@ -18,6 +18,19 @@ std::size_t ConditionalStack::get_frame_count() const noexcept {
     return frames_.size();
 }
 
+bool ConditionalStack::get_should_evaluate_if_condition() const noexcept {
+    return is_in_active_region();
+}
+
+bool ConditionalStack::get_should_evaluate_elif_condition() const noexcept {
+    if (!has_frame()) {
+        return true;
+    }
+
+    const ConditionalFrame &frame = frames_.back();
+    return frame.parent_active && !frame.branch_taken;
+}
+
 PassResult ConditionalStack::push_if(bool condition) {
     const bool parent_active = is_in_active_region();
     frames_.push_back(

@@ -1,5 +1,6 @@
 #include "frontend/preprocess/detail/directive/directive_executor.hpp"
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -91,12 +92,21 @@ PassResult DirectiveExecutor::handle_conditional_directive(
     const Directive &directive) {
     const std::vector<std::string> &arguments = directive.get_arguments();
     bool condition = false;
+    const bool should_evaluate_if_condition =
+        preprocess_context_.get_conditional_stack()
+            .get_should_evaluate_if_condition();
+    const bool should_evaluate_elif_condition =
+        preprocess_context_.get_conditional_stack()
+            .get_should_evaluate_elif_condition();
 
     switch (directive.get_kind()) {
     case DirectiveKind::Ifdef:
         if (arguments.empty()) {
             return PassResult::Failure("invalid " + directive.get_keyword() +
                                        " directive: missing condition");
+        }
+        if (!should_evaluate_if_condition) {
+            return preprocess_context_.get_conditional_stack().push_if(false);
         }
         condition = preprocess_context_.get_macro_table().has_macro(arguments[0]);
         return preprocess_context_.get_conditional_stack().push_if(condition);
@@ -105,10 +115,16 @@ PassResult DirectiveExecutor::handle_conditional_directive(
             return PassResult::Failure("invalid " + directive.get_keyword() +
                                        " directive: missing condition");
         }
+        if (!should_evaluate_if_condition) {
+            return preprocess_context_.get_conditional_stack().push_if(false);
+        }
         condition =
             !preprocess_context_.get_macro_table().has_macro(arguments[0]);
         return preprocess_context_.get_conditional_stack().push_if(condition);
     case DirectiveKind::If: {
+        if (!should_evaluate_if_condition) {
+            return preprocess_context_.get_conditional_stack().push_if(false);
+        }
         PassResult condition_result =
             evaluate_if_condition(directive, condition);
         if (!condition_result.ok) {
@@ -121,6 +137,9 @@ PassResult DirectiveExecutor::handle_conditional_directive(
             return PassResult::Failure("invalid " + directive.get_keyword() +
                                        " directive: missing condition");
         }
+        if (!should_evaluate_elif_condition) {
+            return preprocess_context_.get_conditional_stack().handle_elif(false);
+        }
         condition = preprocess_context_.get_macro_table().has_macro(arguments[0]);
         return preprocess_context_.get_conditional_stack().handle_elif(condition);
     case DirectiveKind::Elifndef:
@@ -128,10 +147,16 @@ PassResult DirectiveExecutor::handle_conditional_directive(
             return PassResult::Failure("invalid " + directive.get_keyword() +
                                        " directive: missing condition");
         }
+        if (!should_evaluate_elif_condition) {
+            return preprocess_context_.get_conditional_stack().handle_elif(false);
+        }
         condition =
             !preprocess_context_.get_macro_table().has_macro(arguments[0]);
         return preprocess_context_.get_conditional_stack().handle_elif(condition);
     case DirectiveKind::Elif: {
+        if (!should_evaluate_elif_condition) {
+            return preprocess_context_.get_conditional_stack().handle_elif(false);
+        }
         PassResult condition_result =
             evaluate_if_condition(directive, condition);
         if (!condition_result.ok) {
@@ -184,6 +209,53 @@ PassResult DirectiveExecutor::handle_include_directive(
             line_number, 1));
 }
 
+bool DirectiveExecutor::is_system_header_path(const std::string &file_path) const {
+    if (file_path.empty()) {
+        return false;
+    }
+
+    const std::filesystem::path normalized_file_path =
+        std::filesystem::path(file_path).lexically_normal();
+    for (const std::string &system_directory :
+         preprocess_context_.get_system_include_directories()) {
+        const std::filesystem::path normalized_system_directory =
+            std::filesystem::path(system_directory).lexically_normal();
+        if (normalized_file_path == normalized_system_directory) {
+            return true;
+        }
+
+        const std::string directory_with_separator =
+            normalized_system_directory.string() +
+            std::filesystem::path::preferred_separator;
+        const std::string normalized_file_string = normalized_file_path.string();
+        if (normalized_file_string.rfind(directory_with_separator, 0) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool DirectiveExecutor::should_allow_macro_redefinition(
+    const MacroDefinition &definition) const {
+    const MacroDefinition *existing_definition =
+        preprocess_context_.get_macro_table().get_macro_definition(
+            definition.get_name());
+    if (existing_definition == nullptr) {
+        return false;
+    }
+
+    const SourceFile *new_source_file = definition.get_source_span().get_file();
+    const SourceFile *existing_source_file =
+        existing_definition->get_source_span().get_file();
+    if (new_source_file == nullptr || existing_source_file == nullptr) {
+        return false;
+    }
+
+    return is_system_header_path(new_source_file->get_path()) &&
+           is_system_header_path(existing_source_file->get_path());
+}
+
 PassResult DirectiveExecutor::handle_macro_directive(
     const std::string &line, int line_number, const Directive &directive) {
     const std::vector<std::string> &arguments = directive.get_arguments();
@@ -199,12 +271,14 @@ PassResult DirectiveExecutor::handle_macro_directive(
             replacement = arguments[1];
         }
 
-        return preprocess_context_.get_macro_table().define_macro(MacroDefinition(
+        const MacroDefinition definition(
             arguments[0], replacement, directive.get_is_function_like_macro(),
             directive.get_is_variadic_macro(),
             directive.get_macro_parameters(),
             preprocess_context_.get_source_mapper().get_logical_span(
-                line_number, 1, line_number, static_cast<int>(line.size()))));
+                line_number, 1, line_number, static_cast<int>(line.size())));
+        return preprocess_context_.get_macro_table().define_macro(
+            definition, should_allow_macro_redefinition(definition));
     }
 
     if (directive.get_kind() == DirectiveKind::Undef) {

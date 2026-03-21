@@ -25,6 +25,7 @@ class PreprocessContext {
     explicit PreprocessContext(CompilerContext &compiler_context);
 
     void clear();
+    void initialize_predefined_macros();
 
     CompilerContext &get_compiler_context() noexcept;
     const CompilerContext &get_compiler_context() const noexcept;

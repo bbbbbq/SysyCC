@@ -70,6 +70,13 @@ class MacroDefinition {
     void set_source_span(SourceSpan source_span) {
         source_span_ = source_span;
     }
+
+    bool is_equivalent_to(const MacroDefinition &other) const noexcept {
+        return name_ == other.name_ && replacement_ == other.replacement_ &&
+               is_function_like_ == other.is_function_like_ &&
+               is_variadic_ == other.is_variadic_ &&
+               parameters_ == other.parameters_;
+    }
 };
 
 // Owns macro definitions for one preprocessing session.
@@ -82,7 +89,8 @@ class MacroTable {
     bool has_macro(const std::string &name) const;
     const MacroDefinition *
     get_macro_definition(const std::string &name) const noexcept;
-    PassResult define_macro(const MacroDefinition &definition);
+    PassResult define_macro(const MacroDefinition &definition,
+                            bool allow_redefinition = false);
     void undefine_macro(const std::string &name);
 };
 

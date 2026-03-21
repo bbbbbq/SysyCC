@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <functional>
 #include <string>
 
@@ -33,6 +34,8 @@ class DirectiveExecutor {
         const std::string &current_file_path,
         const std::function<PassResult(const std::string &, SourcePosition)>
             &preprocess_file_callback) const;
+    bool is_system_header_path(const std::string &file_path) const;
+    bool should_allow_macro_redefinition(const MacroDefinition &definition) const;
     PassResult handle_macro_directive(const std::string &line, int line_number,
                                       const Directive &directive);
 

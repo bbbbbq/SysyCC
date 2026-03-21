@@ -18,8 +18,18 @@ MacroTable::get_macro_definition(const std::string &name) const noexcept {
     return &iter->second;
 }
 
-PassResult MacroTable::define_macro(const MacroDefinition &definition) {
-    if (has_macro(definition.get_name())) {
+PassResult MacroTable::define_macro(const MacroDefinition &definition,
+                                    bool allow_redefinition) {
+    const MacroDefinition *existing_definition =
+        get_macro_definition(definition.get_name());
+    if (existing_definition != nullptr) {
+        if (existing_definition->is_equivalent_to(definition)) {
+            return PassResult::Success();
+        }
+        if (allow_redefinition) {
+            macro_definitions_[definition.get_name()] = definition;
+            return PassResult::Success();
+        }
         return PassResult::Failure("macro redefinition is not allowed: " +
                                    definition.get_name());
     }

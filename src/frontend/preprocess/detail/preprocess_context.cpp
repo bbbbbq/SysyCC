@@ -1,5 +1,7 @@
 #include "frontend/preprocess/detail/preprocess_context.hpp"
 
+#include "frontend/preprocess/detail/predefined_macro_initializer.hpp"
+
 #include <utility>
 
 namespace sysycc::preprocess::detail {
@@ -14,6 +16,10 @@ void PreprocessContext::clear() {
     macro_table_.clear();
     conditional_stack_.clear();
     source_mapper_.clear();
+}
+
+void PreprocessContext::initialize_predefined_macros() {
+    detail::initialize_predefined_macros(macro_table_);
 }
 
 CompilerContext &PreprocessContext::get_compiler_context() noexcept {

@@ -106,6 +106,7 @@ PreprocessSession::PreprocessSession(CompilerContext &context)
 
 PassResult PreprocessSession::Run() {
     preprocess_context_.clear();
+    preprocess_context_.initialize_predefined_macros();
     preprocess_context_.get_compiler_context().clear_preprocessed_line_map();
 
     PassResult result = preprocess_file(preprocess_context_.get_input_file());

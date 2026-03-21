@@ -24,6 +24,8 @@ class ConditionalStack {
     bool is_in_active_region() const noexcept;
     bool has_frame() const noexcept;
     std::size_t get_frame_count() const noexcept;
+    bool get_should_evaluate_if_condition() const noexcept;
+    bool get_should_evaluate_elif_condition() const noexcept;
     PassResult push_if(bool condition);
     PassResult handle_elif(bool condition);
     PassResult handle_else();
