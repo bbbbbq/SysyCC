@@ -181,9 +181,9 @@ PassResult DirectiveExecutor::handle_conditional_directive(
 }
 
 PassResult DirectiveExecutor::handle_include_directive(
-    const std::string &line, const Directive &directive,
+    const std::string &line, int line_number, const Directive &directive,
     const std::string &current_file_path,
-    const std::function<PassResult(const std::string &)>
+    const std::function<PassResult(const std::string &, SourcePosition)>
         &preprocess_file_callback) const {
     if (directive.get_kind() != DirectiveKind::Include &&
         directive.get_kind() != DirectiveKind::IncludeNext) {
@@ -210,7 +210,10 @@ PassResult DirectiveExecutor::handle_include_directive(
         return resolve_result;
     }
 
-    return preprocess_file_callback(resolved_file_path);
+    return preprocess_file_callback(
+        resolved_file_path,
+        preprocess_context_.get_source_mapper().get_logical_position(
+            line_number, 1));
 }
 
 PassResult DirectiveExecutor::handle_macro_directive(
@@ -252,7 +255,7 @@ PassResult DirectiveExecutor::handle_macro_directive(
 PassResult DirectiveExecutor::execute(
     const std::string &line, int line_number, const Directive &directive,
     const std::string &current_file_path,
-    const std::function<PassResult(const std::string &)>
+    const std::function<PassResult(const std::string &, SourcePosition)>
         &preprocess_file_callback) {
     switch (directive.get_kind()) {
     case DirectiveKind::Ifdef:
@@ -275,7 +278,8 @@ PassResult DirectiveExecutor::execute(
     switch (directive.get_kind()) {
     case DirectiveKind::Include:
     case DirectiveKind::IncludeNext:
-        return handle_include_directive(line, directive, current_file_path,
+        return handle_include_directive(line, line_number, directive,
+                                        current_file_path,
                                         preprocess_file_callback);
     case DirectiveKind::Error:
         return handle_error_directive(directive);

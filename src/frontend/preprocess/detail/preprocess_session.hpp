@@ -30,7 +30,8 @@ class PreprocessSession {
     PassResult process_line(const std::string &line, int line_number,
                             const std::string &current_file_path);
     PassResult write_preprocessed_file(std::string &output_file_path) const;
-    PassResult preprocess_file(const std::string &file_path);
+    PassResult preprocess_file(const std::string &file_path,
+                               SourcePosition include_position = {});
 
   public:
     explicit PreprocessSession(CompilerContext &context);

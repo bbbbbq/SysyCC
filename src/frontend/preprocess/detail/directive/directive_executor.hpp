@@ -29,9 +29,9 @@ class DirectiveExecutor {
                                      int line_number) const;
     PassResult handle_conditional_directive(const Directive &directive);
     PassResult handle_include_directive(
-        const std::string &line, const Directive &directive,
+        const std::string &line, int line_number, const Directive &directive,
         const std::string &current_file_path,
-        const std::function<PassResult(const std::string &)>
+        const std::function<PassResult(const std::string &, SourcePosition)>
             &preprocess_file_callback) const;
     PassResult handle_macro_directive(const std::string &line, int line_number,
                                       const Directive &directive);
@@ -45,7 +45,8 @@ class DirectiveExecutor {
     PassResult execute(const std::string &line, int line_number,
                        const Directive &directive,
                        const std::string &current_file_path,
-                       const std::function<PassResult(const std::string &)>
+                       const std::function<PassResult(const std::string &,
+                                                      SourcePosition)>
                            &preprocess_file_callback);
 };
 

@@ -10,11 +10,13 @@ constexpr int kNextPhysicalLineOffset = 1;
 
 void SourceMapper::clear() { file_stack_.clear(); }
 
-void SourceMapper::push_file(const std::string &file_path) {
+void SourceMapper::push_file(const std::string &file_path,
+                            SourcePosition include_position) {
     FileFrame frame;
     frame.physical_file_path_ = file_path;
     frame.physical_file_ = source_manager_.get_source_file(file_path);
     frame.logical_file_ = frame.physical_file_;
+    frame.include_position_ = include_position;
     file_stack_.push_back(frame);
 }
 
@@ -115,6 +117,22 @@ SourceSpan SourceMapper::get_logical_span(int line_begin, int col_begin,
                                           int col_end) const noexcept {
     return SourceSpan(get_logical_position(line_begin, col_begin),
                       get_logical_position(line_end, col_end));
+}
+
+std::vector<SourcePosition> SourceMapper::get_include_trace() const {
+    std::vector<SourcePosition> include_trace;
+    if (file_stack_.size() < 2) {
+        return include_trace;
+    }
+
+    include_trace.reserve(file_stack_.size() - 1);
+    for (auto it = file_stack_.rbegin(); it != file_stack_.rend(); ++it) {
+        if (!it->include_position_.empty()) {
+            include_trace.push_back(it->include_position_);
+        }
+    }
+
+    return include_trace;
 }
 
 } // namespace sysycc::preprocess::detail

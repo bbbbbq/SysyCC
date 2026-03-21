@@ -15,6 +15,7 @@ class SourceMapper {
         std::string physical_file_path_;
         const SourceFile *physical_file_ = nullptr;
         const SourceFile *logical_file_ = nullptr;
+        SourcePosition include_position_;
         int line_directive_physical_anchor_ = 1;
         int line_directive_logical_start_ = 1;
     };
@@ -28,7 +29,7 @@ class SourceMapper {
 
     void clear();
 
-    void push_file(const std::string &file_path);
+    void push_file(const std::string &file_path, SourcePosition include_position);
     void pop_file();
 
     bool has_current_file() const noexcept;
@@ -50,6 +51,7 @@ class SourceMapper {
                                         int column) const noexcept;
     SourceSpan get_logical_span(int line_begin, int col_begin, int line_end,
                                 int col_end) const noexcept;
+    std::vector<SourcePosition> get_include_trace() const;
 
     SourcePosition map_position(int physical_line, int column) const noexcept {
         return get_logical_position(physical_line, column);

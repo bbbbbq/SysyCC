@@ -63,22 +63,38 @@ bool has_line_location_prefix(const std::string &message) {
 PassResult annotate_preprocess_error(const PassResult &result,
                                      const SourceMapper &source_mapper,
                                      int line_number) {
-    if (result.ok || has_line_location_prefix(result.message)) {
+    if (result.ok) {
         return result;
     }
 
-    const SourcePosition position =
-        source_mapper.get_logical_position(line_number, 1);
-    const SourceFile *source_file = position.get_file();
-    const std::string file_path =
-        source_file != nullptr ? source_file->get_path() : std::string();
-    if (file_path.empty()) {
-        return PassResult::Failure(result.message);
+    std::string message = result.message;
+    if (!has_line_location_prefix(message)) {
+        const SourcePosition position =
+            source_mapper.get_logical_position(line_number, 1);
+        const SourceFile *source_file = position.get_file();
+        const std::string file_path =
+            source_file != nullptr ? source_file->get_path() : std::string();
+        if (!file_path.empty()) {
+            message = file_path + ":" + std::to_string(position.get_line()) +
+                      ": " + message;
+        }
     }
 
-    return PassResult::Failure(file_path + ":" +
-                               std::to_string(position.get_line()) + ": " +
-                               result.message);
+    if (message.find("\nincluded from ") == std::string::npos) {
+        const std::vector<SourcePosition> include_trace =
+            source_mapper.get_include_trace();
+        for (const SourcePosition &position : include_trace) {
+            const SourceFile *source_file = position.get_file();
+            if (source_file == nullptr || source_file->empty()) {
+                continue;
+            }
+
+            message += "\nincluded from " + source_file->get_path() + ":" +
+                       std::to_string(position.get_line());
+        }
+    }
+
+    return PassResult::Failure(message);
 }
 
 } // namespace
@@ -222,16 +238,18 @@ PreprocessSession::process_line(const std::string &line, int line_number,
     }
 
     Directive directive;
-    PassResult parse_result =
-        directive_parser_.parse(stripped_line, directive);
+    const bool validate_directive_syntax =
+        preprocess_context_.get_conditional_stack().is_in_active_region();
+    PassResult parse_result = directive_parser_.parse(
+        stripped_line, directive, validate_directive_syntax);
     if (!parse_result.ok) {
         return annotate_preprocess_error(
             parse_result, preprocess_context_.get_source_mapper(), line_number);
     }
     PassResult execute_result = directive_executor_.execute(
         stripped_line, line_number, directive, current_file_path,
-        [this](const std::string &file_path) {
-            return preprocess_file(file_path);
+        [this](const std::string &file_path, SourcePosition include_position) {
+            return preprocess_file(file_path, include_position);
         });
     return annotate_preprocess_error(execute_result,
                                      preprocess_context_.get_source_mapper(),
@@ -262,7 +280,8 @@ PassResult PreprocessSession::write_preprocessed_file(
     return PassResult::Success();
 }
 
-PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
+PassResult PreprocessSession::preprocess_file(const std::string &file_path,
+                                             SourcePosition include_position) {
     if (preprocess_context_.get_runtime().should_skip_file(file_path)) {
         return PassResult::Success();
     }
@@ -280,7 +299,8 @@ PassResult PreprocessSession::preprocess_file(const std::string &file_path) {
 
     const std::size_t conditional_frame_count_before =
         preprocess_context_.get_conditional_stack().get_frame_count();
-    preprocess_context_.get_source_mapper().push_file(file_path);
+    preprocess_context_.get_source_mapper().push_file(file_path,
+                                                      include_position);
 
     for (std::size_t index = 0; index < lines.size(); ++index) {
         const int line_number = static_cast<int>(index + 1);
