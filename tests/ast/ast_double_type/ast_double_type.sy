@@ -1,0 +1,3 @@
+double passthrough(double input) {
+    return input;
+}

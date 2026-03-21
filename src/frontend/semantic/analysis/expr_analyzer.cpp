@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 
+#include "common/integer_literal.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
@@ -99,10 +100,12 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         semantic_model.bind_node_type(
             expr,
             semantic_model.own_type(std::make_unique<BuiltinSemanticType>("int")));
-        constant_evaluator_.bind_integer_constant_value(
-            expr, std::stoll(static_cast<const IntegerLiteralExpr *>(expr)
-                                 ->get_value_text()),
-            semantic_context);
+        if (const auto parsed_value = parse_integer_literal(
+                static_cast<const IntegerLiteralExpr *>(expr)->get_value_text());
+            parsed_value.has_value()) {
+            constant_evaluator_.bind_integer_constant_value(
+                expr, *parsed_value, semantic_context);
+        }
         return;
     case AstKind::FloatLiteralExpr:
         semantic_model.bind_node_type(
@@ -471,6 +474,79 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         }
 
         semantic_model.bind_node_type(binary_expr, lhs_type);
+        return;
+    }
+    case AstKind::ConditionalExpr: {
+        const auto *conditional_expr = static_cast<const ConditionalExpr *>(expr);
+        analyze_expr(conditional_expr->get_condition(), semantic_context,
+                     scope_stack);
+        analyze_expr(conditional_expr->get_true_expr(), semantic_context,
+                     scope_stack);
+        analyze_expr(conditional_expr->get_false_expr(), semantic_context,
+                     scope_stack);
+
+        const SemanticType *condition_type =
+            semantic_model.get_node_type(conditional_expr->get_condition());
+        const SemanticType *true_type =
+            semantic_model.get_node_type(conditional_expr->get_true_expr());
+        const SemanticType *false_type =
+            semantic_model.get_node_type(conditional_expr->get_false_expr());
+        if (condition_type == nullptr || true_type == nullptr ||
+            false_type == nullptr) {
+            return;
+        }
+
+        if (!conversion_checker_.is_scalar_type(condition_type)) {
+            add_error(semantic_context,
+                      "conditional operator requires a scalar condition",
+                      conditional_expr->get_source_span());
+            return;
+        }
+
+        const SemanticType *result_type = nullptr;
+        if (conversion_checker_.is_arithmetic_type(true_type) &&
+            conversion_checker_.is_arithmetic_type(false_type)) {
+            result_type =
+                conversion_checker_.get_usual_arithmetic_conversion_type(
+                    true_type, false_type, semantic_model);
+        } else if (conversion_checker_.is_same_type(true_type, false_type)) {
+            result_type = true_type;
+        } else if (conversion_checker_.is_pointer_type(true_type) &&
+                   conversion_checker_.is_null_pointer_constant(
+                       conditional_expr->get_false_expr(), semantic_context,
+                       constant_evaluator_)) {
+            result_type = true_type;
+        } else if (conversion_checker_.is_pointer_type(false_type) &&
+                   conversion_checker_.is_null_pointer_constant(
+                       conditional_expr->get_true_expr(), semantic_context,
+                       constant_evaluator_)) {
+            result_type = false_type;
+        }
+
+        if (result_type == nullptr) {
+            add_error(semantic_context,
+                      "conditional operator requires compatible branch types",
+                      conditional_expr->get_source_span());
+            return;
+        }
+
+        semantic_model.bind_node_type(conditional_expr, result_type);
+        const auto condition_constant =
+            constant_evaluator_.get_integer_constant_value(
+                conditional_expr->get_condition(), semantic_context);
+        if (!condition_constant.has_value()) {
+            return;
+        }
+        const Expr *selected_expr = *condition_constant != 0
+                                        ? conditional_expr->get_true_expr()
+                                        : conditional_expr->get_false_expr();
+        const auto selected_constant =
+            constant_evaluator_.get_integer_constant_value(selected_expr,
+                                                           semantic_context);
+        if (selected_constant.has_value()) {
+            constant_evaluator_.bind_integer_constant_value(
+                conditional_expr, *selected_constant, semantic_context);
+        }
         return;
     }
     case AstKind::AssignExpr: {

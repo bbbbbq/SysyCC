@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "frontend/semantic/model/semantic_function_attribute.hpp"
 #include "frontend/semantic/model/semantic_diagnostic.hpp"
 #include "frontend/semantic/model/semantic_symbol.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
@@ -12,6 +13,7 @@
 namespace sysycc {
 
 class AstNode;
+class FunctionDecl;
 
 // Stores the semantic analysis result associated with one AST.
 class SemanticModel {
@@ -21,6 +23,9 @@ class SemanticModel {
     std::unordered_map<const AstNode *, const SemanticType *> node_types_;
     std::unordered_map<const AstNode *, const SemanticSymbol *> symbol_bindings_;
     std::unordered_map<const AstNode *, long long> integer_constant_values_;
+    std::unordered_map<const FunctionDecl *,
+                       std::vector<SemanticFunctionAttribute>>
+        function_attributes_;
     std::vector<std::unique_ptr<SemanticType>> owned_types_;
     std::vector<std::unique_ptr<SemanticSymbol>> owned_symbols_;
 
@@ -42,6 +47,12 @@ class SemanticModel {
     std::optional<long long>
     get_integer_constant_value(const AstNode *node) const noexcept;
     void bind_integer_constant_value(const AstNode *node, long long value);
+
+    const std::vector<SemanticFunctionAttribute> *
+    get_function_attributes(const FunctionDecl *function_decl) const noexcept;
+    void bind_function_attributes(
+        const FunctionDecl *function_decl,
+        std::vector<SemanticFunctionAttribute> attributes);
 
     const SemanticType *own_type(std::unique_ptr<SemanticType> type);
     const SemanticSymbol *own_symbol(std::unique_ptr<SemanticSymbol> symbol);

@@ -25,9 +25,14 @@ enum class TokenKind : uint8_t {
     CharLiteral,
     StringLiteral,
     KwConst,
+    KwExtern,
+    KwAttribute,
+    KwInline,
+    KwLong,
     KwInt,
     KwVoid,
     KwFloat,
+    KwDouble,
     KwIf,
     KwElse,
     KwWhile,
@@ -66,6 +71,7 @@ enum class TokenKind : uint8_t {
     LogicalNot,
     LogicalAnd,
     LogicalOr,
+    Question,
     Semicolon,
     Comma,
     Colon,
@@ -112,9 +118,14 @@ class Token {
         case TokenKind::StringLiteral:
             return TokenCategory::Literal;
         case TokenKind::KwConst:
+        case TokenKind::KwExtern:
+        case TokenKind::KwAttribute:
+        case TokenKind::KwInline:
+        case TokenKind::KwLong:
         case TokenKind::KwInt:
         case TokenKind::KwVoid:
         case TokenKind::KwFloat:
+        case TokenKind::KwDouble:
         case TokenKind::KwIf:
         case TokenKind::KwElse:
         case TokenKind::KwWhile:
@@ -154,6 +165,7 @@ class Token {
         case TokenKind::LogicalNot:
         case TokenKind::LogicalAnd:
         case TokenKind::LogicalOr:
+        case TokenKind::Question:
             return TokenCategory::Operator;
         case TokenKind::Semicolon:
         case TokenKind::Comma:
@@ -188,12 +200,22 @@ class Token {
             return "StringLiteral";
         case TokenKind::KwConst:
             return "KwConst";
+        case TokenKind::KwExtern:
+            return "KwExtern";
+        case TokenKind::KwAttribute:
+            return "KwAttribute";
+        case TokenKind::KwInline:
+            return "KwInline";
+        case TokenKind::KwLong:
+            return "KwLong";
         case TokenKind::KwInt:
             return "KwInt";
         case TokenKind::KwVoid:
             return "KwVoid";
         case TokenKind::KwFloat:
             return "KwFloat";
+        case TokenKind::KwDouble:
+            return "KwDouble";
         case TokenKind::KwIf:
             return "KwIf";
         case TokenKind::KwElse:
@@ -270,6 +292,8 @@ class Token {
             return "LogicalAnd";
         case TokenKind::LogicalOr:
             return "LogicalOr";
+        case TokenKind::Question:
+            return "Question";
         case TokenKind::Semicolon:
             return "Semicolon";
         case TokenKind::Comma:

@@ -6,6 +6,7 @@ class Decl;
 class Stmt;
 class SemanticType;
 class TranslationUnit;
+class AttributeAnalyzer;
 
 namespace detail {
 
@@ -35,7 +36,8 @@ class SemanticAnalyzer {
                                const TypeResolver &type_resolver,
                                const ConversionChecker &conversion_checker,
                                const DeclAnalyzer &decl_analyzer,
-                               const StmtAnalyzer &stmt_analyzer) const;
+                               const StmtAnalyzer &stmt_analyzer,
+                               const AttributeAnalyzer &attribute_analyzer) const;
     bool stmt_guarantees_return(const Stmt *stmt) const;
 };
 

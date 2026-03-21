@@ -6,6 +6,7 @@
 
 #include "common/source_span.hpp"
 #include "frontend/ast/ast_kind.hpp"
+#include "frontend/attribute/attribute.hpp"
 
 namespace sysycc {
 
@@ -127,16 +128,19 @@ class FunctionDecl : public Decl {
     std::string name_;
     std::unique_ptr<TypeNode> return_type_;
     std::vector<std::unique_ptr<Decl>> parameters_;
+    ParsedAttributeList attributes_;
     std::unique_ptr<Stmt> body_;
 
   public:
     FunctionDecl(std::string name, std::unique_ptr<TypeNode> return_type,
                  std::vector<std::unique_ptr<Decl>> parameters,
-                 std::unique_ptr<Stmt> body, SourceSpan source_span = {});
+                 ParsedAttributeList attributes, std::unique_ptr<Stmt> body,
+                 SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
     const TypeNode *get_return_type() const noexcept;
     const std::vector<std::unique_ptr<Decl>> &get_parameters() const noexcept;
+    const ParsedAttributeList &get_attributes() const noexcept;
     const Stmt *get_body() const noexcept;
 };
 
@@ -568,6 +572,24 @@ class BinaryExpr : public Expr {
     const std::string &get_operator_text() const noexcept;
     const Expr *get_lhs() const noexcept;
     const Expr *get_rhs() const noexcept;
+};
+
+// Represents a conditional operator expression such as cond ? lhs : rhs.
+class ConditionalExpr : public Expr {
+  private:
+    std::unique_ptr<Expr> condition_;
+    std::unique_ptr<Expr> true_expr_;
+    std::unique_ptr<Expr> false_expr_;
+
+  public:
+    ConditionalExpr(std::unique_ptr<Expr> condition,
+                    std::unique_ptr<Expr> true_expr,
+                    std::unique_ptr<Expr> false_expr,
+                    SourceSpan source_span = {});
+
+    const Expr *get_condition() const noexcept;
+    const Expr *get_true_expr() const noexcept;
+    const Expr *get_false_expr() const noexcept;
 };
 
 // Represents an assignment expression.

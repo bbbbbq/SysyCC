@@ -21,6 +21,10 @@ struct IRFunctionParameter {
     const SemanticType *type = nullptr;
 };
 
+enum class IRFunctionAttribute : unsigned char {
+    AlwaysInline,
+};
+
 // Defines the backend-independent interface used by IR generation.
 class IRBackend {
   public:
@@ -34,7 +38,9 @@ class IRBackend {
         const std::vector<const SemanticType *> &parameter_types) = 0;
     virtual void begin_function(const std::string &name,
                                 const SemanticType *return_type,
-                                const std::vector<IRFunctionParameter> &parameters) = 0;
+                                const std::vector<IRFunctionParameter> &parameters,
+                                const std::vector<IRFunctionAttribute>
+                                    &attributes) = 0;
     virtual void end_function() = 0;
     virtual std::string create_label(const std::string &hint) = 0;
     virtual void emit_label(const std::string &label) = 0;

@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/model/semantic_symbol.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
 
@@ -60,6 +61,22 @@ SemanticModel::get_integer_constant_value(const AstNode *node) const noexcept {
 void SemanticModel::bind_integer_constant_value(const AstNode *node,
                                                 long long value) {
     integer_constant_values_[node] = value;
+}
+
+const std::vector<SemanticFunctionAttribute> *
+SemanticModel::get_function_attributes(
+    const FunctionDecl *function_decl) const noexcept {
+    const auto it = function_attributes_.find(function_decl);
+    if (it == function_attributes_.end()) {
+        return nullptr;
+    }
+    return &it->second;
+}
+
+void SemanticModel::bind_function_attributes(
+    const FunctionDecl *function_decl,
+    std::vector<SemanticFunctionAttribute> attributes) {
+    function_attributes_[function_decl] = std::move(attributes);
 }
 
 const SemanticType *SemanticModel::own_type(std::unique_ptr<SemanticType> type) {

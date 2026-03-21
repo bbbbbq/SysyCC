@@ -34,6 +34,40 @@ void WriteParseTree(std::ostream &os, const ParseTreeNode *node, int depth) {
     }
 }
 
+std::string FormatParserErrorMessage(const ParserErrorInfo &error_info) {
+    std::string message = "parser error: ";
+    message += error_info.get_message().empty() ? "syntax error"
+                                                : error_info.get_message();
+
+    const std::string &token_text = error_info.get_token_text();
+    if (token_text.empty()) {
+        message += " near <end of file>";
+    } else {
+        message += " near '";
+        message += token_text;
+        message += "'";
+    }
+
+    const SourceSpan &source_span = error_info.get_source_span();
+    if (!source_span.empty()) {
+        message += " at ";
+        if (source_span.get_file() != nullptr &&
+            !source_span.get_file()->empty()) {
+            message += source_span.get_file()->get_path();
+            message += ":";
+        }
+        message += std::to_string(source_span.get_line_begin());
+        message += ":";
+        message += std::to_string(source_span.get_col_begin());
+        message += "-";
+        message += std::to_string(source_span.get_line_end());
+        message += ":";
+        message += std::to_string(source_span.get_col_end());
+    }
+
+    return message;
+}
+
 } // namespace
 
 PassKind ParserPass::Kind() const { return PassKind::Parse; }
@@ -79,8 +113,13 @@ PassResult ParserPass::Run(CompilerContext &context) {
 
     context.set_parse_tree_root(take_parse_tree_root());
     const bool parse_success = parse_result == 0;
+    const ParserErrorInfo &parser_error_info = get_parser_error_info();
     const std::string parse_message =
-        parse_success ? "parse succeeded" : "parse failed";
+        parse_success
+            ? "parse succeeded"
+            : (parser_error_info.empty()
+                   ? "parse failed"
+                   : FormatParserErrorMessage(parser_error_info));
 
     if (context.get_dump_parse()) {
         const std::filesystem::path output_dir("build/intermediate_results");
@@ -109,8 +148,9 @@ PassResult ParserPass::Run(CompilerContext &context) {
     }
 
     if (!parse_success) {
-        context.get_diagnostic_engine().add_error(DiagnosticStage::Parser,
-                                                  parse_message);
+        context.get_diagnostic_engine().add_error(
+            DiagnosticStage::Parser, parse_message,
+            parser_error_info.get_source_span());
         return PassResult::Failure(parse_message);
     }
     return PassResult{true, parse_message};

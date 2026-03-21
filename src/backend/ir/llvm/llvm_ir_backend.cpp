@@ -26,6 +26,9 @@ std::string get_llvm_type_name(const SemanticType *type) {
         if (builtin_type->get_name() == "float") {
             return "float";
         }
+        if (builtin_type->get_name() == "double") {
+            return "double";
+        }
     }
 
     if (type->get_kind() == SemanticTypeKind::Pointer) {
@@ -84,7 +87,9 @@ void LlvmIrBackend::declare_function(
 
 void LlvmIrBackend::begin_function(const std::string &name,
                                    const SemanticType *return_type,
-                                   const std::vector<IRFunctionParameter> &parameters) {
+                                   const std::vector<IRFunctionParameter> &parameters,
+                                   const std::vector<IRFunctionAttribute>
+                                       &attributes) {
     output_ << "define " << get_llvm_type_name(return_type) << " @" << name
             << "(";
     for (std::size_t index = 0; index < parameters.size(); ++index) {
@@ -94,7 +99,13 @@ void LlvmIrBackend::begin_function(const std::string &name,
         output_ << get_llvm_type_name(parameters[index].type) << " %"
                 << parameters[index].name;
     }
-    output_ << ") {\n";
+    output_ << ")";
+    for (const IRFunctionAttribute attribute : attributes) {
+        if (attribute == IRFunctionAttribute::AlwaysInline) {
+            output_ << " alwaysinline";
+        }
+    }
+    output_ << " {\n";
     output_ << "entry:\n";
 }
 
@@ -119,9 +130,14 @@ void LlvmIrBackend::emit_cond_branch(const IRValue &condition,
     std::string condition_text = condition.text;
     if (condition.type != nullptr && get_llvm_type_name(condition.type) != "i1") {
         const std::string lowered_condition = ir_context_.get_temp_name();
-        output_ << "  " << lowered_condition << " = icmp ne "
-                << get_llvm_type_name(condition.type) << " " << condition.text
-                << ", 0\n";
+        if (get_llvm_type_name(condition.type) == "double") {
+            output_ << "  " << lowered_condition << " = fcmp one double "
+                    << condition.text << ", 0.0\n";
+        } else {
+            output_ << "  " << lowered_condition << " = icmp ne "
+                    << get_llvm_type_name(condition.type) << " "
+                    << condition.text << ", 0\n";
+        }
         condition_text = lowered_condition;
     }
 
@@ -167,32 +183,38 @@ IRValue LlvmIrBackend::emit_binary(const std::string &op, const IRValue &lhs,
     std::string llvm_opcode;
     bool is_comparison = false;
     if (op == "+") {
-        llvm_opcode = "add";
+        llvm_opcode = get_llvm_type_name(result_type) == "double" ? "fadd" : "add";
     } else if (op == "-") {
-        llvm_opcode = "sub";
+        llvm_opcode = get_llvm_type_name(result_type) == "double" ? "fsub" : "sub";
     } else if (op == "*") {
-        llvm_opcode = "mul";
+        llvm_opcode = get_llvm_type_name(result_type) == "double" ? "fmul" : "mul";
     } else if (op == "/") {
-        llvm_opcode = "sdiv";
+        llvm_opcode = get_llvm_type_name(result_type) == "double" ? "fdiv" : "sdiv";
     } else if (op == "%") {
         llvm_opcode = "srem";
     } else if (op == "<") {
-        llvm_opcode = "icmp slt";
+        llvm_opcode = get_llvm_type_name(lhs.type) == "double" ? "fcmp olt"
+                                                                : "icmp slt";
         is_comparison = true;
     } else if (op == "<=") {
-        llvm_opcode = "icmp sle";
+        llvm_opcode = get_llvm_type_name(lhs.type) == "double" ? "fcmp ole"
+                                                                : "icmp sle";
         is_comparison = true;
     } else if (op == ">") {
-        llvm_opcode = "icmp sgt";
+        llvm_opcode = get_llvm_type_name(lhs.type) == "double" ? "fcmp ogt"
+                                                                : "icmp sgt";
         is_comparison = true;
     } else if (op == ">=") {
-        llvm_opcode = "icmp sge";
+        llvm_opcode = get_llvm_type_name(lhs.type) == "double" ? "fcmp oge"
+                                                                : "icmp sge";
         is_comparison = true;
     } else if (op == "==") {
-        llvm_opcode = "icmp eq";
+        llvm_opcode = get_llvm_type_name(lhs.type) == "double" ? "fcmp oeq"
+                                                                : "icmp eq";
         is_comparison = true;
     } else if (op == "!=") {
-        llvm_opcode = "icmp ne";
+        llvm_opcode = get_llvm_type_name(lhs.type) == "double" ? "fcmp one"
+                                                                : "icmp ne";
         is_comparison = true;
     } else {
         return {"", result_type};

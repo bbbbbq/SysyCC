@@ -1,0 +1,8 @@
+double copy_value(double value) {
+    double local = value;
+    return local;
+}
+
+int main() {
+    return 0;
+}

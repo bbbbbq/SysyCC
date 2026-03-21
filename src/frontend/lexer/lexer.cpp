@@ -34,12 +34,22 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::StringLiteral;
     case CONST:
         return TokenKind::KwConst;
+    case EXTERN:
+        return TokenKind::KwExtern;
+    case ATTRIBUTE:
+        return TokenKind::KwAttribute;
+    case INLINE:
+        return TokenKind::KwInline;
+    case LONG:
+        return TokenKind::KwLong;
     case INT:
         return TokenKind::KwInt;
     case VOID:
         return TokenKind::KwVoid;
     case FLOAT:
         return TokenKind::KwFloat;
+    case DOUBLE:
+        return TokenKind::KwDouble;
     case IF:
         return TokenKind::KwIf;
     case ELSE:
@@ -116,6 +126,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::LogicalAnd;
     case OR:
         return TokenKind::LogicalOr;
+    case QUESTION:
+        return TokenKind::Question;
     case SEMICOLON:
         return TokenKind::Semicolon;
     case COMMA:

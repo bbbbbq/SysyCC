@@ -1,0 +1,5 @@
+extern long double __fpclassifyl(long double);
+
+int main() {
+    return 0;
+}

@@ -209,6 +209,13 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         return ast_contains_unknown_nodes(binary_expr->get_lhs()) ||
                ast_contains_unknown_nodes(binary_expr->get_rhs());
     }
+    case AstKind::ConditionalExpr: {
+        const auto *conditional_expr =
+            static_cast<const ConditionalExpr *>(node);
+        return ast_contains_unknown_nodes(conditional_expr->get_condition()) ||
+               ast_contains_unknown_nodes(conditional_expr->get_true_expr()) ||
+               ast_contains_unknown_nodes(conditional_expr->get_false_expr());
+    }
     case AstKind::AssignExpr: {
         const auto *assign_expr = static_cast<const AssignExpr *>(node);
         return ast_contains_unknown_nodes(assign_expr->get_target()) ||

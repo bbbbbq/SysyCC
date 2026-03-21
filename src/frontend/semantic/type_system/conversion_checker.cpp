@@ -106,10 +106,10 @@ bool ConversionChecker::is_assignable_type(const SemanticType *target,
         static_cast<const BuiltinSemanticType *>(target)->get_name();
     const auto &value_name =
         static_cast<const BuiltinSemanticType *>(value)->get_name();
-    if ((target_name == "float" || target_name == "int" ||
-         target_name == "char") &&
-        (value_name == "float" || value_name == "int" ||
-         value_name == "char")) {
+    if ((target_name == "long double" || target_name == "double" || target_name == "float" ||
+         target_name == "int" || target_name == "char") &&
+        (value_name == "long double" || value_name == "double" || value_name == "float" ||
+         value_name == "int" || value_name == "char")) {
         return true;
     }
     return false;
@@ -183,6 +183,28 @@ const SemanticType *ConversionChecker::get_usual_arithmetic_conversion_type(
         return nullptr;
     }
     if (lhs != nullptr && lhs->get_kind() == SemanticTypeKind::Builtin &&
+        static_cast<const BuiltinSemanticType *>(lhs)->get_name() ==
+            "long double") {
+        return semantic_model.own_type(
+            std::make_unique<BuiltinSemanticType>("long double"));
+    }
+    if (rhs != nullptr && rhs->get_kind() == SemanticTypeKind::Builtin &&
+        static_cast<const BuiltinSemanticType *>(rhs)->get_name() ==
+            "long double") {
+        return semantic_model.own_type(
+            std::make_unique<BuiltinSemanticType>("long double"));
+    }
+    if (lhs != nullptr && lhs->get_kind() == SemanticTypeKind::Builtin &&
+        static_cast<const BuiltinSemanticType *>(lhs)->get_name() == "double") {
+        return semantic_model.own_type(
+            std::make_unique<BuiltinSemanticType>("double"));
+    }
+    if (rhs != nullptr && rhs->get_kind() == SemanticTypeKind::Builtin &&
+        static_cast<const BuiltinSemanticType *>(rhs)->get_name() == "double") {
+        return semantic_model.own_type(
+            std::make_unique<BuiltinSemanticType>("double"));
+    }
+    if (lhs != nullptr && lhs->get_kind() == SemanticTypeKind::Builtin &&
         static_cast<const BuiltinSemanticType *>(lhs)->get_name() == "float") {
         return semantic_model.own_type(
             std::make_unique<BuiltinSemanticType>("float"));
@@ -206,7 +228,8 @@ bool ConversionChecker::is_arithmetic_type(const SemanticType *type) const {
         return false;
     }
     const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
-    return name == "int" || name == "char" || name == "float";
+    return name == "int" || name == "char" || name == "float" ||
+           name == "double" || name == "long double";
 }
 
 bool ConversionChecker::is_scalar_type(const SemanticType *type) const {
@@ -251,7 +274,9 @@ bool ConversionChecker::is_incrementable_type(const SemanticType *type) const {
         return false;
     }
     const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
-    return name == "int" || name == "float" || name == "char";
+    return name == "int" || name == "float" || name == "double" ||
+           name == "long double" ||
+           name == "char";
 }
 
 bool ConversionChecker::is_void_type(const SemanticType *type) const {

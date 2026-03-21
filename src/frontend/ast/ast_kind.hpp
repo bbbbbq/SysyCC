@@ -45,6 +45,7 @@ enum class AstKind : uint8_t {
     PrefixExpr,
     PostfixExpr,
     BinaryExpr,
+    ConditionalExpr,
     AssignExpr,
     CallExpr,
     IndexExpr,

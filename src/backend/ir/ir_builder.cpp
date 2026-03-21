@@ -1,6 +1,7 @@
 #include "backend/ir/ir_builder.hpp"
 
 #include <memory>
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -8,6 +9,7 @@
 #include "backend/ir/detail/symbol_value_map.hpp"
 #include "backend/ir/ir_backend.hpp"
 #include "backend/ir/ir_result.hpp"
+#include "common/integer_literal.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
@@ -62,8 +64,15 @@ bool is_supported_integer_type(const SemanticType *type) {
     return is_builtin_type_named(type, "int");
 }
 
+bool is_supported_scalar_storage_type(const SemanticType *type) {
+    return is_builtin_type_named(type, "int") ||
+           is_builtin_type_named(type, "double");
+}
+
 bool is_supported_return_type(const SemanticType *type) {
-    return is_builtin_type_named(type, "int") || is_builtin_type_named(type, "void");
+    return is_builtin_type_named(type, "int") ||
+           is_builtin_type_named(type, "double") ||
+           is_builtin_type_named(type, "void");
 }
 
 std::optional<long long> get_integer_constant_value(const CompilerContext &context,
@@ -110,6 +119,10 @@ const SemanticType *get_function_return_type(const CompilerContext &context,
             static BuiltinSemanticType void_type("void");
             return &void_type;
         }
+        if (builtin_type->get_name() == "double") {
+            static BuiltinSemanticType double_type("double");
+            return &double_type;
+        }
     }
 
     return nullptr;
@@ -117,7 +130,7 @@ const SemanticType *get_function_return_type(const CompilerContext &context,
 
 bool is_supported_type_for_storage(const CompilerContext &context,
                                    const AstNode *node) {
-    return is_supported_integer_type(get_node_type(context, node));
+    return is_supported_scalar_storage_type(get_node_type(context, node));
 }
 
 bool is_supported_expr(const CompilerContext &context, const Expr *expr);
@@ -284,16 +297,23 @@ bool is_supported_expr(const CompilerContext &context, const Expr *expr) {
             return type != nullptr && type->get_kind() == SemanticTypeKind::Function;
         }
         return symbol->get_decl_node() != nullptr &&
-               is_supported_integer_type(symbol->get_type());
+               is_supported_scalar_storage_type(symbol->get_type());
     }
     case AstKind::BinaryExpr: {
         const auto *binary_expr = static_cast<const BinaryExpr *>(expr);
         return (is_supported_arithmetic_operator(binary_expr->get_operator_text()) ||
                 is_supported_comparison_operator(binary_expr->get_operator_text()) ||
                 is_supported_logical_operator(binary_expr->get_operator_text())) &&
-               is_supported_integer_type(get_node_type(context, expr)) &&
+               is_supported_scalar_storage_type(get_node_type(context, expr)) &&
                is_supported_expr(context, binary_expr->get_lhs()) &&
                is_supported_expr(context, binary_expr->get_rhs());
+    }
+    case AstKind::ConditionalExpr: {
+        const auto *conditional_expr = static_cast<const ConditionalExpr *>(expr);
+        return is_supported_scalar_storage_type(get_node_type(context, expr)) &&
+               is_supported_expr(context, conditional_expr->get_condition()) &&
+               is_supported_expr(context, conditional_expr->get_true_expr()) &&
+               is_supported_expr(context, conditional_expr->get_false_expr());
     }
     case AstKind::AssignExpr: {
         const auto *assign_expr = static_cast<const AssignExpr *>(expr);
@@ -301,7 +321,7 @@ bool is_supported_expr(const CompilerContext &context, const Expr *expr) {
             assign_expr->get_target()->get_kind() != AstKind::IdentifierExpr) {
             return false;
         }
-        return is_supported_integer_type(get_node_type(context, assign_expr)) &&
+        return is_supported_scalar_storage_type(get_node_type(context, assign_expr)) &&
                is_supported_expr(context, assign_expr->get_value());
     }
     case AstKind::CallExpr: {
@@ -331,7 +351,7 @@ bool is_supported_expr(const CompilerContext &context, const Expr *expr) {
 
         for (std::size_t index = 0; index < call_expr->get_arguments().size();
              ++index) {
-            if (!is_supported_integer_type(parameter_types[index]) ||
+            if (!is_supported_scalar_storage_type(parameter_types[index]) ||
                 !is_supported_expr(context,
                                    call_expr->get_arguments()[index].get())) {
                 return false;
@@ -366,6 +386,30 @@ bool is_supported_function(const CompilerContext &context,
            is_supported_stmt(context, function_decl->get_body());
 }
 
+std::vector<IRFunctionAttribute>
+collect_ir_function_attributes(const CompilerContext &context,
+                               const FunctionDecl *function_decl) {
+    std::vector<IRFunctionAttribute> attributes;
+    const SemanticModel *semantic_model = get_semantic_model(context);
+    if (semantic_model == nullptr || function_decl == nullptr) {
+        return attributes;
+    }
+
+    const std::vector<SemanticFunctionAttribute> *function_attributes =
+        semantic_model->get_function_attributes(function_decl);
+    if (function_attributes == nullptr) {
+        return attributes;
+    }
+
+    for (const SemanticFunctionAttribute attribute : *function_attributes) {
+        if (attribute == SemanticFunctionAttribute::AlwaysInline) {
+            attributes.push_back(IRFunctionAttribute::AlwaysInline);
+        }
+    }
+
+    return attributes;
+}
+
 std::optional<IRValue>
 build_expr(IRBackend &backend, const CompilerContext &context,
            EmissionState &state, const Expr *expr) {
@@ -377,8 +421,14 @@ build_expr(IRBackend &backend, const CompilerContext &context,
     case AstKind::IntegerLiteralExpr: {
         const auto *integer_literal =
             static_cast<const IntegerLiteralExpr *>(expr);
-        return backend.emit_integer_literal(
-            std::stoi(integer_literal->get_value_text()));
+        const auto parsed_value =
+            parse_integer_literal(integer_literal->get_value_text());
+        if (!parsed_value.has_value() ||
+            *parsed_value < std::numeric_limits<int>::min() ||
+            *parsed_value > std::numeric_limits<int>::max()) {
+            return std::nullopt;
+        }
+        return backend.emit_integer_literal(static_cast<int>(*parsed_value));
     }
     case AstKind::IdentifierExpr: {
         const auto *symbol = get_symbol_binding(context, expr);
@@ -459,6 +509,47 @@ build_expr(IRBackend &backend, const CompilerContext &context,
         }
         return result;
     }
+    case AstKind::ConditionalExpr: {
+        const auto *conditional_expr = static_cast<const ConditionalExpr *>(expr);
+        const SemanticType *result_type = get_node_type(context, expr);
+        if (result_type == nullptr) {
+            return std::nullopt;
+        }
+
+        std::optional<IRValue> condition =
+            build_expr(backend, context, state, conditional_expr->get_condition());
+        if (!condition.has_value()) {
+            return std::nullopt;
+        }
+
+        const std::string result_address = backend.emit_alloca("", result_type);
+        const std::string true_label = backend.create_label("cond.true");
+        const std::string false_label = backend.create_label("cond.false");
+        const std::string end_label = backend.create_label("cond.end");
+
+        backend.emit_cond_branch(*condition, true_label, false_label);
+
+        backend.emit_label(true_label);
+        std::optional<IRValue> true_value =
+            build_expr(backend, context, state, conditional_expr->get_true_expr());
+        if (!true_value.has_value()) {
+            return std::nullopt;
+        }
+        backend.emit_store(result_address, *true_value);
+        backend.emit_branch(end_label);
+
+        backend.emit_label(false_label);
+        std::optional<IRValue> false_value = build_expr(
+            backend, context, state, conditional_expr->get_false_expr());
+        if (!false_value.has_value()) {
+            return std::nullopt;
+        }
+        backend.emit_store(result_address, *false_value);
+        backend.emit_branch(end_label);
+
+        backend.emit_label(end_label);
+        return backend.emit_load(result_address, result_type);
+    }
     case AstKind::AssignExpr: {
         const auto *assign_expr = static_cast<const AssignExpr *>(expr);
         const auto *target =
@@ -531,7 +622,7 @@ bool emit_decl(IRBackend &backend, const CompilerContext &context,
 
     const auto *var_decl = static_cast<const VarDecl *>(decl);
     const SemanticType *declared_type = get_node_type(context, var_decl);
-    if (!is_supported_integer_type(declared_type)) {
+    if (!is_supported_scalar_storage_type(declared_type)) {
         return false;
     }
 
@@ -903,7 +994,8 @@ bool emit_supported_function(IRBackend &backend, const CompilerContext &context,
 
     const SemanticType *return_type =
         get_function_return_type(context, function_decl);
-    backend.begin_function(function_decl->get_name(), return_type, parameters);
+    backend.begin_function(function_decl->get_name(), return_type, parameters,
+                           collect_ir_function_attributes(context, function_decl));
 
     EmissionState state;
     for (const auto &parameter_decl : function_decl->get_parameters()) {

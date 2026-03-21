@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "frontend/ast/detail/parse_tree_matcher.hpp"
+#include "frontend/attribute/attribute_parser.hpp"
 
 namespace sysycc::detail {
 
@@ -52,6 +53,12 @@ void AstBuilder::add_top_level_decls(const ParseTreeNode *node,
         return;
     }
 
+    if (const ParseTreeNode *function_node =
+            ParseTreeMatcher::find_first_child_with_label(node, "func_decl")) {
+        translation_unit.add_top_level_decl(build_function_decl(function_node));
+        return;
+    }
+
     if (const ParseTreeNode *decl_node =
             ParseTreeMatcher::find_first_child_with_label(node, "decl")) {
         for (auto &decl : build_decl_group(decl_node)) {
@@ -69,10 +76,16 @@ AstBuilder::build_function_decl(const ParseTreeNode *node) const {
     std::unique_ptr<TypeNode> return_type =
         std::make_unique<UnknownTypeNode>("unknown");
     std::vector<std::unique_ptr<Decl>> parameters;
-    std::unique_ptr<BlockStmt> body = std::make_unique<BlockStmt>();
+    ParsedAttributeList attributes;
+    std::unique_ptr<Stmt> body;
 
     if (node != nullptr) {
         for (const auto &child : node->children) {
+            if (ParseTreeMatcher::label_equals(child.get(),
+                                               "attribute_specifier_seq_opt")) {
+                attributes = build_decl_attributes(child.get());
+                continue;
+            }
             if (ParseTreeMatcher::label_equals(child.get(), "type_specifier")) {
                 return_type = build_return_type(child.get());
                 continue;
@@ -98,7 +111,15 @@ AstBuilder::build_function_decl(const ParseTreeNode *node) const {
 
     return std::make_unique<FunctionDecl>(
         function_name, std::move(return_type), std::move(parameters),
+        std::move(attributes),
         std::move(body), get_node_source_span(node));
+}
+
+ParsedAttributeList
+AstBuilder::build_decl_attributes(const ParseTreeNode *node) const {
+    AttributeParser attribute_parser;
+    return attribute_parser.parse_gnu_attribute_specifier_seq(
+        node, AttributeAttachmentSite::DeclSpecifier);
 }
 
 std::vector<std::unique_ptr<Decl>>
@@ -409,6 +430,14 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
 
     if (const ParseTreeNode *basic_type =
             ParseTreeMatcher::find_first_child_with_label(node, "basic_type")) {
+        if (basic_type->children.size() == 2 &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
+                                                "LONG") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
+                                                "DOUBLE")) {
+            return std::make_unique<BuiltinTypeNode>(
+                "long double", get_node_source_span(node));
+        }
         for (const auto &child : basic_type->children) {
             if (ParseTreeMatcher::label_starts_with(child.get(), "INT")) {
                 return std::make_unique<BuiltinTypeNode>(
@@ -417,6 +446,10 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
             if (ParseTreeMatcher::label_starts_with(child.get(), "FLOAT")) {
                 return std::make_unique<BuiltinTypeNode>(
                     "float", get_node_source_span(node));
+            }
+            if (ParseTreeMatcher::label_starts_with(child.get(), "DOUBLE")) {
+                return std::make_unique<BuiltinTypeNode>(
+                    "double", get_node_source_span(node));
             }
             if (ParseTreeMatcher::label_starts_with(child.get(), "VOID")) {
                 return std::make_unique<BuiltinTypeNode>(
@@ -858,6 +891,16 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
                                             get_node_source_span(node));
     }
 
+    if (ParseTreeMatcher::label_equals(node, "conditional_expr") &&
+        node->children.size() == 5 &&
+        ParseTreeMatcher::label_starts_with(node->children[1].get(), "QUESTION") &&
+        ParseTreeMatcher::label_starts_with(node->children[3].get(), "COLON")) {
+        return std::make_unique<ConditionalExpr>(
+            build_expr(node->children[0].get()),
+            build_expr(node->children[2].get()),
+            build_expr(node->children[4].get()), get_node_source_span(node));
+    }
+
     if (ParseTreeMatcher::label_equals(node, "init_val") ||
         ParseTreeMatcher::label_equals(node, "const_init_val")) {
         if (node->children.size() == 1) {
@@ -940,6 +983,7 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
          ParseTreeMatcher::label_equals(node, "const_expr") ||
          ParseTreeMatcher::label_equals(node, "cond") ||
          ParseTreeMatcher::label_equals(node, "assignment_expr") ||
+         ParseTreeMatcher::label_equals(node, "conditional_expr") ||
          ParseTreeMatcher::label_equals(node, "logical_or_expr") ||
          ParseTreeMatcher::label_equals(node, "logical_and_expr") ||
          ParseTreeMatcher::label_equals(node, "bit_or_expr") ||

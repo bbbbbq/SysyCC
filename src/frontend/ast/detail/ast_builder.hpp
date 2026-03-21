@@ -4,6 +4,7 @@
 
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/ast/detail/ast_builder_context.hpp"
+#include "frontend/attribute/attribute.hpp"
 
 namespace sysycc::detail {
 
@@ -20,6 +21,7 @@ class AstBuilder {
                              TranslationUnit &translation_unit) const;
     std::unique_ptr<FunctionDecl> build_function_decl(
         const ParseTreeNode *node) const;
+    ParsedAttributeList build_decl_attributes(const ParseTreeNode *node) const;
     std::vector<std::unique_ptr<Decl>> build_parameters(
         const ParseTreeNode *node) const;
     std::vector<std::unique_ptr<Decl>> build_decl_group(

@@ -1,0 +1,1 @@
+inline __attribute__((__always_inline__)) int foo(void);

@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 
+#include "common/integer_literal.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
 #include "frontend/semantic/support/semantic_context.hpp"
@@ -52,7 +53,7 @@ std::optional<long long> ConstantEvaluator::evaluate_integer_expr(
 
     switch (expr->get_kind()) {
     case AstKind::IntegerLiteralExpr:
-        return std::stoll(
+        return parse_integer_literal(
             static_cast<const IntegerLiteralExpr *>(expr)->get_value_text());
     case AstKind::CharLiteralExpr:
         return parse_char_literal(

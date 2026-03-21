@@ -31,7 +31,9 @@ class LlvmIrBackend : public IRBackend {
         const std::vector<const SemanticType *> &parameter_types) override;
     void begin_function(const std::string &name,
                         const SemanticType *return_type,
-                        const std::vector<IRFunctionParameter> &parameters) override;
+                        const std::vector<IRFunctionParameter> &parameters,
+                        const std::vector<IRFunctionAttribute>
+                            &attributes) override;
     void end_function() override;
     std::string create_label(const std::string &hint) override;
     void emit_label(const std::string &label) override;

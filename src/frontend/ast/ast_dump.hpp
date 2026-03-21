@@ -2,6 +2,7 @@
 
 #include <iosfwd>
 
+#include "frontend/attribute/attribute.hpp"
 #include "frontend/ast/ast_node.hpp"
 
 namespace sysycc {
@@ -19,6 +20,8 @@ class AstDumper {
                                int indent) const;
     void dump_function_decl(const FunctionDecl *node, std::ostream &os,
                             int indent) const;
+    void dump_attribute_list(const ParsedAttributeList &attribute_list,
+                             std::ostream &os, int indent) const;
     void dump_struct_decl(const StructDecl *node, std::ostream &os,
                           int indent) const;
     void dump_enum_decl(const EnumDecl *node, std::ostream &os, int indent) const;
@@ -53,6 +56,8 @@ class AstDumper {
                            int indent) const;
     void dump_binary_expr(const BinaryExpr *node, std::ostream &os,
                           int indent) const;
+    void dump_conditional_expr(const ConditionalExpr *node, std::ostream &os,
+                               int indent) const;
     void dump_assign_expr(const AssignExpr *node, std::ostream &os,
                           int indent) const;
     void dump_call_expr(const CallExpr *node, std::ostream &os, int indent) const;

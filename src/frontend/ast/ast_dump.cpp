@@ -197,6 +197,10 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
     case AstKind::BinaryExpr:
         dump_binary_expr(static_cast<const BinaryExpr *>(node), os, indent);
         return;
+    case AstKind::ConditionalExpr:
+        dump_conditional_expr(static_cast<const ConditionalExpr *>(node), os,
+                              indent);
+        return;
     case AstKind::AssignExpr:
         dump_assign_expr(static_cast<const AssignExpr *>(node), os, indent);
         return;
@@ -259,10 +263,29 @@ void AstDumper::dump_function_decl(const FunctionDecl *node, std::ostream &os,
     os << "FunctionDecl " << node->get_name() << "\n";
     dump_source_span(node, os, indent + 2);
     dump_node(node->get_return_type(), os, indent + 2);
+    dump_attribute_list(node->get_attributes(), os, indent + 2);
     for (const auto &parameter : node->get_parameters()) {
         dump_node(parameter.get(), os, indent + 2);
     }
     dump_node(node->get_body(), os, indent + 2);
+}
+
+void AstDumper::dump_attribute_list(const ParsedAttributeList &attribute_list,
+                                    std::ostream &os, int indent) const {
+    if (attribute_list.empty()) {
+        return;
+    }
+
+    write_indent(os, indent);
+    os << "Attributes\n";
+    for (const auto &attribute : attribute_list.get_attributes()) {
+        write_indent(os, indent + 2);
+        os << "Attribute " << attribute.get_name() << "\n";
+        for (const auto &argument : attribute.get_arguments()) {
+            write_indent(os, indent + 4);
+            os << "Argument " << argument.get_raw_text() << "\n";
+        }
+    }
 }
 
 void AstDumper::dump_struct_decl(const StructDecl *node, std::ostream &os,
@@ -301,7 +324,8 @@ void AstDumper::dump_typedef_decl(const TypedefDecl *node, std::ostream &os,
 void AstDumper::dump_param_decl(const ParamDecl *node, std::ostream &os,
                                 int indent) const {
     write_indent(os, indent);
-    os << "ParamDecl " << node->get_name() << "\n";
+    os << "ParamDecl "
+       << (node->get_name().empty() ? "<unnamed>" : node->get_name()) << "\n";
     dump_source_span(node, os, indent + 2);
     dump_node(node->get_declared_type(), os, indent + 2);
     for (const auto &dimension : node->get_dimensions()) {
@@ -538,6 +562,16 @@ void AstDumper::dump_binary_expr(const BinaryExpr *node, std::ostream &os,
     dump_source_span(node, os, indent + 2);
     dump_node(node->get_lhs(), os, indent + 2);
     dump_node(node->get_rhs(), os, indent + 2);
+}
+
+void AstDumper::dump_conditional_expr(const ConditionalExpr *node,
+                                      std::ostream &os, int indent) const {
+    write_indent(os, indent);
+    os << "ConditionalExpr\n";
+    dump_source_span(node, os, indent + 2);
+    dump_node(node->get_condition(), os, indent + 2);
+    dump_node(node->get_true_expr(), os, indent + 2);
+    dump_node(node->get_false_expr(), os, indent + 2);
 }
 
 void AstDumper::dump_assign_expr(const AssignExpr *node, std::ostream &os,

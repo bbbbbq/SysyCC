@@ -39,6 +39,7 @@ OCT_DIGIT   [0-7]
 HEX_DIGIT   [0-9a-fA-F]
 LETTER      [A-Za-z_]
 IDENT       {LETTER}({LETTER}|{DIGIT})*
+INT_SUFFIX  ([uU]([lL]{1,2})?|([lL]{1,2})[uU]?)
 DEC_INT     0|{NONZERO}{DIGIT}*
 OCT_INT     0{OCT_DIGIT}+
 HEX_INT     0[xX]{HEX_DIGIT}+
@@ -58,9 +59,14 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 \n                          { }
 
 "const"                     { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"extern"                    { return make_token(EXTERN, "EXTERN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"__attribute__"             { return make_token(ATTRIBUTE, "ATTRIBUTE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"inline"                    { return make_token(INLINE, "INLINE", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"long"                      { return make_token(LONG, "LONG", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "int"                       { return make_token(INT, "INT", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "void"                      { return make_token(VOID, "VOID", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "float"                     { return make_token(FLOAT, "FLOAT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"double"                    { return make_token(DOUBLE, "DOUBLE", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "if"                        { return make_token(IF, "IF", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "else"                      { return make_token(ELSE, "ELSE", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "while"                     { return make_token(WHILE, "WHILE", (sysycc::LexerState *)yyextra, yytext, yylval); }
@@ -104,6 +110,7 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 
 ";"                         { return make_token(SEMICOLON, "SEMICOLON", (sysycc::LexerState *)yyextra, yytext, yylval); }
 ","                         { return make_token(COMMA, "COMMA", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"?"                         { return make_token(QUESTION, "QUESTION", (sysycc::LexerState *)yyextra, yytext, yylval); }
 ":"                         { return make_token(COLON, "COLON", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "."                         { return make_token(DOT, "DOT", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "("                         { return make_token(LPAREN, "LPAREN", (sysycc::LexerState *)yyextra, yytext, yylval); }
@@ -116,9 +123,9 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 {STRING_CONST}              { return make_token(STRING_LITERAL, "STRING_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {CHAR_CONST}                { return make_token(CHAR_LITERAL, "CHAR_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {FLOAT_CONST}               { return make_token(FLOAT_LITERAL, "FLOAT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
-{HEX_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
-{OCT_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
-{DEC_INT}                   { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{HEX_INT}{INT_SUFFIX}?      { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{OCT_INT}{INT_SUFFIX}?      { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{DEC_INT}{INT_SUFFIX}?      { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {INVALID_HEX}               { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {INVALID_OCT}               { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {IDENT}                     { return make_token(IDENTIFIER, "IDENTIFIER", (sysycc::LexerState *)yyextra, yytext, yylval); }

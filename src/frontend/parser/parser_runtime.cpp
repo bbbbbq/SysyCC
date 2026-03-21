@@ -5,6 +5,7 @@ namespace sysycc {
 namespace {
 
 std::unique_ptr<ParseTreeNode> g_parse_tree_root;
+ParserErrorInfo g_parser_error_info;
 
 ParseTreeNode *AsNode(void *node) { return static_cast<ParseTreeNode *>(node); }
 
@@ -33,7 +34,10 @@ SourceSpan merge_child_spans(std::initializer_list<void *> children) {
 
 } // namespace
 
-void parser_runtime_reset() { g_parse_tree_root.reset(); }
+void parser_runtime_reset() {
+    g_parse_tree_root.reset();
+    g_parser_error_info = ParserErrorInfo();
+}
 
 // The `label` and `text` strings have distinct parser-runtime semantics.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -64,6 +68,16 @@ void set_parse_tree_root(void *root) { g_parse_tree_root.reset(AsNode(root)); }
 
 std::unique_ptr<ParseTreeNode> take_parse_tree_root() {
     return std::move(g_parse_tree_root);
+}
+
+void set_parser_error_info(ParserErrorInfo error_info) {
+    if (g_parser_error_info.empty()) {
+        g_parser_error_info = std::move(error_info);
+    }
+}
+
+const ParserErrorInfo &get_parser_error_info() noexcept {
+    return g_parser_error_info;
 }
 
 } // namespace sysycc

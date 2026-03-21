@@ -82,10 +82,12 @@ const std::string &UnknownTypeNode::get_summary() const noexcept {
 FunctionDecl::FunctionDecl(std::string name,
                            std::unique_ptr<TypeNode> return_type,
                            std::vector<std::unique_ptr<Decl>> parameters,
+                           ParsedAttributeList attributes,
                            std::unique_ptr<Stmt> body, SourceSpan source_span)
     : Decl(AstKind::FunctionDecl, source_span),
       name_(std::move(name)), return_type_(std::move(return_type)),
-      parameters_(std::move(parameters)), body_(std::move(body)) {}
+      parameters_(std::move(parameters)), attributes_(std::move(attributes)),
+      body_(std::move(body)) {}
 
 const std::string &FunctionDecl::get_name() const noexcept { return name_; }
 
@@ -96,6 +98,10 @@ const TypeNode *FunctionDecl::get_return_type() const noexcept {
 const std::vector<std::unique_ptr<Decl>> &FunctionDecl::get_parameters() const
     noexcept {
     return parameters_;
+}
+
+const ParsedAttributeList &FunctionDecl::get_attributes() const noexcept {
+    return attributes_;
 }
 
 const Stmt *FunctionDecl::get_body() const noexcept { return body_.get(); }
@@ -474,6 +480,26 @@ const std::string &BinaryExpr::get_operator_text() const noexcept {
 const Expr *BinaryExpr::get_lhs() const noexcept { return lhs_.get(); }
 
 const Expr *BinaryExpr::get_rhs() const noexcept { return rhs_.get(); }
+
+ConditionalExpr::ConditionalExpr(std::unique_ptr<Expr> condition,
+                                 std::unique_ptr<Expr> true_expr,
+                                 std::unique_ptr<Expr> false_expr,
+                                 SourceSpan source_span)
+    : Expr(AstKind::ConditionalExpr, source_span),
+      condition_(std::move(condition)), true_expr_(std::move(true_expr)),
+      false_expr_(std::move(false_expr)) {}
+
+const Expr *ConditionalExpr::get_condition() const noexcept {
+    return condition_.get();
+}
+
+const Expr *ConditionalExpr::get_true_expr() const noexcept {
+    return true_expr_.get();
+}
+
+const Expr *ConditionalExpr::get_false_expr() const noexcept {
+    return false_expr_.get();
+}
 
 AssignExpr::AssignExpr(std::unique_ptr<Expr> target, std::unique_ptr<Expr> value,
                        SourceSpan source_span)

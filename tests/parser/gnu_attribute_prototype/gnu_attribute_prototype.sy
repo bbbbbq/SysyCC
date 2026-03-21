@@ -1,0 +1,5 @@
+inline __attribute__((__always_inline__)) int foo(float);
+
+int main() {
+    return 0;
+}

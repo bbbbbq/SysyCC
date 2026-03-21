@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "frontend/ast/ast_node.hpp"
+#include "frontend/attribute/attribute_analyzer.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
 #include "frontend/semantic/analysis/decl_analyzer.hpp"
@@ -56,6 +57,7 @@ void SemanticAnalyzer::Analyze(const TranslationUnit *translation_unit,
     ConstantEvaluator constant_evaluator;
     ExprAnalyzer expr_analyzer(type_resolver, conversion_checker,
                                constant_evaluator);
+    AttributeAnalyzer attribute_analyzer;
     DeclAnalyzer decl_analyzer(type_resolver, conversion_checker,
                                constant_evaluator, expr_analyzer);
     StmtAnalyzer stmt_analyzer(decl_analyzer, expr_analyzer, conversion_checker,
@@ -65,7 +67,8 @@ void SemanticAnalyzer::Analyze(const TranslationUnit *translation_unit,
         if (decl->get_kind() == AstKind::FunctionDecl) {
             analyze_function_decl(decl.get(), semantic_context, scope_stack,
                                   type_resolver, conversion_checker,
-                                  decl_analyzer, stmt_analyzer);
+                                  decl_analyzer, stmt_analyzer,
+                                  attribute_analyzer);
             continue;
         }
         decl_analyzer.analyze_decl(decl.get(), semantic_context, scope_stack);
@@ -101,7 +104,8 @@ void SemanticAnalyzer::analyze_function_decl(
     const TypeResolver &type_resolver,
     const ConversionChecker &conversion_checker,
     const DeclAnalyzer &decl_analyzer,
-    const StmtAnalyzer &stmt_analyzer) const {
+    const StmtAnalyzer &stmt_analyzer,
+    const AttributeAnalyzer &attribute_analyzer) const {
     if (decl == nullptr || decl->get_kind() != AstKind::FunctionDecl) {
         return;
     }
@@ -121,9 +125,17 @@ void SemanticAnalyzer::analyze_function_decl(
         semantic_model.bind_symbol(function_decl, function_symbol);
         semantic_model.bind_node_type(function_decl, function_type);
     }
+    semantic_model.bind_function_attributes(
+        function_decl,
+        attribute_analyzer.analyze_function_attributes(function_decl,
+                                                      semantic_context));
 
     const auto *resolved_function_type =
         static_cast<const FunctionSemanticType *>(function_type);
+    if (function_decl->get_body() == nullptr) {
+        return;
+    }
+
     scope_stack.push_scope();
     semantic_context.set_current_function(function_decl);
     semantic_context.set_current_return_type(

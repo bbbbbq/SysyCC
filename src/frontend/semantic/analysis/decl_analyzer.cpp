@@ -77,6 +77,10 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             type_resolver_.resolve_type(param_decl->get_declared_type(),
                                         semantic_context),
             param_decl->get_dimensions(), semantic_context);
+        semantic_model.bind_node_type(param_decl, declared_type);
+        if (param_decl->get_name().empty()) {
+            return;
+        }
         const auto *symbol = semantic_model.own_symbol(
             std::make_unique<SemanticSymbol>(SymbolKind::Parameter,
                                              param_decl->get_name(),
@@ -84,7 +88,6 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         if (define_symbol(semantic_context, scope_stack, symbol,
                           param_decl->get_source_span())) {
             semantic_model.bind_symbol(param_decl, symbol);
-            semantic_model.bind_node_type(param_decl, declared_type);
         }
         return;
     }
