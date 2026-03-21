@@ -1,0 +1,6 @@
+#define DARWIN_ALIAS(x) x
+#define DARWIN_ALIAS(x)
+
+int main() {
+    return 0;
+}

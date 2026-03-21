@@ -1,0 +1,7 @@
+#if 0
+#if __is_target_os(macos)
+int should_not_be_seen = 1;
+#endif
+#endif
+
+int after_inactive_if_expression = 1;

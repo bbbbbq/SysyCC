@@ -1,0 +1,1 @@
+#define SHARED_SYSTEM_MACRO 11
