@@ -6,7 +6,8 @@ namespace sysycc::preprocess::detail {
 
 PreprocessContext::PreprocessContext(CompilerContext &compiler_context)
     : compiler_context_(compiler_context),
-      source_mapper_(compiler_context.get_source_manager()) {}
+      source_mapper_(compiler_context.get_source_location_service()
+                         .get_source_manager()) {}
 
 void PreprocessContext::clear() {
     runtime_.clear();

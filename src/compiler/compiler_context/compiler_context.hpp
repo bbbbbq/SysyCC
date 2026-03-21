@@ -7,6 +7,7 @@
 
 #include "common/diagnostic/diagnostic_engine.hpp"
 #include "common/source_line_map.hpp"
+#include "common/source_location_service.hpp"
 #include "common/source_mapping_view.hpp"
 #include "common/source_manager.hpp"
 #include "backend/ir/ir_result.hpp"
@@ -328,9 +329,11 @@ class CompilerContext {
     std::unique_ptr<IRResult> ir_result_;
     DiagnosticEngine diagnostic_engine_;
     SourceManager source_manager_;
+    SourceLocationService source_location_service_;
 
   public:
-    CompilerContext() = default;
+    CompilerContext()
+        : source_location_service_(source_manager_, preprocessed_line_map_) {}
 
     const std::string &get_input_file() const noexcept { return input_file_; }
 
@@ -497,11 +500,12 @@ class CompilerContext {
         return source_manager_;
     }
 
-    SourceMappingView build_source_mapping_view(
-        const std::string &physical_file_path) {
-        return SourceMappingView(
-            source_manager_.get_source_file(physical_file_path),
-            &preprocessed_line_map_);
+    SourceLocationService &get_source_location_service() noexcept {
+        return source_location_service_;
+    }
+
+    const SourceLocationService &get_source_location_service() const noexcept {
+        return source_location_service_;
     }
 };
 } // namespace sysycc
