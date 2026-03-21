@@ -1,0 +1,1 @@
+extern _Float16 nextafterh(_Float16, _Float16);

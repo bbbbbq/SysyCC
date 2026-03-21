@@ -1,0 +1,11 @@
+double as_double(int value) {
+    return (double)value;
+}
+
+int as_int(double value) {
+    return (int)value;
+}
+
+int main() {
+    return as_int(as_double(3));
+}

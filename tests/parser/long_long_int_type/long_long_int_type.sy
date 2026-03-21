@@ -1,0 +1,5 @@
+extern long long int llrint(double);
+
+int main() {
+    return 0;
+}

@@ -1,0 +1,15 @@
+typedef __signed char __int8_t;
+typedef short __int16_t;
+typedef unsigned short __uint16_t;
+
+signed char passthrough8(signed char value) {
+    return value;
+}
+
+short passthrough16(short value) {
+    return value;
+}
+
+unsigned short passthroughu16(unsigned short value) {
+    return value;
+}

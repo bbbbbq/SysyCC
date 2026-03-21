@@ -1,0 +1,5 @@
+extern float nanf(const char *);
+
+int main() {
+    return 0;
+}
