@@ -1670,18 +1670,18 @@ Role:
 
 Defined in:
 
-- [dialect_manager.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect_manager.hpp)
-- [dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect.hpp)
-- [preprocess_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/preprocess_feature_registry.hpp)
-- [preprocess_probe_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/preprocess_probe_handler_registry.hpp)
-- [preprocess_directive_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/preprocess_directive_handler_registry.hpp)
-- [lexer_keyword_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/lexer_keyword_registry.hpp)
-- [parser_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/parser_feature_registry.hpp)
-- [ast_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/ast_feature_registry.hpp)
-- [semantic_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/semantic_feature_registry.hpp)
-- [attribute_semantic_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/attribute_semantic_handler_registry.hpp)
-- [ir_extension_lowering_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/ir_extension_lowering_registry.hpp)
-- [ir_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/ir_feature_registry.hpp)
+- [dialect_manager.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/core/dialect_manager.hpp)
+- [dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/core/dialect.hpp)
+- [preprocess_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/preprocess_feature_registry.hpp)
+- [preprocess_probe_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/preprocess_probe_handler_registry.hpp)
+- [preprocess_directive_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/preprocess_directive_handler_registry.hpp)
+- [lexer_keyword_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/lexer_keyword_registry.hpp)
+- [parser_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/parser_feature_registry.hpp)
+- [ast_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/ast_feature_registry.hpp)
+- [semantic_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/semantic_feature_registry.hpp)
+- [attribute_semantic_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/attribute_semantic_handler_registry.hpp)
+- [ir_extension_lowering_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/ir_extension_lowering_registry.hpp)
+- [ir_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/ir_feature_registry.hpp)
 
 Role:
 
@@ -1692,6 +1692,10 @@ Role:
 - `FrontendDialect`: define the shared extension contract used by dialect packs
   to contribute preprocess/lexer/parser/AST/semantic/IR feature flags and the
   first handler-registry ownership declarations
+- the `src/frontend/dialects/` directory is now split into:
+  - `core/` for shared abstractions and manager wiring
+  - `registries/` for feature/ownership/lowering registries
+  - `packs/` for concrete C99/GNU/Clang/builtin-type dialect providers
 - `PreprocessFeatureRegistry`: store preprocess-side extension ownership such
   as clang builtin probes and non-standard directive payload handling
 - `PreprocessProbeHandlerRegistry`: store which dialect currently owns each

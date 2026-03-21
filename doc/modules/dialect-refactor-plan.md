@@ -211,9 +211,10 @@ src/frontend/
 
 说明：
 
-- `core/` 是概念上的核心主链目录，不要求一次性搬迁现有源码
 - `dialects/` 是明确的方言化承载层
-- 当前项目已经有 `src/frontend/dialects/` 骨架，后续应优先沿现有骨架演进，而不是重新发明一套并行目录
+- `core/` 现在已经落成真实目录，承载共享接口和 `DialectManager`
+- `registries/` 现在承载各阶段 feature gate、ownership map 和 lowering registry
+- `packs/` 现在承载具体的 C99/GNU/Clang/builtin-type dialect 实现
 
 ## 核心类与职责
 

@@ -23,9 +23,9 @@ src/frontend/lexer/
   `ShiftLeft`, `Question`, `Dot`, and GNU-extension keywords such as
   `KwAttribute`
 - classify identifier-like lexemes into keywords through the shared
-  [LexerKeywordRegistry](/Users/caojunze424/code/SysyCC/src/frontend/dialects/lexer_keyword_registry.hpp)
+  [LexerKeywordRegistry](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/lexer_keyword_registry.hpp)
   owned by
-  [DialectManager](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect_manager.hpp)
+  [DialectManager](/Users/caojunze424/code/SysyCC/src/frontend/dialects/core/dialect_manager.hpp)
 - remap token source spans through preprocess-exported logical line positions
   so `#line` file/line state can propagate into lexer diagnostics and parse-tree
   terminal nodes
@@ -58,9 +58,9 @@ src/frontend/lexer/
   from
   [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   plus one shared
-  [LexerKeywordRegistry](/Users/caojunze424/code/SysyCC/src/frontend/dialects/lexer_keyword_registry.hpp)
+  [LexerKeywordRegistry](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/lexer_keyword_registry.hpp)
   from the same compiler context's
-  [DialectManager](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect_manager.hpp)
+  [DialectManager](/Users/caojunze424/code/SysyCC/src/frontend/dialects/core/dialect_manager.hpp)
   and now exposes explicit logical-vs-physical token position queries while the
   active lexer/token pipeline continues to consume logical positions by
   default.

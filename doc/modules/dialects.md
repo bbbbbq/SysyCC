@@ -11,43 +11,46 @@ logic across lexer, parser, AST, semantic, and IR entry points.
 
 ```text
 src/frontend/dialects/
-├── ast_feature_registry.hpp
-├── ast_feature_registry.cpp
-├── attribute_semantic_handler_registry.hpp
-├── attribute_semantic_handler_registry.cpp
-├── builtin_type_semantic_handler_registry.hpp
-├── builtin_type_semantic_handler_registry.cpp
-├── dialect.hpp
-├── dialect_manager.hpp
-├── dialect_manager.cpp
-├── ir_extension_lowering_registry.hpp
-├── ir_extension_lowering_registry.cpp
-├── ir_feature_registry.hpp
-├── ir_feature_registry.cpp
-├── lexer_keyword_registry.hpp
-├── lexer_keyword_registry.cpp
-├── parser_feature_registry.hpp
-├── parser_feature_registry.cpp
-├── preprocess_directive_handler_registry.hpp
-├── preprocess_directive_handler_registry.cpp
-├── preprocess_feature_registry.hpp
-├── preprocess_feature_registry.cpp
-├── preprocess_probe_handler_registry.hpp
-├── preprocess_probe_handler_registry.cpp
-├── semantic_feature_registry.hpp
-├── semantic_feature_registry.cpp
-├── builtin_types/
-│   ├── builtin_type_extension_pack.hpp
-│   └── builtin_type_extension_pack.cpp
-├── c99/
-│   ├── c99_dialect.hpp
-│   └── c99_dialect.cpp
-├── clang/
-│   ├── clang_dialect.hpp
-│   └── clang_dialect.cpp
-└── gnu/
-    ├── gnu_dialect.hpp
-    └── gnu_dialect.cpp
+├── core/
+│   ├── dialect.hpp
+│   ├── dialect_manager.hpp
+│   └── dialect_manager.cpp
+├── registries/
+│   ├── ast_feature_registry.hpp
+│   ├── ast_feature_registry.cpp
+│   ├── attribute_semantic_handler_registry.hpp
+│   ├── attribute_semantic_handler_registry.cpp
+│   ├── builtin_type_semantic_handler_registry.hpp
+│   ├── builtin_type_semantic_handler_registry.cpp
+│   ├── ir_extension_lowering_registry.hpp
+│   ├── ir_extension_lowering_registry.cpp
+│   ├── ir_feature_registry.hpp
+│   ├── ir_feature_registry.cpp
+│   ├── lexer_keyword_registry.hpp
+│   ├── lexer_keyword_registry.cpp
+│   ├── parser_feature_registry.hpp
+│   ├── parser_feature_registry.cpp
+│   ├── preprocess_directive_handler_registry.hpp
+│   ├── preprocess_directive_handler_registry.cpp
+│   ├── preprocess_feature_registry.hpp
+│   ├── preprocess_feature_registry.cpp
+│   ├── preprocess_probe_handler_registry.hpp
+│   ├── preprocess_probe_handler_registry.cpp
+│   ├── semantic_feature_registry.hpp
+│   └── semantic_feature_registry.cpp
+└── packs/
+    ├── builtin_types/
+    │   ├── builtin_type_extension_pack.hpp
+    │   └── builtin_type_extension_pack.cpp
+    ├── c99/
+    │   ├── c99_dialect.hpp
+    │   └── c99_dialect.cpp
+    ├── clang/
+    │   ├── clang_dialect.hpp
+    │   └── clang_dialect.cpp
+    └── gnu/
+        ├── gnu_dialect.hpp
+        └── gnu_dialect.cpp
 ```
 
 ## Responsibilities
@@ -69,6 +72,12 @@ src/frontend/dialects/
   - `GnuDialect`
   - `ClangDialect`
   - `BuiltinTypeExtensionPack`
+
+The directory split now follows those responsibilities directly:
+
+- `core/`: shared dialect abstractions and the runtime manager
+- `registries/`: feature gates, ownership maps, and lowering-handler registries
+- `packs/`: concrete C99/GNU/Clang/builtin-type dialect implementations
 
 ## Current Status
 
@@ -137,20 +146,20 @@ already implemented by the current code.
 
 ## Key Files
 
-- [dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect.hpp)
-- [dialect_manager.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect_manager.hpp)
-- [preprocess_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/preprocess_feature_registry.hpp)
-- [preprocess_probe_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/preprocess_probe_handler_registry.hpp)
-- [preprocess_directive_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/preprocess_directive_handler_registry.hpp)
-- [lexer_keyword_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/lexer_keyword_registry.hpp)
-- [parser_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/parser_feature_registry.hpp)
-- [attribute_semantic_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/attribute_semantic_handler_registry.hpp)
-- [builtin_type_semantic_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/builtin_type_semantic_handler_registry.hpp)
-- [ir_extension_lowering_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/ir_extension_lowering_registry.hpp)
-- [c99_dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/c99/c99_dialect.hpp)
-- [gnu_dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/gnu/gnu_dialect.hpp)
-- [clang_dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/clang/clang_dialect.hpp)
-- [builtin_type_extension_pack.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/builtin_types/builtin_type_extension_pack.hpp)
+- [dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/core/dialect.hpp)
+- [dialect_manager.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/core/dialect_manager.hpp)
+- [preprocess_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/preprocess_feature_registry.hpp)
+- [preprocess_probe_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/preprocess_probe_handler_registry.hpp)
+- [preprocess_directive_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/preprocess_directive_handler_registry.hpp)
+- [lexer_keyword_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/lexer_keyword_registry.hpp)
+- [parser_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/parser_feature_registry.hpp)
+- [attribute_semantic_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/attribute_semantic_handler_registry.hpp)
+- [builtin_type_semantic_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/builtin_type_semantic_handler_registry.hpp)
+- [ir_extension_lowering_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/registries/ir_extension_lowering_registry.hpp)
+- [c99_dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/packs/c99/c99_dialect.hpp)
+- [gnu_dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/packs/gnu/gnu_dialect.hpp)
+- [clang_dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/packs/clang/clang_dialect.hpp)
+- [builtin_type_extension_pack.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/packs/builtin_types/builtin_type_extension_pack.hpp)
 
 ## Related Plan
 
