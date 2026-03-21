@@ -148,6 +148,7 @@ AST lowering regressions, including:
 Representative paths:
 
 - [tests/ast/ast_minimal](/Users/caojunze424/code/SysyCC/tests/ast/ast_minimal)
+- [tests/ast/ast_logical_source_span](/Users/caojunze424/code/SysyCC/tests/ast/ast_logical_source_span)
 - [tests/ast/ast_dot_member_access](/Users/caojunze424/code/SysyCC/tests/ast/ast_dot_member_access)
 - [tests/ast/ast_index_expr](/Users/caojunze424/code/SysyCC/tests/ast/ast_index_expr)
 - [tests/ast/ast_pointer_types](/Users/caojunze424/code/SysyCC/tests/ast/ast_pointer_types)

@@ -24,6 +24,9 @@ src/frontend/lexer/
 - remap token source spans through preprocess-exported logical line positions
   so `#line` file/line state can propagate into lexer diagnostics and parse-tree
   terminal nodes
+- consume a shared downstream
+  [SourceMappingView](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
+  built by [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 - dump token results into `build/intermediate_results/*.tokens.txt`
 - keep lex-only runs free of parse-tree node allocation side effects
 - allow empty token streams and leave empty-input policy to later stages
@@ -45,8 +48,12 @@ src/frontend/lexer/
 
 - The lexer now uses a reentrant flex scanner with one [LexerState](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp) instance per scanner session.
 - [LexerState](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp)
-  now consumes the preprocess line-position table from
+  now consumes one shared
+  [SourceMappingView](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
+  from
   [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
-  and remaps token begin/end positions at line granularity.
+  and now exposes explicit logical-vs-physical token position queries while the
+  active lexer/token pipeline continues to consume logical positions by
+  default.
 - The lexer pass disables scanner-side parse-tree terminal-node creation during
   lex-only runs.

@@ -37,6 +37,7 @@ classDiagram
         -preprocessed_file_path_
         -include_directories_
         -system_include_directories_
+        -source_manager_
         -preprocessed_line_map_
         -tokens_
         -parse_tree_root_
@@ -49,6 +50,7 @@ classDiagram
         -parse_dump_file_path_
         -ast_dump_file_path_
         -ir_dump_file_path_
+        +build_source_mapping_view(physical_file_path)
     }
 
     class PassManager {
@@ -166,7 +168,7 @@ classDiagram
     }
 
     class LexerState {
-        -source_file_
+        -source_mapping_view_
         -line_
         -column_
         -token_line_begin_
@@ -174,16 +176,18 @@ classDiagram
         -token_line_end_
         -token_column_end_
         -emit_parse_nodes_
-        -preprocessed_line_map_
         +reset()
-        +set_source_file()
-        +get_source_file()
-        +set_preprocessed_line_map()
+        +set_source_mapping_view()
+        +get_source_mapping_view()
         +update_position()
         +get_token_line_begin()
         +get_token_column_begin()
         +get_token_line_end()
         +get_token_column_end()
+        +get_token_begin_physical_position()
+        +get_token_end_physical_position()
+        +get_token_begin_logical_position()
+        +get_token_end_logical_position()
         +get_token_begin_position()
         +get_token_end_position()
         +get_emit_parse_nodes()
@@ -226,6 +230,18 @@ classDiagram
         +get_line_positions()
     }
 
+    class SourceMappingView {
+        -physical_file_
+        -line_map_
+        +has_logical_mapping()
+        +get_physical_file()
+        +get_line_map()
+        +get_physical_position(physical_line, column)
+        +get_physical_span(line_begin, col_begin, line_end, col_end)
+        +get_logical_position(physical_line, column)
+        +get_logical_span(line_begin, col_begin, line_end, col_end)
+    }
+
     class SourceMapper {
         +clear()
         +push_file(file_path)
@@ -233,8 +249,10 @@ classDiagram
         +has_file_in_stack(file_path)
         +get_current_physical_file_path()
         +apply_line_directive(physical_line, logical_line, logical_file_path)
-        +map_position(physical_line, column)
-        +map_span(line_begin, col_begin, line_end, col_end)
+        +get_physical_position(physical_line, column)
+        +get_physical_span(line_begin, col_begin, line_end, col_end)
+        +get_logical_position(physical_line, column)
+        +get_logical_span(line_begin, col_begin, line_end, col_end)
     }
 
     class ConstantExpressionEvaluator {
@@ -713,6 +731,8 @@ classDiagram
     SourcePosition --> SourceFile
     SourceSpan *-- SourcePosition
     CompilerContext *-- SourceLineMap
+    CompilerContext ..> SourceMappingView : builds
+    LexerState *-- SourceMappingView
     ParserPass ..> CompilerContext : writes parse tree
     AstPass ..> CompilerContext : writes ast root
     SemanticPass ..> CompilerContext : writes semantic model
@@ -916,8 +936,11 @@ Role:
 
 - act as the shared data bus for passes
 - store preprocessed intermediate file path
+- own the shared `SourceManager` registry for front-end file identity
 - store one `SourceLineMap` for emitted preprocessed lines so later stages can
   inherit preprocess `#line` remapping
+- build one downstream `SourceMappingView` from a physical file plus the
+  preprocessed emitted-line map
 - store include search directories for preprocessing
 - store token stream with exact lexical token kinds plus derived categories
 - store parse tree root
@@ -1072,10 +1095,13 @@ Defined in:
 
 Role:
 
-- store one scanner session's current source file plus line/column tracking
+- store one scanner session's shared downstream source-mapping view plus
+  line/column tracking
 - store the current token source span
-- consume one preprocess-exported `SourceLineMap` so lexer and parser scanner
-  sessions can remap token file/line information after `#line`
+- consume one shared `SourceMappingView` so lexer and parser scanner sessions
+  remap token file/line information after preprocess `#line`
+- expose explicit physical and logical token position accessors while keeping
+  logical positions as the default downstream-facing representation
 - control whether scanner actions should emit parse-tree terminal nodes
 
 ### `sysycc::preprocess::detail::PreprocessSession`
@@ -1151,6 +1177,9 @@ Role:
 
 - `PreprocessRuntime`: store preprocessing output lines, emitted-line `SourceLineMap` data, block-comment state, and `#pragma once`/processed-file skip metadata
 - `SourceMapper`: track the active physical include stack and remap later preprocess diagnostics plus emitted-line logical source positions through `#line` file and line state
+- `SourceMapper`: now exposes explicit physical and logical location queries so
+  preprocess code can choose whether it wants emitted-file coordinates or
+  remapped `#line` coordinates
 - `MacroTable`: manage object-like, fixed-arity function-like, and variadic function-like macro definitions
 - `MacroExpander`: expand ordinary source lines with macro substitutions, including variadic `__VA_ARGS__` replacement
 - `ConditionalStack`: manage nested `#if/#ifdef/#ifndef/#elif/#elifdef/#elifndef/#else/#endif` state
@@ -1187,11 +1216,12 @@ Role:
   values
 - serve as a reusable location object across modules
 
-### `sysycc::SourceManager`, `sysycc::SourceFile`, and `sysycc::SourcePosition`
+### `sysycc::SourceManager`, `sysycc::SourceFile`, `sysycc::SourcePosition`, and `sysycc::SourceMappingView`
 
 Defined in:
 
 - [source_manager.hpp](/Users/caojunze424/code/SysyCC/src/common/source_manager.hpp)
+- [source_mapping_view.hpp](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
 
 Role:
@@ -1202,6 +1232,11 @@ Role:
   nodes, AST nodes, and diagnostics
 - `SourcePosition`: store one concrete `(file, line, column)` location and act
   as the building block for `SourceSpan`
+- `SourceMappingView`: provide one downstream-facing view that combines a
+  physical `SourceFile` with the preprocess-emitted `SourceLineMap` so later
+  lexer/parser scanner sessions consume one shared mapping service instead of
+  manually pairing file identity with line remap state, and expose explicit
+  physical/logical lookup entry points for downstream consumers
 
 ### `sysycc::ParseTreeNode`
 

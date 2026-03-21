@@ -42,6 +42,8 @@ The shared data container for passes. It stores:
 - input file
 - user include search directories
 - system include search directories
+- one [SourceManager](/Users/caojunze424/code/SysyCC/src/common/source_manager.hpp)
+  for stable `SourceFile` identities across one compiler run
 - one [SourceLineMap](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
   storing one logical source position per emitted preprocessed output line so
   later stages can inherit preprocess `#line` remapping
@@ -84,3 +86,8 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass -> IRGenPas
   for preprocess include resolution.
 - The backend stage currently emits textual LLVM IR dumps for the supported AST
   subset, including multi-branch `switch` lowering.
+- [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+  now also constructs one shared
+  [SourceMappingView](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
+  for downstream lexer/parser scanner sessions, and that view now exposes
+  explicit physical and logical location queries.

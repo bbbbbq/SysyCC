@@ -9,6 +9,7 @@ multiple compilation stages.
 
 - [source_manager.hpp](/Users/caojunze424/code/SysyCC/src/common/source_manager.hpp)
 - [source_line_map.hpp](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
+- [source_mapping_view.hpp](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
 - [diagnostic.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic.hpp)
 - [diagnostic_engine.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic_engine.hpp)
@@ -19,6 +20,7 @@ multiple compilation stages.
 - represent individual source code positions
 - represent source code location ranges
 - represent one logical source position per emitted logical line
+- provide one shared downstream view over physical files plus preprocess line remapping
 - provide a reusable span type for lexer, parser, AST, semantic analysis, and diagnostics
 - provide pass-independent diagnostic records and a shared diagnostic collector
 
@@ -65,6 +67,23 @@ to their logical
 It is currently used to carry preprocess `#line` remapping through
 [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 and into lexer/parser scanner sessions.
+
+### `SourceMappingView`
+
+`SourceMappingView` models one downstream-facing source-mapping service view
+that combines:
+
+- one physical `SourceFile`
+- one optional `SourceLineMap`
+
+It is currently constructed by
+[CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+and consumed by
+[LexerState](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp).
+
+It now exposes explicit physical and logical queries so later front-end stages
+do not have to guess whether a position lookup is meant to preserve the emitted
+preprocess file location or the remapped `#line` location.
 
 ### `SourceManager`
 
