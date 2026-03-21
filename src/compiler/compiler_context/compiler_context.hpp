@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "common/diagnostic/diagnostic_engine.hpp"
+#include "common/source_line_map.hpp"
+#include "common/source_manager.hpp"
 #include "backend/ir/ir_result.hpp"
 #include "common/source_span.hpp"
 #include "frontend/ast/ast_node.hpp"
@@ -309,6 +311,7 @@ class CompilerContext {
     std::vector<std::string> include_directories_;
     std::vector<std::string> system_include_directories_;
     std::vector<Token> tokens_;
+    SourceLineMap preprocessed_line_map_;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
     bool dump_ast_ = false;
@@ -323,6 +326,7 @@ class CompilerContext {
     std::unique_ptr<SemanticModel> semantic_model_;
     std::unique_ptr<IRResult> ir_result_;
     DiagnosticEngine diagnostic_engine_;
+    SourceManager source_manager_;
 
   public:
     CompilerContext() = default;
@@ -364,6 +368,18 @@ class CompilerContext {
     std::vector<Token> &get_tokens() noexcept { return tokens_; }
 
     void clear_tokens() { tokens_.clear(); }
+
+    const SourceLineMap &get_preprocessed_line_map() const noexcept {
+        return preprocessed_line_map_;
+    }
+
+    void set_preprocessed_line_map(SourceLineMap preprocessed_line_map) {
+        preprocessed_line_map_ = std::move(preprocessed_line_map);
+    }
+
+    void clear_preprocessed_line_map() {
+        preprocessed_line_map_.clear();
+    }
 
     void add_token(Token token) { tokens_.push_back(std::move(token)); }
 
@@ -473,5 +489,11 @@ class CompilerContext {
     }
 
     void clear_diagnostic_engine() { diagnostic_engine_.clear(); }
+
+    SourceManager &get_source_manager() noexcept { return source_manager_; }
+
+    const SourceManager &get_source_manager() const noexcept {
+        return source_manager_;
+    }
 };
 } // namespace sysycc

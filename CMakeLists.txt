@@ -45,7 +45,8 @@ add_executable(${PROJECT_NAME}
     src/cli/cli.cpp
     src/common/diagnostic/diagnostic.cpp
     src/common/diagnostic/diagnostic_engine.cpp
-    src/common/source_span.cpp
+    src/common/source_line_map.cpp
+    src/common/source_manager.cpp
     src/compiler/complier.cpp
     src/compiler/pass/pass.cpp
     src/frontend/ast/ast_dump.cpp
@@ -59,13 +60,20 @@ add_executable(${PROJECT_NAME}
     src/frontend/parser/parser_runtime.cpp
     src/frontend/preprocess/preprocess.cpp
     src/frontend/preprocess/detail/conditional_stack.cpp
+    src/frontend/preprocess/detail/conditional/builtin_probe_evaluator.cpp
+    src/frontend/preprocess/detail/conditional/clang_extension_provider.cpp
+    src/frontend/preprocess/detail/conditional/gnu_extension_provider.cpp
+    src/frontend/preprocess/detail/conditional/nonstandard_extension_manager.cpp
     src/frontend/preprocess/detail/constant_expression_evaluator.cpp
+    src/frontend/preprocess/detail/directive/directive_executor.cpp
     src/frontend/preprocess/detail/directive_parser.cpp
     src/frontend/preprocess/detail/file_loader.cpp
     src/frontend/preprocess/detail/include_resolver.cpp
     src/frontend/preprocess/detail/macro_expander.cpp
     src/frontend/preprocess/detail/macro_table.cpp
+    src/frontend/preprocess/detail/preprocess_context.cpp
     src/frontend/preprocess/detail/preprocess_runtime.cpp
+    src/frontend/preprocess/detail/source/source_mapper.cpp
     src/frontend/preprocess/detail/preprocess_session.cpp
     src/frontend/semantic/model/semantic_diagnostic.cpp
     src/frontend/semantic/model/semantic_model.cpp

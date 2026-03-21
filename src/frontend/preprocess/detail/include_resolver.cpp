@@ -161,7 +161,13 @@ PassResult IncludeResolver::resolve_include( // NOLINT(bugprone-easily-swappable
                                    include_name);
     }
 
-    if (resolve_from_search_directories(include_name, system_include_directories,
+    if (resolve_from_search_directories(include_name, include_directories,
+                                        resolved_file_path)) {
+        return PassResult::Success();
+    }
+
+    if (resolve_from_search_directories(include_name,
+                                        system_include_directories,
                                         resolved_file_path)) {
         return PassResult::Success();
     }

@@ -6,44 +6,16 @@ PreprocessRuntime::PreprocessRuntime() = default;
 
 void PreprocessRuntime::clear() {
     output_lines_.clear();
-    file_stack_.clear();
+    output_line_map_.clear();
     pragma_once_files_.clear();
     processed_files_.clear();
     in_block_comment_ = false;
 }
 
-void PreprocessRuntime::append_output_line(std::string line) {
+void PreprocessRuntime::append_output_line(std::string line,
+                                           SourcePosition source_position) {
     output_lines_.push_back(std::move(line));
-}
-
-void PreprocessRuntime::push_file(std::string file_path) {
-    file_stack_.push_back(std::move(file_path));
-}
-
-void PreprocessRuntime::pop_file() {
-    if (!file_stack_.empty()) {
-        file_stack_.pop_back();
-    }
-}
-
-const std::string &PreprocessRuntime::get_current_file() const noexcept {
-    static const std::string kEmpty;
-    if (file_stack_.empty()) {
-        return kEmpty;
-    }
-
-    return file_stack_.back();
-}
-
-bool PreprocessRuntime::has_file_in_stack(const std::string &file_path) const noexcept {
-    // The active file stack doubles as a lightweight include-cycle detector.
-    for (const std::string &current_file_path : file_stack_) {
-        if (current_file_path == file_path) {
-            return true;
-        }
-    }
-
-    return false;
+    output_line_map_.add_line_position(source_position);
 }
 
 void PreprocessRuntime::mark_pragma_once_file(const std::string &file_path) {

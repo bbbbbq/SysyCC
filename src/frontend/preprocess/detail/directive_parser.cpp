@@ -46,6 +46,9 @@ DirectiveKind to_directive_kind(const std::string &keyword) {
     if (keyword == "#error") {
         return DirectiveKind::Error;
     }
+    if (keyword == "#warning") {
+        return DirectiveKind::Warning;
+    }
     if (keyword == "#pragma") {
         return DirectiveKind::Pragma;
     }
@@ -112,9 +115,28 @@ PassResult DirectiveParser::parse(const std::string &line,
         return PassResult::Failure("not a directive");
     }
 
-    std::istringstream iss(trim_left(line));
-    std::string keyword;
-    iss >> keyword;
+    const std::string trimmed = trim_left(line);
+    std::size_t index = 1;
+    while (index < trimmed.size() &&
+           std::isspace(static_cast<unsigned char>(trimmed[index])) != 0) {
+        ++index;
+    }
+
+    std::size_t keyword_end = index;
+    while (keyword_end < trimmed.size() &&
+           std::isspace(static_cast<unsigned char>(trimmed[keyword_end])) ==
+               0) {
+        ++keyword_end;
+    }
+
+    std::string keyword = "#";
+    if (index < trimmed.size()) {
+        keyword += trimmed.substr(index, keyword_end - index);
+    }
+
+    std::istringstream iss(keyword_end < trimmed.size()
+                               ? trimmed.substr(keyword_end)
+                               : std::string());
     const DirectiveKind kind = to_directive_kind(keyword);
 
     if (kind == DirectiveKind::Unknown) {

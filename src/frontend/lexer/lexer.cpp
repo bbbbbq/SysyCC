@@ -184,7 +184,10 @@ PassResult LexerPass::Run(CompilerContext &context) {
 
     LexerState lexer_state;
     lexer_state.reset();
-    lexer_state.set_source_file(get_source_file(lexer_input_file));
+    lexer_state.set_source_file(
+        context.get_source_manager().get_source_file(lexer_input_file));
+    lexer_state.set_preprocessed_line_map(
+        &context.get_preprocessed_line_map());
     lexer_state.set_emit_parse_nodes(false);
 
     yyscan_t scanner = nullptr;
@@ -209,12 +212,8 @@ PassResult LexerPass::Run(CompilerContext &context) {
 
         if (token == INVALID) {
             const SourceSpan source_span(
-                SourcePosition(lexer_state.get_source_file(),
-                               lexer_state.get_token_line_begin(),
-                               lexer_state.get_token_column_begin()),
-                SourcePosition(lexer_state.get_source_file(),
-                               lexer_state.get_token_line_end(),
-                               lexer_state.get_token_column_end()));
+                lexer_state.get_token_begin_position(),
+                lexer_state.get_token_end_position());
             const std::string invalid_message =
                 FormatInvalidTokenMessage(lexeme, source_span);
             context.get_diagnostic_engine().add_error(DiagnosticStage::Lexer,
@@ -227,12 +226,8 @@ PassResult LexerPass::Run(CompilerContext &context) {
 
         context.add_token(
             Token(ToTokenKind(token), lexeme == nullptr ? "" : lexeme,
-                  SourceSpan(SourcePosition(lexer_state.get_source_file(),
-                                            lexer_state.get_token_line_begin(),
-                                            lexer_state.get_token_column_begin()),
-                             SourcePosition(lexer_state.get_source_file(),
-                                            lexer_state.get_token_line_end(),
-                                            lexer_state.get_token_column_end()))));
+                  SourceSpan(lexer_state.get_token_begin_position(),
+                             lexer_state.get_token_end_position())));
     }
 
     yylex_destroy(scanner);

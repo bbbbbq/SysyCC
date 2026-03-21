@@ -14,6 +14,7 @@ enum class DirectiveKind : uint8_t {
     Include,
     IncludeNext,
     Error,
+    Warning,
     Pragma,
     Line,
     Ifdef,

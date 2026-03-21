@@ -6,13 +6,17 @@
 #include <utility>
 #include <vector>
 
+#include "common/source_line_map.hpp"
+#include "common/source_span.hpp"
+
 namespace sysycc::preprocess::detail {
 
-// Stores output lines and file traversal state during preprocessing.
+// Stores output lines, comment state, and file-skipping metadata during
+// preprocessing.
 class PreprocessRuntime {
   private:
     std::vector<std::string> output_lines_;
-    std::vector<std::string> file_stack_;
+    SourceLineMap output_line_map_;
     std::unordered_set<std::string> pragma_once_files_;
     std::unordered_set<std::string> processed_files_;
     bool in_block_comment_ = false;
@@ -21,15 +25,14 @@ class PreprocessRuntime {
     PreprocessRuntime();
 
     void clear();
-    void append_output_line(std::string line);
+    void append_output_line(std::string line, SourcePosition source_position);
     const std::vector<std::string> &get_output_lines() const noexcept {
         return output_lines_;
     }
+    const SourceLineMap &get_output_line_map() const noexcept {
+        return output_line_map_;
+    }
 
-    void push_file(std::string file_path);
-    void pop_file();
-    const std::string &get_current_file() const noexcept;
-    bool has_file_in_stack(const std::string &file_path) const noexcept;
     void mark_pragma_once_file(const std::string &file_path);
     void mark_file_processed(const std::string &file_path);
     bool should_skip_file(const std::string &file_path) const noexcept;

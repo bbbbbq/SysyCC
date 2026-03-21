@@ -5,31 +5,45 @@
 #include <cstdlib>
 #include <string>
 
-#include "frontend/preprocess/detail/include_resolver.hpp"
-
 namespace sysycc::preprocess::detail {
 
 namespace {
+
+bool is_integer_suffix_char(char ch) {
+    return ch == 'u' || ch == 'U' || ch == 'l' || ch == 'L';
+}
+
+bool is_valid_integer_suffix(const std::string &suffix) {
+    if (suffix.empty()) {
+        return true;
+    }
+
+    int unsigned_count = 0;
+    int long_count = 0;
+    for (char ch : suffix) {
+        if (!is_integer_suffix_char(ch)) {
+            return false;
+        }
+        if (ch == 'u' || ch == 'U') {
+            ++unsigned_count;
+            continue;
+        }
+        ++long_count;
+    }
+
+    return unsigned_count <= 1 && long_count <= 2;
+}
 
 class ExpressionParser {
   private:
     const std::string &expression_;
     const MacroTable &macro_table_;
+    const BuiltinProbeEvaluator &builtin_probe_evaluator_;
     const std::string &current_file_path_;
     const std::vector<std::string> &include_directories_;
     const std::vector<std::string> &system_include_directories_;
     std::size_t index_ = 0;
     int depth_ = 0;
-
-    bool probe_include(bool include_next, const std::string &include_token) {
-        IncludeResolver include_resolver;
-        std::string resolved_file_path;
-        PassResult resolve_result = include_resolver.resolve_include(
-            include_token, current_file_path_, include_directories_,
-            system_include_directories_, include_next, include_token,
-            resolved_file_path);
-        return resolve_result.ok;
-    }
 
     void skip_spaces() {
         while (index_ < expression_.size() &&
@@ -102,6 +116,10 @@ class ExpressionParser {
                        static_cast<unsigned char>(expression_[index_])) != 0) {
                 ++index_;
             }
+            while (index_ < expression_.size() &&
+                   is_integer_suffix_char(expression_[index_])) {
+                ++index_;
+            }
         } else {
             while (index_ < expression_.size() &&
                    std::isalnum(
@@ -111,10 +129,25 @@ class ExpressionParser {
         }
 
         const std::string token = expression_.substr(begin, index_ - begin);
+        std::size_t numeric_end = token.size();
+        while (numeric_end > 0 &&
+               is_integer_suffix_char(token[numeric_end - 1])) {
+            --numeric_end;
+        }
+
+        const std::string numeric_part = token.substr(0, numeric_end);
+        const std::string suffix = token.substr(numeric_end);
+        if (numeric_part.empty() || !is_valid_integer_suffix(suffix)) {
+            return PassResult::Failure(
+                "invalid integer literal in #if expression: " + token);
+        }
+
         char *end_ptr = nullptr;
         errno = 0;
-        const long long parsed_value = std::strtoll(token.c_str(), &end_ptr, 0);
-        if (end_ptr == token.c_str() || *end_ptr != '\0' || errno == ERANGE) {
+        const long long parsed_value =
+            std::strtoll(numeric_part.c_str(), &end_ptr, 0);
+        if (end_ptr == numeric_part.c_str() || *end_ptr != '\0' ||
+            errno == ERANGE) {
             return PassResult::Failure(
                 "invalid integer literal in #if expression: " + token);
         }
@@ -145,11 +178,10 @@ class ExpressionParser {
                 "macro expansion too deep in #if expression");
         }
 
-        ExpressionParser nested_parser(definition->get_replacement(),
-                                       macro_table_, current_file_path_,
-                                       include_directories_,
-                                       system_include_directories_,
-                                       depth_ + 1);
+        ExpressionParser nested_parser(
+            definition->get_replacement(), macro_table_,
+            builtin_probe_evaluator_, current_file_path_, include_directories_,
+            system_include_directories_, depth_ + 1);
         return nested_parser.parse_complete_expression(value);
     }
 
@@ -182,68 +214,14 @@ class ExpressionParser {
 
     PassResult parse_unary(long long &value) {
         skip_spaces();
-        if (consume("defined")) {
-            std::string identifier;
-            if (consume("(")) {
-                if (!parse_identifier(identifier)) {
-                    return PassResult::Failure(
-                        "invalid defined() operand in #if expression");
-                }
-                if (!consume(")")) {
-                    return PassResult::Failure(
-                        "missing ')' after defined() operand");
-                }
-            } else if (!parse_identifier(identifier)) {
-                return PassResult::Failure(
-                    "invalid defined operand in #if expression");
-            }
-
-            value = macro_table_.has_macro(identifier) ? 1 : 0;
-            return PassResult::Success();
+        bool handled = false;
+        PassResult builtin_probe_result = builtin_probe_evaluator_.try_evaluate(
+            expression_, index_, macro_table_, current_file_path_,
+            include_directories_, system_include_directories_, value, handled);
+        if (!builtin_probe_result.ok) {
+            return builtin_probe_result;
         }
-
-        const bool include_next = consume("__has_include_next");
-        if (include_next || consume("__has_include")) {
-            skip_spaces();
-            if (!consume("(")) {
-                return PassResult::Failure(
-                    "missing '(' after __has_include in #if expression");
-            }
-
-            skip_spaces();
-            if (index_ >= expression_.size()) {
-                return PassResult::Failure(
-                    "missing header name in __has_include expression");
-            }
-
-            const char opening = expression_[index_];
-            if (opening != '"' && opening != '<') {
-                return PassResult::Failure(
-                    "invalid __has_include operand in #if expression");
-            }
-
-            const char closing = opening == '"' ? '"' : '>';
-            const std::size_t start_index = index_;
-            ++index_;
-            while (index_ < expression_.size() &&
-                   expression_[index_] != closing) {
-                ++index_;
-            }
-            if (index_ >= expression_.size()) {
-                return PassResult::Failure(
-                    "missing header terminator in __has_include expression");
-            }
-            const std::string include_token =
-                expression_.substr(start_index, index_ - start_index + 1);
-            ++index_;
-
-            skip_spaces();
-            if (!consume(")")) {
-                return PassResult::Failure(
-                    "missing ')' after __has_include operand");
-            }
-
-            value = probe_include(include_next, include_token) ? 1 : 0;
+        if (handled) {
             return PassResult::Success();
         }
 
@@ -604,11 +582,13 @@ class ExpressionParser {
   public:
     ExpressionParser(const std::string &expression,
                      const MacroTable &macro_table,
+                     const BuiltinProbeEvaluator &builtin_probe_evaluator,
                      const std::string &current_file_path,
                      const std::vector<std::string> &include_directories,
                      const std::vector<std::string> &system_include_directories,
                      int depth)
         : expression_(expression), macro_table_(macro_table),
+          builtin_probe_evaluator_(builtin_probe_evaluator),
           current_file_path_(current_file_path),
           include_directories_(include_directories),
           system_include_directories_(system_include_directories),
@@ -647,8 +627,9 @@ PassResult ConstantExpressionEvaluator::evaluate(const std::string &expression,
                                                  const std::vector<std::string> &include_directories,
                                                  const std::vector<std::string> &system_include_directories,
                                                  long long &value) const {
-    ExpressionParser parser(expression, macro_table, current_file_path,
-                            include_directories, system_include_directories, 0);
+    ExpressionParser parser(expression, macro_table, builtin_probe_evaluator_,
+                            current_file_path, include_directories,
+                            system_include_directories, 0);
     return parser.parse_complete_expression(value);
 }
 

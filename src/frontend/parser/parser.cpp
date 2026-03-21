@@ -57,7 +57,10 @@ PassResult ParserPass::Run(CompilerContext &context) {
 
     LexerState lexer_state;
     lexer_state.reset();
-    lexer_state.set_source_file(get_source_file(parser_input_file));
+    lexer_state.set_source_file(
+        context.get_source_manager().get_source_file(parser_input_file));
+    lexer_state.set_preprocessed_line_map(
+        &context.get_preprocessed_line_map());
     lexer_state.set_emit_parse_nodes(true);
 
     yyscan_t scanner = nullptr;

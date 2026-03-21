@@ -18,8 +18,6 @@ class SourceFile {
     bool empty() const noexcept { return path_.empty(); }
 };
 
-const SourceFile *get_source_file(const std::string &path);
-
 // Stores one source position as file, line, and column.
 class SourcePosition {
   private:
