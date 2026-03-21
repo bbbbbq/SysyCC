@@ -87,6 +87,8 @@ src/frontend/preprocess/
   instead of scattering mutable state directly across the session and helpers
 - centralize include-stack tracking and `#line` logical-file remapping inside a
   dedicated source mapper
+- preserve the logical include chain for nested preprocess failures so
+  diagnostics can append `included from ...` context
 - export one logical source position per emitted preprocessed line so later
   lexer/parser/semantic stages can inherit preprocess `#line` file and line
   remapping
@@ -137,8 +139,10 @@ PreprocessPass
 `PreprocessContext` owns the mutable state that needs to survive across helper
 calls during one preprocessing pass. `SourceMapper` is the location-focused
 part of that shared state and is responsible for physical include nesting plus
-`#line`-driven logical remapping during preprocessing. `PreprocessRuntime` is
-now intentionally narrower and only keeps emitted output,
+`#line`-driven logical remapping during preprocessing. It also records the
+logical include site for each nested file so preprocess errors can emit nested
+include traces. `PreprocessRuntime` is now intentionally narrower and only
+keeps emitted output,
 [SourceLineMap](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
 data for emitted-line logical positions, comment state, and file-skip metadata
 such as `#pragma once` bookkeeping.
@@ -150,10 +154,15 @@ such as `#pragma once` bookkeeping.
   - `#define NAME value`
   - `#define ADD(a, b) ((a) + (b))`
   - `#define LOG(...) __VA_ARGS__`
-  - `#error message`
-  - `#warning message`
-  - `#line 123`
-  - `#line 123 "file.h"`
+- `#error message`
+- `#warning message`
+- empty `#error` / `#warning` directives use default directive-triggered messages
+- non-empty `#error` / `#warning` directives preserve the full trimmed
+  remainder text
+- `#line 123`
+- `#line 123 "file.h"`
+- `#line 123 "file name with spaces.h"`
+  - trailing tokens after the optional quoted file name are rejected
   - `#pragma once`
   - `#pragma anything-else`
   - `#undef NAME`

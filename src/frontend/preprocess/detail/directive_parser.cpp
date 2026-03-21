@@ -102,6 +102,93 @@ bool is_valid_identifier(const std::string &text) {
     return true;
 }
 
+PassResult parse_line_directive_payload(const std::string &payload_text,
+                                        int &line_number,
+                                        std::string &line_file_path) {
+    std::size_t index = 0;
+    while (index < payload_text.size() &&
+           std::isspace(static_cast<unsigned char>(payload_text[index])) != 0) {
+        ++index;
+    }
+
+    const std::size_t line_begin = index;
+    while (index < payload_text.size() &&
+           std::isdigit(static_cast<unsigned char>(payload_text[index])) != 0) {
+        ++index;
+    }
+
+    if (line_begin == index) {
+        if (index >= payload_text.size()) {
+            return PassResult::Failure(
+                "invalid #line directive: missing line number");
+        }
+        return PassResult::Failure("invalid #line directive: invalid line number");
+    }
+
+    if (index < payload_text.size() &&
+        std::isspace(static_cast<unsigned char>(payload_text[index])) == 0) {
+        return PassResult::Failure("invalid #line directive: invalid line number");
+    }
+
+    line_number = std::stoi(payload_text.substr(line_begin, index - line_begin));
+
+    while (index < payload_text.size() &&
+           std::isspace(static_cast<unsigned char>(payload_text[index])) != 0) {
+        ++index;
+    }
+
+    if (index >= payload_text.size()) {
+        line_file_path.clear();
+        return PassResult::Success();
+    }
+
+    if (payload_text[index] != '"') {
+        return PassResult::Failure("invalid #line directive: invalid file name");
+    }
+
+    ++index;
+    line_file_path.clear();
+    bool closed_quote = false;
+    bool escaping = false;
+    while (index < payload_text.size()) {
+        const char current = payload_text[index];
+        if (escaping) {
+            line_file_path.push_back(current);
+            escaping = false;
+            ++index;
+            continue;
+        }
+        if (current == '\\') {
+            escaping = true;
+            ++index;
+            continue;
+        }
+        if (current == '"') {
+            closed_quote = true;
+            ++index;
+            break;
+        }
+        line_file_path.push_back(current);
+        ++index;
+    }
+
+    if (!closed_quote || escaping) {
+        return PassResult::Failure("invalid #line directive: invalid file name");
+    }
+
+    while (index < payload_text.size() &&
+           std::isspace(static_cast<unsigned char>(payload_text[index])) != 0) {
+        ++index;
+    }
+
+    if (index != payload_text.size()) {
+        return PassResult::Failure(
+            "invalid #line directive: unexpected trailing tokens");
+    }
+
+    return PassResult::Success();
+}
+
 } // namespace
 
 bool DirectiveParser::is_directive(const std::string &line) const {
@@ -109,8 +196,8 @@ bool DirectiveParser::is_directive(const std::string &line) const {
     return !trimmed.empty() && trimmed.front() == '#';
 }
 
-PassResult DirectiveParser::parse(const std::string &line,
-                                  Directive &directive) const {
+PassResult DirectiveParser::parse(const std::string &line, Directive &directive,
+                                  bool validate_syntax) const {
     if (!is_directive(line)) {
         return PassResult::Failure("not a directive");
     }
@@ -152,7 +239,8 @@ PassResult DirectiveParser::parse(const std::string &line,
 
         // Reject names that cannot ever participate in identifier-based macro
         // lookup before we continue parsing the rest of the directive.
-        if (!remainder.empty() && !is_identifier_start(remainder[0])) {
+        if (validate_syntax && !remainder.empty() &&
+            !is_identifier_start(remainder[0])) {
             return PassResult::Failure(
                 "invalid #define directive: invalid macro name");
         }
@@ -201,7 +289,7 @@ PassResult DirectiveParser::parse(const std::string &line,
                 while (std::getline(parameter_stream, parameter, ',')) {
                     parameter = trim(parameter);
                     if (!parameter.empty()) {
-                        if (is_variadic_macro) {
+                        if (validate_syntax && is_variadic_macro) {
                             return PassResult::Failure(
                                 "invalid #define directive: variadic macro "
                                 "parameter must be last");
@@ -215,12 +303,14 @@ PassResult DirectiveParser::parse(const std::string &line,
                                               "...") == 0) {
                             parameter.erase(parameter.size() - 3);
                             parameter = trim(parameter);
-                            if (!is_valid_identifier(parameter)) {
+                            if (validate_syntax &&
+                                !is_valid_identifier(parameter)) {
                                 return PassResult::Failure(
                                     "invalid #define directive: invalid macro "
                                     "parameter name");
                             }
-                            if (!parameter_names.insert(parameter).second) {
+                            if (validate_syntax &&
+                                !parameter_names.insert(parameter).second) {
                                 return PassResult::Failure(
                                     "invalid #define directive: duplicate "
                                     "macro parameter");
@@ -229,12 +319,13 @@ PassResult DirectiveParser::parse(const std::string &line,
                             is_variadic_macro = true;
                             continue;
                         }
-                        if (!is_valid_identifier(parameter)) {
+                        if (validate_syntax && !is_valid_identifier(parameter)) {
                             return PassResult::Failure(
                                 "invalid #define directive: invalid macro "
                                 "parameter name");
                         }
-                        if (!parameter_names.insert(parameter).second) {
+                        if (validate_syntax &&
+                            !parameter_names.insert(parameter).second) {
                             return PassResult::Failure(
                                 "invalid #define directive: duplicate macro "
                                 "parameter");
@@ -276,13 +367,36 @@ PassResult DirectiveParser::parse(const std::string &line,
             arguments.push_back(argument);
         }
     } else if (kind == DirectiveKind::Error ||
-               kind == DirectiveKind::Pragma ||
-               kind == DirectiveKind::Line) {
+               kind == DirectiveKind::Warning ||
+               kind == DirectiveKind::Pragma) {
         std::string message;
         std::getline(iss, message);
         message = trim_left(message);
         if (!message.empty()) {
             arguments.push_back(message);
+        }
+    } else if (kind == DirectiveKind::Line) {
+        std::string payload;
+        std::getline(iss, payload);
+        payload = trim_left(payload);
+        if (!payload.empty()) {
+            arguments.push_back(payload);
+        }
+
+        int line_number = 0;
+        std::string line_file_path;
+        if (validate_syntax) {
+            const PassResult line_result =
+                parse_line_directive_payload(payload, line_number, line_file_path);
+            if (!line_result.ok) {
+                return line_result;
+            }
+
+            directive = Directive(kind, keyword, std::move(arguments), false,
+                                  false, {}, !payload.empty(),
+                                  std::move(payload), true, line_number,
+                                  std::move(line_file_path));
+            return PassResult::Success();
         }
     } else {
         std::string argument;
@@ -292,7 +406,23 @@ PassResult DirectiveParser::parse(const std::string &line,
         }
     }
 
-    directive = Directive(kind, keyword, std::move(arguments));
+    bool has_text_payload = false;
+    std::string text_payload;
+    if (kind == DirectiveKind::Error || kind == DirectiveKind::Warning ||
+        kind == DirectiveKind::Pragma) {
+        has_text_payload = !arguments.empty();
+        if (has_text_payload) {
+            text_payload = arguments[0];
+        }
+    } else if (kind == DirectiveKind::Line) {
+        has_text_payload = !arguments.empty();
+        if (has_text_payload) {
+            text_payload = arguments[0];
+        }
+    }
+
+    directive = Directive(kind, keyword, std::move(arguments), false, false, {},
+                          has_text_payload, std::move(text_payload));
     return PassResult::Success();
 }
 

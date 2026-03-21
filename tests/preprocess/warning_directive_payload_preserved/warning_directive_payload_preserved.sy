@@ -1,0 +1,2 @@
+#warning "sdk check" requires foo + bar
+int warning_directive_payload_preserved_value = 13;

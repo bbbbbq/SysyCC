@@ -1,0 +1,4 @@
+#line 200 "virtual input spaced.sy"
+#if defined(1)
+int selected = 1;
+#endif

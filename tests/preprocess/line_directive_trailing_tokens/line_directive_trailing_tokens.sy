@@ -1,0 +1,4 @@
+#line 123 "virtual_input.sy" trailing
+int main() {
+    return 0;
+}

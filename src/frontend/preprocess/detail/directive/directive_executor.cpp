@@ -1,7 +1,5 @@
 #include "frontend/preprocess/detail/directive/directive_executor.hpp"
 
-#include <cctype>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -40,20 +38,18 @@ PassResult DirectiveExecutor::evaluate_if_condition(const Directive &directive,
 
 PassResult
 DirectiveExecutor::handle_error_directive(const Directive &directive) const {
-    const std::vector<std::string> &arguments = directive.get_arguments();
-    if (arguments.empty()) {
+    if (!directive.get_has_text_payload()) {
         return PassResult::Failure("#error directive triggered");
     }
 
-    return PassResult::Failure("#error: " + arguments[0]);
+    return PassResult::Failure("#error: " + directive.get_text_payload());
 }
 
 PassResult DirectiveExecutor::handle_warning_directive(
     const Directive &directive, int line_number) const {
-    const std::vector<std::string> &arguments = directive.get_arguments();
     std::string message = "#warning directive triggered";
-    if (!arguments.empty()) {
-        message = "#warning: " + arguments[0];
+    if (directive.get_has_text_payload()) {
+        message = "#warning: " + directive.get_text_payload();
     }
 
     preprocess_context_.get_compiler_context().get_diagnostic_engine().add_warning(
@@ -79,42 +75,14 @@ PassResult DirectiveExecutor::handle_pragma_directive(const Directive &directive
 
 PassResult DirectiveExecutor::handle_line_directive(
     const Directive &directive, int line_number) const {
-    const std::vector<std::string> &arguments = directive.get_arguments();
-    if (arguments.empty()) {
+    if (!directive.get_has_line_number()) {
         return PassResult::Failure("invalid #line directive: missing line number");
-    }
-
-    std::istringstream payload(arguments[0]);
-    std::string line_number_text;
-    payload >> line_number_text;
-    if (line_number_text.empty()) {
-        return PassResult::Failure("invalid #line directive: missing line number");
-    }
-
-    for (char ch : line_number_text) {
-        if (std::isdigit(static_cast<unsigned char>(ch)) == 0) {
-            return PassResult::Failure(
-                "invalid #line directive: invalid line number");
-        }
-    }
-
-    std::string logical_file_path;
-    std::string quoted_file_path;
-    payload >> quoted_file_path;
-    if (!quoted_file_path.empty()) {
-        if (quoted_file_path.size() < 2 || quoted_file_path.front() != '"' ||
-            quoted_file_path.back() != '"') {
-            return PassResult::Failure(
-                "invalid #line directive: invalid file name");
-        }
-        logical_file_path =
-            quoted_file_path.substr(1, quoted_file_path.size() - 2);
     }
 
     preprocess_context_.get_source_mapper().apply_line_directive(
-        line_number,
-        std::stoi(line_number_text),
-        logical_file_path.empty() ? nullptr : &logical_file_path);
+        line_number, directive.get_line_number(),
+        directive.get_line_file_path().empty() ? nullptr
+                                               : &directive.get_line_file_path());
 
     return PassResult::Success();
 }
