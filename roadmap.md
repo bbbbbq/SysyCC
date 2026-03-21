@@ -56,6 +56,52 @@ source file
 - runtime-library call lowering coverage beyond the current direct-call subset
 - `.ll -> .s` / object-file / linker driver pipeline
 
+## Not Fully End-to-End Yet
+
+This section tracks syntax that is already accepted somewhere in the
+front-end, but is still not fully implemented from preprocess through IR.
+
+### Front-End Supported, IR Not Fully Supported
+
+- floating scalar lowering beyond the current `float` / `double` subset
+  - `long double`
+  - `_Float16`
+- broader cast lowering
+  - semantic accepts more casts than IR currently lowers
+  - IR is still mainly complete for `int <-> double`
+
+### Compatibility-Accepted, Semantics Still Incomplete
+
+- non-`once` `#pragma`
+  - recognized and ignored
+  - not fully implemented semantically
+- `#line`
+  - logical file/line remapping exists
+  - full industrial-strength source mapping is still incomplete
+- GNU attributes beyond the current supported subset
+  - only a small subset is semantically meaningful today
+  - the rest are preserved or rejected for compatibility
+- full qualifier system
+  - `const char *`-style cases have real support
+  - complete C qualifier semantics are still incomplete
+- extension builtin types
+  - `_Float16` has front-end and semantic support
+  - full IR and richer operation coverage are still incomplete
+- internal `ptrdiff_t` modeling
+  - pointer difference now uses an internal `ptrdiff_t`-style semantic result
+  - parser-level spelling and fuller standard-library integration are still
+    incomplete
+
+### Highest-Value Next Steps
+
+1. richer integer-type lowering
+   - `long int`
+   - `long long int`
+   - `unsigned int`
+   - `unsigned long long`
+2. broader cast lowering
+3. `_Float16` / `long double` IR support
+
 ## Preprocess
 
 ### Implemented

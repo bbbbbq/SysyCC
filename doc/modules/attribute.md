@@ -13,6 +13,8 @@ src/frontend/attribute/
 ├── attribute_analyzer.hpp
 ├── attribute_analyzer.cpp
 ├── attribute.hpp
+├── gnu_function_attribute_handler.hpp
+├── gnu_function_attribute_handler.cpp
 ├── attribute_parser.hpp
 └── attribute_parser.cpp
 ```
@@ -24,6 +26,7 @@ src/frontend/attribute/
 - preserve attribute names, raw argument text, attachment sites, and source spans
 - analyze preserved function attributes into supported semantic attributes or
   semantic errors
+- route GNU function-attribute semantics through a dedicated handler object
 - provide a reusable interface that AST lowering can call without embedding
   attribute parsing logic directly inside the bison grammar or semantic rules
 
@@ -32,6 +35,7 @@ src/frontend/attribute/
 - [attribute_analyzer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/attribute/attribute_analyzer.hpp)
 - [attribute_analyzer.cpp](/Users/caojunze424/code/SysyCC/src/frontend/attribute/attribute_analyzer.cpp)
 - [attribute.hpp](/Users/caojunze424/code/SysyCC/src/frontend/attribute/attribute.hpp)
+- [gnu_function_attribute_handler.hpp](/Users/caojunze424/code/SysyCC/src/frontend/attribute/gnu_function_attribute_handler.hpp)
 - [attribute_parser.hpp](/Users/caojunze424/code/SysyCC/src/frontend/attribute/attribute_parser.hpp)
 - [attribute_parser.cpp](/Users/caojunze424/code/SysyCC/src/frontend/attribute/attribute_parser.cpp)
 
@@ -43,6 +47,8 @@ src/frontend/attribute/
 - AST lowering preserves parsed attribute lists on `FunctionDecl`
 - semantic analysis now routes preserved function attributes through
   `AttributeAnalyzer`
+- `AttributeAnalyzer` now consults the shared dialect manager and delegates GNU
+  function-attribute meaning through `GnuFunctionAttributeHandler`
 - function-level `__always_inline__` is currently the one supported semantic
   attribute
 - other recognized GNU function attributes currently produce semantic errors
@@ -54,3 +60,5 @@ src/frontend/attribute/
 - this module intentionally separates syntax preservation from semantic meaning
 - semantic analysis now adds a dedicated attribute analyzer without changing the
   parser-to-AST data flow
+- the first handler-registry bridge now exists, so attribute semantics no
+  longer need to stay hard-coded directly inside the top-level analyzer

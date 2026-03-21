@@ -15,6 +15,7 @@ The CLI module converts `argv` into a compiler configuration object.
 - record input and output file paths
 - collect include search directories from `-I`
 - collect system include search directories from `-isystem`
+- map dialect-selection flags into compiler configuration
 - enable dump switches such as `--dump-tokens` and `--dump-parse`
 - print help and version information
 - fill [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
@@ -40,3 +41,9 @@ Output:
 - `-isystem <dir>` is accepted and merged ahead of the default system include directories.
 - The parsed include directories are forwarded through the compiler context and consumed by the preprocess stage during local include resolution.
 - The parsed system include directories are also forwarded through the compiler context and consumed by the preprocess stage during angle-include and `#include_next` resolution.
+- `--strict-c99` disables the GNU, Clang, and builtin-type extension packs for
+  one invocation.
+- `--enable-gnu-dialect` / `--disable-gnu-dialect`,
+  `--enable-clang-dialect` / `--disable-clang-dialect`, and
+  `--enable-builtin-types` / `--disable-builtin-types` explicitly reconfigure
+  the optional dialect packs for one invocation.

@@ -18,6 +18,7 @@ classDiagram
         -ComplierOption option_
         -CompilerContext context_
         -PassManager pass_manager_
+        +validate_dialect_configuration()
         +Run()
     }
 
@@ -30,6 +31,9 @@ classDiagram
         -dump_parse_
         -dump_ast_
         -dump_ir_
+        -enable_gnu_dialect_
+        -enable_clang_dialect_
+        -enable_builtin_type_extension_pack_
     }
 
     class CompilerContext {
@@ -39,6 +43,7 @@ classDiagram
         -system_include_directories_
         -source_manager_
         -source_location_service_
+        -dialect_manager_
         -preprocessed_line_map_
         -tokens_
         -parse_tree_root_
@@ -52,6 +57,7 @@ classDiagram
         -ast_dump_file_path_
         -ir_dump_file_path_
         +get_source_location_service()
+        +get_dialect_manager()
     }
 
     class PassManager {
@@ -73,6 +79,10 @@ classDiagram
     class ParserPass {
     }
 
+    class ParserFeatureValidator {
+        +validate(parse_tree_root, feature_registry, error_info)
+    }
+
     class AttributeParser {
         +parse_gnu_attribute_specifier_seq(node, attachment_site)
     }
@@ -87,6 +97,10 @@ classDiagram
     }
 
     class AstPass {
+    }
+
+    class AstFeatureValidator {
+        +validate(ast_root, feature_registry, error_info)
     }
 
     class SemanticPass {
@@ -151,6 +165,8 @@ classDiagram
         +get_kind()
         +begin_module()
         +end_module()
+        +declare_global(name, type)
+        +define_global(name, type, initializer_text)
         +begin_function(name, return_type, parameters, attributes)
         +end_function()
         +create_label(hint)
@@ -162,6 +178,7 @@ classDiagram
         +emit_store(address, value)
         +emit_load(address, type)
         +emit_binary(op, lhs, rhs, result_type)
+        +emit_cast(value, target_type)
         +emit_call(callee, arguments, return_type)
         +emit_return(value)
         +emit_return_void()
@@ -171,6 +188,15 @@ classDiagram
     class IRBuilder {
         -backend_
         +Build(context)
+    }
+
+    class GnuFunctionAttributeLoweringHandler {
+        +lower_function_attributes(semantic_attributes)
+    }
+
+    class ExtendedBuiltinTypeSemanticHandler {
+        +is_extended_scalar_builtin_name(name)
+        +get_usual_arithmetic_conversion_type(lhs, rhs, semantic_model)
     }
 
     class LlvmIrBackend {
@@ -195,6 +221,7 @@ classDiagram
 
     class LexerState {
         -source_mapping_view_
+        -keyword_registry_
         -line_
         -column_
         -token_line_begin_
@@ -205,6 +232,8 @@ classDiagram
         +reset()
         +set_source_mapping_view()
         +get_source_mapping_view()
+        +set_keyword_registry()
+        +get_keyword_registry()
         +update_position()
         +get_token_line_begin()
         +get_token_column_begin()
@@ -276,6 +305,155 @@ classDiagram
         +get_logical_span(line_begin, col_begin, line_end, col_end)
     }
 
+    class DialectManager {
+        -dialects_
+        -preprocess_feature_registry_
+        -preprocess_probe_handler_registry_
+        -preprocess_directive_handler_registry_
+        -lexer_keyword_registry_
+        -parser_feature_registry_
+        -ast_feature_registry_
+        -semantic_feature_registry_
+        -attribute_semantic_handler_registry_
+        -builtin_type_semantic_handler_registry_
+        -ir_extension_lowering_registry_
+        -ir_feature_registry_
+        -registration_errors_
+        +register_dialect(dialect)
+        +get_dialects()
+        +get_dialect_names()
+        +get_preprocess_feature_registry()
+        +get_preprocess_probe_handler_registry()
+        +get_preprocess_directive_handler_registry()
+        +get_lexer_keyword_registry()
+        +get_parser_feature_registry()
+        +get_ast_feature_registry()
+        +get_semantic_feature_registry()
+        +get_attribute_semantic_handler_registry()
+        +get_builtin_type_semantic_handler_registry()
+        +get_ir_extension_lowering_registry()
+        +get_ir_feature_registry()
+        +get_registration_errors()
+    }
+
+    class FrontendDialect {
+        <<abstract>>
+        +get_name()
+        +contribute_preprocess_features(registry)
+        +contribute_preprocess_probe_handlers(registry)
+        +contribute_preprocess_directive_handlers(registry)
+        +contribute_lexer_keywords(registry)
+        +contribute_parser_features(registry)
+        +contribute_ast_features(registry)
+        +contribute_semantic_features(registry)
+        +contribute_attribute_semantic_handlers(registry)
+        +contribute_builtin_type_semantic_handlers(registry)
+        +contribute_ir_extension_lowering_handlers(registry)
+        +contribute_ir_features(registry)
+    }
+
+    class PreprocessFeatureRegistry {
+        -features_
+        +add_feature(feature)
+        +has_feature(feature)
+        +get_features()
+    }
+
+    class PreprocessProbeHandlerRegistry {
+        -owner_names_
+        -registration_errors_
+        +add_handler(handler_kind, owner_name)
+        +has_handler(handler_kind)
+        +get_owner_name(handler_kind)
+        +get_registration_errors()
+    }
+
+    class PreprocessDirectiveHandlerRegistry {
+        -owner_names_
+        -registration_errors_
+        +add_handler(handler_kind, owner_name)
+        +has_handler(handler_kind)
+        +get_owner_name(handler_kind)
+        +get_registration_errors()
+    }
+
+    class LexerKeywordRegistry {
+        -keywords_
+        -conflicts_
+        +add_keyword(text, kind)
+        +has_keyword(text)
+        +get_keyword_kind(text)
+        +get_keywords()
+        +get_conflicts()
+    }
+
+    class AttributeSemanticHandlerRegistry {
+        -owner_names_
+        -registration_errors_
+        +add_handler(handler_kind, owner_name)
+        +has_handler(handler_kind)
+        +get_owner_name(handler_kind)
+        +get_registration_errors()
+    }
+
+    class BuiltinTypeSemanticHandlerRegistry {
+        -owner_names_
+        -registration_errors_
+        +add_handler(handler_kind, owner_name)
+        +has_handler(handler_kind)
+        +get_owner_name(handler_kind)
+        +get_registration_errors()
+    }
+
+    class IrExtensionLoweringRegistry {
+        -owner_names_
+        -registration_errors_
+        +add_handler(handler_kind, owner_name)
+        +has_handler(handler_kind)
+        +get_owner_name(handler_kind)
+        +get_registration_errors()
+    }
+
+    class ParserFeatureRegistry {
+        -features_
+        +add_feature(feature)
+        +has_feature(feature)
+        +get_features()
+    }
+
+    class AstFeatureRegistry {
+        -features_
+        +add_feature(feature)
+        +has_feature(feature)
+        +get_features()
+    }
+
+    class SemanticFeatureRegistry {
+        -features_
+        +add_feature(feature)
+        +has_feature(feature)
+        +get_features()
+    }
+
+    class IrFeatureRegistry {
+        -features_
+        +add_feature(feature)
+        +has_feature(feature)
+        +get_features()
+    }
+
+    class C99Dialect {
+    }
+
+    class GnuDialect {
+    }
+
+    class ClangDialect {
+    }
+
+    class BuiltinTypeExtensionPack {
+    }
+
     class ParseTreeNode {
         +label
         +source_span
@@ -313,11 +491,11 @@ classDiagram
     }
 
     class BuiltinProbeEvaluator {
-        +try_evaluate(expression, index, macro_table, current_file_path, include_directories, system_include_directories, value, handled)
+        +try_evaluate(expression, index, macro_table, current_file_path, include_directories, system_include_directories, dialect_manager, value, handled)
     }
 
     class NonStandardExtensionManager {
-        +try_evaluate(expression, index, value, handled)
+        +try_evaluate(expression, index, registry, value, handled)
     }
 
     class ClangExtensionProvider {
@@ -394,11 +572,24 @@ classDiagram
         -node_types_
         -symbol_bindings_
         -integer_constant_values_
+        -variable_infos_
         +get_success()
         +get_diagnostics()
         +get_node_type()
         +get_symbol_binding()
         +get_integer_constant_value()
+        +get_variable_info()
+    }
+
+    class VariableSemanticInfo {
+        -is_global_storage_
+        -has_external_linkage_
+        -has_tentative_definition_
+        -has_initialized_definition_
+        +get_is_global_storage()
+        +get_has_external_linkage()
+        +get_has_tentative_definition()
+        +get_has_initialized_definition()
     }
 
     class SemanticDiagnostic {
@@ -426,6 +617,13 @@ classDiagram
         +get_kind()
     }
 
+    class SemanticFieldInfo {
+        -name_
+        -type_
+        +get_name()
+        +get_type()
+    }
+
     class SemanticAnalyzer {
         +Analyze(translation_unit, semantic_context, scope_stack)
     }
@@ -451,6 +649,16 @@ classDiagram
         +is_assignable_type(target, value)
         +is_scalar_type(type)
         +is_integer_like_type(type)
+        +get_usual_arithmetic_conversion_type(lhs, rhs, semantic_model)
+    }
+
+    class IntegerConversionService {
+        +get_integer_type_info(type)
+        +get_floating_type_rank(type)
+        +get_integer_promotion_type(type, semantic_model)
+        +get_common_integer_type(lhs, rhs, semantic_model)
+        +get_usual_arithmetic_conversion_type(lhs, rhs, semantic_model)
+        +get_integer_conversion_plan(source_type, target_type)
     }
 
     class ConstantEvaluator {
@@ -520,6 +728,10 @@ classDiagram
         +analyze_function_attributes(function_decl, semantic_context)
     }
 
+    class GnuFunctionAttributeHandler {
+        +analyze_function_attributes(function_decl, semantic_context)
+    }
+
     class SemanticFunctionAttribute {
         <<enum>>
         AlwaysInline
@@ -532,6 +744,13 @@ classDiagram
         +get_name()
         +get_declared_type()
         +get_dimensions()
+    }
+
+    class QualifiedTypeNode {
+        -is_const_
+        -base_type_
+        +get_is_const()
+        +get_base_type()
     }
 
     class FieldDecl {
@@ -548,10 +767,12 @@ classDiagram
         -declared_type_
         -dimensions_
         -initializer_
+        -is_extern_
         +get_name()
         +get_declared_type()
         +get_dimensions()
         +get_initializer()
+        +get_is_extern()
     }
 
     class ConstDecl {
@@ -566,6 +787,13 @@ classDiagram
     }
 
     class StructDecl {
+        -name_
+        -fields_
+        +get_name()
+        +get_fields()
+    }
+
+    class UnionDecl {
         -name_
         -fields_
         +get_name()
@@ -600,9 +828,30 @@ classDiagram
         +get_pointee_type()
     }
 
+    class QualifiedSemanticType {
+        -is_const_
+        -base_type_
+        +get_is_const()
+        +get_base_type()
+    }
+
+    class CastExpr {
+        -target_type_
+        -operand_
+        +get_target_type()
+        +get_operand()
+    }
+
     class StructTypeNode {
         -name_
         +get_name()
+    }
+
+    class UnionTypeNode {
+        -name_
+        -fields_
+        +get_name()
+        +get_fields()
     }
 
     class EnumTypeNode {
@@ -783,6 +1032,13 @@ classDiagram
         +get_member_name()
     }
 
+    class UnionSemanticType {
+        -name_
+        -fields_
+        +get_name()
+        +get_fields()
+    }
+
     class InitListExpr {
         -elements_
         +get_elements()
@@ -804,6 +1060,7 @@ classDiagram
     ParserPass *-- LexerState
     CompilerContext *-- SourceManager
     CompilerContext *-- SourceLocationService
+    CompilerContext *-- DialectManager
     SourceManager *-- SourceFile
     SourcePosition --> SourceFile
     SourceSpan *-- SourcePosition
@@ -811,9 +1068,32 @@ classDiagram
     SourceLocationService --> SourceManager
     SourceLocationService --> SourceLineMap
     SourceLocationService ..> SourceMappingView : builds
+    DialectManager *-- FrontendDialect
+    DialectManager *-- PreprocessFeatureRegistry
+    DialectManager *-- PreprocessProbeHandlerRegistry
+    DialectManager *-- PreprocessDirectiveHandlerRegistry
+    DialectManager *-- LexerKeywordRegistry
+    DialectManager *-- ParserFeatureRegistry
+    DialectManager *-- AstFeatureRegistry
+    DialectManager *-- SemanticFeatureRegistry
+    DialectManager *-- AttributeSemanticHandlerRegistry
+    DialectManager *-- BuiltinTypeSemanticHandlerRegistry
+    DialectManager *-- IrExtensionLoweringRegistry
+    DialectManager *-- IrFeatureRegistry
+    FrontendDialect <|-- C99Dialect
+    FrontendDialect <|-- GnuDialect
+    FrontendDialect <|-- ClangDialect
+    FrontendDialect <|-- BuiltinTypeExtensionPack
     LexerState *-- SourceMappingView
+    LexerState ..> LexerKeywordRegistry
+    LexerPass ..> DialectManager
+    ParserPass ..> DialectManager
+    SemanticAnalyzer ..> DialectManager
+    Complier ..> DialectManager
+    ParserPass ..> ParserFeatureValidator
     ParserPass ..> CompilerContext : writes parse tree
     AstPass ..> CompilerContext : writes ast root
+    AstPass ..> AstFeatureValidator
     SemanticPass ..> CompilerContext : writes semantic model
     IRGenPass ..> CompilerContext : writes ir result
     PreprocessPass ..> CompilerContext : writes preprocessed file path
@@ -837,8 +1117,11 @@ classDiagram
     PreprocessSession *-- FileLoader
     ConstantExpressionEvaluator *-- BuiltinProbeEvaluator
     BuiltinProbeEvaluator *-- NonStandardExtensionManager
+    BuiltinProbeEvaluator ..> DialectManager
     NonStandardExtensionManager *-- ClangExtensionProvider
     NonStandardExtensionManager *-- GnuExtensionProvider
+    NonStandardExtensionManager ..> PreprocessProbeHandlerRegistry
+    DirectiveExecutor ..> DialectManager
     DirectiveExecutor --> PreprocessContext
     DirectiveExecutor --> ConstantExpressionEvaluator
     DirectiveExecutor --> MacroExpander
@@ -860,6 +1143,7 @@ classDiagram
     AstNode <|-- VarDecl
     AstNode <|-- ConstDecl
     AstNode <|-- StructDecl
+    AstNode <|-- UnionDecl
     AstNode <|-- EnumeratorDecl
     AstNode <|-- EnumDecl
     AstNode <|-- TypedefDecl
@@ -892,10 +1176,14 @@ classDiagram
     AstNode <|-- MemberExpr
     AstNode <|-- InitListExpr
     AstNode <|-- PointerTypeNode
+    AstNode <|-- QualifiedTypeNode
+    AstNode <|-- CastExpr
     AstNode <|-- StructTypeNode
+    AstNode <|-- UnionTypeNode
     AstNode <|-- EnumTypeNode
     TranslationUnit *-- FunctionDecl
     TranslationUnit *-- StructDecl
+    TranslationUnit *-- UnionDecl
     TranslationUnit *-- EnumDecl
     TranslationUnit *-- TypedefDecl
     TranslationUnit *-- VarDecl
@@ -903,21 +1191,29 @@ classDiagram
     FunctionDecl *-- ParsedAttributeList
     ParsedAttributeList *-- ParsedAttribute
     StructDecl *-- FieldDecl
+    UnionDecl *-- FieldDecl
     EnumDecl *-- EnumeratorDecl
     TypedefDecl *-- PointerTypeNode
     FunctionDecl *-- BlockStmt
+    PointerTypeNode *-- QualifiedTypeNode
     PointerTypeNode *-- BuiltinTypeNode
     PointerTypeNode *-- StructTypeNode
+    PointerTypeNode *-- UnionTypeNode
     ReturnStmt *-- IntegerLiteralExpr
     MemberExpr *-- IdentifierExpr
     SemanticPass ..> SemanticAnalyzer
     IRGenPass ..> IRBuilder
     IRBuilder ..> IRBackend
+    IRBuilder ..> DialectManager
+    IRBuilder ..> IrExtensionLoweringRegistry
+    IRBuilder ..> GnuFunctionAttributeLoweringHandler
+    IRBuilder ..> IntegerConversionService
     IRBuilder ..> SemanticModel
     IRBackend <|-- LlvmIrBackend
     IRBackend ..> IRValue
     IRBackend ..> IRFunctionParameter
     IRBackend ..> IRFunctionAttribute
+    LlvmIrBackend ..> IntegerConversionService
     IRBuilder ..> IRContext
     IRBuilder ..> SymbolValueMap
     SemanticAnalyzer ..> DeclAnalyzer
@@ -927,10 +1223,15 @@ classDiagram
     SemanticAnalyzer ..> ConversionChecker
     SemanticAnalyzer ..> ConstantEvaluator
     SemanticAnalyzer ..> AttributeAnalyzer
+    ConversionChecker ..> BuiltinTypeSemanticHandlerRegistry
+    ConversionChecker ..> ExtendedBuiltinTypeSemanticHandler
+    AttributeAnalyzer *-- GnuFunctionAttributeHandler
+    AttributeAnalyzer ..> AttributeSemanticHandlerRegistry
     SemanticPass ..> SemanticContext
     SemanticPass ..> ScopeStack
     SemanticPass ..> BuiltinSymbols
     SemanticModel ..> SemanticFunctionAttribute
+    TypeResolver ..> QualifiedSemanticType
     DeclAnalyzer ..> ExprAnalyzer
     DeclAnalyzer ..> TypeResolver
     DeclAnalyzer ..> ConversionChecker
@@ -946,6 +1247,9 @@ classDiagram
     SemanticModel *-- SemanticDiagnostic
     SemanticModel *-- SemanticSymbol
     SemanticModel *-- SemanticType
+    SemanticModel *-- VariableSemanticInfo
+    SemanticType <|-- UnionSemanticType
+    UnionSemanticType *-- SemanticFieldInfo
     Token *-- SourceSpan
     Diagnostic *-- SourceSpan
     SourceSpan ..> SourcePosition
@@ -984,6 +1288,8 @@ Role:
 - translate CLI state into [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
 - collect user include directories from `-I`
 - collect system include directories from `-isystem`
+- translate dialect-selection flags such as strict C99 mode and optional pack
+  toggles into compiler options
 
 ### `sysycc::ComplierOption`
 
@@ -995,6 +1301,7 @@ Role:
 
 - store the configuration of one compile run
 - carry file paths, user/system include search directories, and dump switches
+- carry per-invocation dialect-pack enable/disable flags
 
 ### `sysycc::Complier`
 
@@ -1007,6 +1314,7 @@ Role:
 
 - own the compilation pipeline
 - initialize passes
+- reconfigure dialect packs from compiler options before validation and run
 - invoke the pass manager
 
 Owned objects:
@@ -1028,6 +1336,10 @@ Role:
 - own the shared `SourceManager` registry for front-end file identity
 - own one shared `SourceLocationService` so source-related lookup and view
   construction do not live directly on the context object
+- own one shared `DialectManager` so enabled C99/GNU/Clang/builtin-type packs
+  are registered once per compiler run
+- rebuild the enabled dialect-pack set when one invocation requests strict C99
+  mode or optional pack switches
 - store one `SourceLineMap` for emitted preprocessed lines so later stages can
   inherit preprocess `#line` remapping
 - store include search directories for preprocessing
@@ -1108,6 +1420,9 @@ Role:
 - keep lexer-only runs free of parser-runtime terminal-node allocation
 - enable scanner-side terminal-node creation only for parser-driven runs
 - create independent scanner sessions with their own lexer runtime state
+- recognize additional C declaration forms needed by system headers, including
+  `union`, inline anonymous union declarations, and builtin declaration
+  specifier combinations such as `unsigned int` and `unsigned long long`
 
 ### `sysycc::AstPass`
 
@@ -1121,7 +1436,8 @@ Role:
 - lower the parser runtime tree into a compiler-facing AST
 - write the ast root into [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 - emit `*.ast.txt` intermediate artifacts when `--dump-ast` is enabled
-- preserve compiler-facing declarations for parsed `struct`, `enum`, and `typedef` syntax instead of dropping them into `UnknownDecl`
+- preserve compiler-facing declarations for parsed `struct`, `union`, `enum`,
+  and `typedef` syntax instead of dropping them into `UnknownDecl`
 - record whether the lowered AST is complete via `CompilerContext::get_ast_complete()`
 - reject AST results that still contain `Unknown*` placeholders when AST dumping is explicitly requested
 
@@ -1158,7 +1474,14 @@ Role:
 - provide `LlvmIrBackend` as the first concrete target while leaving room for
   future IR backends
 - let `IRBackend` own top-level declaration emission so runtime-style external
-  calls can be declared without leaking LLVM syntax into `IRGenPass`
+  calls and global objects can be emitted without leaking LLVM syntax into
+  `IRGenPass`
+- keep scalar cast lowering behind `IRBackend::emit_cast(...)` so AST and
+  semantic cast support do not leak LLVM spellings into the generic IR builder
+- keep integer-width/sign coercion planning behind
+  `detail::IntegerConversionService` so the generic IR builder can reuse the
+  same conversion decisions at `return`, assignment, initializer, and
+  call-argument sites
 
 ### `sysycc::Diagnostic`, `sysycc::DiagnosticEngine`, and `sysycc::DiagnosticFormatter`
 
@@ -1191,9 +1514,12 @@ Role:
 
 - store one scanner session's shared downstream source-mapping view plus
   line/column tracking
+- store one shared pointer to the active dialect-managed keyword registry
 - store the current token source span
 - consume one shared `SourceMappingView` so lexer and parser scanner sessions
   remap token file/line information after preprocess `#line`
+- consume one shared `LexerKeywordRegistry` so identifier-like lexemes can be
+  classified into the active dialect keyword set at runtime
 - expose explicit physical and logical token position accessors while keeping
   logical positions as the default downstream-facing representation
 - control whether scanner actions should emit parse-tree terminal nodes
@@ -1340,6 +1666,56 @@ Role:
   manually pairing file identity with line remap state, and expose explicit
   physical/logical lookup entry points for downstream consumers
 
+### `sysycc::DialectManager`, `sysycc::FrontendDialect`, and stage feature registries
+
+Defined in:
+
+- [dialect_manager.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect_manager.hpp)
+- [dialect.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect.hpp)
+- [preprocess_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/preprocess_feature_registry.hpp)
+- [preprocess_probe_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/preprocess_probe_handler_registry.hpp)
+- [preprocess_directive_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/preprocess_directive_handler_registry.hpp)
+- [lexer_keyword_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/lexer_keyword_registry.hpp)
+- [parser_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/parser_feature_registry.hpp)
+- [ast_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/ast_feature_registry.hpp)
+- [semantic_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/semantic_feature_registry.hpp)
+- [attribute_semantic_handler_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/attribute_semantic_handler_registry.hpp)
+- [ir_extension_lowering_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/ir_extension_lowering_registry.hpp)
+- [ir_feature_registry.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/ir_feature_registry.hpp)
+
+Role:
+
+- `DialectManager`: own the enabled dialect packs for one compiler run,
+  aggregate preprocess/lexer/parser/AST/semantic/IR registries from those
+  packs, and surface registration errors such as keyword conflicts or handler
+  owner collisions
+- `FrontendDialect`: define the shared extension contract used by dialect packs
+  to contribute preprocess/lexer/parser/AST/semantic/IR feature flags and the
+  first handler-registry ownership declarations
+- `PreprocessFeatureRegistry`: store preprocess-side extension ownership such
+  as clang builtin probes and non-standard directive payload handling
+- `PreprocessProbeHandlerRegistry`: store which dialect currently owns each
+  non-standard preprocess probe family
+- `PreprocessDirectiveHandlerRegistry`: store which dialect currently owns each
+  non-standard preprocess directive family currently routed through the shared
+  directive executor
+- `LexerKeywordRegistry`: store one normalized keyword-to-`TokenKind` map
+  derived from all enabled dialects, record incompatible remap attempts, and
+  feed runtime identifier-to-keyword classification in lexer/parser scanner
+  sessions
+- `ParserFeatureRegistry`, `AstFeatureRegistry`,
+  `SemanticFeatureRegistry`, and `IrFeatureRegistry`: store the currently
+  enabled stage-local feature flags exported by the active dialect packs
+- `AttributeSemanticHandlerRegistry`: store which dialect currently owns
+  semantic interpretation of preserved attribute families
+- `BuiltinTypeSemanticHandlerRegistry`: store which dialect currently owns
+  semantic interpretation of extension builtin scalar types such as `_Float16`
+- `IrExtensionLoweringRegistry`: store which dialect currently owns extension
+  lowering families consumed by the IR builder
+- `C99Dialect`, `GnuDialect`, `ClangDialect`, and
+  `BuiltinTypeExtensionPack`: implement the first concrete packs used by the
+  default compiler context
+
 ### `sysycc::ParseTreeNode`
 
 Defined in:
@@ -1362,12 +1738,16 @@ Role:
 - provide a smaller compiler-facing tree than the grammar-shaped parse tree
 - keep a stable `AstKind` and [SourceSpan](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp) on every AST node
 - organize the first AST layer into `TranslationUnit`, `FunctionDecl`,
-  `VarDecl`, `ConstDecl`, `PointerTypeNode`, `BlockStmt`, `ReturnStmt`,
+  `VarDecl`, `ConstDecl`, `StructDecl`, `UnionDecl`, `PointerTypeNode`,
+  `StructTypeNode`, `UnionTypeNode`, `BlockStmt`, `ReturnStmt`,
   `IntegerLiteralExpr`, `FloatLiteralExpr`, `CharLiteralExpr`,
   `StringLiteralExpr`, `IdentifierExpr`, `UnaryExpr`, `PrefixExpr`,
-  `PostfixExpr`, `BinaryExpr`, `ConditionalExpr`, `CallExpr`, `IndexExpr`, `MemberExpr`
-  (for both `.` and `->`),
-  `InitListExpr`, and `Unknown*` placeholders
+  `PostfixExpr`, `BinaryExpr`, `CastExpr`, `ConditionalExpr`, `CallExpr`, `IndexExpr`,
+  `MemberExpr` (for both `.` and `->`), `InitListExpr`, and `Unknown*`
+  placeholders
+- let `AstBuilder` lower combined builtin declaration specifiers such as
+  `long int`, `long long int`, `unsigned int`, `unsigned long long`, and
+  `long double` into stable builtin type nodes for later semantic analysis
 
 ### `sysycc::SemanticModel`, `SemanticDiagnostic`, `SemanticSymbol`, `SemanticType`, and semantic helpers
 
@@ -1394,15 +1774,23 @@ Role:
   node-symbol bindings, and foldable integer constant-expression values
 - `SemanticDiagnostic`: represent one semantic warning/error with a source span
 - `SemanticSymbol`: represent one resolved declaration symbol
-- `SemanticType`: represent semantic types such as builtin, pointer, array, function, struct, and enum
+- `SemanticType`: represent semantic types such as builtin, pointer, array,
+  function, struct, union, and enum
 - `SemanticAnalyzer`: orchestrate the specialized semantic helpers over one
   complete AST
 - `DeclAnalyzer`: enforce declaration-level rules and register non-function
-  symbols
+  symbols including named `union` declarations
 - `StmtAnalyzer`: enforce statement/control-flow rules
-- `ExprAnalyzer`: enforce expression/operator rules and bind expression types
+- `ExprAnalyzer`: enforce expression/operator rules, including struct-or-union
+  member lookup for `.` and `->`, and bind expression types
 - `TypeResolver`: lower AST type nodes into semantic types
 - `ConversionChecker`: answer type-compatibility and operand-category questions
+  including union-aware aggregate checks, unsigned builtin integer forms, and
+  the usual-arithmetic-conversion result type
+- `IntegerConversionService`: classify currently supported integer source/target
+  pairs into `None` / `SignExtend` / `ZeroExtend` / `Truncate` plans for later
+  IR coercion, and centralize integer promotions plus usual arithmetic
+  conversion selection for the supported scalar subset
 - `ConstantEvaluator`: query and store foldable integer constant-expression
   results
 - `SemanticContext`: carry one analysis run's transient state
@@ -1422,6 +1810,6 @@ Role:
   [src/frontend/preprocess](/Users/caojunze424/code/SysyCC/src/frontend/preprocess).
 - The files under [src/pass](/Users/caojunze424/code/SysyCC/src/pass) are not
   the primary class relationship path anymore.
-- The current architecture is front-end focused and now includes AST and an
-  initial semantic-analysis layer, but IR classes and backend code generation
-  have not been introduced yet.
+- The current architecture now spans preprocessing, lexer/parser, AST,
+  semantic analysis, and the first LLVM-IR backend path, while later C
+  compatibility work is still extending parser/semantic coverage.

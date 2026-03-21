@@ -61,12 +61,15 @@ The current first-pass AST builder recognizes:
 - `VarDecl`
 - `ConstDecl`
 - `StructDecl`
+- `UnionDecl`
 - `EnumeratorDecl`
 - `EnumDecl`
 - `TypedefDecl`
 - `BuiltinTypeNode`
+- `QualifiedTypeNode`
 - `PointerTypeNode`
 - `StructTypeNode`
+- `UnionTypeNode`
 - `EnumTypeNode`
 - `BlockStmt`
 - `DeclStmt`
@@ -90,6 +93,7 @@ The current first-pass AST builder recognizes:
 - `PrefixExpr`
 - `PostfixExpr`
 - `BinaryExpr`
+- `CastExpr`
 - `ConditionalExpr`
 - `AssignExpr`
 - `CallExpr`
@@ -121,7 +125,28 @@ Function lowering also preserves declaration-only prototypes:
   declaration-specifier position
 - unnamed prototype parameters remain `ParamDecl` nodes with an empty internal
   name and appear as `<unnamed>` in AST dumps
+- unnamed pointer prototype parameters lower through `PointerTypeNode`
+  parameter types without introducing synthetic parameter names
+- simple parameter-side `const` qualifiers now lower as `QualifiedTypeNode`
+  wrapped under the pointee side of `PointerTypeNode`, so `const char *`
+  preserves qualifier structure in the AST
 - builtin declaration lowering now includes `long double`
+- builtin declaration lowering now includes `_Float16`
+- builtin declaration lowering now also includes `long int`
+- builtin declaration lowering now also includes `long long int`
+- builtin declaration lowering now also includes `signed char`, `short`,
+  `unsigned char`, and `unsigned short`
+- declaration lowering now also preserves `union` declarations and inline
+  anonymous union type nodes used directly in local declarations
+- builtin declaration lowering now includes `unsigned int` and
+  `unsigned long long`
+- declaration lowering also accepts `extern` variable declarations and lowers
+  them through the same `VarDecl` node family
+- `VarDecl` now preserves whether the parsed declaration carried `extern`, so
+  later semantic and IR stages can distinguish global/external storage from
+  ordinary local storage
+- expression lowering now includes C-style cast nodes with one target
+  `TypeNode` and one operand expression
 
 ## Notes
 
@@ -134,13 +159,20 @@ Function lowering also preserves declaration-only prototypes:
 - Additional baseline AST tests live in:
   - [tests/ast/ast_multiple_functions/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_multiple_functions/run.sh)
 - [tests/ast/ast_float_return_type/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_float_return_type/run.sh)
+- [tests/ast/ast_cast_expr/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_cast_expr/run.sh)
 - [tests/ast/ast_double_type/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_double_type/run.sh)
+- [tests/ast/ast_extern_variable_decl/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_extern_variable_decl/run.sh)
+- [tests/ast/ast_float16_type/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_float16_type/run.sh)
 - [tests/ast/ast_unknown_expr/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_unknown_expr/run.sh)
 - [tests/ast/ast_function_call/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_function_call/run.sh)
 - [tests/ast/ast_gnu_attribute_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_gnu_attribute_prototype/run.sh)
 - [tests/ast/ast_inline_function_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_inline_function_prototype/run.sh)
+- [tests/ast/ast_const_char_pointer_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_const_char_pointer_prototype/run.sh)
 - [tests/ast/ast_nested_init_list/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_nested_init_list/run.sh)
+- [tests/ast/ast_unnamed_pointer_parameter_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_unnamed_pointer_parameter_prototype/run.sh)
 - [tests/ast/ast_pointer_types/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_pointer_types/run.sh)
+- [tests/ast/ast_union_decl/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_union_decl/run.sh)
+- [tests/ast/ast_signed_short_builtin_types/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_signed_short_builtin_types/run.sh)
 - [tests/ast/ast_member_access/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_member_access/run.sh)
 - [tests/ast/ast_source_span/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_source_span/run.sh)
 - [tests/ast/ast_type_decls/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_type_decls/run.sh)

@@ -83,6 +83,8 @@ src/frontend/preprocess/
   keeping every probe special-case inside the core constant expression parser
 - route non-standard probe families through a manager/provider split so clang-
   specific and GNU-specific compatibility can evolve independently
+- route non-standard probe-family activation through the shared dialect-side
+  preprocess probe handler registry
 - route directive execution through a dedicated internal helper instead of
   keeping all directive semantics inside the preprocessing session driver
 - centralize shared preprocessing state inside a dedicated preprocess context
@@ -132,9 +134,11 @@ PreprocessPass
           -> SourceMapper
       -> DirectiveParser
       -> DirectiveExecutor
+          -> PreprocessDirectiveHandlerRegistry
       -> ConstantExpressionEvaluator
           -> BuiltinProbeEvaluator
               -> NonStandardExtensionManager
+                  -> PreprocessProbeHandlerRegistry
                   -> ClangExtensionProvider
                   -> GnuExtensionProvider
       -> MacroExpander
@@ -156,7 +160,20 @@ data for emitted-line logical positions, comment state, and file-skip metadata
 such as `#pragma once` bookkeeping.
 At the start of each run, the session also seeds a minimal host predefined
 macro set, including standard hosted-C macros plus the current compiler and
-architecture identity macros used by common system headers.
+architecture identity macros used by common system headers, but that seeding is
+now gated by the shared `PreprocessFeatureRegistry` through the
+`GnuPredefinedMacros` feature flag.
+The non-standard probe path now also consults the shared dialect manager before
+dispatching to provider implementations, so clang-style builtin-probe support
+is enabled by declared handler ownership instead of by an always-on implicit
+route. `__has_include*` is likewise gated by the `HasIncludeFamily` feature,
+and clang-style non-standard probes are gated by `ClangBuiltinProbes`. The
+first non-standard directive bridge now follows the same pattern:
+`DirectiveExecutor` consults the shared
+`PreprocessDirectiveHandlerRegistry` before honoring `#warning` and
+`#pragma once`, and now also requires the
+`NonStandardDirectivePayloads` feature, so those behaviors are owned by enabled
+dialect packs instead of being permanently unconditional.
 
 ## Supported Syntax
 

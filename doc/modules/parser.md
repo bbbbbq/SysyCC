@@ -32,15 +32,39 @@ src/frontend/parser/
   extensions
 - parse float / double / char / string literals, pointer declarators, `for`,
   `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`,
-  ordinary expression-level ternary `?:`, both `.` / `->` member access, and
-  top-level `extern` / `inline` function prototype declarations
+  ordinary expression-level ternary `?:`, C-style casts `(type)expr`, both `.`
+  / `->` member access, and top-level `extern` / `inline` function prototype
+  declarations
+- parse `extern` variable declarations such as `extern int signgam;`
+- parse declaration-side builtin forms such as `_Float16`, `__signed char`,
+  `short`, `unsigned char`, and `unsigned short`
+- parse `union` declarations and inline anonymous `union { ... } name;`
+  declarations inside blocks
+- parse `unsigned`, `unsigned int`, and `unsigned long long` declaration
+  specifiers
+- parse `long` / `long int` declaration specifiers as builtin integer forms
+- parse `long long` / `long long int` declaration specifiers as builtin integer
+  forms
 - recognize GNU-style `__attribute__((...))` specifier sequences attached to
   function declarations and definitions
 - accept declaration-only function prototypes such as `extern int foo(void);`
   and `inline int foo(void);`, plus unnamed prototype parameters such as
   `extern int bar(float);`
+- accept unnamed pointer prototype parameters such as
+  `extern float modff(float, float *);`
+- accept simple `const`-qualified prototype parameters such as
+  `extern float nanf(const char *);`, preserving the qualifier into AST
+  lowering as a pointee-side qualified type
 - accept `long double` as a builtin declaration type, including prototype forms
   such as `extern long double f(long double);`
+- accept `long int` as a builtin declaration type, including prototype forms
+  such as `extern float scalblnf(float, long int);`
+- accept `long long int` as a builtin declaration type, including prototype
+  forms such as `extern long long int llrint(double);`
+- accept `_Float16` as a builtin declaration type, including prototype forms
+  such as `extern _Float16 nextafterh(_Float16, _Float16);`
+- accept builtin declaration forms such as `signed char`, `short`,
+  `unsigned char`, and `unsigned short` inside declarations and typedefs
 - capture parser syntax failures as structured parser-runtime error state so
   CLI diagnostics can report the current token text and logical source span
 

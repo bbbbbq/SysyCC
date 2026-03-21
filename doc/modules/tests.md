@@ -11,6 +11,8 @@ Tests are now grouped by pipeline stage:
 
 ```text
 tests/
+├── dialects/
+│   └── <case>/
 ├── fuzz/
 │   └── generate_and_build_csmith_cases.sh
 ├── ast/
@@ -39,6 +41,39 @@ Each concrete case lives under `tests/<stage>/<case>/` and contains:
 - any stage-specific helper files such as local headers
 
 ## Stage Groups
+
+### `tests/dialects/`
+
+Lightweight architecture regressions for the shared dialect skeleton, including:
+
+- default dialect registration aggregation
+- preprocess/stage registry visibility
+- preprocess directive/probe/attribute/builtin-type/IR handler ownership
+  visibility
+- explicit keyword-conflict recording instead of silent overwrite
+- runtime lexer keyword classification through the shared keyword registry
+- runtime parser feature gating over parsed syntax
+- runtime AST feature gating over lowered nodes
+- runtime preprocess feature gating over predefined macros and builtin probes
+- compiler fail-fast behavior for invalid dialect registration state
+- strict-C99 dialect configuration
+- optional dialect-pack switch behavior
+- CLI-to-dialect-option mapping
+
+Representative paths:
+
+- [tests/dialects/default_dialect_registry](/Users/caojunze424/code/SysyCC/tests/dialects/default_dialect_registry)
+- [tests/dialects/handler_registry_conflict_policy](/Users/caojunze424/code/SysyCC/tests/dialects/handler_registry_conflict_policy)
+- [tests/dialects/lexer_keyword_conflict_policy](/Users/caojunze424/code/SysyCC/tests/dialects/lexer_keyword_conflict_policy)
+- [tests/dialects/lexer_keyword_runtime_classification](/Users/caojunze424/code/SysyCC/tests/dialects/lexer_keyword_runtime_classification)
+- [tests/dialects/parser_feature_runtime_policy](/Users/caojunze424/code/SysyCC/tests/dialects/parser_feature_runtime_policy)
+- [tests/dialects/ast_feature_runtime_policy](/Users/caojunze424/code/SysyCC/tests/dialects/ast_feature_runtime_policy)
+- [tests/dialects/semantic_feature_runtime_policy](/Users/caojunze424/code/SysyCC/tests/dialects/semantic_feature_runtime_policy)
+- [tests/dialects/preprocess_feature_runtime_policy](/Users/caojunze424/code/SysyCC/tests/dialects/preprocess_feature_runtime_policy)
+- [tests/dialects/dialect_registration_fail_fast](/Users/caojunze424/code/SysyCC/tests/dialects/dialect_registration_fail_fast)
+- [tests/dialects/strict_c99_dialect_configuration](/Users/caojunze424/code/SysyCC/tests/dialects/strict_c99_dialect_configuration)
+- [tests/dialects/optional_dialect_pack_switches](/Users/caojunze424/code/SysyCC/tests/dialects/optional_dialect_pack_switches)
+- [tests/dialects/cli_dialect_option_mapping](/Users/caojunze424/code/SysyCC/tests/dialects/cli_dialect_option_mapping)
 
 ### `tests/preprocess/`
 
@@ -117,6 +152,7 @@ Lexer-stage regressions and targeted diagnostics, including:
 - literal formats
 - `inline` keyword tokenization through prototype parsing
 - `long double` keyword tokenization
+- `union` and `unsigned` keyword tokenization through declaration parsing
 - invalid-token diagnostics
 - scanner-structure checks
 
@@ -142,9 +178,18 @@ Parser-oriented frontend smoke tests, including:
 - GNU-style function attribute parsing
 - member-access parsing
 - builtin `double` type parsing
+- builtin `_Float16` type parsing
+- `extern` variable declarations
+- compatible file-scope global redeclarations
+- builtin `signed char` / `short` / `unsigned short` declaration forms
+- builtin `long int` type parsing
+- builtin `long long int` type parsing
+- `union` declarations and inline anonymous union declarations
 - declaration-only function prototypes
 - `inline` declaration-only function prototypes
 - unnamed prototype parameters
+- unnamed pointer prototype parameters
+- `const char *`-style prototype parameters
 - `long double` declaration parsing
 - parser failure diagnostics with current-token text and logical source spans
 
@@ -156,12 +201,20 @@ Representative paths:
 - [tests/parser/control_flow](/Users/caojunze424/code/SysyCC/tests/parser/control_flow)
 - [tests/parser/c_parser_extensions](/Users/caojunze424/code/SysyCC/tests/parser/c_parser_extensions)
 - [tests/parser/double_type](/Users/caojunze424/code/SysyCC/tests/parser/double_type)
+- [tests/parser/extern_variable_decl](/Users/caojunze424/code/SysyCC/tests/parser/extern_variable_decl)
+- [tests/parser/float16_type](/Users/caojunze424/code/SysyCC/tests/parser/float16_type)
 - [tests/parser/function_prototype_decl](/Users/caojunze424/code/SysyCC/tests/parser/function_prototype_decl)
 - [tests/parser/gnu_attribute_prototype](/Users/caojunze424/code/SysyCC/tests/parser/gnu_attribute_prototype)
 - [tests/parser/inline_function_prototype](/Users/caojunze424/code/SysyCC/tests/parser/inline_function_prototype)
+- [tests/parser/const_char_pointer_prototype](/Users/caojunze424/code/SysyCC/tests/parser/const_char_pointer_prototype)
+- [tests/parser/long_int_type](/Users/caojunze424/code/SysyCC/tests/parser/long_int_type)
+- [tests/parser/long_long_int_type](/Users/caojunze424/code/SysyCC/tests/parser/long_long_int_type)
 - [tests/parser/long_double_type](/Users/caojunze424/code/SysyCC/tests/parser/long_double_type)
+- [tests/parser/signed_short_builtin_types](/Users/caojunze424/code/SysyCC/tests/parser/signed_short_builtin_types)
 - [tests/parser/ternary_expr](/Users/caojunze424/code/SysyCC/tests/parser/ternary_expr)
+- [tests/parser/union_decl](/Users/caojunze424/code/SysyCC/tests/parser/union_decl)
 - [tests/parser/unnamed_parameter_prototype](/Users/caojunze424/code/SysyCC/tests/parser/unnamed_parameter_prototype)
+- [tests/parser/unnamed_pointer_parameter_prototype](/Users/caojunze424/code/SysyCC/tests/parser/unnamed_pointer_parameter_prototype)
 - [tests/parser/parser_error_diagnostic](/Users/caojunze424/code/SysyCC/tests/parser/parser_error_diagnostic)
 
 ### `tests/ast/`
@@ -173,13 +226,23 @@ AST lowering regressions, including:
 - initializer-list preservation
 - source spans
 - pointer/member access
+- direct pointer arithmetic over `pointer + integer`, `pointer - integer`, and
+  `pointer - pointer`
 - completeness guards
 - control-flow lowering
 - builtin `double` type lowering
+- builtin `_Float16` type lowering
+- `extern` variable declaration lowering
+- builtin `signed char` / `short` / `unsigned short` type lowering
+- builtin `long int` type lowering
+- builtin `long long int` type lowering
+- union declaration lowering
 - declaration-only function prototype lowering
 - GNU-style function attribute lowering
 - `inline` declaration-only function prototype lowering
 - unnamed prototype parameter lowering
+- unnamed pointer prototype parameter lowering
+- `const char *` prototype parameter lowering with preserved pointee qualifiers
 - `long double` declaration lowering
 
 Representative paths:
@@ -193,11 +256,19 @@ Representative paths:
 - [tests/ast/ast_stmt_extensions](/Users/caojunze424/code/SysyCC/tests/ast/ast_stmt_extensions)
 - [tests/ast/ast_conditional_expr](/Users/caojunze424/code/SysyCC/tests/ast/ast_conditional_expr)
 - [tests/ast/ast_double_type](/Users/caojunze424/code/SysyCC/tests/ast/ast_double_type)
+- [tests/ast/ast_extern_variable_decl](/Users/caojunze424/code/SysyCC/tests/ast/ast_extern_variable_decl)
+- [tests/ast/ast_float16_type](/Users/caojunze424/code/SysyCC/tests/ast/ast_float16_type)
 - [tests/ast/ast_function_prototype](/Users/caojunze424/code/SysyCC/tests/ast/ast_function_prototype)
 - [tests/ast/ast_gnu_attribute_prototype](/Users/caojunze424/code/SysyCC/tests/ast/ast_gnu_attribute_prototype)
 - [tests/ast/ast_inline_function_prototype](/Users/caojunze424/code/SysyCC/tests/ast/ast_inline_function_prototype)
+- [tests/ast/ast_const_char_pointer_prototype](/Users/caojunze424/code/SysyCC/tests/ast/ast_const_char_pointer_prototype)
+- [tests/ast/ast_long_int_type](/Users/caojunze424/code/SysyCC/tests/ast/ast_long_int_type)
+- [tests/ast/ast_long_long_int_type](/Users/caojunze424/code/SysyCC/tests/ast/ast_long_long_int_type)
 - [tests/ast/ast_long_double_type](/Users/caojunze424/code/SysyCC/tests/ast/ast_long_double_type)
+- [tests/ast/ast_signed_short_builtin_types](/Users/caojunze424/code/SysyCC/tests/ast/ast_signed_short_builtin_types)
+- [tests/ast/ast_union_decl](/Users/caojunze424/code/SysyCC/tests/ast/ast_union_decl)
 - [tests/ast/ast_unnamed_parameter_prototype](/Users/caojunze424/code/SysyCC/tests/ast/ast_unnamed_parameter_prototype)
+- [tests/ast/ast_unnamed_pointer_parameter_prototype](/Users/caojunze424/code/SysyCC/tests/ast/ast_unnamed_pointer_parameter_prototype)
 
 ### `tests/semantic/`
 
@@ -206,12 +277,26 @@ Semantic-analysis regressions, including:
 - undefined identifiers and redefinitions
 - call arity and call-type checking
 - assignment/lvalue rules
+- variable-initializer type rules
 - unary/binary operand constraints
 - member-access validation
 - switch/case/default checks
 - constant-expression checks
 - pointer arithmetic and array decay
+- internal `ptrdiff_t`-width pointer-difference IR preservation
+- integer coercion at assignment, initializer, and call-argument sites
 - builtin `double` variables and return types
+- builtin `_Float16` declaration types
+- `extern` variable declarations
+- builtin `signed char` / `short` / `unsigned short` declaration types
+- builtin `long int` declaration types
+- builtin `long long int` declaration types
+- union declarations and union-member access through `.` / `->`
+- unnamed pointer prototype parameters
+- `const char *` prototype parameters
+- qualification-preserving and qualification-dropping pointer call checks
+- runtime pointer arithmetic through `pointer + integer`, `pointer - integer`,
+  and `pointer - pointer`
 - declaration-only function prototypes
 - declaration-only `inline` function prototypes
 - GNU-style function attribute prototypes
@@ -223,11 +308,16 @@ Representative paths:
 
 - [tests/semantic/semantic_undefined_identifier](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_undefined_identifier)
 - [tests/semantic/semantic_const_initializer_constant](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_const_initializer_constant)
+- [tests/semantic/semantic_var_initializer_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_var_initializer_type)
 - [tests/semantic/semantic_dot_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_dot_type)
 - [tests/semantic/semantic_array_decay_assignment](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_array_decay_assignment)
 - [tests/semantic/semantic_call_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_call_type)
+- [tests/semantic/semantic_extern_variable_decl](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_extern_variable_decl)
+- [tests/semantic/semantic_global_redeclaration](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_global_redeclaration)
+- [tests/semantic/semantic_float16_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_float16_type)
 - [tests/semantic/semantic_duplicate_case](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_duplicate_case)
 - [tests/semantic/semantic_pointer_arithmetic](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_pointer_arithmetic)
+- [tests/ir/ir_ptrdiff_pointer_difference](/Users/caojunze424/code/SysyCC/tests/ir/ir_ptrdiff_pointer_difference)
 - [tests/semantic/semantic_source_file](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_source_file)
 - [tests/semantic/semantic_logical_source_file](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_logical_source_file)
 - [tests/semantic/semantic_conditional_condition](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_conditional_condition)
@@ -236,6 +326,11 @@ Representative paths:
 - [tests/semantic/semantic_gnu_attribute_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_gnu_attribute_prototype)
 - [tests/semantic/semantic_inline_function_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_inline_function_prototype)
 - [tests/semantic/semantic_long_double_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_long_double_type)
+- [tests/semantic/semantic_signed_short_builtin_types](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_signed_short_builtin_types)
+- [tests/semantic/semantic_const_pointer_call_ok](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_const_pointer_call_ok)
+- [tests/semantic/semantic_const_pointer_call_reject](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_const_pointer_call_reject)
+- [tests/semantic/semantic_usual_arithmetic_conversions](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_usual_arithmetic_conversions)
+- [tests/semantic/semantic_union_decl](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_union_decl)
 - [tests/semantic/semantic_unsupported_attribute](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_unsupported_attribute)
 - [tests/semantic/semantic_unnamed_parameter_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_unnamed_parameter_prototype)
 
@@ -249,6 +344,9 @@ IR-lowering regressions, including:
 - direct call lowering
 - integer ternary lowering
 - function-level `__always_inline__` lowering to LLVM `alwaysinline`
+- `const char *` parameter lowering through qualifier-stripping pointer IR
+- `extern` global declaration lowering
+- initialized global variable definition lowering
 
 Representative paths:
 
@@ -256,6 +354,9 @@ Representative paths:
 - [tests/ir/ir_short_circuit](/Users/caojunze424/code/SysyCC/tests/ir/ir_short_circuit)
 - [tests/ir/ir_conditional_expr](/Users/caojunze424/code/SysyCC/tests/ir/ir_conditional_expr)
 - [tests/ir/ir_always_inline_attribute](/Users/caojunze424/code/SysyCC/tests/ir/ir_always_inline_attribute)
+- [tests/ir/ir_const_char_pointer_param](/Users/caojunze424/code/SysyCC/tests/ir/ir_const_char_pointer_param)
+- [tests/ir/ir_extern_global_decl](/Users/caojunze424/code/SysyCC/tests/ir/ir_extern_global_decl)
+- [tests/ir/ir_global_variable_definition](/Users/caojunze424/code/SysyCC/tests/ir/ir_global_variable_definition)
 - [tests/ir/ir_integer_literal_suffix](/Users/caojunze424/code/SysyCC/tests/ir/ir_integer_literal_suffix)
 
 ### `tests/run/`
@@ -264,6 +365,7 @@ End-to-end execution regressions that compile generated LLVM IR with a local
 runtime stub, feed stdin, and compare stdout, including:
 
 - integer input via `getint`
+- global variable reads through generated LLVM IR
 - integer output via `putint`
 - character output via `putch`
 - arithmetic loops such as `for` and `do-while`
@@ -426,6 +528,7 @@ LLVM IR lowering regressions, including:
 
 - minimal returns
 - locals, loads, stores, assignments
+- integer coercion in assignments, local initializers, and call arguments
 - arithmetic and comparisons
 - short-circuit logical control flow
 - `if` / `while` / `for` / `do-while`
@@ -437,6 +540,9 @@ Representative paths:
 - [tests/ir/ir_minimal](/Users/caojunze424/code/SysyCC/tests/ir/ir_minimal)
 - [tests/ir/ir_modulo](/Users/caojunze424/code/SysyCC/tests/ir/ir_modulo)
 - [tests/ir/ir_function_call](/Users/caojunze424/code/SysyCC/tests/ir/ir_function_call)
+- [tests/ir/ir_assignment_integer_conversion](/Users/caojunze424/code/SysyCC/tests/ir/ir_assignment_integer_conversion)
+- [tests/ir/ir_initializer_integer_conversion](/Users/caojunze424/code/SysyCC/tests/ir/ir_initializer_integer_conversion)
+- [tests/ir/ir_call_argument_integer_conversion](/Users/caojunze424/code/SysyCC/tests/ir/ir_call_argument_integer_conversion)
 - [tests/ir/ir_short_circuit](/Users/caojunze424/code/SysyCC/tests/ir/ir_short_circuit)
 - [tests/ir/ir_switch](/Users/caojunze424/code/SysyCC/tests/ir/ir_switch)
 

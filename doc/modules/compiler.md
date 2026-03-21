@@ -13,6 +13,7 @@ shared context, and the pass manager.
 - [compiler_context.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 - [pass.hpp](/Users/caojunze424/code/SysyCC/src/compiler/pass/pass.hpp)
 - [pass.cpp](/Users/caojunze424/code/SysyCC/src/compiler/pass/pass.cpp)
+- [dialect_manager.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect_manager.hpp)
 
 ## Key Objects
 
@@ -47,6 +48,11 @@ The shared data container for passes. It stores:
 - one [SourceLineMap](/Users/caojunze424/code/SysyCC/src/common/source_line_map.hpp)
   storing one logical source position per emitted preprocessed output line so
   later stages can inherit preprocess `#line` remapping
+- one [DialectManager](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect_manager.hpp)
+  registering the default `c99`, `gnu-c`, `clang`, and
+  `extended-builtin-types` dialect packs, aggregating their preprocess/stage
+  registries plus the first handler registries, and surfacing registration
+  conflicts such as incompatible keyword ownership
 - token list
 - parse tree root
 - ast root
@@ -102,3 +108,21 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass -> IRGenPas
   [SourceMappingView](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
   instances for lexer/parser scanner sessions. Those views now expose explicit
   physical and logical location queries.
+- [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+  now also owns one shared
+  [DialectManager](/Users/caojunze424/code/SysyCC/src/frontend/dialects/dialect_manager.hpp)
+  so C99/GNU/Clang/builtin-type distinctions can be queried through one shared
+  front-end service instead of being rediscovered independently inside each
+  stage, and so preprocess capability flags now travel through the same
+  dialect-oriented aggregation path as lexer/parser/AST/semantic/IR feature
+  registries. The same service now also exposes the first preprocess-probe,
+  preprocess-directive, attribute-semantic, builtin-type-semantic, and
+  IR-extension handler ownership registries.
+- `Complier::Run()` now validates dialect registration state before pass
+  execution. If keyword or handler ownership conflicts were recorded during
+  dialect registration, the compiler emits compiler-stage diagnostics and
+  fails fast instead of starting the pipeline with an inconsistent dialect
+  configuration.
+- `ComplierOption` now also carries dialect-pack selection flags, and
+  `Complier` reconfigures the compiler context's dialect set per invocation
+  before validation and pass execution.

@@ -11,6 +11,8 @@ doc/
     ├── cli.md
     ├── common.md
     ├── compiler.md
+    ├── dialect-refactor-plan.md
+    ├── dialects.md
     ├── ast.md
     ├── diagnostic.md
     ├── ir.md
@@ -24,6 +26,7 @@ doc/
     └── legacy-pass.md
 ```
 Tests now live inside stage-specific case directories under `tests/<stage>/<case>/`, each bundling the `.sy` input and an executable `run.sh`.
+The test tree now also includes [tests/dialects](/Users/caojunze424/code/SysyCC/tests/dialects) for small architecture-focused regressions around the shared dialect manager and registry behavior.
 The runtime stage additionally provides `tests/run/support/runtime_stub.c` so execution-oriented cases can compile emitted LLVM IR and validate stdin/stdout behavior across direct I/O, loops, `switch`, short-circuit control flow, and a growing set of scalarized data-structure scenarios such as stacks, queues, ring buffers, linked-list traversal, BST lookup, and map-style dispatch.
 Each runtime case stores copied intermediate artifacts and the final linked test executable under `tests/run/<case>/build/`.
 The separate [tests/fuzz](/Users/caojunze424/code/SysyCC/tests/fuzz) workspace now provides `generate_and_build_csmith_cases.sh` plus `run_csmith_cases.sh`: the first creates numbered fuzz-input directories such as `001/`, `002/`, and `003/` and optionally compiles them, while the second performs a differential run between host `clang` and `SysyCC` for either one chosen case like `001` or every numbered directory via `all`, archiving compiler logs, runtime stdout/stderr, exit codes, and a top-level summary in `tests/fuzz/result.md`.
@@ -69,6 +72,8 @@ main
 - [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md): command line parsing and option mapping
 - [common.md](/Users/caojunze424/code/SysyCC/doc/modules/common.md): shared lightweight value types
 - [compiler.md](/Users/caojunze424/code/SysyCC/doc/modules/compiler.md): compiler core objects and pass scheduling
+- [dialect-refactor-plan.md](/Users/caojunze424/code/SysyCC/doc/modules/dialect-refactor-plan.md): staged architecture plan for dialect-oriented frontend modularization
+- [dialects.md](/Users/caojunze424/code/SysyCC/doc/modules/dialects.md): shared front-end dialect manager, dialect packs, and stage feature registries
 - [ast.md](/Users/caojunze424/code/SysyCC/doc/modules/ast.md): AST node hierarchy, AST pass, and parse-tree lowering helpers
 - [diagnostic.md](/Users/caojunze424/code/SysyCC/doc/modules/diagnostic.md): shared diagnostic records and the compiler-wide diagnostic engine
 - [ir.md](/Users/caojunze424/code/SysyCC/doc/modules/ir.md): modular IR-generation skeleton with an abstract backend and an initial LLVM IR target
@@ -98,6 +103,19 @@ main
   `SourceLocationService`, and downstream lexer/parser scanner sessions consume
   one shared `SourceMappingView` instead of manually pairing a physical file
   with a preprocess line map.
+- The compiler core now also owns one shared `DialectManager`, which registers
+  the default `c99`, `gnu-c`, `clang`, and `extended-builtin-types` packs and
+  centralizes stage-specific keyword and feature classification, with lexer and
+  parser scanner sessions now consuming one shared runtime keyword registry for
+  identifier-to-keyword classification, plus the first preprocess-probe,
+  preprocess-directive, attribute-semantic, builtin-type-semantic, and
+  IR-extension handler ownership registries.
+- Parser and AST passes now also consume that shared dialect service as runtime
+  feature validators, and the compiler refuses to start the pipeline when
+  dialect registration produced ownership conflicts.
+- CLI and compiler options can now also reconfigure the active dialect-pack
+  set per invocation, including strict C99 mode and explicit GNU/Clang/
+  builtin-type pack toggles.
 - The CLI can collect `-I` include directories and `-isystem` system include directories into compiler options and the preprocess stage now consumes them for include-path resolution.
 - The top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now provides `make check`, which runs `clang-tidy`, `cppcheck`, and `include-what-you-use` through helper scripts under [scripts/](/Users/caojunze424/code/SysyCC/scripts).
 - The static-check pipeline excludes generated parser headers from blocking `clang-tidy` diagnostics and keeps `cppcheck` focused on warning/performance/portability findings.
@@ -113,11 +131,15 @@ main
 - successful runs now also surface shared non-fatal diagnostics such as
   preprocess `#warning` through the same formatter path
 - IR results are now stored in memory as an `IRResult` attached to `CompilerContext`.
-- The parser now accepts a broader C-style subset including `float`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, ordinary ternary `?:`, both `.` / `->` member access, declaration-only `extern` / `inline` function prototypes, and GNU-style function attributes in declaration-specifier position.
+- The parser now accepts a broader C-style subset including `float`, `_Float16`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, ordinary ternary `?:`, both `.` / `->` member access, declaration-only `extern` / `inline` function prototypes, `extern` variable declarations, declaration-side builtin forms such as `signed char`, `short`, `unsigned char`, and `unsigned short`, and GNU-style function attributes in declaration-specifier position.
 - The lexer and ordinary front-end constant handling now also accept standard integer literal suffixes such as `u`, `UL`, and `LL` in decimal, octal, and hexadecimal literals.
 - The AST stage now lowers core declaration, expression, and control-flow nodes such as parameters, declarations, assignments, conditional `?:`, calls, `if`, `while`, `for`, `do ... while`, `switch/case/default`, pointer declarators, `.` / `->` member access, plus parsed `struct`, `enum`, and `typedef` declarations into a compiler-facing tree.
 - `AstPass` now records AST completeness in `CompilerContext` and rejects incomplete ASTs when `--dump-ast` explicitly requests AST output.
 - `SemanticPass` now installs builtin runtime-library symbols, creates a semantic model, records symbol/type bindings and foldable integer constant-expression values over complete ASTs, rejects semantic errors such as undefined identifiers, redefinitions, non-function call targets, call arity/type mismatches, assignment type/lvalue mismatches, return mismatches, missing return paths in non-void functions, invalid binary/condition/index/unary operands, invalid ternary conditions or incompatible ternary branch types, invalid `break` / `continue` / `case` / `default` placement, duplicate `case` / `default` labels inside one `switch`, non-constant array dimensions and `case` labels, array-to-pointer decay mismatches, invalid pointer arithmetic, invalid null-pointer assignments, and invalid or missing `.` / `->` member access, and skips strict checking when AST lowering is still incomplete.
+- Simple parameter-side `const` qualifiers such as `const char *` are now
+  preserved through AST and semantic type construction, with semantic pointer
+  compatibility allowing `char * -> const char *` but rejecting
+  `const char * -> char *`.
 - `IRGenPass` now exists as a modular backend stage with an abstract `IRBackend`, an initial `LlvmIrBackend`, `IRResult` storage in `CompilerContext`, and a first LLVM IR lowering path for integer/void functions, integer locals, integer arithmetic and comparisons, short-circuit logical expressions, integer ternary expressions, assignments, direct function calls, and basic `if` / `while` / `for` / `do-while` / `switch` / `break` / `continue` control flow.
 - Function-level GNU-style `__always_inline__` attributes preserved by the AST
   now lower to LLVM `alwaysinline` in emitted IR through semantic
