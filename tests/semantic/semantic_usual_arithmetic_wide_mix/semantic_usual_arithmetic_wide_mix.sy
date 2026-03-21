@@ -1,0 +1,19 @@
+long int add_wide(long int lhs, unsigned int rhs) {
+    return lhs + rhs;
+}
+
+unsigned long long add_ull(unsigned long long lhs, long long int rhs) {
+    return lhs + rhs;
+}
+
+unsigned long long mix_ull(long long int lhs, unsigned long long rhs) {
+    return lhs + rhs;
+}
+
+int compare_wide(long int lhs, unsigned int rhs) {
+    return lhs >= rhs;
+}
+
+int main() {
+    return 0;
+}

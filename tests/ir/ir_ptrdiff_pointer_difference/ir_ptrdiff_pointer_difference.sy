@@ -1,0 +1,5 @@
+typedef long int ptrdiff_t;
+
+ptrdiff_t distance(int *lhs, int *rhs) {
+    return lhs - rhs;
+}

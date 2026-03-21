@@ -1,0 +1,13 @@
+int main() {
+    unsigned char lhs;
+    short rhs;
+    lhs = 5;
+    rhs = 10;
+    if (lhs < rhs) {
+        putint(lhs + rhs);
+    } else {
+        putint(0);
+    }
+    putch(10);
+    return 0;
+}

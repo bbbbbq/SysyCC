@@ -1,0 +1,7 @@
+int main() {
+    int source;
+    signed char narrowed;
+    source = getint();
+    narrowed = source;
+    return (int)narrowed;
+}

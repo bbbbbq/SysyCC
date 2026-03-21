@@ -1,0 +1,9 @@
+unsigned int widen(unsigned int value) {
+    return value;
+}
+
+int main() {
+    unsigned char value;
+    value = getint();
+    return (int)widen(value);
+}

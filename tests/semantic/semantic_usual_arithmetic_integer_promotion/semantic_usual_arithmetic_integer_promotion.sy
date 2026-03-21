@@ -1,0 +1,23 @@
+short add_short(short lhs, short rhs) {
+    return lhs + rhs;
+}
+
+unsigned short mix_short(unsigned short lhs, short rhs) {
+    return lhs + rhs;
+}
+
+long int widen_add(short lhs, unsigned int rhs) {
+    return lhs + rhs;
+}
+
+int unary_promote(short value) {
+    return +value;
+}
+
+int compare_promote(short lhs, unsigned short rhs) {
+    return lhs < rhs;
+}
+
+int main() {
+    return 0;
+}

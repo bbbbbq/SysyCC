@@ -1,0 +1,7 @@
+int signgam = 7;
+
+int main() {
+    putint(signgam);
+    putch(10);
+    return 0;
+}

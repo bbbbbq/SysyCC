@@ -1,0 +1,5 @@
+extern int signgam;
+
+int main() {
+    return signgam;
+}

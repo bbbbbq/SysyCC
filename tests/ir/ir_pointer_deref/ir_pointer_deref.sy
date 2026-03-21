@@ -1,0 +1,3 @@
+int load_value(int *p) {
+    return *p;
+}

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+BUILD_DIR="${PROJECT_ROOT}/build"
+INPUT_FILE="${SCRIPT_DIR}/ir_struct_member_access.sy"
+IR_FILE="${BUILD_DIR}/intermediate_results/ir_struct_member_access.ll"
+TEST_NAME="$(basename "${SCRIPT_DIR}")"
+
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
+
+"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
+
+assert_file_nonempty "${IR_FILE}"
+grep -q 'alloca { i32, i32 }' "${IR_FILE}"
+grep -q 'getelementptr inbounds { i32, i32 }, ptr %pair.addr, i32 0, i32 0' "${IR_FILE}"
+grep -q 'getelementptr inbounds { i32, i32 }, ptr %pair.addr, i32 0, i32 1' "${IR_FILE}"
+
+echo "verified: ir lowers local struct storage and dot-member access"

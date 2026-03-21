@@ -1,0 +1,13 @@
+int read_back(int *p) {
+    return *p;
+}
+
+int main() {
+    int value;
+    int *p;
+    value = getint();
+    p = &value;
+    putint(read_back(p));
+    putch(10);
+    return 0;
+}

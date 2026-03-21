@@ -1,0 +1,9 @@
+struct Pair {
+    int left;
+    int right;
+};
+
+int get_left(struct Pair *pair) {
+    pair->left = 3;
+    return pair->left;
+}

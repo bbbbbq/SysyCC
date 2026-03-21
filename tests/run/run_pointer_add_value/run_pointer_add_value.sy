@@ -1,0 +1,21 @@
+struct Triple {
+    int first;
+    int second;
+    int third;
+};
+
+int read_offset(int *p, int offset) {
+    return *(p + offset);
+}
+
+int main() {
+    struct Triple triple;
+    int *p;
+    triple.first = getint();
+    triple.second = getint();
+    triple.third = getint();
+    p = &triple.first;
+    putint(read_offset(p, 2));
+    putch(10);
+    return 0;
+}

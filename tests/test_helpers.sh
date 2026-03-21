@@ -5,12 +5,29 @@ set -euo pipefail
 build_project() {
     local project_root="$1"
     local build_dir="$2"
+    local cache_file="${build_dir}/CMakeCache.txt"
+    local use_ccache=0
+    local launcher_arg=""
+    local generator_arg=""
 
     if [[ "${SYSYCC_TEST_SKIP_BUILD:-0}" == "1" ]]; then
         return 0
     fi
 
-    cmake -S "${project_root}" -B "${build_dir}"
+    if [[ "${SYSYCC_TEST_DISABLE_NINJA:-0}" != "1" ]] && command -v ninja >/dev/null 2>&1; then
+        generator_arg="-G Ninja"
+    fi
+
+    if [[ "${SYSYCC_TEST_DISABLE_CCACHE:-0}" != "1" ]] && command -v ccache >/dev/null 2>&1; then
+        use_ccache=1
+        launcher_arg="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+    fi
+
+    if [[ ! -f "${cache_file}" || "${SYSYCC_TEST_FORCE_CONFIGURE:-0}" == "1" ]]; then
+        cmake -S "${project_root}" -B "${build_dir}" ${generator_arg} ${launcher_arg}
+    elif [[ "${use_ccache}" -eq 1 ]] && ! grep -q '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' "${cache_file}"; then
+        cmake -S "${project_root}" -B "${build_dir}" ${generator_arg} ${launcher_arg}
+    fi
 
     if [[ -n "${SYSYCC_TEST_BUILD_JOBS:-}" ]]; then
         cmake --build "${build_dir}" --parallel "${SYSYCC_TEST_BUILD_JOBS}"

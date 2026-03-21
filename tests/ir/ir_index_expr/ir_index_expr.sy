@@ -1,0 +1,3 @@
+int load_second(int *p) {
+    return p[1];
+}

@@ -1,0 +1,9 @@
+int main() {
+    int source;
+    signed char narrowed;
+    source = getint();
+    narrowed = source;
+    putint((int)narrowed);
+    putch(10);
+    return 0;
+}

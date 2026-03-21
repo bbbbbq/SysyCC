@@ -1,0 +1,19 @@
+struct Pair {
+    int first;
+    int second;
+};
+
+int read_offset(int *p, int offset) {
+    return *(p - offset);
+}
+
+int main() {
+    struct Pair pair;
+    int *p;
+    pair.first = getint();
+    pair.second = getint();
+    p = &pair.second;
+    putint(read_offset(p, 1));
+    putch(10);
+    return 0;
+}

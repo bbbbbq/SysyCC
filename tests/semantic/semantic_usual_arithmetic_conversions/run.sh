@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+BUILD_DIR="${PROJECT_ROOT}/build"
+TEST_BUILD_DIR="${SCRIPT_DIR}/build"
+TEST_BINARY="${TEST_BUILD_DIR}/semantic_usual_arithmetic_conversions"
+TEST_SOURCE="${SCRIPT_DIR}/semantic_usual_arithmetic_conversions.cpp"
+INPUT_FILE="${SCRIPT_DIR}/semantic_usual_arithmetic_conversions.sy"
+TEST_NAME="$(basename "${SCRIPT_DIR}")"
+
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
+
+mkdir -p "${TEST_BUILD_DIR}"
+
+clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
+    "${TEST_SOURCE}" \
+    "${PROJECT_ROOT}/src/common/integer_literal.cpp" \
+    "${PROJECT_ROOT}/src/frontend/ast/ast_node.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/builtin_type_semantic_handler_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/dialects/semantic_feature_registry.cpp" \
+    "${PROJECT_ROOT}/src/frontend/semantic/model/semantic_diagnostic.cpp" \
+    "${PROJECT_ROOT}/src/frontend/semantic/model/semantic_model.cpp" \
+    "${PROJECT_ROOT}/src/frontend/semantic/model/semantic_symbol.cpp" \
+    "${PROJECT_ROOT}/src/frontend/semantic/model/semantic_type.cpp" \
+    "${PROJECT_ROOT}/src/frontend/semantic/support/semantic_context.cpp" \
+    "${PROJECT_ROOT}/src/frontend/semantic/type_system/constant_evaluator.cpp" \
+    "${PROJECT_ROOT}/src/frontend/semantic/type_system/conversion_checker.cpp" \
+    "${PROJECT_ROOT}/src/frontend/semantic/type_system/extended_builtin_type_semantic_handler.cpp" \
+    "${PROJECT_ROOT}/src/frontend/semantic/type_system/integer_conversion_service.cpp" \
+    -o "${TEST_BINARY}"
+
+"${TEST_BINARY}"
+"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse
+assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
+
+echo "verified: usual arithmetic conversions use the type-system core helpers"

@@ -1,0 +1,13 @@
+int main() {
+    double lhs;
+    int rhs;
+    lhs = (double)getint();
+    rhs = getint();
+    if (lhs < rhs) {
+        putint((int)(lhs + rhs));
+    } else {
+        putint(0);
+    }
+    putch(10);
+    return 0;
+}

@@ -1,0 +1,10 @@
+int main() {
+    double lhs;
+    int rhs;
+    lhs = (double)getint();
+    rhs = getint();
+    if (lhs < rhs) {
+        return (int)(lhs + rhs);
+    }
+    return 0;
+}

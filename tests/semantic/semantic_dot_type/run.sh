@@ -14,6 +14,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_compiler_fails_with_message \
     "${BUILD_DIR}/SysyCC" \
     "${INPUT_FILE}" \
-    "semantic error: operator '.' requires a struct operand"
+    "semantic error: operator '.' requires a struct or union operand"
 
-echo "verified: semantic analysis checks struct requirements for dot member access"
+echo "verified: semantic analysis checks aggregate requirements for dot member access"

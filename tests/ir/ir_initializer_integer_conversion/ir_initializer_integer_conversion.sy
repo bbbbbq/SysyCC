@@ -1,0 +1,4 @@
+int main() {
+    long int widened = getint();
+    return (int)widened;
+}
