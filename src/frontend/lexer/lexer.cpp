@@ -42,14 +42,24 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::KwInline;
     case LONG:
         return TokenKind::KwLong;
+    case SIGNED:
+        return TokenKind::KwSigned;
+    case SHORT:
+        return TokenKind::KwShort;
+    case UNSIGNED:
+        return TokenKind::KwUnsigned;
     case INT:
         return TokenKind::KwInt;
+    case CHAR:
+        return TokenKind::KwChar;
     case VOID:
         return TokenKind::KwVoid;
     case FLOAT:
         return TokenKind::KwFloat;
     case DOUBLE:
         return TokenKind::KwDouble;
+    case FLOAT16:
+        return TokenKind::KwFloat16;
     case IF:
         return TokenKind::KwIf;
     case ELSE:
@@ -74,6 +84,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::KwReturn;
     case STRUCT:
         return TokenKind::KwStruct;
+    case UNION:
+        return TokenKind::KwUnion;
     case ENUM:
         return TokenKind::KwEnum;
     case TYPEDEF:
@@ -199,6 +211,8 @@ PassResult LexerPass::Run(CompilerContext &context) {
     lexer_state.set_source_mapping_view(
         context.get_source_location_service().build_source_mapping_view(
             lexer_input_file));
+    lexer_state.set_keyword_registry(
+        &context.get_dialect_manager().get_lexer_keyword_registry());
     lexer_state.set_emit_parse_nodes(false);
 
     yyscan_t scanner = nullptr;

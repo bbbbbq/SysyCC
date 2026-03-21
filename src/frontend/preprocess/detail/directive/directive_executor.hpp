@@ -20,6 +20,8 @@ class DirectiveExecutor {
     MacroExpander &macro_expander_;
     IncludeResolver &include_resolver_;
 
+    bool has_warning_directive_handler() const;
+    bool has_pragma_once_handler() const;
     PassResult evaluate_if_condition(const Directive &directive,
                                      bool &condition) const;
     PassResult handle_error_directive(const Directive &directive) const;

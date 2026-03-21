@@ -1,8 +1,11 @@
 #pragma once
 
+#include <string_view>
+
 #include "common/source_mapping_view.hpp"
 #include "common/source_span.hpp"
 #include "compiler/pass/pass.hpp"
+#include "frontend/dialects/lexer_keyword_registry.hpp"
 
 typedef void *yyscan_t;
 
@@ -12,6 +15,8 @@ namespace sysycc {
 class LexerState {
   private:
     SourceMappingView source_mapping_view_;
+    const LexerKeywordRegistry *keyword_registry_ = nullptr;
+    bool classify_typedef_names_ = false;
     int line_ = 1;
     int column_ = 1;
     int token_line_begin_ = 1;
@@ -23,6 +28,8 @@ class LexerState {
   public:
     void reset() noexcept {
         source_mapping_view_ = SourceMappingView();
+        keyword_registry_ = nullptr;
+        classify_typedef_names_ = false;
         line_ = 1;
         column_ = 1;
         token_line_begin_ = 1;
@@ -38,6 +45,23 @@ class LexerState {
 
     const SourceMappingView &get_source_mapping_view() const noexcept {
         return source_mapping_view_;
+    }
+
+    void set_keyword_registry(
+        const LexerKeywordRegistry *keyword_registry) noexcept {
+        keyword_registry_ = keyword_registry;
+    }
+
+    const LexerKeywordRegistry *get_keyword_registry() const noexcept {
+        return keyword_registry_;
+    }
+
+    void set_classify_typedef_names(bool classify_typedef_names) noexcept {
+        classify_typedef_names_ = classify_typedef_names;
+    }
+
+    bool get_classify_typedef_names() const noexcept {
+        return classify_typedef_names_;
     }
 
     void update_position(const char *text, int length) noexcept {
@@ -99,8 +123,16 @@ class LexerState {
     void set_emit_parse_nodes(bool emit_parse_nodes) noexcept {
         emit_parse_nodes_ = emit_parse_nodes;
     }
-
 };
+
+inline TokenKind classify_identifier_kind(const LexerState &state,
+                                          std::string_view text) noexcept {
+    const auto *keyword_registry = state.get_keyword_registry();
+    if (keyword_registry == nullptr || !keyword_registry->has_keyword(text)) {
+        return TokenKind::Identifier;
+    }
+    return keyword_registry->get_keyword_kind(text);
+}
 
 // Runs lexical analysis and stores the token stream into compiler context.
 class LexerPass : public Pass {

@@ -37,6 +37,7 @@ add_executable(${PROJECT_NAME}
     ${BISON_SysyParser_OUTPUTS}
     ${FLEX_SysyLexer_OUTPUTS}
     src/backend/ir/ir_backend_factory.cpp
+    src/backend/ir/gnu_function_attribute_lowering_handler.cpp
     src/backend/ir/ir_builder.cpp
     src/backend/ir/ir_pass.cpp
     src/backend/ir/llvm/llvm_ir_backend.cpp
@@ -58,11 +59,30 @@ add_executable(${PROJECT_NAME}
     src/frontend/ast/ast_pass.cpp
     src/frontend/ast/detail/ast_builder.cpp
     src/frontend/ast/detail/ast_builder_context.cpp
+    src/frontend/ast/detail/ast_feature_validator.cpp
     src/frontend/ast/detail/parse_tree_matcher.cpp
     src/frontend/attribute/attribute_analyzer.cpp
+    src/frontend/attribute/gnu_function_attribute_handler.cpp
     src/frontend/attribute/attribute_parser.cpp
+    src/frontend/dialects/ast_feature_registry.cpp
+    src/frontend/dialects/attribute_semantic_handler_registry.cpp
+    src/frontend/dialects/builtin_type_semantic_handler_registry.cpp
+    src/frontend/dialects/dialect_manager.cpp
+    src/frontend/dialects/ir_extension_lowering_registry.cpp
+    src/frontend/dialects/ir_feature_registry.cpp
+    src/frontend/dialects/lexer_keyword_registry.cpp
+    src/frontend/dialects/parser_feature_registry.cpp
+    src/frontend/dialects/preprocess_directive_handler_registry.cpp
+    src/frontend/dialects/preprocess_feature_registry.cpp
+    src/frontend/dialects/preprocess_probe_handler_registry.cpp
+    src/frontend/dialects/semantic_feature_registry.cpp
+    src/frontend/dialects/builtin_types/builtin_type_extension_pack.cpp
+    src/frontend/dialects/c99/c99_dialect.cpp
+    src/frontend/dialects/clang/clang_dialect.cpp
+    src/frontend/dialects/gnu/gnu_dialect.cpp
     src/frontend/lexer/lexer.cpp
     src/frontend/parser/parser.cpp
+    src/frontend/parser/parser_feature_validator.cpp
     src/frontend/parser/parser_runtime.cpp
     src/frontend/preprocess/preprocess.cpp
     src/frontend/preprocess/detail/conditional_stack.cpp
@@ -90,6 +110,8 @@ add_executable(${PROJECT_NAME}
     src/frontend/semantic/support/builtin_symbols.cpp
     src/frontend/semantic/type_system/constant_evaluator.cpp
     src/frontend/semantic/type_system/conversion_checker.cpp
+    src/frontend/semantic/type_system/extended_builtin_type_semantic_handler.cpp
+    src/frontend/semantic/type_system/integer_conversion_service.cpp
     src/frontend/semantic/analysis/decl_analyzer.cpp
     src/frontend/semantic/analysis/expr_analyzer.cpp
     src/frontend/semantic/support/scope_stack.cpp

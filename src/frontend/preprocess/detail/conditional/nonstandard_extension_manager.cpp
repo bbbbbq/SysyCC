@@ -3,16 +3,24 @@
 namespace sysycc::preprocess::detail {
 
 PassResult NonStandardExtensionManager::try_evaluate(
-    const std::string &expression, std::size_t &index, long long &value,
+    const std::string &expression, std::size_t &index,
+    const PreprocessProbeHandlerRegistry &registry, long long &value,
     bool &handled) const {
-    PassResult clang_result = clang_extension_provider_.try_evaluate(
-        expression, index, value, handled);
-    if (!clang_result.ok || handled) {
-        return clang_result;
+    if (registry.has_handler(PreprocessProbeHandlerKind::ClangBuiltinProbes)) {
+        PassResult clang_result = clang_extension_provider_.try_evaluate(
+            expression, index, value, handled);
+        if (!clang_result.ok || handled) {
+            return clang_result;
+        }
     }
 
-    return gnu_extension_provider_.try_evaluate(expression, index, value,
-                                                handled);
+    if (registry.has_handler(PreprocessProbeHandlerKind::GnuBuiltinProbes)) {
+        return gnu_extension_provider_.try_evaluate(expression, index, value,
+                                                    handled);
+    }
+
+    handled = false;
+    return PassResult::Success();
 }
 
 } // namespace sysycc::preprocess::detail

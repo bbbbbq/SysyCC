@@ -4,6 +4,7 @@
 #include <string>
 
 #include "compiler/pass/pass.hpp"
+#include "frontend/dialects/preprocess_probe_handler_registry.hpp"
 #include "frontend/preprocess/detail/conditional/clang_extension_provider.hpp"
 #include "frontend/preprocess/detail/conditional/gnu_extension_provider.hpp"
 
@@ -18,6 +19,7 @@ class NonStandardExtensionManager {
 
   public:
     PassResult try_evaluate(const std::string &expression, std::size_t &index,
+                            const PreprocessProbeHandlerRegistry &registry,
                             long long &value, bool &handled) const;
 };
 

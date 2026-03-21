@@ -17,6 +17,9 @@ class Cli {
     bool dump_parse_ = false;
     bool dump_ast_ = false;
     bool dump_ir_ = false;
+    bool enable_gnu_dialect_ = true;
+    bool enable_clang_dialect_ = true;
+    bool enable_builtin_type_extension_pack_ = true;
     bool is_help_ = false;
     bool is_version_ = false;
     bool has_error_ = false;
@@ -40,6 +43,13 @@ class Cli {
                   << "  --dump-parse       Dump parse result\n"
                   << "  --dump-ast         Dump AST\n"
                   << "  --dump-ir          Dump IR\n"
+                  << "  --strict-c99       Disable GNU/Clang/builtin-type extension packs\n"
+                  << "  --enable-gnu-dialect       Enable GNU dialect pack\n"
+                  << "  --disable-gnu-dialect      Disable GNU dialect pack\n"
+                  << "  --enable-clang-dialect     Enable Clang dialect pack\n"
+                  << "  --disable-clang-dialect    Disable Clang dialect pack\n"
+                  << "  --enable-builtin-types     Enable builtin-type extension pack\n"
+                  << "  --disable-builtin-types    Disable builtin-type extension pack\n"
                   << "  -h, --help         Show this help message and exit\n"
                   << "  -v, --version      Show version information and exit\n";
     }
@@ -63,6 +73,10 @@ class Cli {
         option.set_dump_parse(dump_parse_);
         option.set_dump_ast(dump_ast_);
         option.set_dump_ir(dump_ir_);
+        option.set_enable_gnu_dialect(enable_gnu_dialect_);
+        option.set_enable_clang_dialect(enable_clang_dialect_);
+        option.set_enable_builtin_type_extension_pack(
+            enable_builtin_type_extension_pack_);
     }
 };
 } // namespace ClI

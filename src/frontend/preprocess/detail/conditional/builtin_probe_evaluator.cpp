@@ -134,7 +134,8 @@ PassResult BuiltinProbeEvaluator::try_evaluate(
     const std::string &expression, std::size_t &index,
     const MacroTable &macro_table, const std::string &current_file_path,
     const std::vector<std::string> &include_directories,
-    const std::vector<std::string> &system_include_directories, long long &value,
+    const std::vector<std::string> &system_include_directories,
+    const DialectManager &dialect_manager, long long &value,
     bool &handled) const {
     handled = false;
     const std::size_t original_index = index;
@@ -167,6 +168,12 @@ PassResult BuiltinProbeEvaluator::try_evaluate(
     const bool include_next =
         consume_keyword(expression, index, "__has_include_next");
     if (include_next || consume_keyword(expression, index, "__has_include")) {
+        if (!dialect_manager.get_preprocess_feature_registry().has_feature(
+                PreprocessFeature::HasIncludeFamily)) {
+            index = original_index;
+            return PassResult::Success();
+        }
+
         const std::string probe_name =
             include_next ? "__has_include_next" : "__has_include";
         std::string include_token;
@@ -187,8 +194,15 @@ PassResult BuiltinProbeEvaluator::try_evaluate(
     }
 
     index = original_index;
+    if (!dialect_manager.get_preprocess_feature_registry().has_feature(
+            PreprocessFeature::ClangBuiltinProbes)) {
+        return PassResult::Success();
+    }
+
     PassResult extension_result = non_standard_extension_manager_.try_evaluate(
-        expression, index, value, handled);
+        expression, index,
+        dialect_manager.get_preprocess_probe_handler_registry(), value,
+        handled);
     if (!extension_result.ok || handled) {
         return extension_result;
     }

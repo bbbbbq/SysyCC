@@ -21,6 +21,9 @@ Complier::Complier(ComplierOption option) : option_(std::move(option)) {
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
     context_.set_dump_ir(option_.dump_ir());
+    context_.configure_dialects(option_.get_enable_gnu_dialect(),
+                                option_.get_enable_clang_dialect(),
+                                option_.get_enable_builtin_type_extension_pack());
 }
 
 void Complier::InitializePasses() {
@@ -47,6 +50,9 @@ void Complier::set_option(ComplierOption option) {
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
     context_.set_dump_ir(option_.dump_ir());
+    context_.configure_dialects(option_.get_enable_gnu_dialect(),
+                                option_.get_enable_clang_dialect(),
+                                option_.get_enable_builtin_type_extension_pack());
 }
 
 const ComplierOption &Complier::get_option() const noexcept { return option_; }
@@ -57,8 +63,33 @@ const CompilerContext &Complier::get_context() const noexcept {
     return context_;
 }
 
+void Complier::register_dialect(std::unique_ptr<FrontendDialect> dialect) {
+    if (dialect == nullptr) {
+        return;
+    }
+    extra_dialects_.push_back(std::move(dialect));
+}
+
 void Complier::AddPass(std::unique_ptr<Pass> pass) {
     pass_manager_.AddPass(std::move(pass));
+}
+
+PassResult Complier::validate_dialect_configuration() {
+    const auto &registration_errors =
+        context_.get_dialect_manager().get_registration_errors();
+    if (registration_errors.empty()) {
+        return PassResult::Success();
+    }
+
+    const std::string summary =
+        "invalid dialect configuration: registration conflicts detected";
+    context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                               summary);
+    for (const std::string &registration_error : registration_errors) {
+        context_.get_diagnostic_engine().add_note(DiagnosticStage::Compiler,
+                                                  registration_error);
+    }
+    return PassResult::Failure(summary);
 }
 
 PassResult Complier::Run() {
@@ -73,6 +104,17 @@ PassResult Complier::Run() {
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
     context_.set_dump_ir(option_.dump_ir());
+    context_.configure_dialects(option_.get_enable_gnu_dialect(),
+                                option_.get_enable_clang_dialect(),
+                                option_.get_enable_builtin_type_extension_pack());
+    for (auto &dialect : extra_dialects_) {
+        context_.get_dialect_manager().register_dialect(std::move(dialect));
+    }
+    extra_dialects_.clear();
+    PassResult dialect_validation_result = validate_dialect_configuration();
+    if (!dialect_validation_result.ok) {
+        return dialect_validation_result;
+    }
     InitializePasses();
     return pass_manager_.Run(context_);
 }

@@ -15,6 +15,38 @@ DirectiveExecutor::DirectiveExecutor(
       macro_expander_(macro_expander),
       include_resolver_(include_resolver) {}
 
+bool DirectiveExecutor::has_warning_directive_handler() const {
+    const auto &dialect_manager =
+        preprocess_context_.get_compiler_context().get_dialect_manager();
+    if (!dialect_manager.get_preprocess_feature_registry().has_feature(
+            PreprocessFeature::NonStandardDirectivePayloads)) {
+        return false;
+    }
+
+    const auto &registry =
+        dialect_manager.get_preprocess_directive_handler_registry();
+    return registry.has_handler(
+               PreprocessDirectiveHandlerKind::GnuWarningDirective) ||
+           registry.has_handler(
+               PreprocessDirectiveHandlerKind::ClangWarningDirective);
+}
+
+bool DirectiveExecutor::has_pragma_once_handler() const {
+    const auto &dialect_manager =
+        preprocess_context_.get_compiler_context().get_dialect_manager();
+    if (!dialect_manager.get_preprocess_feature_registry().has_feature(
+            PreprocessFeature::NonStandardDirectivePayloads)) {
+        return false;
+    }
+
+    const auto &registry =
+        dialect_manager.get_preprocess_directive_handler_registry();
+    return registry.has_handler(
+               PreprocessDirectiveHandlerKind::GnuPragmaOnceDirective) ||
+           registry.has_handler(
+               PreprocessDirectiveHandlerKind::ClangPragmaOnceDirective);
+}
+
 PassResult DirectiveExecutor::evaluate_if_condition(const Directive &directive,
                                                     bool &condition) const {
     const std::vector<std::string> &arguments = directive.get_arguments();
@@ -28,7 +60,9 @@ PassResult DirectiveExecutor::evaluate_if_condition(const Directive &directive,
         arguments[0], preprocess_context_.get_macro_table(),
         preprocess_context_.get_source_mapper().get_current_physical_file_path(),
         preprocess_context_.get_include_directories(),
-        preprocess_context_.get_system_include_directories(), value);
+        preprocess_context_.get_system_include_directories(),
+        preprocess_context_.get_compiler_context().get_dialect_manager(),
+        value);
     if (!evaluate_result.ok) {
         return evaluate_result;
     }
@@ -48,6 +82,11 @@ DirectiveExecutor::handle_error_directive(const Directive &directive) const {
 
 PassResult DirectiveExecutor::handle_warning_directive(
     const Directive &directive, int line_number) const {
+    if (!has_warning_directive_handler()) {
+        return PassResult::Failure(
+            "no preprocess directive handler registered for: #warning");
+    }
+
     std::string message = "#warning directive triggered";
     if (directive.get_has_text_payload()) {
         message = "#warning: " + directive.get_text_payload();
@@ -67,6 +106,10 @@ PassResult DirectiveExecutor::handle_pragma_directive(const Directive &directive
     }
 
     if (arguments[0] == "once") {
+        if (!has_pragma_once_handler()) {
+            return PassResult::Failure(
+                "no preprocess directive handler registered for: #pragma once");
+        }
         preprocess_context_.get_runtime().mark_pragma_once_file(
             preprocess_context_.get_source_mapper().get_current_physical_file_path());
     }

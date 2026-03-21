@@ -6,6 +6,7 @@
 #include "common/diagnostic/diagnostic_engine.hpp"
 #include "frontend/ast/ast_dump.hpp"
 #include "frontend/ast/detail/ast_builder.hpp"
+#include "frontend/ast/detail/ast_feature_validator.hpp"
 
 namespace sysycc {
 
@@ -94,6 +95,15 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
     case AstKind::StructDecl: {
         const auto *struct_decl = static_cast<const StructDecl *>(node);
         for (const auto &field : struct_decl->get_fields()) {
+            if (ast_contains_unknown_nodes(field.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case AstKind::UnionDecl: {
+        const auto *union_decl = static_cast<const UnionDecl *>(node);
+        for (const auto &field : union_decl->get_fields()) {
             if (ast_contains_unknown_nodes(field.get())) {
                 return true;
             }
@@ -192,6 +202,20 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         const auto *pointer_type = static_cast<const PointerTypeNode *>(node);
         return ast_contains_unknown_nodes(pointer_type->get_pointee_type());
     }
+    case AstKind::QualifiedType: {
+        const auto *qualified_type =
+            static_cast<const QualifiedTypeNode *>(node);
+        return ast_contains_unknown_nodes(qualified_type->get_base_type());
+    }
+    case AstKind::UnionType: {
+        const auto *union_type = static_cast<const UnionTypeNode *>(node);
+        for (const auto &field : union_type->get_fields()) {
+            if (ast_contains_unknown_nodes(field.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(node);
         return ast_contains_unknown_nodes(unary_expr->get_operand());
@@ -208,6 +232,11 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         const auto *binary_expr = static_cast<const BinaryExpr *>(node);
         return ast_contains_unknown_nodes(binary_expr->get_lhs()) ||
                ast_contains_unknown_nodes(binary_expr->get_rhs());
+    }
+    case AstKind::CastExpr: {
+        const auto *cast_expr = static_cast<const CastExpr *>(node);
+        return ast_contains_unknown_nodes(cast_expr->get_target_type()) ||
+               ast_contains_unknown_nodes(cast_expr->get_operand());
     }
     case AstKind::ConditionalExpr: {
         const auto *conditional_expr =
@@ -252,6 +281,7 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         return false;
     }
     case AstKind::BuiltinType:
+    case AstKind::NamedType:
     case AstKind::StructType:
     case AstKind::EnumType:
     case AstKind::BreakStmt:
@@ -286,6 +316,20 @@ PassResult AstPass::Run(CompilerContext &context) {
     detail::AstBuilderContext builder_context(context.get_parse_tree_root());
     detail::AstBuilder builder;
     context.set_ast_root(builder.build(builder_context));
+
+    detail::AstFeatureErrorInfo feature_error_info;
+    detail::AstFeatureValidator feature_validator;
+    if (!feature_validator.validate(
+            context.get_ast_root(),
+            context.get_dialect_manager().get_ast_feature_registry(),
+            feature_error_info)) {
+        context.set_ast_complete(false);
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Ast,
+                                                  feature_error_info.get_message(),
+                                                  feature_error_info.get_source_span());
+        return PassResult::Failure(feature_error_info.get_message());
+    }
+
     context.set_ast_complete(!ast_contains_unknown_nodes(context.get_ast_root()));
 
     if (context.get_dump_ast()) {

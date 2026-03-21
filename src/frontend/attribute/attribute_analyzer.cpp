@@ -1,13 +1,11 @@
 #include "frontend/attribute/attribute_analyzer.hpp"
 
-#include <string>
-#include <utility>
 #include <vector>
 
+#include "compiler/compiler_context/compiler_context.hpp"
 #include "frontend/ast/ast_node.hpp"
-#include "frontend/attribute/attribute.hpp"
+#include "frontend/dialects/attribute_semantic_handler_registry.hpp"
 #include "frontend/semantic/model/semantic_diagnostic.hpp"
-#include "frontend/semantic/model/semantic_model.hpp"
 #include "frontend/semantic/support/semantic_context.hpp"
 
 namespace sysycc {
@@ -27,34 +25,32 @@ std::vector<SemanticFunctionAttribute>
 AttributeAnalyzer::analyze_function_attributes(
     const FunctionDecl *function_decl,
     detail::SemanticContext &semantic_context) const {
-    std::vector<SemanticFunctionAttribute> attributes;
     if (function_decl == nullptr) {
-        return attributes;
+        return {};
     }
 
-    bool has_always_inline = false;
+    if (function_decl->get_attributes().empty()) {
+        return {};
+    }
+
+    const auto &handler_registry = semantic_context.get_compiler_context()
+                                       .get_dialect_manager()
+                                       .get_attribute_semantic_handler_registry();
+    if (handler_registry.has_handler(
+            AttributeSemanticHandlerKind::GnuFunctionAttributes)) {
+        return gnu_function_attribute_handler_.analyze_function_attributes(
+            function_decl, semantic_context);
+    }
+
     for (const ParsedAttribute &attribute :
          function_decl->get_attributes().get_attributes()) {
-        if (attribute.get_name() == "__always_inline__") {
-            if (!attribute.get_arguments().empty()) {
-                add_error(semantic_context,
-                          "attribute __always_inline__ does not take arguments",
-                          attribute.get_source_span());
-                continue;
-            }
-            if (!has_always_inline) {
-                attributes.push_back(SemanticFunctionAttribute::AlwaysInline);
-                has_always_inline = true;
-            }
-            continue;
-        }
-
         add_error(semantic_context,
-                  "unsupported attribute: " + attribute.get_name(),
+                  "no attribute semantic handler registered for: " +
+                      attribute.get_name(),
                   attribute.get_source_span());
     }
 
-    return attributes;
+    return {};
 }
 
 } // namespace sysycc

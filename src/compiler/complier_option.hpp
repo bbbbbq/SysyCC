@@ -69,6 +69,9 @@ class ComplierOption {
     bool dump_parse_ = false;
     bool dump_ast_ = false;
     bool dump_ir_ = false;
+    bool enable_gnu_dialect_ = true;
+    bool enable_clang_dialect_ = true;
+    bool enable_builtin_type_extension_pack_ = true;
 
   public:
     ComplierOption() = default;
@@ -131,6 +134,32 @@ class ComplierOption {
     bool dump_ir() const noexcept { return dump_ir_; }
 
     void set_dump_ir(bool dump_ir) noexcept { dump_ir_ = dump_ir; }
+
+    bool get_enable_gnu_dialect() const noexcept {
+        return enable_gnu_dialect_;
+    }
+
+    void set_enable_gnu_dialect(bool enable_gnu_dialect) noexcept {
+        enable_gnu_dialect_ = enable_gnu_dialect;
+    }
+
+    bool get_enable_clang_dialect() const noexcept {
+        return enable_clang_dialect_;
+    }
+
+    void set_enable_clang_dialect(bool enable_clang_dialect) noexcept {
+        enable_clang_dialect_ = enable_clang_dialect;
+    }
+
+    bool get_enable_builtin_type_extension_pack() const noexcept {
+        return enable_builtin_type_extension_pack_;
+    }
+
+    void set_enable_builtin_type_extension_pack(
+        bool enable_builtin_type_extension_pack) noexcept {
+        enable_builtin_type_extension_pack_ =
+            enable_builtin_type_extension_pack;
+    }
 };
 
 } // namespace sysycc

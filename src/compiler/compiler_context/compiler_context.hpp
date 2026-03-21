@@ -13,6 +13,11 @@
 #include "backend/ir/ir_result.hpp"
 #include "common/source_span.hpp"
 #include "frontend/ast/ast_node.hpp"
+#include "frontend/dialects/dialect_manager.hpp"
+#include "frontend/dialects/c99/c99_dialect.hpp"
+#include "frontend/dialects/gnu/gnu_dialect.hpp"
+#include "frontend/dialects/clang/clang_dialect.hpp"
+#include "frontend/dialects/builtin_types/builtin_type_extension_pack.hpp"
 #include "frontend/parser/parser_runtime.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
 
@@ -29,10 +34,15 @@ enum class TokenKind : uint8_t {
     KwAttribute,
     KwInline,
     KwLong,
+    KwSigned,
+    KwShort,
+    KwUnsigned,
     KwInt,
+    KwChar,
     KwVoid,
     KwFloat,
     KwDouble,
+    KwFloat16,
     KwIf,
     KwElse,
     KwWhile,
@@ -45,6 +55,7 @@ enum class TokenKind : uint8_t {
     KwContinue,
     KwReturn,
     KwStruct,
+    KwUnion,
     KwEnum,
     KwTypedef,
     Plus,
@@ -122,10 +133,15 @@ class Token {
         case TokenKind::KwAttribute:
         case TokenKind::KwInline:
         case TokenKind::KwLong:
+        case TokenKind::KwSigned:
+        case TokenKind::KwShort:
+        case TokenKind::KwUnsigned:
         case TokenKind::KwInt:
+        case TokenKind::KwChar:
         case TokenKind::KwVoid:
         case TokenKind::KwFloat:
         case TokenKind::KwDouble:
+        case TokenKind::KwFloat16:
         case TokenKind::KwIf:
         case TokenKind::KwElse:
         case TokenKind::KwWhile:
@@ -138,6 +154,7 @@ class Token {
         case TokenKind::KwContinue:
         case TokenKind::KwReturn:
         case TokenKind::KwStruct:
+        case TokenKind::KwUnion:
         case TokenKind::KwEnum:
         case TokenKind::KwTypedef:
             return TokenCategory::Keyword;
@@ -208,14 +225,24 @@ class Token {
             return "KwInline";
         case TokenKind::KwLong:
             return "KwLong";
+        case TokenKind::KwSigned:
+            return "KwSigned";
+        case TokenKind::KwShort:
+            return "KwShort";
+        case TokenKind::KwUnsigned:
+            return "KwUnsigned";
         case TokenKind::KwInt:
             return "KwInt";
+        case TokenKind::KwChar:
+            return "KwChar";
         case TokenKind::KwVoid:
             return "KwVoid";
         case TokenKind::KwFloat:
             return "KwFloat";
         case TokenKind::KwDouble:
             return "KwDouble";
+        case TokenKind::KwFloat16:
+            return "KwFloat16";
         case TokenKind::KwIf:
             return "KwIf";
         case TokenKind::KwElse:
@@ -240,6 +267,8 @@ class Token {
             return "KwReturn";
         case TokenKind::KwStruct:
             return "KwStruct";
+        case TokenKind::KwUnion:
+            return "KwUnion";
         case TokenKind::KwEnum:
             return "KwEnum";
         case TokenKind::KwTypedef:
@@ -354,10 +383,37 @@ class CompilerContext {
     DiagnosticEngine diagnostic_engine_;
     SourceManager source_manager_;
     SourceLocationService source_location_service_;
+    DialectManager dialect_manager_;
+
+    void initialize_default_dialects(bool enable_gnu_dialect,
+                                     bool enable_clang_dialect,
+                                     bool enable_builtin_type_extension_pack) {
+        dialect_manager_ = DialectManager();
+        dialect_manager_.register_dialect(std::make_unique<C99Dialect>());
+        if (enable_gnu_dialect) {
+            dialect_manager_.register_dialect(std::make_unique<GnuDialect>());
+        }
+        if (enable_clang_dialect) {
+            dialect_manager_.register_dialect(std::make_unique<ClangDialect>());
+        }
+        if (enable_builtin_type_extension_pack) {
+            dialect_manager_.register_dialect(
+                std::make_unique<BuiltinTypeExtensionPack>());
+        }
+    }
 
   public:
     CompilerContext()
-        : source_location_service_(source_manager_, preprocessed_line_map_) {}
+        : source_location_service_(source_manager_, preprocessed_line_map_) {
+        initialize_default_dialects(true, true, true);
+    }
+
+    void configure_dialects(bool enable_gnu_dialect,
+                            bool enable_clang_dialect,
+                            bool enable_builtin_type_extension_pack) {
+        initialize_default_dialects(enable_gnu_dialect, enable_clang_dialect,
+                                    enable_builtin_type_extension_pack);
+    }
 
     const std::string &get_input_file() const noexcept { return input_file_; }
 
@@ -530,6 +586,12 @@ class CompilerContext {
 
     const SourceLocationService &get_source_location_service() const noexcept {
         return source_location_service_;
+    }
+
+    DialectManager &get_dialect_manager() noexcept { return dialect_manager_; }
+
+    const DialectManager &get_dialect_manager() const noexcept {
+        return dialect_manager_;
     }
 };
 } // namespace sysycc

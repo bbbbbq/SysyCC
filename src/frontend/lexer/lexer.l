@@ -30,6 +30,136 @@ static int make_token(int token, const char *label,
     return token;
 }
 
+static int get_keyword_parser_token(sysycc::TokenKind kind) {
+    switch (kind) {
+    case sysycc::TokenKind::KwConst:
+        return CONST;
+    case sysycc::TokenKind::KwExtern:
+        return EXTERN;
+    case sysycc::TokenKind::KwAttribute:
+        return ATTRIBUTE;
+    case sysycc::TokenKind::KwInline:
+        return INLINE;
+    case sysycc::TokenKind::KwLong:
+        return LONG;
+    case sysycc::TokenKind::KwSigned:
+        return SIGNED;
+    case sysycc::TokenKind::KwShort:
+        return SHORT;
+    case sysycc::TokenKind::KwUnsigned:
+        return UNSIGNED;
+    case sysycc::TokenKind::KwInt:
+        return INT;
+    case sysycc::TokenKind::KwChar:
+        return CHAR;
+    case sysycc::TokenKind::KwVoid:
+        return VOID;
+    case sysycc::TokenKind::KwFloat:
+        return FLOAT;
+    case sysycc::TokenKind::KwDouble:
+        return DOUBLE;
+    case sysycc::TokenKind::KwFloat16:
+        return FLOAT16;
+    case sysycc::TokenKind::KwIf:
+        return IF;
+    case sysycc::TokenKind::KwElse:
+        return ELSE;
+    case sysycc::TokenKind::KwWhile:
+        return WHILE;
+    case sysycc::TokenKind::KwFor:
+        return FOR;
+    case sysycc::TokenKind::KwDo:
+        return DO;
+    case sysycc::TokenKind::KwSwitch:
+        return SWITCH;
+    case sysycc::TokenKind::KwCase:
+        return CASE;
+    case sysycc::TokenKind::KwDefault:
+        return DEFAULT;
+    case sysycc::TokenKind::KwBreak:
+        return BREAK;
+    case sysycc::TokenKind::KwContinue:
+        return CONTINUE;
+    case sysycc::TokenKind::KwReturn:
+        return RETURN;
+    case sysycc::TokenKind::KwStruct:
+        return STRUCT;
+    case sysycc::TokenKind::KwUnion:
+        return UNION;
+    case sysycc::TokenKind::KwEnum:
+        return ENUM;
+    case sysycc::TokenKind::KwTypedef:
+        return TYPEDEF;
+    default:
+        return IDENTIFIER;
+    }
+}
+
+static const char *get_keyword_token_label(int token) {
+    switch (token) {
+    case CONST:
+        return "CONST";
+    case EXTERN:
+        return "EXTERN";
+    case ATTRIBUTE:
+        return "ATTRIBUTE";
+    case INLINE:
+        return "INLINE";
+    case LONG:
+        return "LONG";
+    case SIGNED:
+        return "SIGNED";
+    case SHORT:
+        return "SHORT";
+    case UNSIGNED:
+        return "UNSIGNED";
+    case INT:
+        return "INT";
+    case CHAR:
+        return "CHAR";
+    case VOID:
+        return "VOID";
+    case FLOAT:
+        return "FLOAT";
+    case DOUBLE:
+        return "DOUBLE";
+    case FLOAT16:
+        return "FLOAT16";
+    case IF:
+        return "IF";
+    case ELSE:
+        return "ELSE";
+    case WHILE:
+        return "WHILE";
+    case FOR:
+        return "FOR";
+    case DO:
+        return "DO";
+    case SWITCH:
+        return "SWITCH";
+    case CASE:
+        return "CASE";
+    case DEFAULT:
+        return "DEFAULT";
+    case BREAK:
+        return "BREAK";
+    case CONTINUE:
+        return "CONTINUE";
+    case RETURN:
+        return "RETURN";
+    case STRUCT:
+        return "STRUCT";
+    case UNION:
+        return "UNION";
+    case ENUM:
+        return "ENUM";
+    case TYPEDEF:
+        return "TYPEDEF";
+    default:
+        return "IDENTIFIER";
+    }
+}
+
 #define YY_USER_ACTION update_position((sysycc::LexerState *)yyextra, yytext, yyleng);
 %}
 
@@ -57,30 +187,6 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 %%
 [ \t\r\f\v]+                { }
 \n                          { }
-
-"const"                     { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"extern"                    { return make_token(EXTERN, "EXTERN", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"__attribute__"             { return make_token(ATTRIBUTE, "ATTRIBUTE", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"inline"                    { return make_token(INLINE, "INLINE", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"long"                      { return make_token(LONG, "LONG", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"int"                       { return make_token(INT, "INT", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"void"                      { return make_token(VOID, "VOID", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"float"                     { return make_token(FLOAT, "FLOAT", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"double"                    { return make_token(DOUBLE, "DOUBLE", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"if"                        { return make_token(IF, "IF", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"else"                      { return make_token(ELSE, "ELSE", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"while"                     { return make_token(WHILE, "WHILE", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"for"                       { return make_token(FOR, "FOR", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"do"                        { return make_token(DO, "DO", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"switch"                    { return make_token(SWITCH, "SWITCH", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"case"                      { return make_token(CASE, "CASE", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"default"                   { return make_token(DEFAULT, "DEFAULT", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"break"                     { return make_token(BREAK, "BREAK", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"continue"                  { return make_token(CONTINUE, "CONTINUE", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"return"                    { return make_token(RETURN, "RETURN", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"struct"                    { return make_token(STRUCT, "STRUCT", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"enum"                      { return make_token(ENUM, "ENUM", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"typedef"                   { return make_token(TYPEDEF, "TYPEDEF", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
 "++"                        { return make_token(INC, "INC", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "--"                        { return make_token(DEC, "DEC", (sysycc::LexerState *)yyextra, yytext, yylval); }
@@ -128,7 +234,20 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 {DEC_INT}{INT_SUFFIX}?      { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {INVALID_HEX}               { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {INVALID_OCT}               { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
-{IDENT}                     { return make_token(IDENTIFIER, "IDENTIFIER", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{IDENT}                     {
+                              sysycc::LexerState *state = (sysycc::LexerState *)yyextra;
+                              if (state != nullptr &&
+                                  state->get_classify_typedef_names() &&
+                                  sysycc::is_typedef_name_registered(yytext)) {
+                                  return make_token(TYPE_NAME, "TYPE_NAME",
+                                                    state, yytext, yylval);
+                              }
+                              const sysycc::TokenKind kind =
+                                  sysycc::classify_identifier_kind(*state, yytext);
+                              const int token = get_keyword_parser_token(kind);
+                              return make_token(token, get_keyword_token_label(token),
+                                                state, yytext, yylval);
+                            }
 
 .                           { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
 

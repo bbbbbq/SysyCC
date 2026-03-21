@@ -15,7 +15,14 @@ void define_object_like_macro(MacroTable &macro_table, const std::string &name,
 
 } // namespace
 
-void initialize_predefined_macros(MacroTable &macro_table) {
+void initialize_predefined_macros(
+    MacroTable &macro_table,
+    const PreprocessFeatureRegistry &preprocess_feature_registry) {
+    if (!preprocess_feature_registry.has_feature(
+            PreprocessFeature::GnuPredefinedMacros)) {
+        return;
+    }
+
     define_object_like_macro(macro_table, "__STDC__", "1");
     define_object_like_macro(macro_table, "__STDC_HOSTED__", "1");
     define_object_like_macro(macro_table, "__STDC_VERSION__", "201710L");

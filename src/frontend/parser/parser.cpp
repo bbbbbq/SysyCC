@@ -8,6 +8,7 @@
 
 #include "common/diagnostic/diagnostic_engine.hpp"
 #include "frontend/lexer/lexer.hpp"
+#include "frontend/parser/parser_feature_validator.hpp"
 #include "frontend/parser/parser_runtime.hpp"
 
 extern int yyparse(yyscan_t scanner);
@@ -94,6 +95,9 @@ PassResult ParserPass::Run(CompilerContext &context) {
     lexer_state.set_source_mapping_view(
         context.get_source_location_service().build_source_mapping_view(
             parser_input_file));
+    lexer_state.set_keyword_registry(
+        &context.get_dialect_manager().get_lexer_keyword_registry());
+    lexer_state.set_classify_typedef_names(true);
     lexer_state.set_emit_parse_nodes(true);
 
     yyscan_t scanner = nullptr;
@@ -112,8 +116,17 @@ PassResult ParserPass::Run(CompilerContext &context) {
     std::fclose(input);
 
     context.set_parse_tree_root(take_parse_tree_root());
-    const bool parse_success = parse_result == 0;
-    const ParserErrorInfo &parser_error_info = get_parser_error_info();
+    bool parse_success = parse_result == 0;
+    ParserErrorInfo parser_error_info = get_parser_error_info();
+    if (parse_success) {
+        ParserFeatureValidator feature_validator;
+        if (!feature_validator.validate(
+                context.get_parse_tree_root(),
+                context.get_dialect_manager().get_parser_feature_registry(),
+                parser_error_info)) {
+            parse_success = false;
+        }
+    }
     const std::string parse_message =
         parse_success
             ? "parse succeeded"

@@ -10,6 +10,9 @@ void Cli::Run(int argc, char *argv[]) {
     dump_parse_ = false;
     dump_ast_ = false;
     dump_ir_ = false;
+    enable_gnu_dialect_ = true;
+    enable_clang_dialect_ = true;
+    enable_builtin_type_extension_pack_ = true;
     is_help_ = false;
     is_version_ = false;
     has_error_ = false;
@@ -52,6 +55,43 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "--dump-ir") {
             dump_ir_ = true;
+            continue;
+        }
+
+        if (arg == "--strict-c99") {
+            enable_gnu_dialect_ = false;
+            enable_clang_dialect_ = false;
+            enable_builtin_type_extension_pack_ = false;
+            continue;
+        }
+
+        if (arg == "--enable-gnu-dialect") {
+            enable_gnu_dialect_ = true;
+            continue;
+        }
+
+        if (arg == "--disable-gnu-dialect") {
+            enable_gnu_dialect_ = false;
+            continue;
+        }
+
+        if (arg == "--enable-clang-dialect") {
+            enable_clang_dialect_ = true;
+            continue;
+        }
+
+        if (arg == "--disable-clang-dialect") {
+            enable_clang_dialect_ = false;
+            continue;
+        }
+
+        if (arg == "--enable-builtin-types") {
+            enable_builtin_type_extension_pack_ = true;
+            continue;
+        }
+
+        if (arg == "--disable-builtin-types") {
+            enable_builtin_type_extension_pack_ = false;
             continue;
         }
 
