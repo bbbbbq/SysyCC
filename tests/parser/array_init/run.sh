@@ -17,8 +17,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 
-grep -q "^KwConst const ${PREPROCESSED_FILE}:1:1-1:5$" "${BUILD_DIR}/intermediate_results/${TEST_NAME}.tokens.txt"
-grep -q "^Identifier size ${PREPROCESSED_FILE}:1:11-1:14$" "${BUILD_DIR}/intermediate_results/${TEST_NAME}.tokens.txt"
+grep -q "^KwConst const ${INPUT_FILE}:1:1-1:5$" "${BUILD_DIR}/intermediate_results/${TEST_NAME}.tokens.txt"
+grep -q "^Identifier size ${INPUT_FILE}:1:11-1:14$" "${BUILD_DIR}/intermediate_results/${TEST_NAME}.tokens.txt"
 grep -q '^                                                      INT_LITERAL 3$' "${BUILD_DIR}/intermediate_results/${TEST_NAME}.parse.txt"
 
 echo "verified: array initialization frontend artifacts are generated correctly"

@@ -107,7 +107,7 @@ assert_compiler_fails_with_message() {
     fi
 
     local normalized_output
-    normalized_output="$(printf '%s' "${output}" | sed -E 's#[^[:space:]]+\.preprocessed\.sy:([0-9]+:[0-9]+-[0-9]+:[0-9]+)#\1#g')"
+    normalized_output="$(printf '%s' "${output}" | sed -E 's#[^[:space:]]+:([0-9]+:[0-9]+-[0-9]+:[0-9]+)#\1#g')"
     if [[ "${normalized_output}" != *"${expected_message}"* ]]; then
         echo "error: expected semantic diagnostic not found" >&2
         echo "${output}" >&2

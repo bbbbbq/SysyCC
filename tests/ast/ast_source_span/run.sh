@@ -16,10 +16,10 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ast
 
 grep -q "^  FunctionDecl main$" "${AST_FILE}"
-grep -q "^    SourceSpan ${PREPROCESSED_FILE}:1:1-3:1$" "${AST_FILE}"
+grep -q "^    SourceSpan ${INPUT_FILE}:1:1-3:1$" "${AST_FILE}"
 grep -q "^      ReturnStmt$" "${AST_FILE}"
-grep -q "^        SourceSpan ${PREPROCESSED_FILE}:2:5-2:13$" "${AST_FILE}"
+grep -q "^        SourceSpan ${INPUT_FILE}:2:5-2:13$" "${AST_FILE}"
 grep -q "^        IntegerLiteralExpr 0$" "${AST_FILE}"
-grep -q "^          SourceSpan ${PREPROCESSED_FILE}:2:12-2:12$" "${AST_FILE}"
+grep -q "^          SourceSpan ${INPUT_FILE}:2:12-2:12$" "${AST_FILE}"
 
 echo "verified: ast dump preserves source file paths and source spans from parse tree nodes"

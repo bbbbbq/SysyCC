@@ -22,7 +22,7 @@ if [[ ${RC} -eq 0 ]]; then
     exit 1
 fi
 
-if [[ "${OUTPUT}" != *"lexer encountered invalid token '@' at ${PREPROCESSED_FILE}:2:12-2:12"* ]]; then
+if [[ "${OUTPUT}" != *"lexer encountered invalid token '@' at ${INPUT_FILE}:2:12-2:12"* ]]; then
     echo "error: invalid token diagnostic is missing lexeme or source span" >&2
     echo "${OUTPUT}" >&2
     exit 1

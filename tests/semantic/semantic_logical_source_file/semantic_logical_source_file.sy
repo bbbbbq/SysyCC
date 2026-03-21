@@ -1,0 +1,4 @@
+#line 50 "virtual_semantic.sy"
+int main() {
+    return missing;
+}
