@@ -15,6 +15,17 @@ const std::string &BuiltinSemanticType::get_name() const noexcept {
     return name_;
 }
 
+QualifiedSemanticType::QualifiedSemanticType(bool is_const,
+                                             const SemanticType *base_type)
+    : SemanticType(SemanticTypeKind::Qualified), is_const_(is_const),
+      base_type_(base_type) {}
+
+bool QualifiedSemanticType::get_is_const() const noexcept { return is_const_; }
+
+const SemanticType *QualifiedSemanticType::get_base_type() const noexcept {
+    return base_type_;
+}
+
 PointerSemanticType::PointerSemanticType(const SemanticType *pointee_type)
     : SemanticType(SemanticTypeKind::Pointer), pointee_type_(pointee_type) {}
 
@@ -50,11 +61,30 @@ FunctionSemanticType::get_parameter_types() const noexcept {
     return parameter_types_;
 }
 
-StructSemanticType::StructSemanticType(std::string name)
-    : SemanticType(SemanticTypeKind::Struct), name_(std::move(name)) {}
+StructSemanticType::StructSemanticType(std::string name,
+                                       std::vector<SemanticFieldInfo> fields)
+    : SemanticType(SemanticTypeKind::Struct), name_(std::move(name)),
+      fields_(std::move(fields)) {}
 
 const std::string &StructSemanticType::get_name() const noexcept {
     return name_;
+}
+
+const std::vector<SemanticFieldInfo> &StructSemanticType::get_fields() const noexcept {
+    return fields_;
+}
+
+UnionSemanticType::UnionSemanticType(std::string name,
+                                     std::vector<SemanticFieldInfo> fields)
+    : SemanticType(SemanticTypeKind::Union), name_(std::move(name)),
+      fields_(std::move(fields)) {}
+
+const std::string &UnionSemanticType::get_name() const noexcept {
+    return name_;
+}
+
+const std::vector<SemanticFieldInfo> &UnionSemanticType::get_fields() const noexcept {
+    return fields_;
 }
 
 EnumSemanticType::EnumSemanticType(std::string name)

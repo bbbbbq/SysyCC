@@ -34,12 +34,17 @@ class AstBuilder {
         const ParseTreeNode *node) const;
     std::unique_ptr<StructDecl> build_struct_decl(
         const ParseTreeNode *node) const;
+    std::unique_ptr<UnionDecl> build_union_decl(
+        const ParseTreeNode *node) const;
     std::unique_ptr<EnumDecl> build_enum_decl(const ParseTreeNode *node) const;
     std::unique_ptr<TypeNode> build_return_type(const ParseTreeNode *node) const;
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     std::unique_ptr<TypeNode> build_declared_type(
-        const ParseTreeNode *type_specifier, const ParseTreeNode *declarator) const;
+        const ParseTreeNode *type_specifier, const ParseTreeNode *declarator,
+        bool pointee_is_const = false) const;
     std::vector<std::unique_ptr<Decl>> build_struct_fields(
+        const ParseTreeNode *node) const;
+    std::vector<std::unique_ptr<Decl>> build_union_fields(
         const ParseTreeNode *node) const;
     std::vector<std::unique_ptr<Decl>> build_enumerators(
         const ParseTreeNode *node) const;
@@ -58,6 +63,8 @@ class AstBuilder {
         const ParseTreeNode *node,
         std::vector<const ParseTreeNode *> &expr_nodes) const;
     std::unique_ptr<InitListExpr> build_init_list_expr(
+        const ParseTreeNode *node) const;
+    std::unique_ptr<TypeNode> build_cast_target_type(
         const ParseTreeNode *node) const;
     void collect_direct_init_value_nodes(
         const ParseTreeNode *node,

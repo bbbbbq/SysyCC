@@ -42,6 +42,7 @@ class ExpressionParser {
     const std::string &current_file_path_;
     const std::vector<std::string> &include_directories_;
     const std::vector<std::string> &system_include_directories_;
+    const DialectManager &dialect_manager_;
     std::size_t index_ = 0;
     int depth_ = 0;
 
@@ -181,7 +182,7 @@ class ExpressionParser {
         ExpressionParser nested_parser(
             definition->get_replacement(), macro_table_,
             builtin_probe_evaluator_, current_file_path_, include_directories_,
-            system_include_directories_, depth_ + 1);
+            system_include_directories_, dialect_manager_, depth_ + 1);
         return nested_parser.parse_complete_expression(value);
     }
 
@@ -217,7 +218,8 @@ class ExpressionParser {
         bool handled = false;
         PassResult builtin_probe_result = builtin_probe_evaluator_.try_evaluate(
             expression_, index_, macro_table_, current_file_path_,
-            include_directories_, system_include_directories_, value, handled);
+            include_directories_, system_include_directories_, dialect_manager_,
+            value, handled);
         if (!builtin_probe_result.ok) {
             return builtin_probe_result;
         }
@@ -586,12 +588,14 @@ class ExpressionParser {
                      const std::string &current_file_path,
                      const std::vector<std::string> &include_directories,
                      const std::vector<std::string> &system_include_directories,
+                     const DialectManager &dialect_manager,
                      int depth)
         : expression_(expression), macro_table_(macro_table),
           builtin_probe_evaluator_(builtin_probe_evaluator),
           current_file_path_(current_file_path),
           include_directories_(include_directories),
           system_include_directories_(system_include_directories),
+          dialect_manager_(dialect_manager),
           depth_(depth) {}
 
     PassResult parse_subexpression(long long &value) {
@@ -626,10 +630,11 @@ PassResult ConstantExpressionEvaluator::evaluate(const std::string &expression,
                                                  const std::string &current_file_path,
                                                  const std::vector<std::string> &include_directories,
                                                  const std::vector<std::string> &system_include_directories,
+                                                 const DialectManager &dialect_manager,
                                                  long long &value) const {
     ExpressionParser parser(expression, macro_table, builtin_probe_evaluator_,
                             current_file_path, include_directories,
-                            system_include_directories, 0);
+                            system_include_directories, dialect_manager, 0);
     return parser.parse_complete_expression(value);
 }
 

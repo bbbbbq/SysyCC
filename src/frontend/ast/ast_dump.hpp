@@ -24,6 +24,7 @@ class AstDumper {
                              std::ostream &os, int indent) const;
     void dump_struct_decl(const StructDecl *node, std::ostream &os,
                           int indent) const;
+    void dump_union_decl(const UnionDecl *node, std::ostream &os, int indent) const;
     void dump_enum_decl(const EnumDecl *node, std::ostream &os, int indent) const;
     void dump_typedef_decl(const TypedefDecl *node, std::ostream &os,
                            int indent) const;
@@ -56,6 +57,7 @@ class AstDumper {
                            int indent) const;
     void dump_binary_expr(const BinaryExpr *node, std::ostream &os,
                           int indent) const;
+    void dump_cast_expr(const CastExpr *node, std::ostream &os, int indent) const;
     void dump_conditional_expr(const ConditionalExpr *node, std::ostream &os,
                                int indent) const;
     void dump_assign_expr(const AssignExpr *node, std::ostream &os,

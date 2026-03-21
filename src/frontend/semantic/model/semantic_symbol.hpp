@@ -16,6 +16,7 @@ enum class SymbolKind : uint8_t {
     Field,
     TypedefName,
     StructName,
+    UnionName,
     EnumName,
     Enumerator,
 };

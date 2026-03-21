@@ -77,6 +77,32 @@ class BuiltinTypeNode : public TypeNode {
     const std::string &get_name() const noexcept;
 };
 
+// Represents a named type reference that must be resolved semantically,
+// such as a typedef-name.
+class NamedTypeNode : public TypeNode {
+  private:
+    std::string name_;
+
+  public:
+    explicit NamedTypeNode(std::string name, SourceSpan source_span = {});
+
+    const std::string &get_name() const noexcept;
+};
+
+// Represents a qualified type such as const char.
+class QualifiedTypeNode : public TypeNode {
+  private:
+    bool is_const_;
+    std::unique_ptr<TypeNode> base_type_;
+
+  public:
+    QualifiedTypeNode(bool is_const, std::unique_ptr<TypeNode> base_type,
+                      SourceSpan source_span = {});
+
+    bool get_is_const() const noexcept;
+    const TypeNode *get_base_type() const noexcept;
+};
+
 // Represents a pointer type such as int* or struct Node**.
 class PointerTypeNode : public TypeNode {
   private:
@@ -98,6 +124,20 @@ class StructTypeNode : public TypeNode {
     explicit StructTypeNode(std::string name, SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
+};
+
+// Represents a union type, optionally with inline field declarations.
+class UnionTypeNode : public TypeNode {
+  private:
+    std::string name_;
+    std::vector<std::unique_ptr<Decl>> fields_;
+
+  public:
+    UnionTypeNode(std::string name, std::vector<std::unique_ptr<Decl>> fields = {},
+                  SourceSpan source_span = {});
+
+    const std::string &get_name() const noexcept;
+    const std::vector<std::unique_ptr<Decl>> &get_fields() const noexcept;
 };
 
 // Represents a named enum type.
@@ -185,16 +225,19 @@ class VarDecl : public Decl {
     std::unique_ptr<TypeNode> declared_type_;
     std::vector<std::unique_ptr<Expr>> dimensions_;
     std::unique_ptr<Expr> initializer_;
+    bool is_extern_;
 
   public:
     VarDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
             std::vector<std::unique_ptr<Expr>> dimensions,
-            std::unique_ptr<Expr> initializer, SourceSpan source_span = {});
+            std::unique_ptr<Expr> initializer, bool is_extern,
+            SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
     const TypeNode *get_declared_type() const noexcept;
     const std::vector<std::unique_ptr<Expr>> &get_dimensions() const noexcept;
     const Expr *get_initializer() const noexcept;
+    bool get_is_extern() const noexcept;
 };
 
 // Represents a const declaration.
@@ -224,6 +267,20 @@ class StructDecl : public Decl {
 
   public:
     explicit StructDecl(std::string name, SourceSpan source_span = {});
+
+    const std::string &get_name() const noexcept;
+    const std::vector<std::unique_ptr<Decl>> &get_fields() const noexcept;
+    void add_field(std::unique_ptr<Decl> field);
+};
+
+// Represents a union declaration/definition.
+class UnionDecl : public Decl {
+  private:
+    std::string name_;
+    std::vector<std::unique_ptr<Decl>> fields_;
+
+  public:
+    explicit UnionDecl(std::string name, SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
     const std::vector<std::unique_ptr<Decl>> &get_fields() const noexcept;
@@ -572,6 +629,20 @@ class BinaryExpr : public Expr {
     const std::string &get_operator_text() const noexcept;
     const Expr *get_lhs() const noexcept;
     const Expr *get_rhs() const noexcept;
+};
+
+// Represents a C-style cast expression such as (int)value.
+class CastExpr : public Expr {
+  private:
+    std::unique_ptr<TypeNode> target_type_;
+    std::unique_ptr<Expr> operand_;
+
+  public:
+    CastExpr(std::unique_ptr<TypeNode> target_type, std::unique_ptr<Expr> operand,
+             SourceSpan source_span = {});
+
+    const TypeNode *get_target_type() const noexcept;
+    const Expr *get_operand() const noexcept;
 };
 
 // Represents a conditional operator expression such as cond ? lhs : rhs.

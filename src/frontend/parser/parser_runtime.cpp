@@ -1,11 +1,14 @@
 #include "frontend/parser/parser_runtime.hpp"
 
+#include <unordered_set>
+
 namespace sysycc {
 
 namespace {
 
 std::unique_ptr<ParseTreeNode> g_parse_tree_root;
 ParserErrorInfo g_parser_error_info;
+std::unordered_set<std::string> g_typedef_names;
 
 ParseTreeNode *AsNode(void *node) { return static_cast<ParseTreeNode *>(node); }
 
@@ -37,6 +40,7 @@ SourceSpan merge_child_spans(std::initializer_list<void *> children) {
 void parser_runtime_reset() {
     g_parse_tree_root.reset();
     g_parser_error_info = ParserErrorInfo();
+    g_typedef_names.clear();
 }
 
 // The `label` and `text` strings have distinct parser-runtime semantics.
@@ -78,6 +82,23 @@ void set_parser_error_info(ParserErrorInfo error_info) {
 
 const ParserErrorInfo &get_parser_error_info() noexcept {
     return g_parser_error_info;
+}
+
+void register_typedef_names_from_declarator_list(const ParseTreeNode *node) {
+    if (node == nullptr) {
+        return;
+    }
+    if (node->label.rfind("IDENTIFIER ", 0) == 0) {
+        g_typedef_names.insert(node->label.substr(std::string("IDENTIFIER ").size()));
+        return;
+    }
+    for (const auto &child : node->children) {
+        register_typedef_names_from_declarator_list(child.get());
+    }
+}
+
+bool is_typedef_name_registered(const std::string &name) {
+    return g_typedef_names.find(name) != g_typedef_names.end();
 }
 
 } // namespace sysycc

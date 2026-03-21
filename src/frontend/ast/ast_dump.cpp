@@ -53,6 +53,9 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
     case AstKind::StructDecl:
         dump_struct_decl(static_cast<const StructDecl *>(node), os, indent);
         return;
+    case AstKind::UnionDecl:
+        dump_union_decl(static_cast<const UnionDecl *>(node), os, indent);
+        return;
     case AstKind::EnumDecl:
         dump_enum_decl(static_cast<const EnumDecl *>(node), os, indent);
         return;
@@ -125,6 +128,23 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         dump_source_span(node, os, indent + 2);
         return;
     }
+    case AstKind::NamedType: {
+        const auto *named_type = static_cast<const NamedTypeNode *>(node);
+        write_indent(os, indent);
+        os << "NamedType " << named_type->get_name() << "\n";
+        dump_source_span(node, os, indent + 2);
+        return;
+    }
+    case AstKind::QualifiedType: {
+        const auto *qualified_type =
+            static_cast<const QualifiedTypeNode *>(node);
+        write_indent(os, indent);
+        os << "QualifiedType "
+           << (qualified_type->get_is_const() ? "const" : "<none>") << "\n";
+        dump_source_span(node, os, indent + 2);
+        dump_node(qualified_type->get_base_type(), os, indent + 2);
+        return;
+    }
     case AstKind::PointerType: {
         const auto *pointer_type = static_cast<const PointerTypeNode *>(node);
         write_indent(os, indent);
@@ -138,6 +158,16 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         write_indent(os, indent);
         os << "StructType " << struct_type->get_name() << "\n";
         dump_source_span(node, os, indent + 2);
+        return;
+    }
+    case AstKind::UnionType: {
+        const auto *union_type = static_cast<const UnionTypeNode *>(node);
+        write_indent(os, indent);
+        os << "UnionType " << union_type->get_name() << "\n";
+        dump_source_span(node, os, indent + 2);
+        for (const auto &field : union_type->get_fields()) {
+            dump_node(field.get(), os, indent + 2);
+        }
         return;
     }
     case AstKind::EnumType: {
@@ -196,6 +226,9 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         return;
     case AstKind::BinaryExpr:
         dump_binary_expr(static_cast<const BinaryExpr *>(node), os, indent);
+        return;
+    case AstKind::CastExpr:
+        dump_cast_expr(static_cast<const CastExpr *>(node), os, indent);
         return;
     case AstKind::ConditionalExpr:
         dump_conditional_expr(static_cast<const ConditionalExpr *>(node), os,
@@ -292,6 +325,16 @@ void AstDumper::dump_struct_decl(const StructDecl *node, std::ostream &os,
                                  int indent) const {
     write_indent(os, indent);
     os << "StructDecl " << node->get_name() << "\n";
+    dump_source_span(node, os, indent + 2);
+    for (const auto &field : node->get_fields()) {
+        dump_node(field.get(), os, indent + 2);
+    }
+}
+
+void AstDumper::dump_union_decl(const UnionDecl *node, std::ostream &os,
+                                int indent) const {
+    write_indent(os, indent);
+    os << "UnionDecl " << node->get_name() << "\n";
     dump_source_span(node, os, indent + 2);
     for (const auto &field : node->get_fields()) {
         dump_node(field.get(), os, indent + 2);
@@ -562,6 +605,14 @@ void AstDumper::dump_binary_expr(const BinaryExpr *node, std::ostream &os,
     dump_source_span(node, os, indent + 2);
     dump_node(node->get_lhs(), os, indent + 2);
     dump_node(node->get_rhs(), os, indent + 2);
+}
+
+void AstDumper::dump_cast_expr(const CastExpr *node, std::ostream &os,
+                               int indent) const {
+    os << std::string(indent, ' ') << "CastExpr\n";
+    dump_source_span(node, os, indent + 2);
+    dump_node(node->get_target_type(), os, indent + 2);
+    dump_node(node->get_operand(), os, indent + 2);
 }
 
 void AstDumper::dump_conditional_expr(const ConditionalExpr *node,

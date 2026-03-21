@@ -35,6 +35,14 @@ bool ScopeStack::define(const SemanticSymbol *symbol) {
     return scopes_.back().define(symbol);
 }
 
+const SemanticSymbol *ScopeStack::lookup_local(const std::string &name) const
+    noexcept {
+    if (scopes_.empty()) {
+        return nullptr;
+    }
+    return scopes_.back().lookup_local(name);
+}
+
 const SemanticSymbol *ScopeStack::lookup(const std::string &name) const
     noexcept {
     for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {

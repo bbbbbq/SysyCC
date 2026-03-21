@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "frontend/dialects/dialect_manager.hpp"
 #include "compiler/pass/pass.hpp"
 #include "frontend/preprocess/detail/conditional/builtin_probe_evaluator.hpp"
 #include "frontend/preprocess/detail/macro_table.hpp"
@@ -20,6 +21,7 @@ class ConstantExpressionEvaluator {
                         const std::string &current_file_path,
                         const std::vector<std::string> &include_directories,
                         const std::vector<std::string> &system_include_directories,
+                        const DialectManager &dialect_manager,
                         long long &value) const;
 };
 

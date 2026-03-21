@@ -51,6 +51,23 @@ BuiltinTypeNode::BuiltinTypeNode(std::string name, SourceSpan source_span)
 
 const std::string &BuiltinTypeNode::get_name() const noexcept { return name_; }
 
+NamedTypeNode::NamedTypeNode(std::string name, SourceSpan source_span)
+    : TypeNode(AstKind::NamedType, source_span), name_(std::move(name)) {}
+
+const std::string &NamedTypeNode::get_name() const noexcept { return name_; }
+
+QualifiedTypeNode::QualifiedTypeNode(bool is_const,
+                                     std::unique_ptr<TypeNode> base_type,
+                                     SourceSpan source_span)
+    : TypeNode(AstKind::QualifiedType, source_span), is_const_(is_const),
+      base_type_(std::move(base_type)) {}
+
+bool QualifiedTypeNode::get_is_const() const noexcept { return is_const_; }
+
+const TypeNode *QualifiedTypeNode::get_base_type() const noexcept {
+    return base_type_.get();
+}
+
 PointerTypeNode::PointerTypeNode(std::unique_ptr<TypeNode> pointee_type,
                                  SourceSpan source_span)
     : TypeNode(AstKind::PointerType, source_span),
@@ -65,6 +82,18 @@ StructTypeNode::StructTypeNode(std::string name, SourceSpan source_span)
       name_(std::move(name)) {}
 
 const std::string &StructTypeNode::get_name() const noexcept { return name_; }
+
+UnionTypeNode::UnionTypeNode(std::string name,
+                             std::vector<std::unique_ptr<Decl>> fields,
+                             SourceSpan source_span)
+    : TypeNode(AstKind::UnionType, source_span), name_(std::move(name)),
+      fields_(std::move(fields)) {}
+
+const std::string &UnionTypeNode::get_name() const noexcept { return name_; }
+
+const std::vector<std::unique_ptr<Decl>> &UnionTypeNode::get_fields() const noexcept {
+    return fields_;
+}
 
 EnumTypeNode::EnumTypeNode(std::string name, SourceSpan source_span)
     : TypeNode(AstKind::EnumType, source_span), name_(std::move(name)) {}
@@ -144,10 +173,12 @@ const std::vector<std::unique_ptr<Expr>> &FieldDecl::get_dimensions() const
 
 VarDecl::VarDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
                  std::vector<std::unique_ptr<Expr>> dimensions,
-                 std::unique_ptr<Expr> initializer, SourceSpan source_span)
+                 std::unique_ptr<Expr> initializer, bool is_extern,
+                 SourceSpan source_span)
     : Decl(AstKind::VarDecl, source_span), name_(std::move(name)),
       declared_type_(std::move(declared_type)),
-      dimensions_(std::move(dimensions)), initializer_(std::move(initializer)) {
+      dimensions_(std::move(dimensions)), initializer_(std::move(initializer)),
+      is_extern_(is_extern) {
 }
 
 const std::string &VarDecl::get_name() const noexcept { return name_; }
@@ -164,6 +195,8 @@ const std::vector<std::unique_ptr<Expr>> &VarDecl::get_dimensions() const
 const Expr *VarDecl::get_initializer() const noexcept {
     return initializer_.get();
 }
+
+bool VarDecl::get_is_extern() const noexcept { return is_extern_; }
 
 ConstDecl::ConstDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
                      std::vector<std::unique_ptr<Expr>> dimensions,
@@ -198,6 +231,22 @@ const std::vector<std::unique_ptr<Decl>> &StructDecl::get_fields() const noexcep
 }
 
 void StructDecl::add_field(std::unique_ptr<Decl> field) {
+    if (field == nullptr) {
+        return;
+    }
+    fields_.push_back(std::move(field));
+}
+
+UnionDecl::UnionDecl(std::string name, SourceSpan source_span)
+    : Decl(AstKind::UnionDecl, source_span), name_(std::move(name)) {}
+
+const std::string &UnionDecl::get_name() const noexcept { return name_; }
+
+const std::vector<std::unique_ptr<Decl>> &UnionDecl::get_fields() const noexcept {
+    return fields_;
+}
+
+void UnionDecl::add_field(std::unique_ptr<Decl> field) {
     if (field == nullptr) {
         return;
     }
@@ -480,6 +529,17 @@ const std::string &BinaryExpr::get_operator_text() const noexcept {
 const Expr *BinaryExpr::get_lhs() const noexcept { return lhs_.get(); }
 
 const Expr *BinaryExpr::get_rhs() const noexcept { return rhs_.get(); }
+
+CastExpr::CastExpr(std::unique_ptr<TypeNode> target_type,
+                   std::unique_ptr<Expr> operand, SourceSpan source_span)
+    : Expr(AstKind::CastExpr, source_span),
+      target_type_(std::move(target_type)), operand_(std::move(operand)) {}
+
+const TypeNode *CastExpr::get_target_type() const noexcept {
+    return target_type_.get();
+}
+
+const Expr *CastExpr::get_operand() const noexcept { return operand_.get(); }
 
 ConditionalExpr::ConditionalExpr(std::unique_ptr<Expr> condition,
                                  std::unique_ptr<Expr> true_expr,

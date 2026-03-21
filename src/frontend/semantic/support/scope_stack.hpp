@@ -30,6 +30,7 @@ class ScopeStack {
     void pop_scope();
 
     bool define(const SemanticSymbol *symbol);
+    const SemanticSymbol *lookup_local(const std::string &name) const noexcept;
     const SemanticSymbol *lookup(const std::string &name) const noexcept;
     bool empty() const noexcept;
 };
