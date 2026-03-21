@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 
+#include "compiler/compiler_context/compiler_context.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/attribute/attribute_analyzer.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
@@ -53,7 +54,13 @@ void SemanticAnalyzer::Analyze(const TranslationUnit *translation_unit,
     }
 
     TypeResolver type_resolver;
-    ConversionChecker conversion_checker;
+    ConversionChecker conversion_checker(
+        &semantic_context.get_compiler_context()
+             .get_dialect_manager()
+             .get_semantic_feature_registry(),
+        &semantic_context.get_compiler_context()
+             .get_dialect_manager()
+             .get_builtin_type_semantic_handler_registry());
     ConstantEvaluator constant_evaluator;
     ExprAnalyzer expr_analyzer(type_resolver, conversion_checker,
                                constant_evaluator);
@@ -77,7 +84,7 @@ void SemanticAnalyzer::Analyze(const TranslationUnit *translation_unit,
 
 const SemanticType *SemanticAnalyzer::build_function_type(
     const Decl *decl, SemanticContext &semantic_context,
-    const TypeResolver &type_resolver) const {
+    const TypeResolver &type_resolver, const ScopeStack &scope_stack) const {
     if (decl == nullptr || decl->get_kind() != AstKind::FunctionDecl) {
         return nullptr;
     }
@@ -85,13 +92,13 @@ const SemanticType *SemanticAnalyzer::build_function_type(
     const auto *function_decl = static_cast<const FunctionDecl *>(decl);
     const SemanticType *return_type =
         type_resolver.resolve_type(function_decl->get_return_type(),
-                                   semantic_context);
+                                   semantic_context, &scope_stack);
     std::vector<const SemanticType *> parameter_types;
     for (const auto &parameter : function_decl->get_parameters()) {
         const auto *param_decl = static_cast<const ParamDecl *>(parameter.get());
         parameter_types.push_back(type_resolver.apply_array_dimensions(
             type_resolver.resolve_type(param_decl->get_declared_type(),
-                                       semantic_context),
+                                       semantic_context, &scope_stack),
             param_decl->get_dimensions(), semantic_context));
     }
 
@@ -113,7 +120,8 @@ void SemanticAnalyzer::analyze_function_decl(
     auto *function_decl = static_cast<const FunctionDecl *>(decl);
     SemanticModel &semantic_model = semantic_context.get_semantic_model();
     const SemanticType *function_type =
-        build_function_type(function_decl, semantic_context, type_resolver);
+        build_function_type(function_decl, semantic_context, type_resolver,
+                            scope_stack);
     const auto *function_symbol = semantic_model.own_symbol(
         std::make_unique<SemanticSymbol>(SymbolKind::Function,
                                          function_decl->get_name(),

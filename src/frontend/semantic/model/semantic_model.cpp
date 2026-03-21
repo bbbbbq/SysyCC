@@ -79,6 +79,20 @@ void SemanticModel::bind_function_attributes(
     function_attributes_[function_decl] = std::move(attributes);
 }
 
+const VariableSemanticInfo *
+SemanticModel::get_variable_info(const SemanticSymbol *symbol) const noexcept {
+    const auto it = variable_infos_.find(symbol);
+    if (it == variable_infos_.end()) {
+        return nullptr;
+    }
+    return &it->second;
+}
+
+void SemanticModel::bind_variable_info(const SemanticSymbol *symbol,
+                                       VariableSemanticInfo variable_info) {
+    variable_infos_[symbol] = std::move(variable_info);
+}
+
 const SemanticType *SemanticModel::own_type(std::unique_ptr<SemanticType> type) {
     owned_types_.push_back(std::move(type));
     return owned_types_.back().get();

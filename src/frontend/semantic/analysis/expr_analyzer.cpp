@@ -6,6 +6,7 @@
 
 #include "common/integer_literal.hpp"
 #include "frontend/ast/ast_node.hpp"
+#include "frontend/semantic/type_system/integer_conversion_service.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
 #include "frontend/semantic/support/scope_stack.hpp"
@@ -20,13 +21,219 @@ namespace sysycc::detail {
 
 namespace {
 
+const SemanticType *strip_qualifiers(const SemanticType *type) {
+    const SemanticType *current = type;
+    while (current != nullptr &&
+           current->get_kind() == SemanticTypeKind::Qualified) {
+        current =
+            static_cast<const QualifiedSemanticType *>(current)->get_base_type();
+    }
+    return current;
+}
+
+const SemanticType *get_builtin_semantic_type(SemanticModel &semantic_model,
+                                              const std::string &name) {
+    return semantic_model.own_type(
+        std::make_unique<BuiltinSemanticType>(name));
+}
+
 const SemanticType *get_int_semantic_type(SemanticModel &semantic_model) {
-    return semantic_model.own_type(std::make_unique<BuiltinSemanticType>("int"));
+    return get_builtin_semantic_type(semantic_model, "int");
+}
+
+const SemanticType *get_ptrdiff_semantic_type(SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "ptrdiff_t");
 }
 
 const SemanticType *get_float_semantic_type(SemanticModel &semantic_model) {
-    return semantic_model.own_type(
-        std::make_unique<BuiltinSemanticType>("float"));
+    return get_builtin_semantic_type(semantic_model, "float");
+}
+
+const SemanticType *get_unsigned_int_semantic_type(
+    SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "unsigned int");
+}
+
+const SemanticType *get_unsigned_short_semantic_type(
+    SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "unsigned short");
+}
+
+const SemanticType *get_unsigned_char_semantic_type(
+    SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "unsigned char");
+}
+
+const SemanticType *get_unsigned_long_long_semantic_type(
+    SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "unsigned long long");
+}
+
+const SemanticType *get_integer_promotion_type(const SemanticType *type,
+                                               SemanticModel &semantic_model) {
+    const SemanticType *unqualified_type = strip_qualifiers(type);
+    if (unqualified_type == nullptr) {
+        return nullptr;
+    }
+    if (unqualified_type->get_kind() == SemanticTypeKind::Enum) {
+        return get_int_semantic_type(semantic_model);
+    }
+    if (unqualified_type->get_kind() != SemanticTypeKind::Builtin) {
+        return nullptr;
+    }
+
+    IntegerConversionService integer_conversion_service;
+    const auto type_info =
+        integer_conversion_service.get_integer_type_info(unqualified_type);
+    if (!type_info.has_value()) {
+        return nullptr;
+    }
+    if (type_info->get_rank() < 3) {
+        return get_int_semantic_type(semantic_model);
+    }
+    return unqualified_type;
+}
+
+const SemanticType *get_unsigned_equivalent_integer_type(
+    const SemanticType *type, SemanticModel &semantic_model) {
+    const SemanticType *unqualified_type = strip_qualifiers(type);
+    if (unqualified_type == nullptr ||
+        unqualified_type->get_kind() != SemanticTypeKind::Builtin) {
+        return nullptr;
+    }
+
+    IntegerConversionService integer_conversion_service;
+    const auto type_info =
+        integer_conversion_service.get_integer_type_info(unqualified_type);
+    if (!type_info.has_value()) {
+        return nullptr;
+    }
+
+    if (type_info->get_bit_width() <= 8) {
+        return get_unsigned_char_semantic_type(semantic_model);
+    }
+    if (type_info->get_bit_width() <= 16) {
+        return get_unsigned_short_semantic_type(semantic_model);
+    }
+    if (type_info->get_bit_width() <= 32) {
+        return get_unsigned_int_semantic_type(semantic_model);
+    }
+    return get_unsigned_long_long_semantic_type(semantic_model);
+}
+
+const SemanticType *get_common_integer_type(const SemanticType *lhs,
+                                            const SemanticType *rhs,
+                                            SemanticModel &semantic_model,
+                                            const ConversionChecker
+                                                &conversion_checker) {
+    const SemanticType *unqualified_lhs = strip_qualifiers(lhs);
+    const SemanticType *unqualified_rhs = strip_qualifiers(rhs);
+    if (unqualified_lhs == nullptr || unqualified_rhs == nullptr ||
+        unqualified_lhs->get_kind() != SemanticTypeKind::Builtin ||
+        unqualified_rhs->get_kind() != SemanticTypeKind::Builtin) {
+        return nullptr;
+    }
+
+    IntegerConversionService integer_conversion_service;
+    const auto lhs_info =
+        integer_conversion_service.get_integer_type_info(unqualified_lhs);
+    const auto rhs_info =
+        integer_conversion_service.get_integer_type_info(unqualified_rhs);
+    if (!lhs_info.has_value() || !rhs_info.has_value()) {
+        return nullptr;
+    }
+
+    const SemanticType *lhs_promoted =
+        get_integer_promotion_type(unqualified_lhs, semantic_model);
+    const SemanticType *rhs_promoted =
+        get_integer_promotion_type(unqualified_rhs, semantic_model);
+    if (lhs_promoted == nullptr || rhs_promoted == nullptr) {
+        return nullptr;
+    }
+
+    if (conversion_checker.is_same_type(lhs_promoted, rhs_promoted)) {
+        return lhs_promoted;
+    }
+
+    const auto lhs_promoted_info =
+        integer_conversion_service.get_integer_type_info(lhs_promoted);
+    const auto rhs_promoted_info =
+        integer_conversion_service.get_integer_type_info(rhs_promoted);
+    if (!lhs_promoted_info.has_value() || !rhs_promoted_info.has_value()) {
+        return nullptr;
+    }
+
+    if (lhs_promoted_info->get_is_signed() ==
+        rhs_promoted_info->get_is_signed()) {
+        if (lhs_promoted_info->get_rank() > rhs_promoted_info->get_rank()) {
+            return lhs_promoted;
+        }
+        if (rhs_promoted_info->get_rank() > lhs_promoted_info->get_rank()) {
+            return rhs_promoted;
+        }
+        if (strip_qualifiers(lhs_promoted) != nullptr &&
+            strip_qualifiers(lhs_promoted)->get_kind() ==
+                SemanticTypeKind::Builtin &&
+            static_cast<const BuiltinSemanticType *>(strip_qualifiers(lhs_promoted))
+                    ->get_name() == "ptrdiff_t") {
+            return lhs_promoted;
+        }
+        if (strip_qualifiers(rhs_promoted) != nullptr &&
+            strip_qualifiers(rhs_promoted)->get_kind() ==
+                SemanticTypeKind::Builtin &&
+            static_cast<const BuiltinSemanticType *>(strip_qualifiers(rhs_promoted))
+                    ->get_name() == "ptrdiff_t") {
+            return rhs_promoted;
+        }
+        return lhs_promoted;
+    }
+
+    const bool lhs_is_signed = lhs_promoted_info->get_is_signed();
+    const IntegerTypeInfo &signed_info =
+        lhs_is_signed ? *lhs_promoted_info : *rhs_promoted_info;
+    const IntegerTypeInfo &unsigned_info =
+        lhs_is_signed ? *rhs_promoted_info : *lhs_promoted_info;
+    const SemanticType *signed_type = lhs_is_signed ? lhs_promoted : rhs_promoted;
+    const SemanticType *unsigned_type =
+        lhs_is_signed ? rhs_promoted : lhs_promoted;
+
+    if (signed_info.get_rank() > unsigned_info.get_rank()) {
+        if (signed_info.get_bit_width() > unsigned_info.get_bit_width()) {
+            return signed_type;
+        }
+        return get_unsigned_equivalent_integer_type(signed_type,
+                                                    semantic_model);
+    }
+
+    if (unsigned_info.get_rank() > signed_info.get_rank()) {
+        return unsigned_type;
+    }
+
+    return get_unsigned_equivalent_integer_type(signed_type, semantic_model);
+}
+
+const SemanticType *get_common_arithmetic_type(
+    const SemanticType *lhs, const SemanticType *rhs,
+    SemanticModel &semantic_model, const ConversionChecker &conversion_checker) {
+    if (!conversion_checker.is_arithmetic_type(lhs) ||
+        !conversion_checker.is_arithmetic_type(rhs)) {
+        return nullptr;
+    }
+
+    const SemanticType *unqualified_lhs = strip_qualifiers(lhs);
+    const SemanticType *unqualified_rhs = strip_qualifiers(rhs);
+    if (unqualified_lhs != nullptr &&
+        unqualified_lhs->get_kind() == SemanticTypeKind::Builtin &&
+        unqualified_rhs != nullptr &&
+        unqualified_rhs->get_kind() == SemanticTypeKind::Builtin &&
+        conversion_checker.is_integer_like_type(unqualified_lhs) &&
+        conversion_checker.is_integer_like_type(unqualified_rhs)) {
+        return get_common_integer_type(unqualified_lhs, unqualified_rhs,
+                                       semantic_model, conversion_checker);
+    }
+
+    return conversion_checker.get_usual_arithmetic_conversion_type(
+        lhs, rhs, semantic_model);
 }
 
 const SemanticType *get_pointer_decay_or_self(const SemanticType *type,
@@ -43,6 +250,42 @@ const SemanticType *get_pointer_decay_or_self(const SemanticType *type,
     const auto *array_type = static_cast<const ArraySemanticType *>(type);
     return semantic_model.own_type(
         std::make_unique<PointerSemanticType>(array_type->get_element_type()));
+}
+
+const SemanticType *get_member_owner_type(
+    const SemanticType *base_type, const std::string &operator_text,
+    const ConversionChecker &conversion_checker) {
+    if (base_type == nullptr) {
+        return nullptr;
+    }
+    if (operator_text == "->") {
+        if (conversion_checker.is_pointer_to_struct_type(base_type) ||
+            conversion_checker.is_pointer_to_union_type(base_type)) {
+            return static_cast<const PointerSemanticType *>(base_type)
+                ->get_pointee_type();
+        }
+        return nullptr;
+    }
+    if (operator_text == "." &&
+        (conversion_checker.is_struct_type(base_type) ||
+         conversion_checker.is_union_type(base_type))) {
+        return base_type;
+    }
+    return nullptr;
+}
+
+const SemanticType *find_direct_union_field_type(const SemanticType *owner_type,
+                                                 const std::string &field_name) {
+    if (owner_type == nullptr || owner_type->get_kind() != SemanticTypeKind::Union) {
+        return nullptr;
+    }
+    const auto *union_type = static_cast<const UnionSemanticType *>(owner_type);
+    for (const auto &field : union_type->get_fields()) {
+        if (field.get_name() == field_name) {
+            return field.get_type();
+        }
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -214,8 +457,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             }
             semantic_model.bind_node_type(
                 unary_expr,
-                conversion_checker_.get_usual_arithmetic_conversion_type(
-                    operand_type, operand_type, semantic_model));
+                get_common_arithmetic_type(operand_type, operand_type,
+                                            semantic_model, conversion_checker_));
             const auto operand_constant =
                 constant_evaluator_.get_integer_constant_value(
                     unary_expr->get_operand(), semantic_context);
@@ -314,8 +557,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                 rhs_pointer_like != nullptr &&
                 conversion_checker_.is_same_type(lhs_pointer_like,
                                                  rhs_pointer_like)) {
-                semantic_model.bind_node_type(binary_expr,
-                                              get_int_semantic_type(semantic_model));
+                semantic_model.bind_node_type(
+                    binary_expr, get_ptrdiff_semantic_type(semantic_model));
                 return;
             }
             if (!conversion_checker_.is_arithmetic_type(lhs_type) ||
@@ -327,9 +570,9 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                 return;
             }
             semantic_model.bind_node_type(
-                binary_expr,
-                conversion_checker_.get_usual_arithmetic_conversion_type(
-                    lhs_type, rhs_type, semantic_model));
+                binary_expr, get_common_arithmetic_type(
+                                 lhs_type, rhs_type, semantic_model,
+                                 conversion_checker_));
             if (lhs_constant.has_value() && rhs_constant.has_value()) {
                 long long result = 0;
                 if (operator_text == "+") {
@@ -357,8 +600,12 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                           binary_expr->get_source_span());
                 return;
             }
-            semantic_model.bind_node_type(binary_expr,
-                                          get_int_semantic_type(semantic_model));
+            const SemanticType *result_type = get_common_integer_type(
+                lhs_type, rhs_type, semantic_model, conversion_checker_);
+            if (result_type == nullptr) {
+                result_type = get_int_semantic_type(semantic_model);
+            }
+            semantic_model.bind_node_type(binary_expr, result_type);
             if (lhs_constant.has_value() && rhs_constant.has_value() &&
                 *rhs_constant != 0) {
                 constant_evaluator_.bind_integer_constant_value(
@@ -378,8 +625,18 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                           binary_expr->get_source_span());
                 return;
             }
-            semantic_model.bind_node_type(binary_expr,
-                                          get_int_semantic_type(semantic_model));
+            const SemanticType *result_type = nullptr;
+            if (operator_text == "<<" || operator_text == ">>") {
+                result_type = get_integer_promotion_type(lhs_type,
+                                                         semantic_model);
+            } else {
+                result_type = get_common_integer_type(
+                    lhs_type, rhs_type, semantic_model, conversion_checker_);
+            }
+            if (result_type == nullptr) {
+                result_type = get_int_semantic_type(semantic_model);
+            }
+            semantic_model.bind_node_type(binary_expr, result_type);
             if (lhs_constant.has_value() && rhs_constant.has_value()) {
                 long long result = 0;
                 if (operator_text == "<<") {
@@ -431,6 +688,14 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                           binary_expr->get_source_span());
                 return;
             }
+            if (get_common_arithmetic_type(lhs_type, rhs_type, semantic_model,
+                                           conversion_checker_) == nullptr) {
+                add_error(semantic_context,
+                          "binary operator '" + operator_text +
+                              "' requires compatible arithmetic operands",
+                          binary_expr->get_source_span());
+                return;
+            }
             semantic_model.bind_node_type(binary_expr,
                                           get_int_semantic_type(semantic_model));
             if (lhs_constant.has_value() && rhs_constant.has_value()) {
@@ -451,10 +716,21 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         }
 
         if (operator_text == "==" || operator_text == "!=") {
-            if (!conversion_checker_.is_compatible_equality_type(
-                    lhs_type, rhs_type, binary_expr->get_lhs(),
-                    binary_expr->get_rhs(), semantic_context,
-                    constant_evaluator_)) {
+            if (conversion_checker_.is_arithmetic_type(lhs_type) &&
+                conversion_checker_.is_arithmetic_type(rhs_type)) {
+                if (get_common_arithmetic_type(
+                        lhs_type, rhs_type, semantic_model,
+                        conversion_checker_) == nullptr) {
+                    add_error(semantic_context,
+                              "binary operator '" + operator_text +
+                                  "' requires compatible arithmetic operands",
+                              binary_expr->get_source_span());
+                    return;
+                }
+            } else if (!conversion_checker_.is_compatible_equality_type(
+                           lhs_type, rhs_type, binary_expr->get_lhs(),
+                           binary_expr->get_rhs(), semantic_context,
+                           constant_evaluator_)) {
                 add_error(semantic_context,
                           "binary operator '" + operator_text +
                               "' requires compatible operands",
@@ -474,6 +750,36 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         }
 
         semantic_model.bind_node_type(binary_expr, lhs_type);
+        return;
+    }
+    case AstKind::CastExpr: {
+        const auto *cast_expr = static_cast<const CastExpr *>(expr);
+        analyze_expr(cast_expr->get_operand(), semantic_context, scope_stack);
+
+        const SemanticType *operand_type =
+            semantic_model.get_node_type(cast_expr->get_operand());
+        const SemanticType *target_type =
+            type_resolver_.resolve_type(cast_expr->get_target_type(),
+                                        semantic_context, &scope_stack);
+        if (operand_type == nullptr || target_type == nullptr) {
+            return;
+        }
+
+        if (!conversion_checker_.is_castable_type(target_type, operand_type)) {
+            add_error(semantic_context, "unsupported cast between operand types",
+                      cast_expr->get_source_span());
+            return;
+        }
+
+        semantic_model.bind_node_type(cast_expr, target_type);
+        const auto operand_constant =
+            constant_evaluator_.get_integer_constant_value(
+                cast_expr->get_operand(), semantic_context);
+        if (operand_constant.has_value() &&
+            conversion_checker_.is_integer_like_type(target_type)) {
+            constant_evaluator_.bind_integer_constant_value(
+                cast_expr, *operand_constant, semantic_context);
+        }
         return;
     }
     case AstKind::ConditionalExpr: {
@@ -506,9 +812,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         const SemanticType *result_type = nullptr;
         if (conversion_checker_.is_arithmetic_type(true_type) &&
             conversion_checker_.is_arithmetic_type(false_type)) {
-            result_type =
-                conversion_checker_.get_usual_arithmetic_conversion_type(
-                    true_type, false_type, semantic_model);
+            result_type = get_common_arithmetic_type(
+                true_type, false_type, semantic_model, conversion_checker_);
         } else if (conversion_checker_.is_same_type(true_type, false_type)) {
             result_type = true_type;
         } else if (conversion_checker_.is_pointer_type(true_type) &&
@@ -666,32 +971,28 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         analyze_expr(member_expr->get_base(), semantic_context, scope_stack);
         const SemanticType *base_type =
             semantic_model.get_node_type(member_expr->get_base());
-
-        const SemanticType *struct_type = nullptr;
-        if (member_expr->get_operator_text() == "->") {
-            if (!conversion_checker_.is_pointer_to_struct_type(base_type)) {
-                add_error(semantic_context,
-                          "operator '->' requires a pointer-to-struct operand",
-                          member_expr->get_source_span());
-                return;
-            }
-            struct_type =
-                static_cast<const PointerSemanticType *>(base_type)
-                    ->get_pointee_type();
-        } else if (member_expr->get_operator_text() == ".") {
-            if (!conversion_checker_.is_struct_type(base_type)) {
-                add_error(semantic_context,
-                          "operator '.' requires a struct operand",
-                          member_expr->get_source_span());
-                return;
-            }
-            struct_type = base_type;
+        const SemanticType *owner_type = get_member_owner_type(
+            base_type, member_expr->get_operator_text(), conversion_checker_);
+        if (owner_type == nullptr) {
+            add_error(
+                semantic_context,
+                "operator '" + member_expr->get_operator_text() +
+                    "' requires a struct or union operand",
+                member_expr->get_source_span());
+            return;
         }
 
-        if (struct_type != nullptr &&
-            struct_type->get_kind() == SemanticTypeKind::Struct) {
+        if (const SemanticType *field_type =
+                find_direct_union_field_type(owner_type,
+                                             member_expr->get_member_name());
+            field_type != nullptr) {
+            semantic_model.bind_node_type(expr, field_type);
+            return;
+        }
+
+        if (owner_type->get_kind() == SemanticTypeKind::Struct) {
             const std::string &struct_name =
-                static_cast<const StructSemanticType *>(struct_type)->get_name();
+                static_cast<const StructSemanticType *>(owner_type)->get_name();
             const SemanticSymbol *struct_symbol = scope_stack.lookup(struct_name);
             if (struct_symbol != nullptr &&
                 struct_symbol->get_kind() == SymbolKind::StructName &&
@@ -706,7 +1007,7 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                         semantic_model.bind_node_type(
                             expr, type_resolver_.resolve_type(
                                       field_decl->get_declared_type(),
-                                      semantic_context));
+                                      semantic_context, &scope_stack));
                         return;
                     }
                 }
@@ -716,8 +1017,38 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                           member_expr->get_source_span());
                 return;
             }
-            semantic_model.bind_node_type(expr, struct_type);
         }
+
+        if (owner_type->get_kind() == SemanticTypeKind::Union) {
+            const std::string &union_name =
+                static_cast<const UnionSemanticType *>(owner_type)->get_name();
+            const SemanticSymbol *union_symbol = scope_stack.lookup(union_name);
+            if (union_symbol != nullptr &&
+                union_symbol->get_kind() == SymbolKind::UnionName &&
+                union_symbol->get_decl_node() != nullptr &&
+                union_symbol->get_decl_node()->get_kind() == AstKind::UnionDecl) {
+                const auto *union_decl =
+                    static_cast<const UnionDecl *>(union_symbol->get_decl_node());
+                for (const auto &field : union_decl->get_fields()) {
+                    const auto *field_decl =
+                        static_cast<const FieldDecl *>(field.get());
+                    if (field_decl->get_name() == member_expr->get_member_name()) {
+                        semantic_model.bind_node_type(
+                            expr, type_resolver_.resolve_type(
+                                      field_decl->get_declared_type(),
+                                      semantic_context, &scope_stack));
+                        return;
+                    }
+                }
+                add_error(semantic_context,
+                          "member '" + member_expr->get_member_name() +
+                              "' does not exist in union '" + union_name + "'",
+                          member_expr->get_source_span());
+                return;
+            }
+        }
+
+        semantic_model.bind_node_type(expr, owner_type);
         return;
     }
     case AstKind::InitListExpr: {

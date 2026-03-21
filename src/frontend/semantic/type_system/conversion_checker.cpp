@@ -3,12 +3,58 @@
 #include <memory>
 
 #include "frontend/ast/ast_node.hpp"
+#include "frontend/dialects/builtin_type_semantic_handler_registry.hpp"
+#include "frontend/dialects/semantic_feature_registry.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
+#include "frontend/semantic/type_system/integer_conversion_service.hpp"
+#include "frontend/semantic/type_system/extended_builtin_type_semantic_handler.hpp"
 #include "frontend/semantic/support/semantic_context.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
 
 namespace sysycc::detail {
+
+namespace {
+
+const SemanticType *strip_qualifiers(const SemanticType *type) {
+    const SemanticType *current = type;
+    while (current != nullptr &&
+           current->get_kind() == SemanticTypeKind::Qualified) {
+        current =
+            static_cast<const QualifiedSemanticType *>(current)->get_base_type();
+    }
+    return current;
+}
+
+bool is_const_qualified_type(const SemanticType *type) {
+    return type != nullptr && type->get_kind() == SemanticTypeKind::Qualified &&
+           static_cast<const QualifiedSemanticType *>(type)->get_is_const();
+}
+
+bool is_standard_numeric_builtin_name(const std::string &name) {
+    return name == "long double" || name == "double" || name == "long long int" ||
+           name == "long int" || name == "float" || name == "int" ||
+           name == "ptrdiff_t" ||
+           name == "short" || name == "signed char" ||
+           name == "unsigned int" || name == "unsigned short" ||
+           name == "unsigned long long" || name == "unsigned char" ||
+           name == "char";
+}
+
+} // namespace
+
+bool ConversionChecker::has_semantic_feature(SemanticFeature feature) const
+    noexcept {
+    return semantic_feature_registry_ == nullptr ||
+           semantic_feature_registry_->has_feature(feature);
+}
+
+bool ConversionChecker::has_extended_builtin_scalar_handler() const noexcept {
+    return has_semantic_feature(SemanticFeature::ExtendedBuiltinTypes) &&
+           builtin_type_semantic_handler_registry_ != nullptr &&
+           builtin_type_semantic_handler_registry_->has_handler(
+               BuiltinTypeSemanticHandlerKind::ExtendedBuiltinScalarTypes);
+}
 
 bool ConversionChecker::is_assignable_expr(const Expr *expr) const {
     if (expr == nullptr) {
@@ -45,6 +91,15 @@ bool ConversionChecker::is_same_type(const SemanticType *lhs,
     case SemanticTypeKind::Builtin:
         return static_cast<const BuiltinSemanticType *>(lhs)->get_name() ==
                static_cast<const BuiltinSemanticType *>(rhs)->get_name();
+    case SemanticTypeKind::Qualified: {
+        const auto *lhs_qualified =
+            static_cast<const QualifiedSemanticType *>(lhs);
+        const auto *rhs_qualified =
+            static_cast<const QualifiedSemanticType *>(rhs);
+        return lhs_qualified->get_is_const() == rhs_qualified->get_is_const() &&
+               is_same_type(lhs_qualified->get_base_type(),
+                            rhs_qualified->get_base_type());
+    }
     case SemanticTypeKind::Pointer:
         return is_same_type(
             static_cast<const PointerSemanticType *>(lhs)->get_pointee_type(),
@@ -52,6 +107,9 @@ bool ConversionChecker::is_same_type(const SemanticType *lhs,
     case SemanticTypeKind::Struct:
         return static_cast<const StructSemanticType *>(lhs)->get_name() ==
                static_cast<const StructSemanticType *>(rhs)->get_name();
+    case SemanticTypeKind::Union:
+        return static_cast<const UnionSemanticType *>(lhs)->get_name() ==
+               static_cast<const UnionSemanticType *>(rhs)->get_name();
     case SemanticTypeKind::Enum:
         return static_cast<const EnumSemanticType *>(lhs)->get_name() ==
                static_cast<const EnumSemanticType *>(rhs)->get_name();
@@ -93,23 +151,51 @@ bool ConversionChecker::is_assignable_type(const SemanticType *target,
     if (target == nullptr || value == nullptr) {
         return false;
     }
-    if (target->get_kind() == SemanticTypeKind::Pointer &&
-        value->get_kind() == SemanticTypeKind::Pointer) {
-        return is_same_type(target, value);
+    const SemanticType *unqualified_target = strip_qualifiers(target);
+    const SemanticType *unqualified_value = strip_qualifiers(value);
+
+    if (unqualified_target != nullptr && unqualified_value != nullptr &&
+        unqualified_target->get_kind() == SemanticTypeKind::Pointer &&
+        unqualified_value->get_kind() == SemanticTypeKind::Pointer) {
+        const auto *target_pointer =
+            static_cast<const PointerSemanticType *>(unqualified_target);
+        const auto *value_pointer =
+            static_cast<const PointerSemanticType *>(unqualified_value);
+        const SemanticType *target_pointee = target_pointer->get_pointee_type();
+        const SemanticType *value_pointee = value_pointer->get_pointee_type();
+        if (is_same_type(target_pointee, value_pointee)) {
+            return true;
+        }
+        if (has_semantic_feature(SemanticFeature::QualifiedPointerConversions) &&
+            is_const_qualified_type(target_pointee) &&
+            is_same_type(
+                static_cast<const QualifiedSemanticType *>(target_pointee)
+                    ->get_base_type(),
+                value_pointee)) {
+            return true;
+        }
+        return false;
     }
-    if (target->get_kind() != SemanticTypeKind::Builtin ||
-        value->get_kind() != SemanticTypeKind::Builtin) {
+    if (unqualified_target == nullptr || unqualified_value == nullptr ||
+        unqualified_target->get_kind() != SemanticTypeKind::Builtin ||
+        unqualified_value->get_kind() != SemanticTypeKind::Builtin) {
         return false;
     }
 
     const auto &target_name =
-        static_cast<const BuiltinSemanticType *>(target)->get_name();
+        static_cast<const BuiltinSemanticType *>(unqualified_target)->get_name();
     const auto &value_name =
-        static_cast<const BuiltinSemanticType *>(value)->get_name();
-    if ((target_name == "long double" || target_name == "double" || target_name == "float" ||
-         target_name == "int" || target_name == "char") &&
-        (value_name == "long double" || value_name == "double" || value_name == "float" ||
-         value_name == "int" || value_name == "char")) {
+        static_cast<const BuiltinSemanticType *>(unqualified_value)->get_name();
+    bool target_supported = is_standard_numeric_builtin_name(target_name);
+    bool value_supported = is_standard_numeric_builtin_name(value_name);
+    if (has_extended_builtin_scalar_handler()) {
+        ExtendedBuiltinTypeSemanticHandler handler;
+        target_supported = target_supported ||
+                           handler.is_extended_scalar_builtin_name(target_name);
+        value_supported = value_supported ||
+                          handler.is_extended_scalar_builtin_name(value_name);
+    }
+    if (target_supported && value_supported) {
         return true;
     }
     return false;
@@ -156,20 +242,25 @@ bool ConversionChecker::is_compatible_equality_type(
     if (is_arithmetic_type(lhs) && is_arithmetic_type(rhs)) {
         return true;
     }
-    if (lhs->get_kind() == SemanticTypeKind::Pointer &&
-        rhs->get_kind() == SemanticTypeKind::Pointer) {
-        return is_same_type(lhs, rhs);
+    const SemanticType *unqualified_lhs = strip_qualifiers(lhs);
+    const SemanticType *unqualified_rhs = strip_qualifiers(rhs);
+    if (unqualified_lhs != nullptr && unqualified_rhs != nullptr &&
+        unqualified_lhs->get_kind() == SemanticTypeKind::Pointer &&
+        unqualified_rhs->get_kind() == SemanticTypeKind::Pointer) {
+        return is_same_type(unqualified_lhs, unqualified_rhs);
     }
 
     const auto lhs_constant =
         constant_evaluator.get_integer_constant_value(lhs_expr, semantic_context);
     const auto rhs_constant =
         constant_evaluator.get_integer_constant_value(rhs_expr, semantic_context);
-    if (lhs->get_kind() == SemanticTypeKind::Pointer &&
+    if (unqualified_lhs != nullptr &&
+        unqualified_lhs->get_kind() == SemanticTypeKind::Pointer &&
         rhs_constant.has_value() && *rhs_constant == 0) {
         return true;
     }
-    if (rhs->get_kind() == SemanticTypeKind::Pointer &&
+    if (unqualified_rhs != nullptr &&
+        unqualified_rhs->get_kind() == SemanticTypeKind::Pointer &&
         lhs_constant.has_value() && *lhs_constant == 0) {
         return true;
     }
@@ -182,45 +273,51 @@ const SemanticType *ConversionChecker::get_usual_arithmetic_conversion_type(
     if (!is_arithmetic_type(lhs) || !is_arithmetic_type(rhs)) {
         return nullptr;
     }
-    if (lhs != nullptr && lhs->get_kind() == SemanticTypeKind::Builtin &&
-        static_cast<const BuiltinSemanticType *>(lhs)->get_name() ==
-            "long double") {
-        return semantic_model.own_type(
-            std::make_unique<BuiltinSemanticType>("long double"));
+    IntegerConversionService service;
+    if (const SemanticType *converted =
+            service.get_usual_arithmetic_conversion_type(lhs, rhs,
+                                                        semantic_model);
+        converted != nullptr) {
+        return converted;
     }
-    if (rhs != nullptr && rhs->get_kind() == SemanticTypeKind::Builtin &&
-        static_cast<const BuiltinSemanticType *>(rhs)->get_name() ==
-            "long double") {
-        return semantic_model.own_type(
-            std::make_unique<BuiltinSemanticType>("long double"));
-    }
-    if (lhs != nullptr && lhs->get_kind() == SemanticTypeKind::Builtin &&
-        static_cast<const BuiltinSemanticType *>(lhs)->get_name() == "double") {
-        return semantic_model.own_type(
-            std::make_unique<BuiltinSemanticType>("double"));
-    }
-    if (rhs != nullptr && rhs->get_kind() == SemanticTypeKind::Builtin &&
-        static_cast<const BuiltinSemanticType *>(rhs)->get_name() == "double") {
-        return semantic_model.own_type(
-            std::make_unique<BuiltinSemanticType>("double"));
-    }
-    if (lhs != nullptr && lhs->get_kind() == SemanticTypeKind::Builtin &&
-        static_cast<const BuiltinSemanticType *>(lhs)->get_name() == "float") {
-        return semantic_model.own_type(
-            std::make_unique<BuiltinSemanticType>("float"));
-    }
-    if (rhs != nullptr && rhs->get_kind() == SemanticTypeKind::Builtin &&
-        static_cast<const BuiltinSemanticType *>(rhs)->get_name() == "float") {
-        return semantic_model.own_type(
-            std::make_unique<BuiltinSemanticType>("float"));
+    if (has_extended_builtin_scalar_handler()) {
+        ExtendedBuiltinTypeSemanticHandler handler;
+        if (const SemanticType *extended_type =
+                handler.get_usual_arithmetic_conversion_type(lhs, rhs,
+                                                             semantic_model);
+            extended_type != nullptr) {
+            return extended_type;
+        }
     }
     return semantic_model.own_type(std::make_unique<BuiltinSemanticType>("int"));
+}
+
+bool ConversionChecker::is_castable_type(const SemanticType *target,
+                                         const SemanticType *value) const {
+    if (target == nullptr || value == nullptr) {
+        return false;
+    }
+    if (is_same_type(target, value)) {
+        return true;
+    }
+    if (is_arithmetic_type(target) && is_arithmetic_type(value)) {
+        return true;
+    }
+    if (is_pointer_type(target) && is_pointer_type(value)) {
+        return true;
+    }
+    if ((is_pointer_type(target) && is_integer_like_type(value)) ||
+        (is_integer_like_type(target) && is_pointer_type(value))) {
+        return true;
+    }
+    return false;
 }
 
 bool ConversionChecker::is_arithmetic_type(const SemanticType *type) const {
     if (type == nullptr) {
         return false;
     }
+    type = strip_qualifiers(type);
     if (type->get_kind() == SemanticTypeKind::Enum) {
         return true;
     }
@@ -228,22 +325,37 @@ bool ConversionChecker::is_arithmetic_type(const SemanticType *type) const {
         return false;
     }
     const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
-    return name == "int" || name == "char" || name == "float" ||
-           name == "double" || name == "long double";
+    if (name == "int" || name == "ptrdiff_t" || name == "short" ||
+        name == "signed char" ||
+        name == "long int" || name == "long long int" ||
+        name == "unsigned int" || name == "unsigned short" ||
+        name == "unsigned long long" || name == "unsigned char" ||
+        name == "char" || name == "float" || name == "double" ||
+        name == "long double") {
+        return true;
+    }
+    if (has_extended_builtin_scalar_handler()) {
+        ExtendedBuiltinTypeSemanticHandler handler;
+        return handler.is_extended_scalar_builtin_name(name);
+    }
+    return false;
 }
 
 bool ConversionChecker::is_scalar_type(const SemanticType *type) const {
     if (type == nullptr) {
         return false;
     }
+    type = strip_qualifiers(type);
     switch (type->get_kind()) {
     case SemanticTypeKind::Builtin:
     case SemanticTypeKind::Pointer:
     case SemanticTypeKind::Enum:
         return true;
+    case SemanticTypeKind::Qualified:
     case SemanticTypeKind::Array:
     case SemanticTypeKind::Function:
     case SemanticTypeKind::Struct:
+    case SemanticTypeKind::Union:
         return false;
     }
     return false;
@@ -253,6 +365,7 @@ bool ConversionChecker::is_integer_like_type(const SemanticType *type) const {
     if (type == nullptr) {
         return false;
     }
+    type = strip_qualifiers(type);
     if (type->get_kind() == SemanticTypeKind::Enum) {
         return true;
     }
@@ -260,13 +373,19 @@ bool ConversionChecker::is_integer_like_type(const SemanticType *type) const {
         return false;
     }
     const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
-    return name == "int" || name == "char";
+    return name == "int" || name == "ptrdiff_t" || name == "short" ||
+           name == "signed char" ||
+           name == "long int" || name == "long long int" ||
+           name == "unsigned int" || name == "unsigned short" ||
+           name == "unsigned long long" || name == "unsigned char" ||
+           name == "char";
 }
 
 bool ConversionChecker::is_incrementable_type(const SemanticType *type) const {
     if (type == nullptr) {
         return false;
     }
+    type = strip_qualifiers(type);
     if (type->get_kind() == SemanticTypeKind::Pointer) {
         return true;
     }
@@ -274,31 +393,61 @@ bool ConversionChecker::is_incrementable_type(const SemanticType *type) const {
         return false;
     }
     const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
-    return name == "int" || name == "float" || name == "double" ||
-           name == "long double" ||
-           name == "char";
+    if (name == "int" || name == "ptrdiff_t" || name == "short" ||
+        name == "signed char" ||
+        name == "long int" || name == "long long int" ||
+        name == "unsigned int" || name == "unsigned short" ||
+        name == "unsigned long long" || name == "unsigned char" ||
+        name == "float" || name == "double" || name == "long double" ||
+        name == "char") {
+        return true;
+    }
+    if (has_extended_builtin_scalar_handler()) {
+        ExtendedBuiltinTypeSemanticHandler handler;
+        return handler.is_extended_scalar_builtin_name(name);
+    }
+    return false;
 }
 
 bool ConversionChecker::is_void_type(const SemanticType *type) const {
+    type = strip_qualifiers(type);
     return type != nullptr && type->get_kind() == SemanticTypeKind::Builtin &&
            static_cast<const BuiltinSemanticType *>(type)->get_name() == "void";
 }
 
 bool ConversionChecker::is_pointer_type(const SemanticType *type) const {
+    type = strip_qualifiers(type);
     return type != nullptr && type->get_kind() == SemanticTypeKind::Pointer;
 }
 
 bool ConversionChecker::is_struct_type(const SemanticType *type) const {
+    type = strip_qualifiers(type);
     return type != nullptr && type->get_kind() == SemanticTypeKind::Struct;
 }
 
+bool ConversionChecker::is_union_type(const SemanticType *type) const {
+    type = strip_qualifiers(type);
+    return type != nullptr && type->get_kind() == SemanticTypeKind::Union;
+}
+
 bool ConversionChecker::is_pointer_to_struct_type(const SemanticType *type) const {
+    type = strip_qualifiers(type);
     if (type == nullptr || type->get_kind() != SemanticTypeKind::Pointer) {
         return false;
     }
     const auto *pointer_type = static_cast<const PointerSemanticType *>(type);
     return pointer_type->get_pointee_type() != nullptr &&
            is_struct_type(pointer_type->get_pointee_type());
+}
+
+bool ConversionChecker::is_pointer_to_union_type(const SemanticType *type) const {
+    type = strip_qualifiers(type);
+    if (type == nullptr || type->get_kind() != SemanticTypeKind::Pointer) {
+        return false;
+    }
+    const auto *pointer_type = static_cast<const PointerSemanticType *>(type);
+    return pointer_type->get_pointee_type() != nullptr &&
+           is_union_type(pointer_type->get_pointee_type());
 }
 
 bool ConversionChecker::is_null_pointer_constant(
@@ -311,6 +460,7 @@ bool ConversionChecker::is_null_pointer_constant(
 
 const SemanticType *ConversionChecker::get_decayed_type(
     const SemanticType *type, SemanticModel &semantic_model) const {
+    type = strip_qualifiers(type);
     if (type == nullptr || type->get_kind() != SemanticTypeKind::Array) {
         return type;
     }

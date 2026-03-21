@@ -21,11 +21,17 @@ class LlvmIrBackend : public IRBackend {
     detail::IRContext ir_context_;
     std::unordered_map<std::string, int> address_counts_;
     std::unordered_set<std::string> declared_function_signatures_;
+    std::unordered_set<std::string> declared_globals_;
+    std::unordered_set<std::string> defined_globals_;
 
   public:
     IrKind get_kind() const noexcept override;
     void begin_module() override;
     void end_module() override;
+    void declare_global(const std::string &name,
+                        const SemanticType *type) override;
+    void define_global(const std::string &name, const SemanticType *type,
+                       const std::string &initializer_text) override;
     void declare_function(
         const std::string &name, const SemanticType *return_type,
         const std::vector<const SemanticType *> &parameter_types) override;
@@ -43,12 +49,28 @@ class LlvmIrBackend : public IRBackend {
     IRValue emit_integer_literal(int value) override;
     std::string emit_alloca(const std::string &name,
                             const SemanticType *type) override;
+    std::string emit_member_address(const std::string &base_address,
+                                    const SemanticType *owner_type,
+                                    std::size_t field_index,
+                                    const SemanticType *field_type) override;
+    std::string emit_element_address(const std::string &base_address,
+                                     const SemanticType *element_type,
+                                     const IRValue &index_value) override;
+    IRValue emit_pointer_difference(const IRValue &lhs_pointer,
+                                    const IRValue &rhs_pointer,
+                                    const SemanticType *pointee_type,
+                                    const SemanticType *result_type) override;
     void emit_store(const std::string &address, const IRValue &value) override;
     IRValue emit_load(const std::string &address,
                       const SemanticType *type) override;
     IRValue emit_binary(const std::string &op, const IRValue &lhs,
                         const IRValue &rhs,
                         const SemanticType *result_type) override;
+    IRValue emit_cast(const IRValue &value,
+                      const SemanticType *target_type) override;
+    IRValue emit_integer_conversion(
+        const IRValue &value, detail::IntegerConversionKind conversion_kind,
+        const SemanticType *target_type) override;
     IRValue emit_call(const std::string &callee,
                       const std::vector<IRValue> &arguments,
                       const SemanticType *return_type) override;

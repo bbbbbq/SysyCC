@@ -5,6 +5,9 @@
 namespace sysycc {
 
 class Expr;
+class BuiltinTypeSemanticHandlerRegistry;
+class SemanticFeatureRegistry;
+enum class SemanticFeature : unsigned char;
 class SemanticModel;
 class SemanticType;
 
@@ -15,7 +18,23 @@ class SemanticContext;
 
 // Checks type compatibility and operand-category constraints.
 class ConversionChecker {
+  private:
+    const SemanticFeatureRegistry *semantic_feature_registry_ = nullptr;
+    const BuiltinTypeSemanticHandlerRegistry
+        *builtin_type_semantic_handler_registry_ = nullptr;
+
+    bool has_semantic_feature(SemanticFeature feature) const noexcept;
+    bool has_extended_builtin_scalar_handler() const noexcept;
+
   public:
+    explicit ConversionChecker(
+        const SemanticFeatureRegistry *semantic_feature_registry = nullptr,
+        const BuiltinTypeSemanticHandlerRegistry
+            *builtin_type_semantic_handler_registry = nullptr) noexcept
+        : semantic_feature_registry_(semantic_feature_registry),
+          builtin_type_semantic_handler_registry_(
+              builtin_type_semantic_handler_registry) {}
+
     bool is_assignable_expr(const Expr *expr) const;
     bool is_same_type(const SemanticType *lhs, const SemanticType *rhs) const;
     bool is_assignable_type(const SemanticType *target,
@@ -33,6 +52,8 @@ class ConversionChecker {
     const SemanticType *get_usual_arithmetic_conversion_type(
         const SemanticType *lhs, const SemanticType *rhs,
         SemanticModel &semantic_model) const;
+    bool is_castable_type(const SemanticType *target,
+                          const SemanticType *value) const;
     bool is_arithmetic_type(const SemanticType *type) const;
     bool is_scalar_type(const SemanticType *type) const;
     bool is_integer_like_type(const SemanticType *type) const;
@@ -40,7 +61,9 @@ class ConversionChecker {
     bool is_void_type(const SemanticType *type) const;
     bool is_pointer_type(const SemanticType *type) const;
     bool is_struct_type(const SemanticType *type) const;
+    bool is_union_type(const SemanticType *type) const;
     bool is_pointer_to_struct_type(const SemanticType *type) const;
+    bool is_pointer_to_union_type(const SemanticType *type) const;
     bool is_null_pointer_constant(const Expr *expr,
                                   SemanticContext &semantic_context,
                                   const ConstantEvaluator &constant_evaluator) const;

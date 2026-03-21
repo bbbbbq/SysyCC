@@ -29,7 +29,7 @@ class SemanticAnalyzer {
   private:
     const SemanticType *build_function_type(
         const Decl *decl, SemanticContext &semantic_context,
-        const TypeResolver &type_resolver) const;
+        const TypeResolver &type_resolver, const ScopeStack &scope_stack) const;
     void analyze_function_decl(const Decl *decl,
                                SemanticContext &semantic_context,
                                ScopeStack &scope_stack,

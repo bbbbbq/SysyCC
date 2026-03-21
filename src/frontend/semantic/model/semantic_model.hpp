@@ -15,6 +15,36 @@ namespace sysycc {
 class AstNode;
 class FunctionDecl;
 
+class VariableSemanticInfo {
+  private:
+    bool is_global_storage_ = false;
+    bool has_external_linkage_ = false;
+    bool has_tentative_definition_ = false;
+    bool has_initialized_definition_ = false;
+
+  public:
+    VariableSemanticInfo() = default;
+
+    VariableSemanticInfo(bool is_global_storage, bool has_external_linkage,
+                         bool has_tentative_definition,
+                         bool has_initialized_definition)
+        : is_global_storage_(is_global_storage),
+          has_external_linkage_(has_external_linkage),
+          has_tentative_definition_(has_tentative_definition),
+          has_initialized_definition_(has_initialized_definition) {}
+
+    bool get_is_global_storage() const noexcept { return is_global_storage_; }
+    bool get_has_external_linkage() const noexcept {
+        return has_external_linkage_;
+    }
+    bool get_has_tentative_definition() const noexcept {
+        return has_tentative_definition_;
+    }
+    bool get_has_initialized_definition() const noexcept {
+        return has_initialized_definition_;
+    }
+};
+
 // Stores the semantic analysis result associated with one AST.
 class SemanticModel {
   private:
@@ -26,6 +56,8 @@ class SemanticModel {
     std::unordered_map<const FunctionDecl *,
                        std::vector<SemanticFunctionAttribute>>
         function_attributes_;
+    std::unordered_map<const SemanticSymbol *, VariableSemanticInfo>
+        variable_infos_;
     std::vector<std::unique_ptr<SemanticType>> owned_types_;
     std::vector<std::unique_ptr<SemanticSymbol>> owned_symbols_;
 
@@ -53,6 +85,11 @@ class SemanticModel {
     void bind_function_attributes(
         const FunctionDecl *function_decl,
         std::vector<SemanticFunctionAttribute> attributes);
+
+    const VariableSemanticInfo *
+    get_variable_info(const SemanticSymbol *symbol) const noexcept;
+    void bind_variable_info(const SemanticSymbol *symbol,
+                            VariableSemanticInfo variable_info);
 
     const SemanticType *own_type(std::unique_ptr<SemanticType> type);
     const SemanticSymbol *own_symbol(std::unique_ptr<SemanticSymbol> symbol);
