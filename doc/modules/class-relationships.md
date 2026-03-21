@@ -104,6 +104,13 @@ classDiagram
         +add_note()
     }
 
+    class DiagnosticFormatter {
+        +format_source_span(source_span)
+        +get_cli_format_policy(diagnostic)
+        +format_diagnostic_for_cli(diagnostic)
+        +print_diagnostics(os, diagnostic_engine)
+    }
+
     class IRResult {
         -kind_
         -text_
@@ -253,7 +260,7 @@ classDiagram
 
     class SourceMapper {
         +clear()
-        +push_file(file_path)
+        +push_file(file_path, include_position)
         +pop_file()
         +has_file_in_stack(file_path)
         +get_current_physical_file_path()
@@ -262,6 +269,7 @@ classDiagram
         +get_physical_span(line_begin, col_begin, line_end, col_end)
         +get_logical_position(physical_line, column)
         +get_logical_span(line_begin, col_begin, line_end, col_end)
+        +get_include_trace()
     }
 
     class ConstantExpressionEvaluator {
@@ -783,6 +791,8 @@ classDiagram
     CompilerContext *-- IRResult
     CompilerContext *-- DiagnosticEngine
     DiagnosticEngine *-- Diagnostic
+    DiagnosticFormatter ..> DiagnosticEngine
+    DiagnosticFormatter ..> Diagnostic
     AstNode <|-- TranslationUnit
     AstNode <|-- FunctionDecl
     AstNode <|-- ParamDecl
@@ -1083,12 +1093,13 @@ Role:
 - let `IRBackend` own top-level declaration emission so runtime-style external
   calls can be declared without leaking LLVM syntax into `IRGenPass`
 
-### `sysycc::Diagnostic` and `sysycc::DiagnosticEngine`
+### `sysycc::Diagnostic`, `sysycc::DiagnosticEngine`, and `sysycc::DiagnosticFormatter`
 
 Defined in:
 
 - [diagnostic.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic.hpp)
 - [diagnostic_engine.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic_engine.hpp)
+- [diagnostic_formatter.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic_formatter.hpp)
 
 Role:
 
@@ -1098,6 +1109,10 @@ Role:
   [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 - let preprocessing, lexing, parsing, AST lowering, and semantic analysis emit
   diagnostics through one common API
+- centralize CLI-oriented diagnostic rendering behind one formatter that first
+  resolves an explicit formatting policy per diagnostic
+- split that CLI policy into message and span decisions so stage and level
+  formatting can evolve without changing the main render loop
 
 ### `sysycc::LexerState`
 

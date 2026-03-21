@@ -79,6 +79,15 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass -> IRGenPas
 - [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   also owns one shared diagnostic engine so passes can emit stage-tagged
   diagnostics through one uniform interface.
+- [main.cpp](/Users/caojunze424/code/SysyCC/src/main.cpp) now prefers printing
+  the shared diagnostic engine on failure and only falls back to
+  `PassResult.message` when no diagnostics were recorded.
+- [main.cpp](/Users/caojunze424/code/SysyCC/src/main.cpp) now delegates that
+  rendering to
+  [DiagnosticFormatter](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic_formatter.hpp)
+  instead of keeping stage-specific formatting rules inline.
+- the executable now also prints non-fatal shared diagnostics, such as
+  preprocess `#warning`, on successful compilation runs.
 - CLI-provided `-isystem` directories are merged into
   [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
   ahead of the default system include directories and then copied into

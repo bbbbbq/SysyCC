@@ -99,6 +99,12 @@ main
 - AST dumps are written to `build/intermediate_results/*.ast.txt`.
 - semantic results are stored in memory as a `SemanticModel` attached to `CompilerContext`.
 - pass-independent diagnostics are stored in memory as a `DiagnosticEngine` attached to `CompilerContext`.
+- the executable now prefers those shared diagnostics for failure output, which
+  lets preprocess include-trace notes surface in CLI diagnostics alongside the
+  primary error, and the rendering policy now lives in a dedicated
+  `DiagnosticFormatter`
+- successful runs now also surface shared non-fatal diagnostics such as
+  preprocess `#warning` through the same formatter path
 - IR results are now stored in memory as an `IRResult` attached to `CompilerContext`.
 - The parser now accepts a broader C-style subset including `float`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, and both `.` / `->` member access.
 - The AST stage now lowers core declaration, expression, and control-flow nodes such as parameters, declarations, assignments, calls, `if`, `while`, `for`, `do ... while`, `switch/case/default`, pointer declarators, `.` / `->` member access, plus parsed `struct`, `enum`, and `typedef` declarations into a compiler-facing tree.

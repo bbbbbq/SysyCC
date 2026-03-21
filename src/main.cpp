@@ -1,4 +1,5 @@
 #include "cli/cli.hpp"
+#include "common/diagnostic/diagnostic_formatter.hpp"
 #include "compiler/complier.hpp"
 #include "compiler/complier_option.hpp"
 
@@ -21,9 +22,21 @@ int main(int argc, char *argv[]) {
     sysycc::Complier complier(option);
 
     sysycc::PassResult result = complier.Run();
+    const sysycc::DiagnosticEngine &diagnostic_engine =
+        complier.get_context().get_diagnostic_engine();
     if (!result.ok) {
-        std::cerr << result.message << '\n';
+        if (!diagnostic_engine.get_diagnostics().empty()) {
+            sysycc::DiagnosticFormatter::print_diagnostics(std::cerr,
+                                                           diagnostic_engine);
+        } else {
+            std::cerr << result.message << '\n';
+        }
         return 1;
+    }
+
+    if (!diagnostic_engine.get_diagnostics().empty()) {
+        sysycc::DiagnosticFormatter::print_diagnostics(std::cerr,
+                                                       diagnostic_engine);
     }
 
     if (!result.message.empty()) {
