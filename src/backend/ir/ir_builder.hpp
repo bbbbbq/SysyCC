@@ -16,7 +16,7 @@ class IRBuilder {
   public:
     explicit IRBuilder(IRBackend &backend) : backend_(backend) {}
 
-    std::unique_ptr<IRResult> Build(const CompilerContext &context);
+    std::unique_ptr<IRResult> Build(CompilerContext &context);
 };
 
 } // namespace sysycc

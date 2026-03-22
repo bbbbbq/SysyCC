@@ -35,18 +35,23 @@ class IRBackend {
     virtual void begin_module() = 0;
     virtual void end_module() = 0;
     virtual void declare_global(const std::string &name,
-                                const SemanticType *type) = 0;
+                                const SemanticType *type,
+                                bool is_internal_linkage = false) = 0;
     virtual void define_global(const std::string &name,
                                const SemanticType *type,
-                               const std::string &initializer_text) = 0;
+                               const std::string &initializer_text,
+                               bool is_internal_linkage = false) = 0;
     virtual void declare_function(
         const std::string &name, const SemanticType *return_type,
-        const std::vector<const SemanticType *> &parameter_types) = 0;
+        const std::vector<const SemanticType *> &parameter_types,
+        bool is_variadic, bool is_internal_linkage = false) = 0;
     virtual void begin_function(const std::string &name,
                                 const SemanticType *return_type,
                                 const std::vector<IRFunctionParameter> &parameters,
+                                bool is_variadic,
                                 const std::vector<IRFunctionAttribute>
-                                    &attributes) = 0;
+                                    &attributes,
+                                bool is_internal_linkage = false) = 0;
     virtual void end_function() = 0;
     virtual std::string create_label(const std::string &hint) = 0;
     virtual void emit_label(const std::string &label) = 0;
@@ -55,6 +60,10 @@ class IRBackend {
                                   const std::string &true_label,
                                   const std::string &false_label) = 0;
     virtual IRValue emit_integer_literal(int value) = 0;
+    virtual IRValue emit_floating_literal(const std::string &value_text,
+                                          const SemanticType *type) = 0;
+    virtual IRValue emit_string_literal(const std::string &value_text,
+                                        const SemanticType *type) = 0;
     virtual std::string emit_alloca(const std::string &name,
                                     const SemanticType *type) = 0;
     virtual std::string emit_member_address(const std::string &base_address,
@@ -82,7 +91,10 @@ class IRBackend {
         const SemanticType *target_type) = 0;
     virtual IRValue emit_call(const std::string &callee,
                               const std::vector<IRValue> &arguments,
-                              const SemanticType *return_type) = 0;
+                              const SemanticType *return_type,
+                              const std::vector<const SemanticType *>
+                                  &parameter_types,
+                              bool is_variadic) = 0;
     virtual void emit_return(const IRValue &value) = 0;
     virtual void emit_return_void() = 0;
     virtual std::string get_output_text() const = 0;

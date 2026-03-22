@@ -16,6 +16,7 @@ class SemanticType;
 // Implements IRBackend by producing LLVM IR text.
 class LlvmIrBackend : public IRBackend {
   private:
+    std::ostringstream module_header_;
     std::ostringstream declarations_;
     std::ostringstream output_;
     detail::IRContext ir_context_;
@@ -23,23 +24,29 @@ class LlvmIrBackend : public IRBackend {
     std::unordered_set<std::string> declared_function_signatures_;
     std::unordered_set<std::string> declared_globals_;
     std::unordered_set<std::string> defined_globals_;
+    std::unordered_map<std::string, std::string> string_literal_globals_;
 
   public:
     IrKind get_kind() const noexcept override;
     void begin_module() override;
     void end_module() override;
     void declare_global(const std::string &name,
-                        const SemanticType *type) override;
+                        const SemanticType *type,
+                        bool is_internal_linkage) override;
     void define_global(const std::string &name, const SemanticType *type,
-                       const std::string &initializer_text) override;
+                       const std::string &initializer_text,
+                       bool is_internal_linkage) override;
     void declare_function(
         const std::string &name, const SemanticType *return_type,
-        const std::vector<const SemanticType *> &parameter_types) override;
+        const std::vector<const SemanticType *> &parameter_types,
+        bool is_variadic, bool is_internal_linkage) override;
     void begin_function(const std::string &name,
                         const SemanticType *return_type,
                         const std::vector<IRFunctionParameter> &parameters,
+                        bool is_variadic,
                         const std::vector<IRFunctionAttribute>
-                            &attributes) override;
+                            &attributes,
+                        bool is_internal_linkage) override;
     void end_function() override;
     std::string create_label(const std::string &hint) override;
     void emit_label(const std::string &label) override;
@@ -47,6 +54,10 @@ class LlvmIrBackend : public IRBackend {
     void emit_cond_branch(const IRValue &condition, const std::string &true_label,
                           const std::string &false_label) override;
     IRValue emit_integer_literal(int value) override;
+    IRValue emit_floating_literal(const std::string &value_text,
+                                  const SemanticType *type) override;
+    IRValue emit_string_literal(const std::string &value_text,
+                                const SemanticType *type) override;
     std::string emit_alloca(const std::string &name,
                             const SemanticType *type) override;
     std::string emit_member_address(const std::string &base_address,
@@ -73,7 +84,10 @@ class LlvmIrBackend : public IRBackend {
         const SemanticType *target_type) override;
     IRValue emit_call(const std::string &callee,
                       const std::vector<IRValue> &arguments,
-                      const SemanticType *return_type) override;
+                      const SemanticType *return_type,
+                      const std::vector<const SemanticType *>
+                          &parameter_types,
+                      bool is_variadic) override;
     void emit_return(const IRValue &value) override;
     void emit_return_void() override;
     std::string get_output_text() const override;
