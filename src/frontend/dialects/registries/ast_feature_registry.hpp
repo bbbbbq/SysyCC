@@ -6,6 +6,8 @@ namespace sysycc {
 
 enum class AstFeature : unsigned char {
     GnuAttributeLists,
+    GnuAsmLabels,
+    BitFieldWidths,
     QualifiedTypeNodes,
     UnionTypeNodes,
     ExtendedBuiltinTypes,

@@ -15,12 +15,15 @@ int main() {
     translation_unit->add_top_level_decl(std::make_unique<FunctionDecl>(
         "attr_func", std::make_unique<BuiltinTypeNode>("int"),
         std::vector<std::unique_ptr<Decl>>(),
+        false,
+        false,
         ParsedAttributeList(
             AttributeAttachmentSite::DeclSpecifier,
             std::vector<ParsedAttribute>{ParsedAttribute(
                 AttributeSyntaxKind::GNU, "__always_inline__",
                 std::vector<ParsedAttributeArgument>(), SourceSpan())},
             SourceSpan()),
+        "",
         nullptr));
     assert(!validator.validate(translation_unit.get(), feature_registry,
                                error_info));
@@ -29,7 +32,7 @@ int main() {
                               error_info));
 
     auto qualified_type = std::make_unique<QualifiedTypeNode>(
-        true, std::make_unique<BuiltinTypeNode>("char"));
+        true, false, std::make_unique<BuiltinTypeNode>("char"));
     feature_registry = AstFeatureRegistry();
     assert(!validator.validate(qualified_type.get(), feature_registry, error_info));
     feature_registry.add_feature(AstFeature::QualifiedTypeNodes);

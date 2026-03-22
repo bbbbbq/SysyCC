@@ -18,6 +18,8 @@ class C99Dialect : public FrontendDialect {
 
     void contribute_semantic_features(
         SemanticFeatureRegistry &registry) const override;
+
+    void contribute_ir_features(IrFeatureRegistry &registry) const override;
 };
 
 } // namespace sysycc

@@ -21,6 +21,11 @@ void add_error(detail::SemanticContext &semantic_context, std::string message,
                            source_span));
 }
 
+bool is_ignored_system_header_attribute(const ParsedAttribute &attribute,
+                                        detail::SemanticContext &semantic_context) {
+    return semantic_context.is_system_header_span(attribute.get_source_span());
+}
+
 } // namespace
 
 std::vector<SemanticFunctionAttribute>
@@ -35,6 +40,10 @@ GnuFunctionAttributeHandler::analyze_function_attributes(
     bool has_always_inline = false;
     for (const ParsedAttribute &attribute :
          function_decl->get_attributes().get_attributes()) {
+        if (is_ignored_system_header_attribute(attribute, semantic_context)) {
+            continue;
+        }
+
         if (attribute.get_name() == "__always_inline__") {
             if (!attribute.get_arguments().empty()) {
                 add_error(semantic_context,

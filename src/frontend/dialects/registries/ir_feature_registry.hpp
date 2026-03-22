@@ -6,6 +6,7 @@ namespace sysycc {
 
 enum class IrFeature : unsigned char {
     FunctionAttributes,
+    BitFieldMembers,
     ExtendedBuiltinTypes,
 };
 

@@ -6,6 +6,7 @@ namespace sysycc {
 
 enum class SemanticFeature : unsigned char {
     FunctionAttributes,
+    BitFieldMembers,
     QualifiedPointerConversions,
     ExtendedBuiltinTypes,
     UnionSemanticTypes,

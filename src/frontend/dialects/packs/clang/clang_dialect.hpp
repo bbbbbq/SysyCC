@@ -8,6 +8,9 @@ class ClangDialect : public FrontendDialect {
   public:
     std::string_view get_name() const noexcept override;
 
+    void contribute_lexer_keywords(
+        LexerKeywordRegistry &registry) const override;
+
     void contribute_preprocess_features(
         PreprocessFeatureRegistry &registry) const override;
 

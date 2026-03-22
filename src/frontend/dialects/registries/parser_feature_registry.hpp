@@ -7,7 +7,9 @@ namespace sysycc {
 enum class ParserFeature : unsigned char {
     FunctionPrototypeDeclarations,
     ExternVariableDeclarations,
+    BitFieldDeclarations,
     GnuAttributeSpecifiers,
+    GnuAsmLabels,
     ExtendedBuiltinTypeSpecifiers,
     QualifiedPrototypeParameters,
     UnionDeclarations,

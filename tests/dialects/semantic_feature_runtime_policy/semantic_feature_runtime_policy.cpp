@@ -20,7 +20,7 @@ int main() {
 
     BuiltinSemanticType float16_type("_Float16");
     BuiltinSemanticType char_type("char");
-    QualifiedSemanticType const_char_type(true, &char_type);
+    QualifiedSemanticType const_char_type(true, false, &char_type);
     PointerSemanticType const_char_ptr_type(&const_char_type);
     PointerSemanticType char_ptr_type(&char_type);
 
