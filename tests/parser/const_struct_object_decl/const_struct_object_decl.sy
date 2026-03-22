@@ -1,0 +1,10 @@
+struct Pair {
+    int first;
+    int second;
+};
+
+int main() {
+    struct Pair value = {1, 2};
+    const struct Pair snapshot = value;
+    return 0;
+}

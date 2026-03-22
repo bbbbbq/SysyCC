@@ -1,0 +1,6 @@
+struct Handler {
+    void (*routine)(void *);
+    void *arg;
+};
+
+int main() { return 0; }

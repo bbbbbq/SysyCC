@@ -1,0 +1,3 @@
+int first(const char * restrict name);
+int second(const char * __restrict name);
+int third(const char * __restrict__ name);

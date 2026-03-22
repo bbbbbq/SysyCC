@@ -1,0 +1,3 @@
+int strncasecmp(const char *_LIBC_UNSAFE_INDEXABLE,
+                const char *_LIBC_UNSAFE_INDEXABLE,
+                size_t);

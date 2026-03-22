@@ -21,25 +21,27 @@ char *yyget_text(void *yyscanner);
 %lex-param { void *scanner }
 
 %token <node> INVALID
-%token <node> CONST EXTERN ATTRIBUTE INLINE LONG SIGNED SHORT UNSIGNED INT CHAR VOID FLOAT DOUBLE FLOAT16 IF ELSE WHILE FOR DO SWITCH CASE DEFAULT BREAK CONTINUE RETURN STRUCT UNION ENUM TYPEDEF TYPE_NAME
-%token <node> IDENTIFIER INT_LITERAL FLOAT_LITERAL CHAR_LITERAL STRING_LITERAL
+%token <node> CONST VOLATILE EXTERN STATIC ATTRIBUTE ASM INLINE RESTRICT NULLABILITY LONG SIGNED SHORT UNSIGNED INT CHAR VOID FLOAT DOUBLE FLOAT16 IF ELSE WHILE FOR DO SWITCH CASE DEFAULT BREAK CONTINUE GOTO RETURN STRUCT UNION ENUM TYPEDEF TYPE_NAME
+%token <node> IDENTIFIER ANNOTATION_IDENT INT_LITERAL FLOAT_LITERAL CHAR_LITERAL STRING_LITERAL
 %token <node> PLUS MINUS MUL DIV MOD
 %token <node> INC DEC BITAND BITOR BITXOR BITNOT SHL SHR ARROW
-%token <node> ASSIGN EQ NE LT LE GT GE
-%token <node> NOT AND OR
+%token <node> ASSIGN ADD_ASSIGN SUB_ASSIGN MUL_ASSIGN DIV_ASSIGN MOD_ASSIGN SHL_ASSIGN SHR_ASSIGN AND_ASSIGN XOR_ASSIGN OR_ASSIGN EQ NE LT LE GT GE
+%token <node> NOT AND OR ELLIPSIS
 %token <node> QUESTION SEMICOLON COMMA COLON DOT
 %token <node> LPAREN RPAREN LBRACKET RBRACKET LBRACE RBRACE
 
 %type <node> comp_unit comp_unit_items comp_unit_item
 %type <node> decl const_decl const_init_declarator_list const_init_declarator
-%type <node> var_decl init_declarator_list init_declarator declarator_list declarator pointer
-%type <node> direct_declarator expr_opt
+%type <node> var_decl init_declarator_list init_declarator declarator_list declarator pointer pointer_level
+%type <node> pointer_qualifier_seq_opt pointer_qualifier_seq pointer_qualifier
+%type <node> type_qualifier_seq_opt type_qualifier_seq type_qualifier
+%type <node> direct_declarator declarator_identifier expr_opt annotation_argument annotation_invocation_opt
 %type <node> typedef_decl struct_decl union_decl enum_decl
-%type <node> type_specifier nonvoid_type_specifier basic_type struct_specifier union_specifier enum_specifier
-%type <node> struct_field_list_opt struct_field_list struct_field_decl
-%type <node> union_field_list_opt union_field_list union_field_decl
+%type <node> type_specifier object_type_specifier nonvoid_type_specifier basic_type struct_specifier union_specifier enum_specifier
+%type <node> struct_field_list_opt struct_field_list struct_field_decl struct_field_declarator_list struct_field_declarator field_bit_width_opt
+%type <node> union_field_list_opt union_field_list union_field_decl union_field_declarator_list union_field_declarator
 %type <node> enumerator_list_opt enumerator_list enumerator
-%type <node> func_def func_decl storage_specifier_opt parameter_list_opt parameter_list parameter_decl
+%type <node> func_def func_decl function_declarator storage_specifier storage_specifier_opt parameter_list_opt parameter_list function_parameter_list_opt parameter_decl variadic_marker asm_label_opt asm_label string_literal_seq
 %type <node> attribute_specifier_seq_opt attribute_specifier_seq attribute_specifier
 %type <node> attribute_list_opt attribute_list attribute attribute_argument_list_opt
 %type <node> attribute_argument_list attribute_argument
@@ -48,11 +50,14 @@ char *yyget_text(void *yyscanner);
 %type <node> assignment_expr conditional_expr logical_or_expr logical_and_expr bit_or_expr
 %type <node> bit_xor_expr bit_and_expr eq_expr rel_expr shift_expr add_expr
 %type <node> mul_expr cast_expr unary_expr postfix_expr primary_expr
-%type <node> const_init_val const_init_val_list init_val init_val_list
+%type <node> cast_target_type
+%type <node> init_val init_val_list
 
 %start comp_unit
 %nonassoc LOWER_THAN_ELSE
 %nonassoc ELSE
+%nonassoc ANNOTATION_BARE
+%nonassoc LPAREN
 
 %%
 
@@ -81,23 +86,34 @@ comp_unit_item
       { $$ = sysycc::make_nonterminal_node("comp_unit_item", {$1}); }
     ;
 
+storage_specifier
+    : EXTERN
+      { $$ = sysycc::make_nonterminal_node("storage_specifier", {$1}); }
+    | STATIC
+      { $$ = sysycc::make_nonterminal_node("storage_specifier", {$1}); }
+    | INLINE
+      { $$ = sysycc::make_nonterminal_node("storage_specifier", {$1}); }
+    | EXTERN INLINE
+      { $$ = sysycc::make_nonterminal_node("storage_specifier", {$1, $2}); }
+    | INLINE EXTERN
+      { $$ = sysycc::make_nonterminal_node("storage_specifier", {$1, $2}); }
+    | STATIC INLINE
+      { $$ = sysycc::make_nonterminal_node("storage_specifier", {$1, $2}); }
+    | INLINE STATIC
+      { $$ = sysycc::make_nonterminal_node("storage_specifier", {$1, $2}); }
+    ;
+
 storage_specifier_opt
     : /* empty */
       { $$ = sysycc::make_nonterminal_node("storage_specifier_opt", {}); }
-    | EXTERN
+    | storage_specifier
       { $$ = sysycc::make_nonterminal_node("storage_specifier_opt", {$1}); }
-    | INLINE
-      { $$ = sysycc::make_nonterminal_node("storage_specifier_opt", {$1}); }
-    | EXTERN INLINE
-      { $$ = sysycc::make_nonterminal_node("storage_specifier_opt", {$1, $2}); }
-    | INLINE EXTERN
-      { $$ = sysycc::make_nonterminal_node("storage_specifier_opt", {$1, $2}); }
     ;
 
 decl
-    : const_decl
+    : const_decl %dprec 2
       { $$ = sysycc::make_nonterminal_node("decl", {$1}); }
-    | var_decl
+    | var_decl %dprec 1
       { $$ = sysycc::make_nonterminal_node("decl", {$1}); }
     | typedef_decl
       { $$ = sysycc::make_nonterminal_node("decl", {$1}); }
@@ -109,9 +125,42 @@ decl
       { $$ = sysycc::make_nonterminal_node("decl", {$1}); }
     ;
 
+type_qualifier_seq_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("type_qualifier_seq_opt", {}); }
+    | type_qualifier_seq
+      { $$ = sysycc::make_nonterminal_node("type_qualifier_seq_opt", {$1}); }
+    ;
+
+type_qualifier_seq
+    : type_qualifier
+      { $$ = sysycc::make_nonterminal_node("type_qualifier_seq", {$1}); }
+    | type_qualifier_seq type_qualifier
+      { $$ = sysycc::make_nonterminal_node("type_qualifier_seq", {$1, $2}); }
+    ;
+
+type_qualifier
+    : CONST
+      { $$ = sysycc::make_nonterminal_node("type_qualifier", {$1}); }
+    | VOLATILE
+      { $$ = sysycc::make_nonterminal_node("type_qualifier", {$1}); }
+    ;
+
 const_decl
-    : CONST type_specifier const_init_declarator_list SEMICOLON
-      { $$ = sysycc::make_nonterminal_node("const_decl", {$1, $2, $3, $4}); }
+    : CONST type_qualifier_seq_opt basic_type const_init_declarator_list SEMICOLON %dprec 2
+      {
+          void *type_specifier =
+              sysycc::make_nonterminal_node("type_specifier", {$3});
+          $$ = sysycc::make_nonterminal_node("const_decl",
+                                             {$1, $2, type_specifier, $4, $5});
+      }
+    | VOLATILE CONST type_qualifier_seq_opt basic_type const_init_declarator_list SEMICOLON %dprec 2
+      {
+          void *type_specifier =
+              sysycc::make_nonterminal_node("type_specifier", {$4});
+          $$ = sysycc::make_nonterminal_node("const_decl",
+                                             {$1, $2, $3, type_specifier, $5, $6});
+      }
     ;
 
 const_init_declarator_list
@@ -122,13 +171,41 @@ const_init_declarator_list
     ;
 
 const_init_declarator
-    : declarator ASSIGN const_init_val
-      { $$ = sysycc::make_nonterminal_node("const_init_declarator", {$1, $2, $3}); }
+    : direct_declarator ASSIGN init_val
+      {
+          void *declarator = sysycc::make_nonterminal_node("declarator", {$1});
+          $$ = sysycc::make_nonterminal_node("const_init_declarator",
+                                             {declarator, $2, $3});
+      }
     ;
 
 var_decl
-    : storage_specifier_opt type_specifier init_declarator_list SEMICOLON
-      { $$ = sysycc::make_nonterminal_node("var_decl", {$1, $2, $3, $4}); }
+    : storage_specifier_opt type_qualifier_seq_opt object_type_specifier init_declarator_list SEMICOLON %dprec 1
+      {
+          $$ = sysycc::make_nonterminal_node("var_decl",
+                                             {$1, $2, $3, $4, $5});
+      }
+    | storage_specifier_opt type_qualifier_seq_opt struct_specifier init_declarator_list SEMICOLON %dprec 1
+      {
+          void *type_specifier =
+              sysycc::make_nonterminal_node("type_specifier", {$3});
+          $$ = sysycc::make_nonterminal_node("var_decl",
+                                             {$1, $2, type_specifier, $4, $5});
+      }
+    | storage_specifier_opt type_qualifier_seq_opt union_specifier init_declarator_list SEMICOLON %dprec 1
+      {
+          void *type_specifier =
+              sysycc::make_nonterminal_node("type_specifier", {$3});
+          $$ = sysycc::make_nonterminal_node("var_decl",
+                                             {$1, $2, type_specifier, $4, $5});
+      }
+    | storage_specifier_opt type_qualifier_seq_opt enum_specifier init_declarator_list SEMICOLON %dprec 1
+      {
+          void *type_specifier =
+              sysycc::make_nonterminal_node("type_specifier", {$3});
+          $$ = sysycc::make_nonterminal_node("var_decl",
+                                             {$1, $2, type_specifier, $4, $5});
+      }
     ;
 
 typedef_decl
@@ -138,21 +215,69 @@ typedef_decl
           sysycc::register_typedef_names_from_declarator_list(
               static_cast<const sysycc::ParseTreeNode *>($3));
       }
+    | TYPEDEF type_qualifier_seq type_specifier declarator_list SEMICOLON
+      {
+          $$ = sysycc::make_nonterminal_node("typedef_decl", {$1, $2, $3, $4, $5});
+          sysycc::register_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($4));
+      }
     ;
 
 struct_decl
-    : struct_specifier SEMICOLON
-      { $$ = sysycc::make_nonterminal_node("struct_decl", {$1, $2}); }
+    : STRUCT IDENTIFIER SEMICOLON
+      {
+          void *specifier =
+              sysycc::make_nonterminal_node("struct_specifier", {$1, $2});
+          $$ = sysycc::make_nonterminal_node("struct_decl", {specifier, $3});
+      }
+    | STRUCT IDENTIFIER LBRACE struct_field_list_opt RBRACE SEMICOLON
+      {
+          void *specifier = sysycc::make_nonterminal_node(
+              "struct_specifier", {$1, $2, $3, $4, $5});
+          $$ = sysycc::make_nonterminal_node("struct_decl", {specifier, $6});
+      }
+    | STRUCT LBRACE struct_field_list_opt RBRACE SEMICOLON
+      {
+          void *specifier =
+              sysycc::make_nonterminal_node("struct_specifier", {$1, $2, $3, $4});
+          $$ = sysycc::make_nonterminal_node("struct_decl", {specifier, $5});
+      }
     ;
 
 union_decl
-    : union_specifier SEMICOLON
-      { $$ = sysycc::make_nonterminal_node("union_decl", {$1, $2}); }
+    : UNION IDENTIFIER SEMICOLON
+      {
+          void *specifier =
+              sysycc::make_nonterminal_node("union_specifier", {$1, $2});
+          $$ = sysycc::make_nonterminal_node("union_decl", {specifier, $3});
+      }
+    | UNION IDENTIFIER LBRACE union_field_list_opt RBRACE SEMICOLON
+      {
+          void *specifier = sysycc::make_nonterminal_node(
+              "union_specifier", {$1, $2, $3, $4, $5});
+          $$ = sysycc::make_nonterminal_node("union_decl", {specifier, $6});
+      }
+    | UNION LBRACE union_field_list_opt RBRACE SEMICOLON
+      {
+          void *specifier =
+              sysycc::make_nonterminal_node("union_specifier", {$1, $2, $3, $4});
+          $$ = sysycc::make_nonterminal_node("union_decl", {specifier, $5});
+      }
     ;
 
 enum_decl
-    : enum_specifier SEMICOLON
-      { $$ = sysycc::make_nonterminal_node("enum_decl", {$1, $2}); }
+    : ENUM IDENTIFIER LBRACE enumerator_list_opt RBRACE SEMICOLON
+      {
+          void *specifier = sysycc::make_nonterminal_node(
+              "enum_specifier", {$1, $2, $3, $4, $5});
+          $$ = sysycc::make_nonterminal_node("enum_decl", {specifier, $6});
+      }
+    | ENUM LBRACE enumerator_list_opt RBRACE SEMICOLON
+      {
+          void *specifier =
+              sysycc::make_nonterminal_node("enum_specifier", {$1, $2, $3, $4});
+          $$ = sysycc::make_nonterminal_node("enum_decl", {specifier, $5});
+      }
     ;
 
 type_specifier
@@ -165,6 +290,13 @@ type_specifier
     | union_specifier
       { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
     | enum_specifier
+      { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
+    ;
+
+object_type_specifier
+    : basic_type
+      { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
+    | TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
     ;
 
@@ -267,6 +399,18 @@ nonvoid_type_specifier
               sysycc::make_nonterminal_node("basic_type", {$1, $2});
           $$ = sysycc::make_nonterminal_node("type_specifier", {basic_type});
       }
+    | UNSIGNED LONG
+      {
+          void *basic_type =
+              sysycc::make_nonterminal_node("basic_type", {$1, $2});
+          $$ = sysycc::make_nonterminal_node("type_specifier", {basic_type});
+      }
+    | UNSIGNED LONG INT
+      {
+          void *basic_type =
+              sysycc::make_nonterminal_node("basic_type", {$1, $2, $3});
+          $$ = sysycc::make_nonterminal_node("type_specifier", {basic_type});
+      }
     | UNSIGNED LONG LONG
       {
           void *basic_type =
@@ -341,6 +485,10 @@ basic_type
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | UNSIGNED INT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
+    | UNSIGNED LONG
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
+    | UNSIGNED LONG INT
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | UNSIGNED LONG LONG
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | INT
@@ -381,8 +529,29 @@ struct_field_list
     ;
 
 struct_field_decl
-    : type_specifier declarator_list SEMICOLON
-      { $$ = sysycc::make_nonterminal_node("struct_field_decl", {$1, $2, $3}); }
+    : type_qualifier_seq_opt type_specifier struct_field_declarator_list SEMICOLON
+      { $$ = sysycc::make_nonterminal_node("struct_field_decl", {$1, $2, $3, $4}); }
+    ;
+
+struct_field_declarator_list
+    : struct_field_declarator
+      { $$ = sysycc::make_nonterminal_node("struct_field_declarator_list", {$1}); }
+    | struct_field_declarator_list COMMA struct_field_declarator
+      { $$ = sysycc::make_nonterminal_node("struct_field_declarator_list", {$1, $2, $3}); }
+    ;
+
+struct_field_declarator
+    : declarator field_bit_width_opt
+      { $$ = sysycc::make_nonterminal_node("struct_field_declarator", {$1, $2}); }
+    | COLON const_expr
+      { $$ = sysycc::make_nonterminal_node("struct_field_declarator", {$1, $2}); }
+    ;
+
+field_bit_width_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("field_bit_width_opt", {}); }
+    | COLON const_expr
+      { $$ = sysycc::make_nonterminal_node("field_bit_width_opt", {$1, $2}); }
     ;
 
 union_specifier
@@ -409,8 +578,22 @@ union_field_list
     ;
 
 union_field_decl
-    : type_specifier declarator_list SEMICOLON
-      { $$ = sysycc::make_nonterminal_node("union_field_decl", {$1, $2, $3}); }
+    : type_qualifier_seq_opt type_specifier union_field_declarator_list SEMICOLON
+      { $$ = sysycc::make_nonterminal_node("union_field_decl", {$1, $2, $3, $4}); }
+    ;
+
+union_field_declarator_list
+    : union_field_declarator
+      { $$ = sysycc::make_nonterminal_node("union_field_declarator_list", {$1}); }
+    | union_field_declarator_list COMMA union_field_declarator
+      { $$ = sysycc::make_nonterminal_node("union_field_declarator_list", {$1, $2, $3}); }
+    ;
+
+union_field_declarator
+    : declarator field_bit_width_opt
+      { $$ = sysycc::make_nonterminal_node("union_field_declarator", {$1, $2}); }
+    | COLON const_expr
+      { $$ = sysycc::make_nonterminal_node("union_field_declarator", {$1, $2}); }
     ;
 
 enum_specifier
@@ -472,27 +655,158 @@ declarator
     ;
 
 pointer
-    : MUL
+    : pointer_level
       { $$ = sysycc::make_nonterminal_node("pointer", {$1}); }
-    | MUL pointer
+    | pointer_level pointer
       { $$ = sysycc::make_nonterminal_node("pointer", {$1, $2}); }
     ;
 
-direct_declarator
+pointer_level
+    : MUL pointer_qualifier_seq_opt
+      { $$ = sysycc::make_nonterminal_node("pointer_level", {$1, $2}); }
+    ;
+
+pointer_qualifier_seq_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("pointer_qualifier_seq_opt", {}); }
+    | pointer_qualifier_seq
+      { $$ = sysycc::make_nonterminal_node("pointer_qualifier_seq_opt", {$1}); }
+    ;
+
+pointer_qualifier_seq
+    : pointer_qualifier
+      { $$ = sysycc::make_nonterminal_node("pointer_qualifier_seq", {$1}); }
+    | pointer_qualifier_seq pointer_qualifier
+      { $$ = sysycc::make_nonterminal_node("pointer_qualifier_seq", {$1, $2}); }
+    ;
+
+pointer_qualifier
+    : CONST
+      { $$ = sysycc::make_nonterminal_node("pointer_qualifier", {$1}); }
+    | VOLATILE
+      { $$ = sysycc::make_nonterminal_node("pointer_qualifier", {$1}); }
+    | RESTRICT
+      { $$ = sysycc::make_nonterminal_node("pointer_qualifier", {$1}); }
+    | NULLABILITY
+      { $$ = sysycc::make_nonterminal_node("pointer_qualifier", {$1}); }
+    | ANNOTATION_IDENT annotation_invocation_opt
+      { $$ = sysycc::make_nonterminal_node("pointer_qualifier", {$1, $2}); }
+    ;
+
+annotation_invocation_opt
+    : /* empty */
+      %prec ANNOTATION_BARE
+      { $$ = sysycc::make_nonterminal_node("annotation_invocation_opt", {}); }
+    | LPAREN annotation_argument RPAREN
+      { $$ = sysycc::make_nonterminal_node("annotation_invocation_opt", {$1, $2, $3}); }
+    ;
+
+annotation_argument
     : IDENTIFIER
+      { $$ = sysycc::make_nonterminal_node("annotation_argument", {$1}); }
+    | INT_LITERAL
+      { $$ = sysycc::make_nonterminal_node("annotation_argument", {$1}); }
+    ;
+
+direct_declarator
+    : declarator_identifier
       { $$ = sysycc::make_nonterminal_node("direct_declarator", {$1}); }
+    | LPAREN declarator RPAREN
+      { $$ = sysycc::make_nonterminal_node("direct_declarator", {$1, $2, $3}); }
+    | LPAREN declarator RPAREN LPAREN function_parameter_list_opt RPAREN
+      { $$ = sysycc::make_nonterminal_node("direct_declarator", {$1, $2, $3, $4, $5, $6}); }
     | direct_declarator LBRACKET expr_opt RBRACKET
       { $$ = sysycc::make_nonterminal_node("direct_declarator", {$1, $2, $3, $4}); }
     ;
 
+declarator_identifier
+    : IDENTIFIER
+      { $$ = sysycc::make_nonterminal_node("declarator_identifier", {$1}); }
+    | TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("declarator_identifier", {$1}); }
+    ;
+
 func_def
-    : storage_specifier_opt attribute_specifier_seq_opt type_specifier IDENTIFIER LPAREN parameter_list_opt RPAREN block
-      { $$ = sysycc::make_nonterminal_node("func_def", {$1, $2, $3, $4, $5, $6, $7, $8}); }
+    : storage_specifier_opt type_qualifier_seq_opt type_specifier function_declarator block
+      {
+          void *attribute_opt =
+              sysycc::make_nonterminal_node("attribute_specifier_seq_opt", {});
+          $$ = sysycc::make_nonterminal_node("func_def",
+                                             {$1, attribute_opt, $2, $3, $4, $5});
+      }
+    | attribute_specifier_seq storage_specifier_opt type_qualifier_seq_opt type_specifier function_declarator block
+      {
+          void *attribute_opt = sysycc::make_nonterminal_node(
+              "attribute_specifier_seq_opt", {$1});
+          $$ = sysycc::make_nonterminal_node("func_def",
+                                             {$2, attribute_opt, $3, $4, $5, $6});
+      }
+    | storage_specifier attribute_specifier_seq type_qualifier_seq_opt type_specifier function_declarator block
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          void *attribute_opt = sysycc::make_nonterminal_node(
+              "attribute_specifier_seq_opt", {$2});
+          $$ = sysycc::make_nonterminal_node("func_def",
+                                             {storage_opt, attribute_opt, $3, $4, $5, $6});
+      }
     ;
 
 func_decl
-    : storage_specifier_opt attribute_specifier_seq_opt type_specifier IDENTIFIER LPAREN parameter_list_opt RPAREN SEMICOLON
-      { $$ = sysycc::make_nonterminal_node("func_decl", {$1, $2, $3, $4, $5, $6, $7, $8}); }
+    : storage_specifier_opt type_qualifier_seq_opt type_specifier function_declarator asm_label_opt attribute_specifier_seq_opt SEMICOLON
+      {
+          void *leading_attribute_opt =
+              sysycc::make_nonterminal_node("attribute_specifier_seq_opt", {});
+          $$ = sysycc::make_nonterminal_node(
+              "func_decl",
+              {$1, leading_attribute_opt, $2, $3, $4, $5, $6, $7});
+      }
+    | attribute_specifier_seq storage_specifier_opt type_qualifier_seq_opt type_specifier function_declarator asm_label_opt attribute_specifier_seq_opt SEMICOLON
+      {
+          void *leading_attribute_opt = sysycc::make_nonterminal_node(
+              "attribute_specifier_seq_opt", {$1});
+          $$ = sysycc::make_nonterminal_node(
+              "func_decl",
+              {$2, leading_attribute_opt, $3, $4, $5, $6, $7, $8});
+      }
+    | storage_specifier attribute_specifier_seq type_qualifier_seq_opt type_specifier function_declarator asm_label_opt attribute_specifier_seq_opt SEMICOLON
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          void *leading_attribute_opt = sysycc::make_nonterminal_node(
+              "attribute_specifier_seq_opt", {$2});
+          $$ = sysycc::make_nonterminal_node(
+              "func_decl",
+              {storage_opt, leading_attribute_opt, $3, $4, $5, $6, $7, $8});
+      }
+    ;
+
+function_declarator
+    : declarator_identifier LPAREN function_parameter_list_opt RPAREN
+      { $$ = sysycc::make_nonterminal_node("function_declarator", {$1, $2, $3, $4}); }
+    | LPAREN declarator_identifier RPAREN LPAREN function_parameter_list_opt RPAREN
+      { $$ = sysycc::make_nonterminal_node("function_declarator", {$1, $2, $3, $4, $5, $6}); }
+    | pointer declarator_identifier LPAREN function_parameter_list_opt RPAREN
+      { $$ = sysycc::make_nonterminal_node("function_declarator", {$1, $2, $3, $4, $5}); }
+    ;
+
+asm_label_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("asm_label_opt", {}); }
+    | asm_label
+      { $$ = sysycc::make_nonterminal_node("asm_label_opt", {$1}); }
+    ;
+
+asm_label
+    : ASM LPAREN string_literal_seq RPAREN
+      { $$ = sysycc::make_nonterminal_node("asm_label", {$1, $2, $3, $4}); }
+    ;
+
+string_literal_seq
+    : STRING_LITERAL
+      { $$ = sysycc::make_nonterminal_node("string_literal_seq", {$1}); }
+    | string_literal_seq STRING_LITERAL
+      { $$ = sysycc::make_nonterminal_node("string_literal_seq", {$1, $2}); }
     ;
 
 attribute_specifier_seq_opt
@@ -557,10 +871,17 @@ attribute_argument
 parameter_list_opt
     : /* empty */
       { $$ = sysycc::make_nonterminal_node("parameter_list_opt", {}); }
-    | VOID
-      { $$ = sysycc::make_nonterminal_node("parameter_list_opt", {$1}); }
     | parameter_list
       { $$ = sysycc::make_nonterminal_node("parameter_list_opt", {$1}); }
+    ;
+
+function_parameter_list_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("function_parameter_list_opt", {}); }
+    | VOID
+      { $$ = sysycc::make_nonterminal_node("function_parameter_list_opt", {$1}); }
+    | parameter_list
+      { $$ = sysycc::make_nonterminal_node("function_parameter_list_opt", {$1}); }
     ;
 
 parameter_list
@@ -568,21 +889,33 @@ parameter_list
       { $$ = sysycc::make_nonterminal_node("parameter_list", {$1}); }
     | parameter_list COMMA parameter_decl
       { $$ = sysycc::make_nonterminal_node("parameter_list", {$1, $2, $3}); }
+    | parameter_list COMMA variadic_marker
+      { $$ = sysycc::make_nonterminal_node("parameter_list", {$1, $2, $3}); }
+    ;
+
+variadic_marker
+    : ELLIPSIS
+      { $$ = sysycc::make_nonterminal_node("variadic_marker", {$1}); }
     ;
 
 parameter_decl
-    : type_specifier declarator
-      { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2}); }
-    | type_specifier pointer
-      { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2}); }
-    | CONST type_specifier declarator
+    : type_qualifier_seq_opt type_specifier LPAREN pointer RPAREN LPAREN parameter_list_opt RPAREN
+      {
+          void *direct_declarator = sysycc::make_nonterminal_node(
+              "direct_declarator", {$3, $4, $5, $6, $7, $8});
+          void *declarator = sysycc::make_nonterminal_node("declarator",
+                                                           {direct_declarator});
+          $$ = sysycc::make_nonterminal_node("parameter_decl",
+                                             {$1, $2, declarator});
+      }
+    | type_qualifier_seq_opt type_specifier declarator
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3}); }
-    | CONST type_specifier pointer
+    | type_qualifier_seq_opt type_specifier pointer
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3}); }
-    | CONST nonvoid_type_specifier
+    | type_qualifier_seq_opt TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2}); }
-    | nonvoid_type_specifier
-      { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1}); }
+    | type_qualifier_seq_opt nonvoid_type_specifier
+      { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2}); }
     ;
 
 block
@@ -625,10 +958,14 @@ stmt
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3, $4}); }
     | DEFAULT COLON stmt
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3}); }
+    | IDENTIFIER COLON stmt
+      { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3}); }
     | BREAK SEMICOLON
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2}); }
     | CONTINUE SEMICOLON
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2}); }
+    | GOTO IDENTIFIER SEMICOLON
+      { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3}); }
     | RETURN expr_opt SEMICOLON
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3}); }
     ;
@@ -643,6 +980,8 @@ expr_opt
 expr
     : assignment_expr
       { $$ = sysycc::make_nonterminal_node("expr", {$1}); }
+    | expr COMMA assignment_expr
+      { $$ = sysycc::make_nonterminal_node("expr", {$1, $2, $3}); }
     ;
 
 const_expr
@@ -660,6 +999,26 @@ assignment_expr
       { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1}); }
     | unary_expr ASSIGN assignment_expr
       { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr ADD_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr SUB_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr MUL_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr DIV_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr MOD_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr SHL_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr SHR_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr AND_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr XOR_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
+    | unary_expr OR_ASSIGN assignment_expr
+      { $$ = sysycc::make_nonterminal_node("assignment_expr", {$1, $2, $3}); }
     ;
 
 conditional_expr
@@ -670,9 +1029,9 @@ conditional_expr
     ;
 
 argument_expr_list
-    : expr
+    : assignment_expr
       { $$ = sysycc::make_nonterminal_node("argument_expr_list", {$1}); }
-    | argument_expr_list COMMA expr
+    | argument_expr_list COMMA assignment_expr
       { $$ = sysycc::make_nonterminal_node("argument_expr_list", {$1, $2, $3}); }
     ;
 
@@ -765,8 +1124,15 @@ mul_expr
 cast_expr
     : unary_expr
       { $$ = sysycc::make_nonterminal_node("cast_expr", {$1}); }
-    | LPAREN type_specifier RPAREN cast_expr
+    | LPAREN cast_target_type RPAREN cast_expr
       { $$ = sysycc::make_nonterminal_node("cast_expr", {$1, $2, $3, $4}); }
+    ;
+
+cast_target_type
+    : type_qualifier_seq_opt type_specifier
+      { $$ = sysycc::make_nonterminal_node("cast_target_type", {$1, $2}); }
+    | type_qualifier_seq_opt type_specifier pointer
+      { $$ = sysycc::make_nonterminal_node("cast_target_type", {$1, $2, $3}); }
     ;
 
 unary_expr
@@ -824,24 +1190,8 @@ primary_expr
       { $$ = sysycc::make_nonterminal_node("primary_expr", {$1, $2, $3}); }
     ;
 
-const_init_val
-    : const_expr
-      { $$ = sysycc::make_nonterminal_node("const_init_val", {$1}); }
-    | LBRACE RBRACE
-      { $$ = sysycc::make_nonterminal_node("const_init_val", {$1, $2}); }
-    | LBRACE const_init_val_list RBRACE
-      { $$ = sysycc::make_nonterminal_node("const_init_val", {$1, $2, $3}); }
-    ;
-
-const_init_val_list
-    : const_init_val
-      { $$ = sysycc::make_nonterminal_node("const_init_val_list", {$1}); }
-    | const_init_val_list COMMA const_init_val
-      { $$ = sysycc::make_nonterminal_node("const_init_val_list", {$1, $2, $3}); }
-    ;
-
 init_val
-    : expr
+    : assignment_expr
       { $$ = sysycc::make_nonterminal_node("init_val", {$1}); }
     | LBRACE RBRACE
       { $$ = sysycc::make_nonterminal_node("init_val", {$1, $2}); }

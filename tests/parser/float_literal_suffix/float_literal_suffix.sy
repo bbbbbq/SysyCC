@@ -1,0 +1,11 @@
+float take_float(void) {
+    return 0.5f;
+}
+
+long double take_long_double(void) {
+    return 0.5L;
+}
+
+double take_double(void) {
+    return 0.5;
+}

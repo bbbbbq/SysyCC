@@ -9,6 +9,23 @@ namespace {
 std::unique_ptr<ParseTreeNode> g_parse_tree_root;
 ParserErrorInfo g_parser_error_info;
 std::unordered_set<std::string> g_typedef_names;
+constexpr const char *k_bootstrap_typedef_names[] = {
+    "int8_t",
+    "uint8_t",
+    "int16_t",
+    "uint16_t",
+    "int32_t",
+    "uint32_t",
+    "int64_t",
+    "uint64_t",
+    "intptr_t",
+    "uintptr_t",
+    "ptrdiff_t",
+    "size_t",
+    "va_list",
+    "__builtin_va_list",
+    "wchar_t",
+};
 
 ParseTreeNode *AsNode(void *node) { return static_cast<ParseTreeNode *>(node); }
 
@@ -41,6 +58,9 @@ void parser_runtime_reset() {
     g_parse_tree_root.reset();
     g_parser_error_info = ParserErrorInfo();
     g_typedef_names.clear();
+    for (const char *name : k_bootstrap_typedef_names) {
+        g_typedef_names.insert(name);
+    }
 }
 
 // The `label` and `text` strings have distinct parser-runtime semantics.
@@ -90,6 +110,10 @@ void register_typedef_names_from_declarator_list(const ParseTreeNode *node) {
     }
     if (node->label.rfind("IDENTIFIER ", 0) == 0) {
         g_typedef_names.insert(node->label.substr(std::string("IDENTIFIER ").size()));
+        return;
+    }
+    if (node->label.rfind("TYPE_NAME ", 0) == 0) {
+        g_typedef_names.insert(node->label.substr(std::string("TYPE_NAME ").size()));
         return;
     }
     for (const auto &child : node->children) {

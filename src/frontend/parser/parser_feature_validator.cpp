@@ -47,11 +47,29 @@ bool validate_node(const ParseTreeNode *node,
         return false;
     }
 
+    if ((detail::ParseTreeMatcher::label_equals(node, "struct_field_declarator") ||
+         detail::ParseTreeMatcher::label_equals(node, "union_field_declarator")) &&
+        contains_label_prefix(node, "COLON") &&
+        !feature_registry.has_feature(ParserFeature::BitFieldDeclarations)) {
+        error_info = ParserErrorInfo(
+            "unsupported syntax without enabled parser feature: bit-field declarations",
+            "bit-field", node->source_span);
+        return false;
+    }
+
     if (detail::ParseTreeMatcher::label_equals(node, "attribute_specifier") &&
         !feature_registry.has_feature(ParserFeature::GnuAttributeSpecifiers)) {
         error_info = ParserErrorInfo(
             "unsupported syntax without enabled parser feature: GNU attribute specifiers",
             "__attribute__", node->source_span);
+        return false;
+    }
+
+    if (detail::ParseTreeMatcher::label_equals(node, "asm_label") &&
+        !feature_registry.has_feature(ParserFeature::GnuAsmLabels)) {
+        error_info = ParserErrorInfo(
+            "unsupported syntax without enabled parser feature: GNU asm labels",
+            "__asm", node->source_span);
         return false;
     }
 
@@ -66,12 +84,25 @@ bool validate_node(const ParseTreeNode *node,
     }
 
     if (detail::ParseTreeMatcher::label_equals(node, "parameter_decl") &&
-        contains_label_prefix(node, "CONST") &&
+        (contains_label_prefix(node, "CONST") ||
+         contains_label_prefix(node, "VOLATILE") ||
+         contains_label_prefix(node, "RESTRICT") ||
+         contains_label_prefix(node, "NULLABILITY") ||
+         contains_label_prefix(node, "ANNOTATION_IDENT")) &&
         !feature_registry.has_feature(
             ParserFeature::QualifiedPrototypeParameters)) {
         error_info = ParserErrorInfo(
             "unsupported syntax without enabled parser feature: qualified prototype parameters",
-            "const", node->source_span);
+            contains_label_prefix(node, "RESTRICT")
+                ? "restrict"
+                : (contains_label_prefix(node, "VOLATILE")
+                       ? "volatile"
+                       : (contains_label_prefix(node, "NULLABILITY")
+                              ? "_Nullable"
+                              : (contains_label_prefix(node, "ANNOTATION_IDENT")
+                                     ? "annotation qualifier"
+                                     : "const"))),
+            node->source_span);
         return false;
     }
 
