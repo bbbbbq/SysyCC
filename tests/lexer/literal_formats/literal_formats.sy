@@ -1,6 +1,7 @@
 int main() {
     int oct = 012;
     int hex = 0x10;
+    float hex_float = 0x1.0p-2f;
+    double hex_double = 0x1.8p+1;
     return oct + hex;
 }
-

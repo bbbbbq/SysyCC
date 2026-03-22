@@ -34,12 +34,22 @@ static int get_keyword_parser_token(sysycc::TokenKind kind) {
     switch (kind) {
     case sysycc::TokenKind::KwConst:
         return CONST;
+    case sysycc::TokenKind::KwVolatile:
+        return VOLATILE;
     case sysycc::TokenKind::KwExtern:
         return EXTERN;
+    case sysycc::TokenKind::KwStatic:
+        return STATIC;
     case sysycc::TokenKind::KwAttribute:
         return ATTRIBUTE;
+    case sysycc::TokenKind::KwAsm:
+        return ASM;
     case sysycc::TokenKind::KwInline:
         return INLINE;
+    case sysycc::TokenKind::KwRestrict:
+        return RESTRICT;
+    case sysycc::TokenKind::KwNullability:
+        return NULLABILITY;
     case sysycc::TokenKind::KwLong:
         return LONG;
     case sysycc::TokenKind::KwSigned:
@@ -80,6 +90,8 @@ static int get_keyword_parser_token(sysycc::TokenKind kind) {
         return BREAK;
     case sysycc::TokenKind::KwContinue:
         return CONTINUE;
+    case sysycc::TokenKind::KwGoto:
+        return GOTO;
     case sysycc::TokenKind::KwReturn:
         return RETURN;
     case sysycc::TokenKind::KwStruct:
@@ -99,12 +111,22 @@ static const char *get_keyword_token_label(int token) {
     switch (token) {
     case CONST:
         return "CONST";
+    case VOLATILE:
+        return "VOLATILE";
     case EXTERN:
         return "EXTERN";
+    case STATIC:
+        return "STATIC";
     case ATTRIBUTE:
         return "ATTRIBUTE";
+    case ASM:
+        return "ASM";
     case INLINE:
         return "INLINE";
+    case RESTRICT:
+        return "RESTRICT";
+    case NULLABILITY:
+        return "NULLABILITY";
     case LONG:
         return "LONG";
     case SIGNED:
@@ -145,6 +167,8 @@ static const char *get_keyword_token_label(int token) {
         return "BREAK";
     case CONTINUE:
         return "CONTINUE";
+    case GOTO:
+        return "GOTO";
     case RETURN:
         return "RETURN";
     case STRUCT:
@@ -175,7 +199,9 @@ OCT_INT     0{OCT_DIGIT}+
 HEX_INT     0[xX]{HEX_DIGIT}+
 DEC_FLOAT   ({DIGIT}+"."{DIGIT}*|{DIGIT}*"."{DIGIT}+)([eE][+-]?{DIGIT}+)?
 SCI_FLOAT   {DIGIT}+[eE][+-]?{DIGIT}+
-FLOAT_CONST {DEC_FLOAT}|{SCI_FLOAT}
+FLOAT_SUFFIX [fFlL]
+HEX_FLOAT   0[xX](({HEX_DIGIT}+"."{HEX_DIGIT}*|{HEX_DIGIT}*"."{HEX_DIGIT}+|{HEX_DIGIT}+)[pP][+-]?{DIGIT}+)
+FLOAT_CONST ({DEC_FLOAT}|{SCI_FLOAT}|{HEX_FLOAT}){FLOAT_SUFFIX}?
 ESCAPE      \\(['"\\abfnrtv?]|[0-7]{1,3}|x{HEX_DIGIT}+)
 CHAR_BODY   ([^'\\\n]|{ESCAPE})
 CHAR_CONST  \'{CHAR_BODY}\'
@@ -183,6 +209,7 @@ STRING_BODY ([^"\\\n]|{ESCAPE})*
 STRING_CONST \"{STRING_BODY}\"
 INVALID_OCT 0{OCT_DIGIT}*[89]{DIGIT}*
 INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
+ANNOT_IDENT _[A-Z][A-Z0-9_]*
 
 %%
 [ \t\r\f\v]+                { }
@@ -191,14 +218,25 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 "++"                        { return make_token(INC, "INC", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "--"                        { return make_token(DEC, "DEC", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "->"                        { return make_token(ARROW, "ARROW", (sysycc::LexerState *)yyextra, yytext, yylval); }
-"<<"                        { return make_token(SHL, "SHL", (sysycc::LexerState *)yyextra, yytext, yylval); }
-">>"                        { return make_token(SHR, "SHR", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"..."                       { return make_token(ELLIPSIS, "ELLIPSIS", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "=="                        { return make_token(EQ, "EQ", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "!="                        { return make_token(NE, "NE", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "<="                        { return make_token(LE, "LE", (sysycc::LexerState *)yyextra, yytext, yylval); }
 ">="                        { return make_token(GE, "GE", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "&&"                        { return make_token(AND, "AND", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "||"                        { return make_token(OR, "OR", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"+="                        { return make_token(ADD_ASSIGN, "ADD_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"-="                        { return make_token(SUB_ASSIGN, "SUB_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"*="                        { return make_token(MUL_ASSIGN, "MUL_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"/="                        { return make_token(DIV_ASSIGN, "DIV_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"%="                        { return make_token(MOD_ASSIGN, "MOD_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"<<="                       { return make_token(SHL_ASSIGN, "SHL_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+">>="                       { return make_token(SHR_ASSIGN, "SHR_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"&="                        { return make_token(AND_ASSIGN, "AND_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"^="                        { return make_token(XOR_ASSIGN, "XOR_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"|="                        { return make_token(OR_ASSIGN, "OR_ASSIGN", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"<<"                        { return make_token(SHL, "SHL", (sysycc::LexerState *)yyextra, yytext, yylval); }
+">>"                        { return make_token(SHR, "SHR", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
 "+"                         { return make_token(PLUS, "PLUS", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "-"                         { return make_token(MINUS, "MINUS", (sysycc::LexerState *)yyextra, yytext, yylval); }
@@ -226,6 +264,15 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 "{"                         { return make_token(LBRACE, "LBRACE", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "}"                         { return make_token(RBRACE, "RBRACE", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
+"restrict"                  { return make_token(RESTRICT, "RESTRICT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"__restrict"                { return make_token(RESTRICT, "RESTRICT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"__restrict__"              { return make_token(RESTRICT, "RESTRICT", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"_Nullable"                 { return make_token(NULLABILITY, "NULLABILITY", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"_Nonnull"                  { return make_token(NULLABILITY, "NULLABILITY", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"_Null_unspecified"         { return make_token(NULLABILITY, "NULLABILITY", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"__const"                   { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"__const__"                 { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
+
 {STRING_CONST}              { return make_token(STRING_LITERAL, "STRING_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {CHAR_CONST}                { return make_token(CHAR_LITERAL, "CHAR_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {FLOAT_CONST}               { return make_token(FLOAT_LITERAL, "FLOAT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
@@ -234,6 +281,7 @@ INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
 {DEC_INT}{INT_SUFFIX}?      { return make_token(INT_LITERAL, "INT_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {INVALID_HEX}               { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {INVALID_OCT}               { return make_token(INVALID, "INVALID", (sysycc::LexerState *)yyextra, yytext, yylval); }
+{ANNOT_IDENT}               { return make_token(ANNOTATION_IDENT, "ANNOTATION_IDENT", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {IDENT}                     {
                               sysycc::LexerState *state = (sysycc::LexerState *)yyextra;
                               if (state != nullptr &&

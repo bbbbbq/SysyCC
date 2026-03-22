@@ -22,6 +22,8 @@ namespace {
 
 TokenKind ToTokenKind(int token) {
     switch (token) {
+    case ANNOTATION_IDENT:
+        return TokenKind::AnnotationIdentifier;
     case IDENTIFIER:
         return TokenKind::Identifier;
     case INT_LITERAL:
@@ -34,12 +36,22 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::StringLiteral;
     case CONST:
         return TokenKind::KwConst;
+    case VOLATILE:
+        return TokenKind::KwVolatile;
     case EXTERN:
         return TokenKind::KwExtern;
+    case STATIC:
+        return TokenKind::KwStatic;
     case ATTRIBUTE:
         return TokenKind::KwAttribute;
+    case ASM:
+        return TokenKind::KwAsm;
     case INLINE:
         return TokenKind::KwInline;
+    case RESTRICT:
+        return TokenKind::KwRestrict;
+    case NULLABILITY:
+        return TokenKind::KwNullability;
     case LONG:
         return TokenKind::KwLong;
     case SIGNED:
@@ -80,6 +92,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::KwBreak;
     case CONTINUE:
         return TokenKind::KwContinue;
+    case GOTO:
+        return TokenKind::KwGoto;
     case RETURN:
         return TokenKind::KwReturn;
     case STRUCT:
@@ -120,6 +134,26 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::Arrow;
     case ASSIGN:
         return TokenKind::Assign;
+    case ADD_ASSIGN:
+        return TokenKind::AddAssign;
+    case SUB_ASSIGN:
+        return TokenKind::SubAssign;
+    case MUL_ASSIGN:
+        return TokenKind::MulAssign;
+    case DIV_ASSIGN:
+        return TokenKind::DivAssign;
+    case MOD_ASSIGN:
+        return TokenKind::ModAssign;
+    case SHL_ASSIGN:
+        return TokenKind::ShlAssign;
+    case SHR_ASSIGN:
+        return TokenKind::ShrAssign;
+    case AND_ASSIGN:
+        return TokenKind::AndAssign;
+    case XOR_ASSIGN:
+        return TokenKind::XorAssign;
+    case OR_ASSIGN:
+        return TokenKind::OrAssign;
     case EQ:
         return TokenKind::Equal;
     case NE:
@@ -138,6 +172,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::LogicalAnd;
     case OR:
         return TokenKind::LogicalOr;
+    case ELLIPSIS:
+        return TokenKind::Ellipsis;
     case QUESTION:
         return TokenKind::Question;
     case SEMICOLON:
