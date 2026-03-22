@@ -165,15 +165,16 @@ classDiagram
         +get_kind()
         +begin_module()
         +end_module()
-        +declare_global(name, type)
-        +define_global(name, type, initializer_text)
-        +begin_function(name, return_type, parameters, attributes)
+        +declare_global(name, type, is_internal_linkage)
+        +define_global(name, type, initializer_text, is_internal_linkage)
+        +begin_function(name, return_type, parameters, attributes, is_internal_linkage)
         +end_function()
         +create_label(hint)
         +emit_label(label)
         +emit_branch(target_label)
         +emit_cond_branch(condition, true_label, false_label)
         +emit_integer_literal(value)
+        +emit_floating_literal(value_text, type)
         +emit_alloca(name, type)
         +emit_store(address, value)
         +emit_load(address, type)
@@ -200,6 +201,13 @@ classDiagram
     }
 
     class LlvmIrBackend {
+    }
+
+    class AggregateLayoutInfo {
+        +elements
+        +field_layouts
+        +size
+        +alignment
     }
 
     class IRContext {
@@ -584,10 +592,12 @@ classDiagram
     class VariableSemanticInfo {
         -is_global_storage_
         -has_external_linkage_
+        -has_internal_linkage_
         -has_tentative_definition_
         -has_initialized_definition_
         +get_is_global_storage()
         +get_has_external_linkage()
+        +get_has_internal_linkage()
         +get_has_tentative_definition()
         +get_has_initialized_definition()
     }
@@ -700,12 +710,18 @@ classDiagram
         -name_
         -return_type_
         -parameters_
+        -is_static_
+        -is_variadic_
         -attributes_
+        -asm_label_
         -body_
         +get_name()
         +get_return_type()
         +get_parameters()
+        +get_is_static()
+        +get_is_variadic()
         +get_attributes()
+        +get_asm_label()
         +get_body()
     }
 
@@ -748,8 +764,10 @@ classDiagram
 
     class QualifiedTypeNode {
         -is_const_
+        -is_volatile_
         -base_type_
         +get_is_const()
+        +get_is_volatile()
         +get_base_type()
     }
 
@@ -768,11 +786,13 @@ classDiagram
         -dimensions_
         -initializer_
         -is_extern_
+        -is_static_
         +get_name()
         +get_declared_type()
         +get_dimensions()
         +get_initializer()
         +get_is_extern()
+        +get_is_static()
     }
 
     class ConstDecl {
@@ -825,13 +845,50 @@ classDiagram
 
     class PointerTypeNode {
         -pointee_type_
+        -is_const_
+        -is_volatile_
+        -is_restrict_
+        -nullability_kind_
         +get_pointee_type()
+        +get_is_const()
+        +get_is_volatile()
+        +get_is_restrict()
+        +get_nullability_kind()
+    }
+
+    class FunctionTypeNode {
+        -return_type_
+        -parameter_types_
+        -is_variadic_
+        +get_return_type()
+        +get_parameter_types()
+        +get_is_variadic()
+    }
+
+    class FunctionSemanticType {
+        -return_type_
+        -parameter_types_
+        -is_variadic_
+        +get_return_type()
+        +get_parameter_types()
+        +get_is_variadic()
+    }
+
+    class PointerSemanticType {
+        -pointee_type_
+        -nullability_kind_
+        +get_pointee_type()
+        +get_nullability_kind()
     }
 
     class QualifiedSemanticType {
         -is_const_
+        -is_volatile_
+        -is_restrict_
         -base_type_
         +get_is_const()
+        +get_is_volatile()
+        +get_is_restrict()
         +get_base_type()
     }
 
@@ -1176,6 +1233,7 @@ classDiagram
     AstNode <|-- MemberExpr
     AstNode <|-- InitListExpr
     AstNode <|-- PointerTypeNode
+    AstNode <|-- FunctionTypeNode
     AstNode <|-- QualifiedTypeNode
     AstNode <|-- CastExpr
     AstNode <|-- StructTypeNode
@@ -1194,6 +1252,9 @@ classDiagram
     UnionDecl *-- FieldDecl
     EnumDecl *-- EnumeratorDecl
     TypedefDecl *-- PointerTypeNode
+    PointerTypeNode *-- FunctionTypeNode
+    FunctionTypeNode *-- BuiltinTypeNode
+    FunctionTypeNode *-- PointerTypeNode
     FunctionDecl *-- BlockStmt
     PointerTypeNode *-- QualifiedTypeNode
     PointerTypeNode *-- BuiltinTypeNode
@@ -1209,11 +1270,13 @@ classDiagram
     IRBuilder ..> GnuFunctionAttributeLoweringHandler
     IRBuilder ..> IntegerConversionService
     IRBuilder ..> SemanticModel
+    IRBuilder ..> AggregateLayoutInfo
     IRBackend <|-- LlvmIrBackend
     IRBackend ..> IRValue
     IRBackend ..> IRFunctionParameter
     IRBackend ..> IRFunctionAttribute
     LlvmIrBackend ..> IntegerConversionService
+    LlvmIrBackend ..> AggregateLayoutInfo
     IRBuilder ..> IRContext
     IRBuilder ..> SymbolValueMap
     SemanticAnalyzer ..> DeclAnalyzer
@@ -1232,6 +1295,7 @@ classDiagram
     SemanticPass ..> BuiltinSymbols
     SemanticModel ..> SemanticFunctionAttribute
     TypeResolver ..> QualifiedSemanticType
+    TypeResolver ..> PointerSemanticType
     DeclAnalyzer ..> ExprAnalyzer
     DeclAnalyzer ..> TypeResolver
     DeclAnalyzer ..> ConversionChecker
@@ -1248,6 +1312,8 @@ classDiagram
     SemanticModel *-- SemanticSymbol
     SemanticModel *-- SemanticType
     SemanticModel *-- VariableSemanticInfo
+    SemanticType <|-- FunctionSemanticType
+    SemanticType <|-- PointerSemanticType
     SemanticType <|-- UnionSemanticType
     UnionSemanticType *-- SemanticFieldInfo
     Token *-- SourceSpan
@@ -1422,7 +1488,8 @@ Role:
 - create independent scanner sessions with their own lexer runtime state
 - recognize additional C declaration forms needed by system headers, including
   `union`, inline anonymous union declarations, and builtin declaration
-  specifier combinations such as `unsigned int` and `unsigned long long`
+  specifier combinations such as `unsigned int`, `unsigned long`, and
+  `unsigned long long`
 
 ### `sysycc::AstPass`
 
@@ -1476,12 +1543,22 @@ Role:
 - let `IRBackend` own top-level declaration emission so runtime-style external
   calls and global objects can be emitted without leaking LLVM syntax into
   `IRGenPass`
+- let top-level `static` declarations flow through the same backend interface
+  so LLVM `internal` linkage is selected by the generic IR builder instead of
+  being hard-coded inside one concrete backend path
+- let `IRBackend` also own floating-literal emission so the generic IR builder
+  can keep `_Float16` / `float` / `double` / `long double` constants backend
+  agnostic
 - keep scalar cast lowering behind `IRBackend::emit_cast(...)` so AST and
   semantic cast support do not leak LLVM spellings into the generic IR builder
 - keep integer-width/sign coercion planning behind
   `detail::IntegerConversionService` so the generic IR builder can reuse the
   same conversion decisions at `return`, assignment, initializer, and
   call-argument sites
+- share aggregate-layout computation between `IRBuilder` and `LlvmIrBackend`
+  so struct/union lowering, LLVM element indexes, padding, and bit-field
+  storage-unit decisions stay consistent across address calculation, local
+  member access, and global initializer emission
 
 ### `sysycc::Diagnostic`, `sysycc::DiagnosticEngine`, and `sysycc::DiagnosticFormatter`
 
@@ -1743,15 +1820,17 @@ Role:
 - keep a stable `AstKind` and [SourceSpan](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp) on every AST node
 - organize the first AST layer into `TranslationUnit`, `FunctionDecl`,
   `VarDecl`, `ConstDecl`, `StructDecl`, `UnionDecl`, `PointerTypeNode`,
-  `StructTypeNode`, `UnionTypeNode`, `BlockStmt`, `ReturnStmt`,
+  `FunctionTypeNode`, `StructTypeNode`, `UnionTypeNode`, `BlockStmt`,
+  `ReturnStmt`,
   `IntegerLiteralExpr`, `FloatLiteralExpr`, `CharLiteralExpr`,
   `StringLiteralExpr`, `IdentifierExpr`, `UnaryExpr`, `PrefixExpr`,
   `PostfixExpr`, `BinaryExpr`, `CastExpr`, `ConditionalExpr`, `CallExpr`, `IndexExpr`,
   `MemberExpr` (for both `.` and `->`), `InitListExpr`, and `Unknown*`
   placeholders
 - let `AstBuilder` lower combined builtin declaration specifiers such as
-  `long int`, `long long int`, `unsigned int`, `unsigned long long`, and
-  `long double` into stable builtin type nodes for later semantic analysis
+  `long int`, `long long int`, `unsigned int`, `unsigned long`,
+  `unsigned long long`, and `long double` into stable builtin type nodes for
+  later semantic analysis
 
 ### `sysycc::SemanticModel`, `SemanticDiagnostic`, `SemanticSymbol`, `SemanticType`, and semantic helpers
 
@@ -1799,7 +1878,9 @@ Role:
   results
 - `SemanticContext`: carry one analysis run's transient state
 - `ScopeStack`: manage nested lexical scopes
-- `BuiltinSymbols`: install runtime-library builtins into the initial scope
+- `BuiltinSymbols`: install runtime-library builtins plus bootstrap typedef
+  aliases such as `size_t`, `ptrdiff_t`, `va_list`, `__builtin_va_list`, and
+  `wchar_t` into the initial scope
 - `SemanticPass`: run strict semantic checks only after AST lowering is marked
   complete, while still attaching a semantic model to the compiler context
 

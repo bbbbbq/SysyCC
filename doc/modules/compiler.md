@@ -101,6 +101,10 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass -> IRGenPas
   for preprocess include resolution.
 - The backend stage currently emits textual LLVM IR dumps for the supported AST
   subset, including multi-branch `switch` lowering.
+- `IRGenPass` now fails fast when the active IR backend cannot lower a required
+  function body, function declaration, or global object. Unsupported IR is
+  reported through the shared diagnostic engine and stops compilation instead
+  of silently emitting a partial `.ll` file.
 - [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   now also constructs one shared
   [SourceLocationService](/Users/caojunze424/code/SysyCC/src/common/source_location_service.hpp),
