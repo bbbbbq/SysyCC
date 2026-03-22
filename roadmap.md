@@ -48,10 +48,13 @@ source file
   - `switch/case/default`
   - `break`
   - `continue`
+  - pointer-aware lowering for member access, address-of, dereference, index
+    expressions, and pointer arithmetic in the current supported subset
+  - floating scalar lowering for `float`, `double`, `_Float16`, and
+    `long double` in the current supported subset
 
 ### Not Implemented
 
-- pointer-aware lowering
 - array lowering
 - runtime-library call lowering coverage beyond the current direct-call subset
 - `.ll -> .s` / object-file / linker driver pipeline
@@ -63,12 +66,11 @@ front-end, but is still not fully implemented from preprocess through IR.
 
 ### Front-End Supported, IR Not Fully Supported
 
-- floating scalar lowering beyond the current `float` / `double` subset
-  - `long double`
-  - `_Float16`
-- broader cast lowering
-  - semantic accepts more casts than IR currently lowers
-  - IR is still mainly complete for `int <-> double`
+- richer integer-type lowering outside the current tested subset
+  - `long int`
+  - `long long int`
+  - `unsigned int`
+  - `unsigned long long`
 
 ### Compatibility-Accepted, Semantics Still Incomplete
 
@@ -85,8 +87,16 @@ front-end, but is still not fully implemented from preprocess through IR.
   - `const char *`-style cases have real support
   - complete C qualifier semantics are still incomplete
 - extension builtin types
-  - `_Float16` has front-end and semantic support
-  - full IR and richer operation coverage are still incomplete
+  - `_Float16` now has front-end, semantic, IR cast/arithmetic/comparison
+    coverage, and hexadecimal floating-literal lowering in the current
+    supported scalar subset
+  - fuller standard-library integration and wider backend coverage are still
+    incomplete
+- richer floating/runtime integration
+  - `long double` and `_Float16` now have cast, arithmetic, comparison,
+    branch-truthiness, and hexadecimal floating-literal lowering in the
+    current IR subset
+  - fuller target-specific runtime and ABI coverage are still incomplete
 - internal `ptrdiff_t` modeling
   - pointer difference now uses an internal `ptrdiff_t`-style semantic result
   - parser-level spelling and fuller standard-library integration are still
@@ -99,8 +109,10 @@ front-end, but is still not fully implemented from preprocess through IR.
    - `long long int`
    - `unsigned int`
    - `unsigned long long`
-2. broader cast lowering
-3. `_Float16` / `long double` IR support
+2. richer aggregate/object lowering
+   - arrays
+   - more complete global object coverage
+3. fuller floating/runtime coverage beyond the current scalar cast/arithmetic subset
 
 ## Preprocess
 
