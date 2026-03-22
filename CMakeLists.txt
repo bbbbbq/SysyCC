@@ -41,6 +41,7 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/ir_builder.cpp
     src/backend/ir/ir_pass.cpp
     src/backend/ir/llvm/llvm_ir_backend.cpp
+    src/backend/ir/detail/aggregate_layout.cpp
     src/backend/ir/detail/ir_context.cpp
     src/backend/ir/detail/symbol_value_map.cpp
     src/cli/cli.cpp
