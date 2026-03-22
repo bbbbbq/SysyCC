@@ -8,6 +8,7 @@
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
+#include "frontend/semantic/type_system/integer_conversion_service.hpp"
 #include "frontend/semantic/analysis/expr_analyzer.hpp"
 #include "frontend/semantic/support/scope_stack.hpp"
 #include "frontend/semantic/support/semantic_context.hpp"
@@ -24,7 +25,10 @@ namespace {
 std::vector<SemanticFieldInfo>
 build_struct_semantic_fields(const StructDecl *struct_decl,
                              const TypeResolver &type_resolver,
-                             SemanticContext &semantic_context) {
+                             const ConstantEvaluator &constant_evaluator,
+                             const ConversionChecker &conversion_checker,
+                             SemanticContext &semantic_context,
+                             const ScopeStack &scope_stack) {
     std::vector<SemanticFieldInfo> fields;
     if (struct_decl == nullptr) {
         return fields;
@@ -35,10 +39,19 @@ build_struct_semantic_fields(const StructDecl *struct_decl,
             continue;
         }
         const auto *field_decl = static_cast<const FieldDecl *>(field.get());
+        std::optional<int> bit_width;
+        if (field_decl->get_bit_width() != nullptr) {
+            const auto width_value = constant_evaluator.get_integer_constant_value(
+                field_decl->get_bit_width(), semantic_context);
+            if (width_value.has_value()) {
+                bit_width = static_cast<int>(*width_value);
+            }
+        }
         fields.emplace_back(
             field_decl->get_name(),
             type_resolver.resolve_type(field_decl->get_declared_type(),
-                                       semantic_context));
+                                       semantic_context, &scope_stack),
+            bit_width);
     }
     return fields;
 }
@@ -46,7 +59,10 @@ build_struct_semantic_fields(const StructDecl *struct_decl,
 std::vector<SemanticFieldInfo>
 build_union_semantic_fields(const UnionDecl *union_decl,
                             const TypeResolver &type_resolver,
-                            SemanticContext &semantic_context) {
+                            const ConstantEvaluator &constant_evaluator,
+                            const ConversionChecker &conversion_checker,
+                            SemanticContext &semantic_context,
+                            const ScopeStack &scope_stack) {
     std::vector<SemanticFieldInfo> fields;
     if (union_decl == nullptr) {
         return fields;
@@ -57,10 +73,19 @@ build_union_semantic_fields(const UnionDecl *union_decl,
             continue;
         }
         const auto *field_decl = static_cast<const FieldDecl *>(field.get());
+        std::optional<int> bit_width;
+        if (field_decl->get_bit_width() != nullptr) {
+            const auto width_value = constant_evaluator.get_integer_constant_value(
+                field_decl->get_bit_width(), semantic_context);
+            if (width_value.has_value()) {
+                bit_width = static_cast<int>(*width_value);
+            }
+        }
         fields.emplace_back(
             field_decl->get_name(),
             type_resolver.resolve_type(field_decl->get_declared_type(),
-                                       semantic_context));
+                                       semantic_context, &scope_stack),
+            bit_width);
     }
     return fields;
 }
@@ -70,6 +95,15 @@ bool is_global_variable_definition(const VarDecl *var_decl) {
         return false;
     }
     return !var_decl->get_is_extern() || var_decl->get_initializer() != nullptr;
+}
+
+bool is_system_header_symbol(const SemanticSymbol *symbol,
+                             const SemanticContext &semantic_context) {
+    if (symbol == nullptr || symbol->get_decl_node() == nullptr) {
+        return false;
+    }
+    return semantic_context.is_system_header_span(
+        symbol->get_decl_node()->get_source_span());
 }
 
 } // namespace
@@ -119,6 +153,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     case AstKind::ParamDecl: {
         const auto *param_decl = static_cast<const ParamDecl *>(decl);
         for (const auto &dimension : param_decl->get_dimensions()) {
+            if (dimension == nullptr) {
+                continue;
+            }
             expr_analyzer_.analyze_expr(dimension.get(), semantic_context,
                                         scope_stack);
             if (!constant_evaluator_.is_integer_constant_expr(
@@ -132,6 +169,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             type_resolver_.resolve_type(param_decl->get_declared_type(),
                                         semantic_context, &scope_stack),
             param_decl->get_dimensions(), semantic_context);
+        declared_type =
+            type_resolver_.adjust_parameter_type(declared_type, semantic_context);
         semantic_model.bind_node_type(param_decl, declared_type);
         if (param_decl->get_name().empty()) {
             return;
@@ -149,6 +188,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     case AstKind::VarDecl: {
         const auto *var_decl = static_cast<const VarDecl *>(decl);
         for (const auto &dimension : var_decl->get_dimensions()) {
+            if (dimension == nullptr) {
+                continue;
+            }
             expr_analyzer_.analyze_expr(dimension.get(), semantic_context,
                                         scope_stack);
             if (!constant_evaluator_.is_integer_constant_expr(
@@ -167,6 +209,10 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         const bool is_tentative_definition =
             is_file_scope && !var_decl->get_is_extern() && !has_initializer;
         const bool is_initialized_definition = is_file_scope && has_initializer;
+        const bool has_internal_linkage =
+            is_file_scope && var_decl->get_is_static();
+        const bool has_external_linkage =
+            is_file_scope && !var_decl->get_is_static();
         const bool is_global_storage = is_file_scope || var_decl->get_is_extern();
 
         const SemanticSymbol *symbol = nullptr;
@@ -198,7 +244,10 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                     true,
                     (existing_info != nullptr &&
                      existing_info->get_has_external_linkage()) ||
-                        var_decl->get_is_extern(),
+                        has_external_linkage,
+                    (existing_info != nullptr &&
+                     existing_info->get_has_internal_linkage()) ||
+                        has_internal_linkage,
                     (existing_info != nullptr &&
                      existing_info->get_has_tentative_definition()) ||
                         is_tentative_definition,
@@ -219,7 +268,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                               var_decl->get_source_span())) {
                 semantic_model.bind_variable_info(
                     symbol, VariableSemanticInfo(
-                                is_global_storage, var_decl->get_is_extern(),
+                                is_global_storage, has_external_linkage,
+                                has_internal_linkage,
                                 is_tentative_definition,
                                 is_initialized_definition));
             } else {
@@ -249,6 +299,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     case AstKind::ConstDecl: {
         const auto *const_decl = static_cast<const ConstDecl *>(decl);
         for (const auto &dimension : const_decl->get_dimensions()) {
+            if (dimension == nullptr) {
+                continue;
+            }
             expr_analyzer_.analyze_expr(dimension.get(), semantic_context,
                                         scope_stack);
             if (!constant_evaluator_.is_integer_constant_expr(
@@ -294,6 +347,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     case AstKind::FieldDecl: {
         const auto *field_decl = static_cast<const FieldDecl *>(decl);
         for (const auto &dimension : field_decl->get_dimensions()) {
+            if (dimension == nullptr) {
+                continue;
+            }
             expr_analyzer_.analyze_expr(dimension.get(), semantic_context,
                                         scope_stack);
             if (!constant_evaluator_.is_integer_constant_expr(
@@ -307,6 +363,37 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             type_resolver_.resolve_type(field_decl->get_declared_type(),
                                         semantic_context, &scope_stack),
             field_decl->get_dimensions(), semantic_context);
+        if (field_decl->get_bit_width() != nullptr) {
+            expr_analyzer_.analyze_expr(field_decl->get_bit_width(),
+                                        semantic_context, scope_stack);
+            if (!constant_evaluator_.is_integer_constant_expr(
+                    field_decl->get_bit_width(), semantic_context,
+                    conversion_checker_)) {
+                add_error(semantic_context,
+                          "bit-field width must be an integer constant expression",
+                          field_decl->get_bit_width()->get_source_span());
+            }
+            const auto width_value = constant_evaluator_.get_integer_constant_value(
+                field_decl->get_bit_width(), semantic_context);
+            if (!conversion_checker_.is_integer_like_type(declared_type)) {
+                add_error(semantic_context,
+                          "bit-field base type must be an integer type",
+                          field_decl->get_source_span());
+            } else if (!width_value.has_value() || *width_value < 0) {
+                add_error(semantic_context, "bit-field width must be non-negative",
+                          field_decl->get_bit_width()->get_source_span());
+            } else {
+                detail::IntegerConversionService integer_conversion_service;
+                const auto integer_info =
+                    integer_conversion_service.get_integer_type_info(declared_type);
+                if (integer_info.has_value() &&
+                    *width_value > integer_info->get_bit_width()) {
+                    add_error(semantic_context,
+                              "bit-field width exceeds base type width",
+                              field_decl->get_bit_width()->get_source_span());
+                }
+            }
+        }
         const auto *symbol = semantic_model.own_symbol(
             std::make_unique<SemanticSymbol>(SymbolKind::Field,
                                              field_decl->get_name(),
@@ -318,6 +405,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     case AstKind::TypedefDecl: {
         const auto *typedef_decl = static_cast<const TypedefDecl *>(decl);
         for (const auto &dimension : typedef_decl->get_dimensions()) {
+            if (dimension == nullptr) {
+                continue;
+            }
             expr_analyzer_.analyze_expr(dimension.get(), semantic_context,
                                         scope_stack);
             if (!constant_evaluator_.is_integer_constant_expr(
@@ -331,6 +421,20 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             type_resolver_.resolve_type(typedef_decl->get_aliased_type(),
                                         semantic_context, &scope_stack),
             typedef_decl->get_dimensions(), semantic_context);
+        if (const SemanticSymbol *existing_symbol =
+                scope_stack.lookup_local(typedef_decl->get_name());
+            existing_symbol != nullptr &&
+            existing_symbol->get_kind() == SymbolKind::TypedefName &&
+            conversion_checker_.is_same_type(existing_symbol->get_type(),
+                                             aliased_type) &&
+            (existing_symbol->get_decl_node() == nullptr ||
+             semantic_context.is_system_header_span(
+                 typedef_decl->get_source_span()) ||
+             is_system_header_symbol(existing_symbol, semantic_context))) {
+            semantic_model.bind_symbol(typedef_decl, existing_symbol);
+            semantic_model.bind_node_type(typedef_decl, aliased_type);
+            return;
+        }
         const auto *symbol = semantic_model.own_symbol(
             std::make_unique<SemanticSymbol>(SymbolKind::TypedefName,
                                              typedef_decl->get_name(),
@@ -348,7 +452,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             std::make_unique<StructSemanticType>(
                 struct_decl->get_name(),
                 build_struct_semantic_fields(struct_decl, type_resolver_,
-                                             semantic_context)));
+                                             constant_evaluator_,
+                                             conversion_checker_,
+                                             semantic_context, scope_stack)));
         const auto *symbol = semantic_model.own_symbol(
             std::make_unique<SemanticSymbol>(SymbolKind::StructName,
                                              struct_decl->get_name(),
@@ -369,7 +475,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             std::make_unique<UnionSemanticType>(
                 union_decl->get_name(),
                 build_union_semantic_fields(union_decl, type_resolver_,
-                                            semantic_context)));
+                                            constant_evaluator_,
+                                            conversion_checker_,
+                                            semantic_context, scope_stack)));
         const auto *symbol = semantic_model.own_symbol(
             std::make_unique<SemanticSymbol>(SymbolKind::UnionName,
                                              union_decl->get_name(),

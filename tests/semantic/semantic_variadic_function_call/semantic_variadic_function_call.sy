@@ -1,0 +1,5 @@
+int keep_first(int x, ...);
+
+int main() {
+    return keep_first(7, 1, 2, 3);
+}

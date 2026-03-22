@@ -1,0 +1,6 @@
+int __assert_rtn(const char *, const char *, int, const char *)
+    __attribute__((__always_inline__));
+
+int main() {
+    return 0;
+}

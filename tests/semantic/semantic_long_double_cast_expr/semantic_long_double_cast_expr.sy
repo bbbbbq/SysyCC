@@ -1,0 +1,15 @@
+long double to_long_double(int value) {
+    return (long double)value;
+}
+
+int to_int(long double value) {
+    return (int)value;
+}
+
+long double mix_long_double(long double lhs, double rhs) {
+    return lhs + rhs;
+}
+
+int main() {
+    return 0;
+}

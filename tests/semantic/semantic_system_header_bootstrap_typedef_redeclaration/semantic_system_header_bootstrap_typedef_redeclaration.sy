@@ -1,0 +1,6 @@
+#include <bootstrap_types.h>
+
+int main() {
+    size_t count = 3;
+    return (int)count;
+}

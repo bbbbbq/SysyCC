@@ -1,0 +1,15 @@
+_Float16 to_half(double value) {
+    return (_Float16)value;
+}
+
+double widen_from_half(_Float16 value) {
+    return (double)value;
+}
+
+_Float16 add_half(_Float16 lhs, float rhs) {
+    return lhs + rhs;
+}
+
+int main() {
+    return 0;
+}

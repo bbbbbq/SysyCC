@@ -43,6 +43,17 @@ bool define_symbol(SemanticContext &semantic_context, ScopeStack &scope_stack,
     return false;
 }
 
+bool function_decl_has_body(const SemanticSymbol *symbol) {
+    if (symbol == nullptr || symbol->get_decl_node() == nullptr ||
+        symbol->get_decl_node()->get_kind() != AstKind::FunctionDecl) {
+        return false;
+    }
+
+    const auto *function_decl =
+        static_cast<const FunctionDecl *>(symbol->get_decl_node());
+    return function_decl->get_body() != nullptr;
+}
+
 } // namespace
 
 void SemanticAnalyzer::Analyze(const TranslationUnit *translation_unit,
@@ -96,14 +107,17 @@ const SemanticType *SemanticAnalyzer::build_function_type(
     std::vector<const SemanticType *> parameter_types;
     for (const auto &parameter : function_decl->get_parameters()) {
         const auto *param_decl = static_cast<const ParamDecl *>(parameter.get());
-        parameter_types.push_back(type_resolver.apply_array_dimensions(
+        const SemanticType *parameter_type = type_resolver.apply_array_dimensions(
             type_resolver.resolve_type(param_decl->get_declared_type(),
                                        semantic_context, &scope_stack),
-            param_decl->get_dimensions(), semantic_context));
+            param_decl->get_dimensions(), semantic_context);
+        parameter_types.push_back(
+            type_resolver.adjust_parameter_type(parameter_type, semantic_context));
     }
 
     return semantic_context.get_semantic_model().own_type(
-        std::make_unique<FunctionSemanticType>(return_type, parameter_types));
+        std::make_unique<FunctionSemanticType>(return_type, parameter_types,
+                                               function_decl->get_is_variadic()));
 }
 
 void SemanticAnalyzer::analyze_function_decl(
@@ -122,13 +136,32 @@ void SemanticAnalyzer::analyze_function_decl(
     const SemanticType *function_type =
         build_function_type(function_decl, semantic_context, type_resolver,
                             scope_stack);
-    const auto *function_symbol = semantic_model.own_symbol(
-        std::make_unique<SemanticSymbol>(SymbolKind::Function,
-                                         function_decl->get_name(),
-                                         function_type, function_decl));
-    const bool function_defined =
-        define_symbol(semantic_context, scope_stack, function_symbol,
+    const SemanticSymbol *function_symbol = nullptr;
+    bool function_defined = false;
+    if (const SemanticSymbol *existing_symbol =
+            scope_stack.lookup_local(function_decl->get_name());
+        existing_symbol != nullptr) {
+        if (existing_symbol->get_kind() != SymbolKind::Function ||
+            !conversion_checker.is_same_type(existing_symbol->get_type(),
+                                            function_type) ||
+            (function_decl->get_body() != nullptr &&
+             function_decl_has_body(existing_symbol))) {
+            add_error(semantic_context,
+                      "redefinition of symbol: " + function_decl->get_name(),
                       function_decl->get_source_span());
+        } else {
+            function_symbol = existing_symbol;
+            function_defined = true;
+        }
+    } else {
+        function_symbol = semantic_model.own_symbol(
+            std::make_unique<SemanticSymbol>(SymbolKind::Function,
+                                             function_decl->get_name(),
+                                             function_type, function_decl));
+        function_defined = define_symbol(semantic_context, scope_stack,
+                                         function_symbol,
+                                         function_decl->get_source_span());
+    }
     if (function_defined) {
         semantic_model.bind_symbol(function_decl, function_symbol);
         semantic_model.bind_node_type(function_decl, function_type);
@@ -149,11 +182,18 @@ void SemanticAnalyzer::analyze_function_decl(
     semantic_context.set_current_return_type(
         resolved_function_type != nullptr ? resolved_function_type->get_return_type()
                                           : nullptr);
+    semantic_context.begin_function_labels();
     for (const auto &parameter : function_decl->get_parameters()) {
         decl_analyzer.analyze_decl(parameter.get(), semantic_context, scope_stack);
     }
     stmt_analyzer.analyze_stmt(function_decl->get_body(), semantic_context,
                                scope_stack);
+    for (const auto &reference :
+         semantic_context.get_undefined_goto_references()) {
+        add_error(semantic_context,
+                  "undefined label '" + reference.label_name + "'",
+                  reference.source_span);
+    }
     if (resolved_function_type != nullptr &&
         resolved_function_type->get_return_type() != nullptr &&
         !conversion_checker.is_void_type(
@@ -163,6 +203,7 @@ void SemanticAnalyzer::analyze_function_decl(
                   "non-void function may exit without returning a value",
                   function_decl->get_source_span());
     }
+    semantic_context.end_function_labels();
     semantic_context.set_current_function(nullptr);
     semantic_context.set_current_return_type(nullptr);
     scope_stack.pop_scope();
@@ -191,6 +232,10 @@ bool SemanticAnalyzer::stmt_guarantees_return(const Stmt *stmt) const {
                if_stmt->get_else_branch() != nullptr &&
                stmt_guarantees_return(if_stmt->get_then_branch()) &&
                stmt_guarantees_return(if_stmt->get_else_branch());
+    }
+    case AstKind::LabelStmt: {
+        const auto *label_stmt = static_cast<const LabelStmt *>(stmt);
+        return stmt_guarantees_return(label_stmt->get_body());
     }
     default:
         return false;

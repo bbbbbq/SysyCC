@@ -87,6 +87,12 @@ int main() {
                             &float16_type, &double_type, semantic_model),
                         "double");
     expect_builtin_type(conversion_service.get_usual_arithmetic_conversion_type(
+                            &float16_type, &long_double_type, semantic_model),
+                        "long double");
+    expect_builtin_type(conversion_service.get_usual_arithmetic_conversion_type(
+                            &float16_type, &int_type, semantic_model),
+                        "_Float16");
+    expect_builtin_type(conversion_service.get_usual_arithmetic_conversion_type(
                             &double_type, &long_double_type, semantic_model),
                         "long double");
     expect_builtin_type(conversion_service.get_usual_arithmetic_conversion_type(
@@ -122,8 +128,16 @@ int main() {
                             &float16_type, &double_type, semantic_model),
                         "double");
     expect_builtin_type(checker.get_usual_arithmetic_conversion_type(
+                            &float16_type, &long_double_type, semantic_model),
+                        "long double");
+    expect_builtin_type(checker.get_usual_arithmetic_conversion_type(
                             &unsigned_int_type, &long_type, semantic_model),
                         "long int");
+    assert(checker.is_castable_type(&float16_type, &long_double_type));
+    assert(checker.is_castable_type(&long_double_type, &float16_type));
+    assert(checker.is_castable_type(&float16_type, &int_type));
+    assert(checker.is_castable_type(&int_type, &long_double_type));
+    assert(checker.is_castable_type(&long_double_type, &int_type));
 
     return 0;
 }

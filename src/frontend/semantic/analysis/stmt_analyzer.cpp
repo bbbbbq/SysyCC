@@ -187,6 +187,16 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         analyze_stmt(default_stmt->get_body(), semantic_context, scope_stack);
         return;
     }
+    case AstKind::LabelStmt: {
+        const auto *label_stmt = static_cast<const LabelStmt *>(stmt);
+        if (!semantic_context.record_label_definition(label_stmt->get_label_name())) {
+            add_error(semantic_context,
+                      "duplicate label '" + label_stmt->get_label_name() + "'",
+                      label_stmt->get_source_span());
+        }
+        analyze_stmt(label_stmt->get_body(), semantic_context, scope_stack);
+        return;
+    }
     case AstKind::ReturnStmt: {
         const auto *return_stmt = static_cast<const ReturnStmt *>(stmt);
         expr_analyzer_.analyze_expr(return_stmt->get_value(), semantic_context,
@@ -245,6 +255,12 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
                       stmt->get_source_span());
         }
         return;
+    case AstKind::GotoStmt: {
+        const auto *goto_stmt = static_cast<const GotoStmt *>(stmt);
+        semantic_context.record_goto_reference(goto_stmt->get_target_label(),
+                                               goto_stmt->get_source_span());
+        return;
+    }
     default:
         return;
     }

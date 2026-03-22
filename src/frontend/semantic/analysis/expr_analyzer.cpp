@@ -21,6 +21,29 @@ namespace sysycc::detail {
 
 namespace {
 
+const SemanticType *get_float_literal_semantic_type(
+    const FloatLiteralExpr *expr, SemanticModel &semantic_model) {
+    if (expr == nullptr) {
+        return nullptr;
+    }
+
+    const std::string &value_text = expr->get_value_text();
+    if (!value_text.empty()) {
+        const char suffix = value_text.back();
+        if (suffix == 'f' || suffix == 'F') {
+            return semantic_model.own_type(
+                std::make_unique<BuiltinSemanticType>("float"));
+        }
+        if (suffix == 'l' || suffix == 'L') {
+            return semantic_model.own_type(
+                std::make_unique<BuiltinSemanticType>("long double"));
+        }
+    }
+
+    return semantic_model.own_type(
+        std::make_unique<BuiltinSemanticType>("double"));
+}
+
 const SemanticType *strip_qualifiers(const SemanticType *type) {
     const SemanticType *current = type;
     while (current != nullptr &&
@@ -67,6 +90,139 @@ const SemanticType *get_unsigned_char_semantic_type(
 const SemanticType *get_unsigned_long_long_semantic_type(
     SemanticModel &semantic_model) {
     return get_builtin_semantic_type(semantic_model, "unsigned long long");
+}
+
+const SemanticType *get_long_semantic_type(SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "long int");
+}
+
+const SemanticType *get_long_long_semantic_type(SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "long long int");
+}
+
+const SemanticType *get_unsigned_long_semantic_type(
+    SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "unsigned long");
+}
+
+bool fits_signed_32(unsigned long long magnitude) {
+    return magnitude <= 2147483647ULL;
+}
+
+bool fits_unsigned_32(unsigned long long magnitude) { return magnitude <= 0xFFFFFFFFULL; }
+
+bool fits_signed_64(unsigned long long magnitude) {
+    return magnitude <= 9223372036854775807ULL;
+}
+
+const SemanticType *get_integer_literal_semantic_type(
+    const IntegerLiteralExpr *expr, SemanticModel &semantic_model) {
+    if (expr == nullptr) {
+        return nullptr;
+    }
+
+    const auto parsed_literal =
+        parse_integer_literal_info(expr->get_value_text());
+    if (!parsed_literal.has_value()) {
+        return get_int_semantic_type(semantic_model);
+    }
+
+    const unsigned long long magnitude = parsed_literal->magnitude;
+    const bool is_decimal = parsed_literal->base == 10;
+    const bool is_unsigned = parsed_literal->is_unsigned_suffix;
+    const int long_count = parsed_literal->long_count;
+
+    if (is_unsigned) {
+        if (long_count >= 2) {
+            return get_unsigned_long_long_semantic_type(semantic_model);
+        }
+        if (long_count == 1) {
+            return get_unsigned_long_semantic_type(semantic_model);
+        }
+        if (fits_unsigned_32(magnitude)) {
+            return get_unsigned_int_semantic_type(semantic_model);
+        }
+        return get_unsigned_long_semantic_type(semantic_model);
+    }
+
+    if (long_count >= 2) {
+        if (fits_signed_64(magnitude)) {
+            return get_long_long_semantic_type(semantic_model);
+        }
+        return get_unsigned_long_long_semantic_type(semantic_model);
+    }
+
+    if (long_count == 1) {
+        if (fits_signed_64(magnitude)) {
+            return get_long_semantic_type(semantic_model);
+        }
+        return is_decimal ? get_long_long_semantic_type(semantic_model)
+                          : get_unsigned_long_semantic_type(semantic_model);
+    }
+
+    if (is_decimal) {
+        if (fits_signed_32(magnitude)) {
+            return get_int_semantic_type(semantic_model);
+        }
+        if (fits_signed_64(magnitude)) {
+            return get_long_semantic_type(semantic_model);
+        }
+        return get_long_long_semantic_type(semantic_model);
+    }
+
+    if (fits_signed_32(magnitude)) {
+        return get_int_semantic_type(semantic_model);
+    }
+    if (fits_unsigned_32(magnitude)) {
+        return get_unsigned_int_semantic_type(semantic_model);
+    }
+    if (fits_signed_64(magnitude)) {
+        return get_long_semantic_type(semantic_model);
+    }
+    return get_unsigned_long_semantic_type(semantic_model);
+}
+
+bool is_compound_assignment_operator(const std::string &operator_text) {
+    return operator_text == "+=" || operator_text == "-=" ||
+           operator_text == "*=" || operator_text == "/=" ||
+           operator_text == "%=" || operator_text == "<<=" ||
+           operator_text == ">>=" || operator_text == "&=" ||
+           operator_text == "^=" || operator_text == "|=";
+}
+
+std::string get_compound_assignment_binary_operator(
+    const std::string &operator_text) {
+    if (operator_text == "+=") {
+        return "+";
+    }
+    if (operator_text == "-=") {
+        return "-";
+    }
+    if (operator_text == "*=") {
+        return "*";
+    }
+    if (operator_text == "/=") {
+        return "/";
+    }
+    if (operator_text == "%=") {
+        return "%";
+    }
+    if (operator_text == "<<=") {
+        return "<<";
+    }
+    if (operator_text == ">>=") {
+        return ">>";
+    }
+    if (operator_text == "&=") {
+        return "&";
+    }
+    if (operator_text == "^=") {
+        return "^";
+    }
+    if (operator_text == "|=") {
+        return "|";
+    }
+    return {};
 }
 
 const SemanticType *get_integer_promotion_type(const SemanticType *type,
@@ -258,18 +414,20 @@ const SemanticType *get_member_owner_type(
     if (base_type == nullptr) {
         return nullptr;
     }
+    const SemanticType *unqualified_base_type = strip_qualifiers(base_type);
     if (operator_text == "->") {
         if (conversion_checker.is_pointer_to_struct_type(base_type) ||
             conversion_checker.is_pointer_to_union_type(base_type)) {
-            return static_cast<const PointerSemanticType *>(base_type)
-                ->get_pointee_type();
+            return strip_qualifiers(
+                static_cast<const PointerSemanticType *>(unqualified_base_type)
+                    ->get_pointee_type());
         }
         return nullptr;
     }
     if (operator_text == "." &&
         (conversion_checker.is_struct_type(base_type) ||
          conversion_checker.is_union_type(base_type))) {
-        return base_type;
+        return unqualified_base_type;
     }
     return nullptr;
 }
@@ -281,6 +439,21 @@ const SemanticType *find_direct_union_field_type(const SemanticType *owner_type,
     }
     const auto *union_type = static_cast<const UnionSemanticType *>(owner_type);
     for (const auto &field : union_type->get_fields()) {
+        if (field.get_name() == field_name) {
+            return field.get_type();
+        }
+    }
+    return nullptr;
+}
+
+const SemanticType *find_direct_struct_field_type(const SemanticType *owner_type,
+                                                  const std::string &field_name) {
+    if (owner_type == nullptr ||
+        owner_type->get_kind() != SemanticTypeKind::Struct) {
+        return nullptr;
+    }
+    const auto *struct_type = static_cast<const StructSemanticType *>(owner_type);
+    for (const auto &field : struct_type->get_fields()) {
         if (field.get_name() == field_name) {
             return field.get_type();
         }
@@ -341,8 +514,9 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
     }
     case AstKind::IntegerLiteralExpr:
         semantic_model.bind_node_type(
-            expr,
-            semantic_model.own_type(std::make_unique<BuiltinSemanticType>("int")));
+            expr, get_integer_literal_semantic_type(
+                      static_cast<const IntegerLiteralExpr *>(expr),
+                      semantic_model));
         if (const auto parsed_value = parse_integer_literal(
                 static_cast<const IntegerLiteralExpr *>(expr)->get_value_text());
             parsed_value.has_value()) {
@@ -352,8 +526,9 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         return;
     case AstKind::FloatLiteralExpr:
         semantic_model.bind_node_type(
-            expr, semantic_model.own_type(
-                      std::make_unique<BuiltinSemanticType>("float")));
+            expr, get_float_literal_semantic_type(
+                      static_cast<const FloatLiteralExpr *>(expr),
+                      semantic_model));
         return;
     case AstKind::CharLiteralExpr:
         semantic_model.bind_node_type(
@@ -397,7 +572,11 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             return;
         }
         if (unary_expr->get_operator_text() == "*") {
-            if (operand_type->get_kind() != SemanticTypeKind::Pointer) {
+            const SemanticType *unqualified_operand_type =
+                strip_qualifiers(operand_type);
+            if (unqualified_operand_type == nullptr ||
+                unqualified_operand_type->get_kind() !=
+                    SemanticTypeKind::Pointer) {
                 add_error(semantic_context,
                           "operator '*' requires a pointer operand",
                           unary_expr->get_source_span());
@@ -405,7 +584,7 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             }
             semantic_model.bind_node_type(
                 unary_expr,
-                static_cast<const PointerSemanticType *>(operand_type)
+                static_cast<const PointerSemanticType *>(unqualified_operand_type)
                     ->get_pointee_type());
             return;
         }
@@ -538,6 +717,18 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             get_pointer_decay_or_self(lhs_type, semantic_model);
         const SemanticType *rhs_pointer_like =
             get_pointer_decay_or_self(rhs_type, semantic_model);
+
+        if (operator_text == ",") {
+            semantic_model.bind_node_type(binary_expr, rhs_type);
+            const auto rhs_constant =
+                constant_evaluator_.get_integer_constant_value(
+                    binary_expr->get_rhs(), semantic_context);
+            if (rhs_constant.has_value()) {
+                constant_evaluator_.bind_integer_constant_value(
+                    binary_expr, *rhs_constant, semantic_context);
+            }
+            return;
+        }
 
         if (operator_text == "+" || operator_text == "-" ||
             operator_text == "*" || operator_text == "/") {
@@ -866,13 +1057,51 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             semantic_model.get_node_type(assign_expr->get_target());
         const SemanticType *value_type =
             semantic_model.get_node_type(assign_expr->get_value());
-        if (target_type != nullptr && value_type != nullptr &&
-            !conversion_checker_.is_assignable_value(
-                target_type, value_type, assign_expr->get_value(),
-                semantic_context, constant_evaluator_)) {
-            add_error(semantic_context,
-                      "assignment value type does not match target type",
-                      assign_expr->get_source_span());
+        if (target_type != nullptr && value_type != nullptr) {
+            if (assign_expr->get_operator_text() == "=") {
+                if (!conversion_checker_.is_assignable_value(
+                        target_type, value_type, assign_expr->get_value(),
+                        semantic_context, constant_evaluator_)) {
+                    add_error(semantic_context,
+                              "assignment value type does not match target type",
+                              assign_expr->get_source_span());
+                }
+            } else if (is_compound_assignment_operator(
+                           assign_expr->get_operator_text())) {
+                const std::string binary_operator =
+                    get_compound_assignment_binary_operator(
+                        assign_expr->get_operator_text());
+                const SemanticType *target_pointer_like =
+                    get_pointer_decay_or_self(target_type, semantic_model);
+                if ((binary_operator == "+" || binary_operator == "-") &&
+                    target_pointer_like != nullptr &&
+                    conversion_checker_.is_integer_like_type(value_type)) {
+                    semantic_model.bind_node_type(assign_expr, target_type);
+                    return;
+                }
+                if (binary_operator == "+" || binary_operator == "-" ||
+                    binary_operator == "*" || binary_operator == "/") {
+                    if (!conversion_checker_.is_arithmetic_type(target_type) ||
+                        !conversion_checker_.is_arithmetic_type(value_type)) {
+                        add_error(semantic_context,
+                                  "compound assignment '" +
+                                      assign_expr->get_operator_text() +
+                                      "' requires arithmetic operands",
+                                  assign_expr->get_source_span());
+                    }
+                } else if (binary_operator == "%" || binary_operator == "<<" ||
+                           binary_operator == ">>" || binary_operator == "&" ||
+                           binary_operator == "|" || binary_operator == "^") {
+                    if (!conversion_checker_.is_integer_like_type(target_type) ||
+                        !conversion_checker_.is_integer_like_type(value_type)) {
+                        add_error(semantic_context,
+                                  "compound assignment '" +
+                                      assign_expr->get_operator_text() +
+                                      "' requires integer operands",
+                                  assign_expr->get_source_span());
+                    }
+                }
+            }
         }
         semantic_model.bind_node_type(assign_expr, target_type);
         return;
@@ -904,14 +1133,17 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
 
         const auto *function_type = static_cast<const FunctionSemanticType *>(
             callee_type);
-        if (function_type->get_parameter_types().size() !=
-            call_expr->get_arguments().size()) {
+        const std::size_t fixed_parameter_count =
+            function_type->get_parameter_types().size();
+        const std::size_t argument_count = call_expr->get_arguments().size();
+        const bool variadic = function_type->get_is_variadic();
+        if ((variadic && argument_count < fixed_parameter_count) ||
+            (!variadic && fixed_parameter_count != argument_count)) {
             add_error(semantic_context,
                       "function call argument count does not match declaration",
                       call_expr->get_source_span());
         } else {
-            for (std::size_t index = 0; index < call_expr->get_arguments().size();
-                 ++index) {
+            for (std::size_t index = 0; index < fixed_parameter_count; ++index) {
                 const SemanticType *argument_type =
                     semantic_model.get_node_type(call_expr->get_arguments()[index].get());
                 const SemanticType *parameter_type =
@@ -942,8 +1174,10 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         if (base_type == nullptr) {
             return;
         }
-        if (base_type->get_kind() != SemanticTypeKind::Pointer &&
-            base_type->get_kind() != SemanticTypeKind::Array) {
+        const SemanticType *unqualified_base_type = strip_qualifiers(base_type);
+        if (unqualified_base_type == nullptr ||
+            (unqualified_base_type->get_kind() != SemanticTypeKind::Pointer &&
+             unqualified_base_type->get_kind() != SemanticTypeKind::Array)) {
             add_error(semantic_context,
                       "subscripted object is not an indexable pointer",
                       index_expr->get_base()->get_source_span());
@@ -955,14 +1189,15 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                       index_expr->get_index()->get_source_span());
             return;
         }
-        if (base_type->get_kind() == SemanticTypeKind::Pointer) {
+        if (unqualified_base_type->get_kind() == SemanticTypeKind::Pointer) {
             const auto *pointer_type =
-                static_cast<const PointerSemanticType *>(base_type);
+                static_cast<const PointerSemanticType *>(unqualified_base_type);
             semantic_model.bind_node_type(index_expr,
                                           pointer_type->get_pointee_type());
             return;
         }
-        const auto *array_type = static_cast<const ArraySemanticType *>(base_type);
+        const auto *array_type =
+            static_cast<const ArraySemanticType *>(unqualified_base_type);
         semantic_model.bind_node_type(index_expr, array_type->get_element_type());
         return;
     }
@@ -985,6 +1220,14 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         if (const SemanticType *field_type =
                 find_direct_union_field_type(owner_type,
                                              member_expr->get_member_name());
+            field_type != nullptr) {
+            semantic_model.bind_node_type(expr, field_type);
+            return;
+        }
+
+        if (const SemanticType *field_type =
+                find_direct_struct_field_type(owner_type,
+                                              member_expr->get_member_name());
             field_type != nullptr) {
             semantic_model.bind_node_type(expr, field_type);
             return;

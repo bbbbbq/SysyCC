@@ -1,0 +1,11 @@
+typedef void (*handler_t)(void *);
+
+struct Handler {
+    handler_t routine;
+    void *arg;
+};
+
+int main() {
+    struct Handler h;
+    return 0;
+}

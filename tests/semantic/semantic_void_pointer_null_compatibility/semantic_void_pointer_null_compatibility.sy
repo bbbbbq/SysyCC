@@ -1,0 +1,5 @@
+int main() {
+    int *p = (void*)0;
+    int **pp = (void*)0;
+    return (p != (void*)0) + (pp != (void*)0);
+}
