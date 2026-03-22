@@ -5,7 +5,8 @@ void Cli::Run(int argc, char *argv[]) {
     input_file_.clear();
     output_file_.clear();
     include_directories_.clear();
-    system_include_directories_.clear();
+    system_include_directories_ =
+        sysycc::detail::get_default_system_include_directories();
     dump_tokens_ = false;
     dump_parse_ = false;
     dump_ast_ = false;

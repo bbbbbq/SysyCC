@@ -25,14 +25,20 @@ namespace sysycc {
 
 enum class TokenKind : uint8_t {
     Identifier,
+    AnnotationIdentifier,
     IntLiteral,
     FloatLiteral,
     CharLiteral,
     StringLiteral,
     KwConst,
+    KwVolatile,
     KwExtern,
+    KwStatic,
     KwAttribute,
+    KwAsm,
     KwInline,
+    KwRestrict,
+    KwNullability,
     KwLong,
     KwSigned,
     KwShort,
@@ -53,6 +59,7 @@ enum class TokenKind : uint8_t {
     KwDefault,
     KwBreak,
     KwContinue,
+    KwGoto,
     KwReturn,
     KwStruct,
     KwUnion,
@@ -73,6 +80,16 @@ enum class TokenKind : uint8_t {
     ShiftRight,
     Arrow,
     Assign,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    ModAssign,
+    ShlAssign,
+    ShrAssign,
+    AndAssign,
+    XorAssign,
+    OrAssign,
     Equal,
     NotEqual,
     Less,
@@ -82,6 +99,7 @@ enum class TokenKind : uint8_t {
     LogicalNot,
     LogicalAnd,
     LogicalOr,
+    Ellipsis,
     Question,
     Semicolon,
     Comma,
@@ -122,6 +140,7 @@ class Token {
     TokenCategory get_category() const noexcept {
         switch (kind_) {
         case TokenKind::Identifier:
+        case TokenKind::AnnotationIdentifier:
             return TokenCategory::Identifier;
         case TokenKind::IntLiteral:
         case TokenKind::FloatLiteral:
@@ -129,9 +148,14 @@ class Token {
         case TokenKind::StringLiteral:
             return TokenCategory::Literal;
         case TokenKind::KwConst:
+        case TokenKind::KwVolatile:
         case TokenKind::KwExtern:
+        case TokenKind::KwStatic:
         case TokenKind::KwAttribute:
+        case TokenKind::KwAsm:
         case TokenKind::KwInline:
+        case TokenKind::KwRestrict:
+        case TokenKind::KwNullability:
         case TokenKind::KwLong:
         case TokenKind::KwSigned:
         case TokenKind::KwShort:
@@ -152,6 +176,7 @@ class Token {
         case TokenKind::KwDefault:
         case TokenKind::KwBreak:
         case TokenKind::KwContinue:
+        case TokenKind::KwGoto:
         case TokenKind::KwReturn:
         case TokenKind::KwStruct:
         case TokenKind::KwUnion:
@@ -173,6 +198,16 @@ class Token {
         case TokenKind::ShiftRight:
         case TokenKind::Arrow:
         case TokenKind::Assign:
+        case TokenKind::AddAssign:
+        case TokenKind::SubAssign:
+        case TokenKind::MulAssign:
+        case TokenKind::DivAssign:
+        case TokenKind::ModAssign:
+        case TokenKind::ShlAssign:
+        case TokenKind::ShrAssign:
+        case TokenKind::AndAssign:
+        case TokenKind::XorAssign:
+        case TokenKind::OrAssign:
         case TokenKind::Equal:
         case TokenKind::NotEqual:
         case TokenKind::Less:
@@ -184,6 +219,7 @@ class Token {
         case TokenKind::LogicalOr:
         case TokenKind::Question:
             return TokenCategory::Operator;
+        case TokenKind::Ellipsis:
         case TokenKind::Semicolon:
         case TokenKind::Comma:
         case TokenKind::Colon:
@@ -207,6 +243,8 @@ class Token {
         switch (kind_) {
         case TokenKind::Identifier:
             return "Identifier";
+        case TokenKind::AnnotationIdentifier:
+            return "AnnotationIdentifier";
         case TokenKind::IntLiteral:
             return "IntLiteral";
         case TokenKind::FloatLiteral:
@@ -217,12 +255,22 @@ class Token {
             return "StringLiteral";
         case TokenKind::KwConst:
             return "KwConst";
+        case TokenKind::KwVolatile:
+            return "KwVolatile";
         case TokenKind::KwExtern:
             return "KwExtern";
+        case TokenKind::KwStatic:
+            return "KwStatic";
         case TokenKind::KwAttribute:
             return "KwAttribute";
+        case TokenKind::KwAsm:
+            return "KwAsm";
         case TokenKind::KwInline:
             return "KwInline";
+        case TokenKind::KwRestrict:
+            return "KwRestrict";
+        case TokenKind::KwNullability:
+            return "KwNullability";
         case TokenKind::KwLong:
             return "KwLong";
         case TokenKind::KwSigned:
@@ -263,6 +311,8 @@ class Token {
             return "KwBreak";
         case TokenKind::KwContinue:
             return "KwContinue";
+        case TokenKind::KwGoto:
+            return "KwGoto";
         case TokenKind::KwReturn:
             return "KwReturn";
         case TokenKind::KwStruct:
@@ -303,6 +353,26 @@ class Token {
             return "Arrow";
         case TokenKind::Assign:
             return "Assign";
+        case TokenKind::AddAssign:
+            return "AddAssign";
+        case TokenKind::SubAssign:
+            return "SubAssign";
+        case TokenKind::MulAssign:
+            return "MulAssign";
+        case TokenKind::DivAssign:
+            return "DivAssign";
+        case TokenKind::ModAssign:
+            return "ModAssign";
+        case TokenKind::ShlAssign:
+            return "ShlAssign";
+        case TokenKind::ShrAssign:
+            return "ShrAssign";
+        case TokenKind::AndAssign:
+            return "AndAssign";
+        case TokenKind::XorAssign:
+            return "XorAssign";
+        case TokenKind::OrAssign:
+            return "OrAssign";
         case TokenKind::Equal:
             return "Equal";
         case TokenKind::NotEqual:
@@ -321,6 +391,8 @@ class Token {
             return "LogicalAnd";
         case TokenKind::LogicalOr:
             return "LogicalOr";
+        case TokenKind::Ellipsis:
+            return "Ellipsis";
         case TokenKind::Question:
             return "Question";
         case TokenKind::Semicolon:
