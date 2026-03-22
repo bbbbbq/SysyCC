@@ -2,6 +2,46 @@
 
 set -euo pipefail
 
+acquire_build_lock() {
+    local build_dir="$1"
+    local lock_dir="${build_dir}/.sysycc_test_build.lock"
+    local pid_file="${lock_dir}/pid"
+    local wait_announced=0
+
+    mkdir -p "${build_dir}"
+
+    while ! mkdir "${lock_dir}" 2>/dev/null; do
+        local owner_pid=""
+
+        if [[ -f "${pid_file}" ]]; then
+            owner_pid="$(<"${pid_file}")"
+        fi
+
+        if [[ -n "${owner_pid}" ]] && ! kill -0 "${owner_pid}" 2>/dev/null; then
+            rm -rf "${lock_dir}"
+            continue
+        fi
+
+        if [[ "${wait_announced}" -eq 0 ]]; then
+            echo "==> Waiting for another local build to finish in ${build_dir}" >&2
+            wait_announced=1
+        fi
+
+        sleep 1
+    done
+
+    printf '%s\n' "${BASHPID:-$$}" >"${pid_file}"
+    printf '%s\n' "${lock_dir}"
+}
+
+release_build_lock() {
+    local lock_dir="$1"
+    local pid_file="${lock_dir}/pid"
+
+    rm -f "${pid_file}"
+    rmdir "${lock_dir}" 2>/dev/null || true
+}
+
 build_project() {
     local project_root="$1"
     local build_dir="$2"
@@ -9,6 +49,7 @@ build_project() {
     local use_ccache=0
     local launcher_arg=""
     local generator_arg=""
+    local lock_dir=""
 
     if [[ "${SYSYCC_TEST_SKIP_BUILD:-0}" == "1" ]]; then
         return 0
@@ -23,26 +64,42 @@ build_project() {
         launcher_arg="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
     fi
 
-    if [[ ! -f "${cache_file}" || "${SYSYCC_TEST_FORCE_CONFIGURE:-0}" == "1" ]]; then
-        cmake -S "${project_root}" -B "${build_dir}" ${generator_arg} ${launcher_arg}
-    elif [[ "${use_ccache}" -eq 1 ]] && ! grep -q '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' "${cache_file}"; then
-        cmake -S "${project_root}" -B "${build_dir}" ${generator_arg} ${launcher_arg}
-    fi
+    lock_dir="$(acquire_build_lock "${build_dir}")"
 
-    if [[ -n "${SYSYCC_TEST_BUILD_JOBS:-}" ]]; then
-        cmake --build "${build_dir}" --parallel "${SYSYCC_TEST_BUILD_JOBS}"
-    else
-        cmake --build "${build_dir}" --parallel
-    fi
+    (
+        trap 'release_build_lock "${lock_dir}"' EXIT
+
+        if [[ ! -f "${cache_file}" || "${SYSYCC_TEST_FORCE_CONFIGURE:-0}" == "1" ]]; then
+            cmake -S "${project_root}" -B "${build_dir}" ${generator_arg} ${launcher_arg}
+        elif [[ "${use_ccache}" -eq 1 ]] && ! grep -q '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' "${cache_file}"; then
+            cmake -S "${project_root}" -B "${build_dir}" ${generator_arg} ${launcher_arg}
+        fi
+
+        if [[ -n "${SYSYCC_TEST_BUILD_JOBS:-}" ]]; then
+            cmake --build "${build_dir}" --parallel "${SYSYCC_TEST_BUILD_JOBS}"
+        else
+            cmake --build "${build_dir}" --parallel
+        fi
+    )
 }
 
 build_and_link_ir_executable() {
     local ir_file="$1"
     local runtime_source="$2"
     local output_binary="$3"
+    local runtime_dir
+    local runtime_builtin_stub
+
+    runtime_dir="$(dirname "${runtime_source}")"
+    runtime_builtin_stub="${runtime_dir}/runtime_builtin_stub.ll"
 
     mkdir -p "$(dirname "${output_binary}")"
-    clang "${ir_file}" "${runtime_source}" -o "${output_binary}"
+    if [[ -f "${runtime_builtin_stub}" ]]; then
+        clang "${ir_file}" "${runtime_source}" "${runtime_builtin_stub}" \
+            -fno-builtin -o "${output_binary}"
+        return
+    fi
+    clang "${ir_file}" "${runtime_source}" -fno-builtin -o "${output_binary}"
 }
 
 copy_basic_frontend_outputs() {
