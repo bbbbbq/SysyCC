@@ -1,0 +1,9 @@
+size_t next_size(size_t value) {
+    return value + 1;
+}
+
+int main() {
+    size_t value;
+    value = 2;
+    return (int)next_size(value);
+}

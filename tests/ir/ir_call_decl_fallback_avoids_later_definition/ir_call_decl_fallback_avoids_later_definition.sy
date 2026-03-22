@@ -1,0 +1,13 @@
+int helper(int value);
+
+int wrapper(int input) {
+    return helper(input);
+}
+
+int helper(int value) {
+    return value + 1;
+}
+
+int main() {
+    return wrapper(4);
+}

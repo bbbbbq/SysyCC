@@ -1,0 +1,11 @@
+float take_hex_float(void) {
+    return 0x1.0p-2f;
+}
+
+double take_hex_double(void) {
+    return 0x1.8p+1;
+}
+
+long double take_hex_long_double(void) {
+    return 0x1.0p+0L;
+}

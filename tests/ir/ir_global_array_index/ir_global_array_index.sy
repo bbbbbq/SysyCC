@@ -1,0 +1,6 @@
+int values[4];
+
+int main() {
+    values[2] = 7;
+    return values[2];
+}

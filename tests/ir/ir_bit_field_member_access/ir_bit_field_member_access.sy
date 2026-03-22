@@ -1,0 +1,11 @@
+struct Flags {
+    unsigned value : 5;
+    int payload;
+};
+
+int main() {
+    struct Flags flags;
+    flags.value = 7;
+    flags.payload = 9;
+    return flags.value + flags.payload;
+}

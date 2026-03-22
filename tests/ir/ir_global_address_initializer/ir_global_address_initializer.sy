@@ -1,0 +1,8 @@
+static int value = 7;
+static int items[4];
+static int *p = &value;
+static int *q = &items[3];
+
+int main() {
+    return *p + (q == &items[3]);
+}

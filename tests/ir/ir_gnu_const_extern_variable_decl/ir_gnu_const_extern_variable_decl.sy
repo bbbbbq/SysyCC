@@ -1,0 +1,6 @@
+extern __const int sys_nerr;
+extern __const char *__const sys_errlist[];
+
+int read_sys_nerr(void) {
+    return sys_nerr;
+}

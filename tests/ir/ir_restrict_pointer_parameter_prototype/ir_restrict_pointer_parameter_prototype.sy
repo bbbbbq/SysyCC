@@ -1,0 +1,3 @@
+int first(const char * __restrict name) {
+    return 0;
+}

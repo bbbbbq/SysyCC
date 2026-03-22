@@ -1,0 +1,6 @@
+extern const int signgam;
+extern const char * const sys_errptr;
+
+int main() {
+    return signgam;
+}

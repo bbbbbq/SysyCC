@@ -1,0 +1,5 @@
+int main() {
+    signed char value;
+    value = 5;
+    return -value;
+}

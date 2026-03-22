@@ -1,0 +1,5 @@
+int main() {
+    float value;
+    value = 1.0f;
+    return value >= 1.17549435e-38F;
+}

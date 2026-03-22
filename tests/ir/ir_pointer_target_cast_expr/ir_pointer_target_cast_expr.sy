@@ -1,0 +1,10 @@
+long int roundtrip(long int value) {
+    int *ptr;
+
+    ptr = (int *)value;
+    return (long int)ptr;
+}
+
+int main() {
+    return 0;
+}

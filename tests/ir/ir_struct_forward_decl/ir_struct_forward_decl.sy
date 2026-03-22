@@ -1,0 +1,6 @@
+struct Node;
+
+int main() {
+    struct Node *p = 0;
+    return p != 0;
+}

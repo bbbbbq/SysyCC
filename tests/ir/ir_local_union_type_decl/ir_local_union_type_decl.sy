@@ -1,0 +1,8 @@
+int main() {
+    union {
+        unsigned int raw;
+        int signed_value;
+    } bits;
+    bits.raw = 4U;
+    return (int)(bits.raw >> 2);
+}

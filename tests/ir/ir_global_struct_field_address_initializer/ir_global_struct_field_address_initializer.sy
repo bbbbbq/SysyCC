@@ -1,0 +1,11 @@
+struct Pair {
+    int left;
+    int right;
+};
+
+static struct Pair pair = {1, 2};
+static int *value_ptr = &pair.right;
+
+int main() {
+    return *value_ptr;
+}
