@@ -56,26 +56,65 @@ NamedTypeNode::NamedTypeNode(std::string name, SourceSpan source_span)
 
 const std::string &NamedTypeNode::get_name() const noexcept { return name_; }
 
-QualifiedTypeNode::QualifiedTypeNode(bool is_const,
+QualifiedTypeNode::QualifiedTypeNode(bool is_const, bool is_volatile,
                                      std::unique_ptr<TypeNode> base_type,
                                      SourceSpan source_span)
     : TypeNode(AstKind::QualifiedType, source_span), is_const_(is_const),
+      is_volatile_(is_volatile),
       base_type_(std::move(base_type)) {}
 
 bool QualifiedTypeNode::get_is_const() const noexcept { return is_const_; }
+
+bool QualifiedTypeNode::get_is_volatile() const noexcept {
+    return is_volatile_;
+}
 
 const TypeNode *QualifiedTypeNode::get_base_type() const noexcept {
     return base_type_.get();
 }
 
 PointerTypeNode::PointerTypeNode(std::unique_ptr<TypeNode> pointee_type,
-                                 SourceSpan source_span)
+                                 SourceSpan source_span, bool is_const,
+                                 bool is_volatile,
+                                 bool is_restrict,
+                                 PointerNullabilityKind nullability_kind)
     : TypeNode(AstKind::PointerType, source_span),
-      pointee_type_(std::move(pointee_type)) {}
+      pointee_type_(std::move(pointee_type)), is_const_(is_const),
+      is_volatile_(is_volatile),
+      is_restrict_(is_restrict), nullability_kind_(nullability_kind) {}
 
 const TypeNode *PointerTypeNode::get_pointee_type() const noexcept {
     return pointee_type_.get();
 }
+
+bool PointerTypeNode::get_is_const() const noexcept { return is_const_; }
+
+bool PointerTypeNode::get_is_volatile() const noexcept { return is_volatile_; }
+
+bool PointerTypeNode::get_is_restrict() const noexcept { return is_restrict_; }
+
+PointerNullabilityKind PointerTypeNode::get_nullability_kind() const noexcept {
+    return nullability_kind_;
+}
+
+FunctionTypeNode::FunctionTypeNode(
+    std::unique_ptr<TypeNode> return_type,
+    std::vector<std::unique_ptr<TypeNode>> parameter_types, bool is_variadic,
+    SourceSpan source_span)
+    : TypeNode(AstKind::FunctionType, source_span),
+      return_type_(std::move(return_type)),
+      parameter_types_(std::move(parameter_types)), is_variadic_(is_variadic) {}
+
+const TypeNode *FunctionTypeNode::get_return_type() const noexcept {
+    return return_type_.get();
+}
+
+const std::vector<std::unique_ptr<TypeNode>> &
+FunctionTypeNode::get_parameter_types() const noexcept {
+    return parameter_types_;
+}
+
+bool FunctionTypeNode::get_is_variadic() const noexcept { return is_variadic_; }
 
 StructTypeNode::StructTypeNode(std::string name, SourceSpan source_span)
     : TypeNode(AstKind::StructType, source_span),
@@ -111,12 +150,16 @@ const std::string &UnknownTypeNode::get_summary() const noexcept {
 FunctionDecl::FunctionDecl(std::string name,
                            std::unique_ptr<TypeNode> return_type,
                            std::vector<std::unique_ptr<Decl>> parameters,
+                           bool is_static, bool is_variadic,
                            ParsedAttributeList attributes,
+                           std::string asm_label,
                            std::unique_ptr<Stmt> body, SourceSpan source_span)
     : Decl(AstKind::FunctionDecl, source_span),
       name_(std::move(name)), return_type_(std::move(return_type)),
-      parameters_(std::move(parameters)), attributes_(std::move(attributes)),
-      body_(std::move(body)) {}
+      parameters_(std::move(parameters)), is_static_(is_static),
+      is_variadic_(is_variadic),
+      attributes_(std::move(attributes)),
+      asm_label_(std::move(asm_label)), body_(std::move(body)) {}
 
 const std::string &FunctionDecl::get_name() const noexcept { return name_; }
 
@@ -129,8 +172,16 @@ const std::vector<std::unique_ptr<Decl>> &FunctionDecl::get_parameters() const
     return parameters_;
 }
 
+bool FunctionDecl::get_is_static() const noexcept { return is_static_; }
+
+bool FunctionDecl::get_is_variadic() const noexcept { return is_variadic_; }
+
 const ParsedAttributeList &FunctionDecl::get_attributes() const noexcept {
     return attributes_;
+}
+
+const std::string &FunctionDecl::get_asm_label() const noexcept {
+    return asm_label_;
 }
 
 const Stmt *FunctionDecl::get_body() const noexcept { return body_.get(); }
@@ -155,10 +206,11 @@ const std::vector<std::unique_ptr<Expr>> &ParamDecl::get_dimensions() const
 
 FieldDecl::FieldDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
                      std::vector<std::unique_ptr<Expr>> dimensions,
+                     std::unique_ptr<Expr> bit_width,
                      SourceSpan source_span)
     : Decl(AstKind::FieldDecl, source_span), name_(std::move(name)),
       declared_type_(std::move(declared_type)),
-      dimensions_(std::move(dimensions)) {}
+      dimensions_(std::move(dimensions)), bit_width_(std::move(bit_width)) {}
 
 const std::string &FieldDecl::get_name() const noexcept { return name_; }
 
@@ -171,14 +223,17 @@ const std::vector<std::unique_ptr<Expr>> &FieldDecl::get_dimensions() const
     return dimensions_;
 }
 
+const Expr *FieldDecl::get_bit_width() const noexcept { return bit_width_.get(); }
+
 VarDecl::VarDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
                  std::vector<std::unique_ptr<Expr>> dimensions,
                  std::unique_ptr<Expr> initializer, bool is_extern,
+                 bool is_static,
                  SourceSpan source_span)
     : Decl(AstKind::VarDecl, source_span), name_(std::move(name)),
       declared_type_(std::move(declared_type)),
       dimensions_(std::move(dimensions)), initializer_(std::move(initializer)),
-      is_extern_(is_extern) {
+      is_extern_(is_extern), is_static_(is_static) {
 }
 
 const std::string &VarDecl::get_name() const noexcept { return name_; }
@@ -197,6 +252,8 @@ const Expr *VarDecl::get_initializer() const noexcept {
 }
 
 bool VarDecl::get_is_extern() const noexcept { return is_extern_; }
+
+bool VarDecl::get_is_static() const noexcept { return is_static_; }
 
 ConstDecl::ConstDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
                      std::vector<std::unique_ptr<Expr>> dimensions,
@@ -422,11 +479,30 @@ DefaultStmt::DefaultStmt(std::unique_ptr<Stmt> body, SourceSpan source_span)
 
 const Stmt *DefaultStmt::get_body() const noexcept { return body_.get(); }
 
+LabelStmt::LabelStmt(std::string label_name, std::unique_ptr<Stmt> body,
+                     SourceSpan source_span)
+    : Stmt(AstKind::LabelStmt, source_span),
+      label_name_(std::move(label_name)), body_(std::move(body)) {}
+
+const std::string &LabelStmt::get_label_name() const noexcept {
+    return label_name_;
+}
+
+const Stmt *LabelStmt::get_body() const noexcept { return body_.get(); }
+
 BreakStmt::BreakStmt(SourceSpan source_span)
     : Stmt(AstKind::BreakStmt, source_span) {}
 
 ContinueStmt::ContinueStmt(SourceSpan source_span)
     : Stmt(AstKind::ContinueStmt, source_span) {}
+
+GotoStmt::GotoStmt(std::string target_label, SourceSpan source_span)
+    : Stmt(AstKind::GotoStmt, source_span),
+      target_label_(std::move(target_label)) {}
+
+const std::string &GotoStmt::get_target_label() const noexcept {
+    return target_label_;
+}
 
 ReturnStmt::ReturnStmt(std::unique_ptr<Expr> value, SourceSpan source_span)
     : Stmt(AstKind::ReturnStmt, source_span),
@@ -561,10 +637,15 @@ const Expr *ConditionalExpr::get_false_expr() const noexcept {
     return false_expr_.get();
 }
 
-AssignExpr::AssignExpr(std::unique_ptr<Expr> target, std::unique_ptr<Expr> value,
-                       SourceSpan source_span)
+AssignExpr::AssignExpr(std::string operator_text, std::unique_ptr<Expr> target,
+                       std::unique_ptr<Expr> value, SourceSpan source_span)
     : Expr(AstKind::AssignExpr, source_span),
-      target_(std::move(target)), value_(std::move(value)) {}
+      operator_text_(std::move(operator_text)), target_(std::move(target)),
+      value_(std::move(value)) {}
+
+const std::string &AssignExpr::get_operator_text() const noexcept {
+    return operator_text_;
+}
 
 const Expr *AssignExpr::get_target() const noexcept { return target_.get(); }
 

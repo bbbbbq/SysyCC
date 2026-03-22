@@ -1,0 +1,3 @@
+int first(volatile int * volatile p) {
+    return *p;
+}

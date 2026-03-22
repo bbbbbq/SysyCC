@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "common/pointer_nullability_kind.hpp"
 #include "common/source_span.hpp"
 #include "frontend/ast/ast_kind.hpp"
 #include "frontend/attribute/attribute.hpp"
@@ -93,13 +94,16 @@ class NamedTypeNode : public TypeNode {
 class QualifiedTypeNode : public TypeNode {
   private:
     bool is_const_;
+    bool is_volatile_;
     std::unique_ptr<TypeNode> base_type_;
 
   public:
-    QualifiedTypeNode(bool is_const, std::unique_ptr<TypeNode> base_type,
+    QualifiedTypeNode(bool is_const, bool is_volatile,
+                      std::unique_ptr<TypeNode> base_type,
                       SourceSpan source_span = {});
 
     bool get_is_const() const noexcept;
+    bool get_is_volatile() const noexcept;
     const TypeNode *get_base_type() const noexcept;
 };
 
@@ -107,12 +111,43 @@ class QualifiedTypeNode : public TypeNode {
 class PointerTypeNode : public TypeNode {
   private:
     std::unique_ptr<TypeNode> pointee_type_;
+    bool is_const_;
+    bool is_volatile_;
+    bool is_restrict_;
+    PointerNullabilityKind nullability_kind_;
 
   public:
     explicit PointerTypeNode(std::unique_ptr<TypeNode> pointee_type,
-                             SourceSpan source_span = {});
+                             SourceSpan source_span = {}, bool is_const = false,
+                             bool is_volatile = false,
+                             bool is_restrict = false,
+                             PointerNullabilityKind nullability_kind =
+                                 PointerNullabilityKind::None);
 
     const TypeNode *get_pointee_type() const noexcept;
+    bool get_is_const() const noexcept;
+    bool get_is_volatile() const noexcept;
+    bool get_is_restrict() const noexcept;
+    PointerNullabilityKind get_nullability_kind() const noexcept;
+};
+
+// Represents a function type used under declarators such as function pointers.
+class FunctionTypeNode : public TypeNode {
+  private:
+    std::unique_ptr<TypeNode> return_type_;
+    std::vector<std::unique_ptr<TypeNode>> parameter_types_;
+    bool is_variadic_;
+
+  public:
+    FunctionTypeNode(std::unique_ptr<TypeNode> return_type,
+                     std::vector<std::unique_ptr<TypeNode>> parameter_types,
+                     bool is_variadic,
+                     SourceSpan source_span = {});
+
+    const TypeNode *get_return_type() const noexcept;
+    const std::vector<std::unique_ptr<TypeNode>> &get_parameter_types() const
+        noexcept;
+    bool get_is_variadic() const noexcept;
 };
 
 // Represents a named struct type.
@@ -168,19 +203,27 @@ class FunctionDecl : public Decl {
     std::string name_;
     std::unique_ptr<TypeNode> return_type_;
     std::vector<std::unique_ptr<Decl>> parameters_;
+    bool is_static_;
+    bool is_variadic_;
     ParsedAttributeList attributes_;
+    std::string asm_label_;
     std::unique_ptr<Stmt> body_;
 
   public:
     FunctionDecl(std::string name, std::unique_ptr<TypeNode> return_type,
                  std::vector<std::unique_ptr<Decl>> parameters,
-                 ParsedAttributeList attributes, std::unique_ptr<Stmt> body,
+                 bool is_static, bool is_variadic, ParsedAttributeList attributes,
+                 std::string asm_label,
+                 std::unique_ptr<Stmt> body,
                  SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
     const TypeNode *get_return_type() const noexcept;
     const std::vector<std::unique_ptr<Decl>> &get_parameters() const noexcept;
+    bool get_is_static() const noexcept;
+    bool get_is_variadic() const noexcept;
     const ParsedAttributeList &get_attributes() const noexcept;
+    const std::string &get_asm_label() const noexcept;
     const Stmt *get_body() const noexcept;
 };
 
@@ -207,15 +250,18 @@ class FieldDecl : public Decl {
     std::string name_;
     std::unique_ptr<TypeNode> declared_type_;
     std::vector<std::unique_ptr<Expr>> dimensions_;
+    std::unique_ptr<Expr> bit_width_;
 
   public:
     FieldDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
               std::vector<std::unique_ptr<Expr>> dimensions,
+              std::unique_ptr<Expr> bit_width,
               SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
     const TypeNode *get_declared_type() const noexcept;
     const std::vector<std::unique_ptr<Expr>> &get_dimensions() const noexcept;
+    const Expr *get_bit_width() const noexcept;
 };
 
 // Represents a variable declaration.
@@ -226,11 +272,12 @@ class VarDecl : public Decl {
     std::vector<std::unique_ptr<Expr>> dimensions_;
     std::unique_ptr<Expr> initializer_;
     bool is_extern_;
+    bool is_static_;
 
   public:
     VarDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
             std::vector<std::unique_ptr<Expr>> dimensions,
-            std::unique_ptr<Expr> initializer, bool is_extern,
+            std::unique_ptr<Expr> initializer, bool is_extern, bool is_static,
             SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
@@ -238,6 +285,7 @@ class VarDecl : public Decl {
     const std::vector<std::unique_ptr<Expr>> &get_dimensions() const noexcept;
     const Expr *get_initializer() const noexcept;
     bool get_is_extern() const noexcept;
+    bool get_is_static() const noexcept;
 };
 
 // Represents a const declaration.
@@ -483,6 +531,19 @@ class DefaultStmt : public Stmt {
     const Stmt *get_body() const noexcept;
 };
 
+class LabelStmt : public Stmt {
+  private:
+    std::string label_name_;
+    std::unique_ptr<Stmt> body_;
+
+  public:
+    LabelStmt(std::string label_name, std::unique_ptr<Stmt> body,
+              SourceSpan source_span = {});
+
+    const std::string &get_label_name() const noexcept;
+    const Stmt *get_body() const noexcept;
+};
+
 // Represents a break statement.
 class BreakStmt : public Stmt {
   public:
@@ -493,6 +554,16 @@ class BreakStmt : public Stmt {
 class ContinueStmt : public Stmt {
   public:
     explicit ContinueStmt(SourceSpan source_span = {});
+};
+
+class GotoStmt : public Stmt {
+  private:
+    std::string target_label_;
+
+  public:
+    explicit GotoStmt(std::string target_label, SourceSpan source_span = {});
+
+    const std::string &get_target_label() const noexcept;
 };
 
 // Represents a return statement.
@@ -666,13 +737,16 @@ class ConditionalExpr : public Expr {
 // Represents an assignment expression.
 class AssignExpr : public Expr {
   private:
+    std::string operator_text_;
     std::unique_ptr<Expr> target_;
     std::unique_ptr<Expr> value_;
 
   public:
-    AssignExpr(std::unique_ptr<Expr> target, std::unique_ptr<Expr> value,
+    AssignExpr(std::string operator_text, std::unique_ptr<Expr> target,
+               std::unique_ptr<Expr> value,
                SourceSpan source_span = {});
 
+    const std::string &get_operator_text() const noexcept;
     const Expr *get_target() const noexcept;
     const Expr *get_value() const noexcept;
 };

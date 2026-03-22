@@ -1,0 +1,5 @@
+static int g = 1;
+
+static void helper(void) {
+    return;
+}

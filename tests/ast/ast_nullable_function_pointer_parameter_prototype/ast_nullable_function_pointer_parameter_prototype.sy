@@ -1,0 +1,5 @@
+int funopen_like(
+    const void *cookie,
+    int (* _Nullable read_fn)(void *, char *_LIBC_COUNT(__n), int __n),
+    int (* _Nonnull write_fn)(void *, const char *_LIBC_COUNT(__n), int __n),
+    int (* _Null_unspecified seek_fn)(void *, int, int));

@@ -50,7 +50,7 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
             return true;
         }
         for (const auto &dimension : param_decl->get_dimensions()) {
-            if (ast_contains_unknown_nodes(dimension.get())) {
+            if (dimension != nullptr && ast_contains_unknown_nodes(dimension.get())) {
                 return true;
             }
         }
@@ -62,11 +62,11 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
             return true;
         }
         for (const auto &dimension : field_decl->get_dimensions()) {
-            if (ast_contains_unknown_nodes(dimension.get())) {
+            if (dimension != nullptr && ast_contains_unknown_nodes(dimension.get())) {
                 return true;
             }
         }
-        return false;
+        return ast_contains_unknown_nodes(field_decl->get_bit_width());
     }
     case AstKind::VarDecl: {
         const auto *var_decl = static_cast<const VarDecl *>(node);
@@ -74,7 +74,7 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
             return true;
         }
         for (const auto &dimension : var_decl->get_dimensions()) {
-            if (ast_contains_unknown_nodes(dimension.get())) {
+            if (dimension != nullptr && ast_contains_unknown_nodes(dimension.get())) {
                 return true;
             }
         }
@@ -86,7 +86,7 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
             return true;
         }
         for (const auto &dimension : const_decl->get_dimensions()) {
-            if (ast_contains_unknown_nodes(dimension.get())) {
+            if (dimension != nullptr && ast_contains_unknown_nodes(dimension.get())) {
                 return true;
             }
         }
@@ -129,7 +129,7 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
             return true;
         }
         for (const auto &dimension : typedef_decl->get_dimensions()) {
-            if (ast_contains_unknown_nodes(dimension.get())) {
+            if (dimension != nullptr && ast_contains_unknown_nodes(dimension.get())) {
                 return true;
             }
         }
@@ -194,6 +194,10 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         const auto *default_stmt = static_cast<const DefaultStmt *>(node);
         return ast_contains_unknown_nodes(default_stmt->get_body());
     }
+    case AstKind::LabelStmt: {
+        const auto *label_stmt = static_cast<const LabelStmt *>(node);
+        return ast_contains_unknown_nodes(label_stmt->get_body());
+    }
     case AstKind::ReturnStmt: {
         const auto *return_stmt = static_cast<const ReturnStmt *>(node);
         return ast_contains_unknown_nodes(return_stmt->get_value());
@@ -201,6 +205,18 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
     case AstKind::PointerType: {
         const auto *pointer_type = static_cast<const PointerTypeNode *>(node);
         return ast_contains_unknown_nodes(pointer_type->get_pointee_type());
+    }
+    case AstKind::FunctionType: {
+        const auto *function_type = static_cast<const FunctionTypeNode *>(node);
+        if (ast_contains_unknown_nodes(function_type->get_return_type())) {
+            return true;
+        }
+        for (const auto &parameter_type : function_type->get_parameter_types()) {
+            if (ast_contains_unknown_nodes(parameter_type.get())) {
+                return true;
+            }
+        }
+        return false;
     }
     case AstKind::QualifiedType: {
         const auto *qualified_type =
@@ -286,6 +302,7 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
     case AstKind::EnumType:
     case AstKind::BreakStmt:
     case AstKind::ContinueStmt:
+    case AstKind::GotoStmt:
     case AstKind::IntegerLiteralExpr:
     case AstKind::FloatLiteralExpr:
     case AstKind::CharLiteralExpr:

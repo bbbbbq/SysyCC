@@ -41,7 +41,23 @@ class AstBuilder {
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     std::unique_ptr<TypeNode> build_declared_type(
         const ParseTreeNode *type_specifier, const ParseTreeNode *declarator,
-        bool pointee_is_const = false) const;
+        bool pointee_is_const = false,
+        bool pointee_is_volatile = false) const;
+    std::unique_ptr<TypeNode> build_declarator_type(
+        std::unique_ptr<TypeNode> base_type,
+        const ParseTreeNode *declarator) const;
+    std::unique_ptr<TypeNode> build_pointer_type(
+        std::unique_ptr<TypeNode> base_type,
+        const ParseTreeNode *pointer) const;
+    std::unique_ptr<TypeNode> build_direct_declarator_type(
+        std::unique_ptr<TypeNode> base_type,
+        const ParseTreeNode *direct_declarator) const;
+    std::vector<std::unique_ptr<TypeNode>> build_function_parameter_types(
+        const ParseTreeNode *parameter_list_opt) const;
+    bool has_variadic_marker(const ParseTreeNode *node) const;
+    std::string build_asm_label_text(const ParseTreeNode *node) const;
+    std::string build_string_literal_sequence_text(
+        const ParseTreeNode *node) const;
     std::vector<std::unique_ptr<Decl>> build_struct_fields(
         const ParseTreeNode *node) const;
     std::vector<std::unique_ptr<Decl>> build_union_fields(
@@ -69,7 +85,6 @@ class AstBuilder {
     void collect_direct_init_value_nodes(
         const ParseTreeNode *node,
         std::vector<const ParseTreeNode *> &nodes) const;
-    int count_pointer_levels(const ParseTreeNode *node) const;
     SourceSpan get_node_source_span(const ParseTreeNode *node) const;
     bool is_binary_operator_label(const ParseTreeNode *node) const;
     std::string get_operator_text(const ParseTreeNode *node) const;

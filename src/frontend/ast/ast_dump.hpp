@@ -49,6 +49,10 @@ class AstDumper {
     void dump_case_stmt(const CaseStmt *node, std::ostream &os, int indent) const;
     void dump_default_stmt(const DefaultStmt *node, std::ostream &os,
                            int indent) const;
+    void dump_label_stmt(const LabelStmt *node, std::ostream &os,
+                         int indent) const;
+    void dump_goto_stmt(const GotoStmt *node, std::ostream &os,
+                        int indent) const;
     void dump_return_stmt(const ReturnStmt *node, std::ostream &os,
                           int indent) const;
     void dump_unary_expr(const UnaryExpr *node, std::ostream &os, int indent) const;

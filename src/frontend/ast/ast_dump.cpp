@@ -107,6 +107,9 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
     case AstKind::DefaultStmt:
         dump_default_stmt(static_cast<const DefaultStmt *>(node), os, indent);
         return;
+    case AstKind::LabelStmt:
+        dump_label_stmt(static_cast<const LabelStmt *>(node), os, indent);
+        return;
     case AstKind::BreakStmt:
         write_indent(os, indent);
         os << "BreakStmt\n";
@@ -116,6 +119,9 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         write_indent(os, indent);
         os << "ContinueStmt\n";
         dump_source_span(node, os, indent + 2);
+        return;
+    case AstKind::GotoStmt:
+        dump_goto_stmt(static_cast<const GotoStmt *>(node), os, indent);
         return;
     case AstKind::ReturnStmt:
         dump_return_stmt(static_cast<const ReturnStmt *>(node), os, indent);
@@ -139,8 +145,18 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         const auto *qualified_type =
             static_cast<const QualifiedTypeNode *>(node);
         write_indent(os, indent);
-        os << "QualifiedType "
-           << (qualified_type->get_is_const() ? "const" : "<none>") << "\n";
+        os << "QualifiedType";
+        if (qualified_type->get_is_const()) {
+            os << " const";
+        }
+        if (qualified_type->get_is_volatile()) {
+            os << " volatile";
+        }
+        if (!qualified_type->get_is_const() &&
+            !qualified_type->get_is_volatile()) {
+            os << " <none>";
+        }
+        os << "\n";
         dump_source_span(node, os, indent + 2);
         dump_node(qualified_type->get_base_type(), os, indent + 2);
         return;
@@ -150,7 +166,56 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         write_indent(os, indent);
         os << "PointerType\n";
         dump_source_span(node, os, indent + 2);
+        if (pointer_type->get_is_const() || pointer_type->get_is_volatile() ||
+            pointer_type->get_is_restrict()) {
+            write_indent(os, indent + 2);
+            os << "PointerQualifiers";
+            if (pointer_type->get_is_const()) {
+                os << " const";
+            }
+            if (pointer_type->get_is_volatile()) {
+                os << " volatile";
+            }
+            if (pointer_type->get_is_restrict()) {
+                os << " restrict";
+            }
+            os << "\n";
+        }
+        if (pointer_type->get_nullability_kind() !=
+            PointerNullabilityKind::None) {
+            write_indent(os, indent + 2);
+            os << "PointerNullability ";
+            switch (pointer_type->get_nullability_kind()) {
+            case PointerNullabilityKind::Nullable:
+                os << "nullable";
+                break;
+            case PointerNullabilityKind::Nonnull:
+                os << "nonnull";
+                break;
+            case PointerNullabilityKind::NullUnspecified:
+                os << "null_unspecified";
+                break;
+            case PointerNullabilityKind::None:
+                break;
+            }
+            os << "\n";
+        }
         dump_node(pointer_type->get_pointee_type(), os, indent + 2);
+        return;
+    }
+    case AstKind::FunctionType: {
+        const auto *function_type = static_cast<const FunctionTypeNode *>(node);
+        write_indent(os, indent);
+        os << "FunctionType\n";
+        dump_source_span(node, os, indent + 2);
+        if (function_type->get_is_variadic()) {
+            write_indent(os, indent + 2);
+            os << "Variadic\n";
+        }
+        dump_node(function_type->get_return_type(), os, indent + 2);
+        for (const auto &parameter_type : function_type->get_parameter_types()) {
+            dump_node(parameter_type.get(), os, indent + 2);
+        }
         return;
     }
     case AstKind::StructType: {
@@ -296,7 +361,19 @@ void AstDumper::dump_function_decl(const FunctionDecl *node, std::ostream &os,
     os << "FunctionDecl " << node->get_name() << "\n";
     dump_source_span(node, os, indent + 2);
     dump_node(node->get_return_type(), os, indent + 2);
+    if (node->get_is_static()) {
+        write_indent(os, indent + 2);
+        os << "Static\n";
+    }
+    if (node->get_is_variadic()) {
+        write_indent(os, indent + 2);
+        os << "Variadic\n";
+    }
     dump_attribute_list(node->get_attributes(), os, indent + 2);
+    if (!node->get_asm_label().empty()) {
+        write_indent(os, indent + 2);
+        os << "AsmLabel " << node->get_asm_label() << "\n";
+    }
     for (const auto &parameter : node->get_parameters()) {
         dump_node(parameter.get(), os, indent + 2);
     }
@@ -359,8 +436,10 @@ void AstDumper::dump_typedef_decl(const TypedefDecl *node, std::ostream &os,
     dump_node(node->get_aliased_type(), os, indent + 2);
     for (const auto &dimension : node->get_dimensions()) {
         write_indent(os, indent + 2);
-        os << "Dimension\n";
-        dump_node(dimension.get(), os, indent + 4);
+        os << (dimension == nullptr ? "Dimension <unspecified>\n" : "Dimension\n");
+        if (dimension != nullptr) {
+            dump_node(dimension.get(), os, indent + 4);
+        }
     }
 }
 
@@ -373,21 +452,37 @@ void AstDumper::dump_param_decl(const ParamDecl *node, std::ostream &os,
     dump_node(node->get_declared_type(), os, indent + 2);
     for (const auto &dimension : node->get_dimensions()) {
         write_indent(os, indent + 2);
-        os << "Dimension\n";
-        dump_node(dimension.get(), os, indent + 4);
+        os << (dimension == nullptr ? "Dimension <unspecified>\n" : "Dimension\n");
+        if (dimension != nullptr) {
+            dump_node(dimension.get(), os, indent + 4);
+        }
     }
 }
 
 void AstDumper::dump_field_decl(const FieldDecl *node, std::ostream &os,
                                 int indent) const {
     write_indent(os, indent);
-    os << "FieldDecl " << node->get_name() << "\n";
+    os << "FieldDecl " << node->get_name();
+    if (node->get_bit_width() != nullptr &&
+        node->get_bit_width()->get_kind() == AstKind::IntegerLiteralExpr) {
+        const auto *integer_literal =
+            static_cast<const IntegerLiteralExpr *>(node->get_bit_width());
+        os << " : " << integer_literal->get_value_text();
+    }
+    os << "\n";
     dump_source_span(node, os, indent + 2);
     dump_node(node->get_declared_type(), os, indent + 2);
     for (const auto &dimension : node->get_dimensions()) {
         write_indent(os, indent + 2);
-        os << "Dimension\n";
-        dump_node(dimension.get(), os, indent + 4);
+        os << (dimension == nullptr ? "Dimension <unspecified>\n" : "Dimension\n");
+        if (dimension != nullptr) {
+            dump_node(dimension.get(), os, indent + 4);
+        }
+    }
+    if (node->get_bit_width() != nullptr) {
+        write_indent(os, indent + 2);
+        os << "BitWidth\n";
+        dump_node(node->get_bit_width(), os, indent + 4);
     }
 }
 
@@ -408,11 +503,21 @@ void AstDumper::dump_var_decl(const VarDecl *node, std::ostream &os,
     write_indent(os, indent);
     os << "VarDecl " << node->get_name() << "\n";
     dump_source_span(node, os, indent + 2);
+    if (node->get_is_extern()) {
+        write_indent(os, indent + 2);
+        os << "Extern\n";
+    }
+    if (node->get_is_static()) {
+        write_indent(os, indent + 2);
+        os << "Static\n";
+    }
     dump_node(node->get_declared_type(), os, indent + 2);
     for (const auto &dimension : node->get_dimensions()) {
         write_indent(os, indent + 2);
-        os << "Dimension\n";
-        dump_node(dimension.get(), os, indent + 4);
+        os << (dimension == nullptr ? "Dimension <unspecified>\n" : "Dimension\n");
+        if (dimension != nullptr) {
+            dump_node(dimension.get(), os, indent + 4);
+        }
     }
     if (node->get_initializer() != nullptr) {
         write_indent(os, indent + 2);
@@ -429,8 +534,10 @@ void AstDumper::dump_const_decl(const ConstDecl *node, std::ostream &os,
     dump_node(node->get_declared_type(), os, indent + 2);
     for (const auto &dimension : node->get_dimensions()) {
         write_indent(os, indent + 2);
-        os << "Dimension\n";
-        dump_node(dimension.get(), os, indent + 4);
+        os << (dimension == nullptr ? "Dimension <unspecified>\n" : "Dimension\n");
+        if (dimension != nullptr) {
+            dump_node(dimension.get(), os, indent + 4);
+        }
     }
     if (node->get_initializer() != nullptr) {
         write_indent(os, indent + 2);
@@ -566,6 +673,23 @@ void AstDumper::dump_default_stmt(const DefaultStmt *node, std::ostream &os,
     dump_node(node->get_body(), os, indent + 4);
 }
 
+void AstDumper::dump_label_stmt(const LabelStmt *node, std::ostream &os,
+                                int indent) const {
+    write_indent(os, indent);
+    os << "LabelStmt " << node->get_label_name() << "\n";
+    dump_source_span(node, os, indent + 2);
+    write_indent(os, indent + 2);
+    os << "Body\n";
+    dump_node(node->get_body(), os, indent + 4);
+}
+
+void AstDumper::dump_goto_stmt(const GotoStmt *node, std::ostream &os,
+                               int indent) const {
+    write_indent(os, indent);
+    os << "GotoStmt " << node->get_target_label() << "\n";
+    dump_source_span(node, os, indent + 2);
+}
+
 void AstDumper::dump_return_stmt(const ReturnStmt *node, std::ostream &os,
                                  int indent) const {
     write_indent(os, indent);
@@ -628,7 +752,7 @@ void AstDumper::dump_conditional_expr(const ConditionalExpr *node,
 void AstDumper::dump_assign_expr(const AssignExpr *node, std::ostream &os,
                                  int indent) const {
     write_indent(os, indent);
-    os << "AssignExpr\n";
+    os << "AssignExpr " << node->get_operator_text() << "\n";
     dump_source_span(node, os, indent + 2);
     dump_node(node->get_target(), os, indent + 2);
     dump_node(node->get_value(), os, indent + 2);

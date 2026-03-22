@@ -29,6 +29,13 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
                 function_decl->get_source_span());
             return false;
         }
+        if (!function_decl->get_asm_label().empty() &&
+            !feature_registry.has_feature(AstFeature::GnuAsmLabels)) {
+            error_info = AstFeatureErrorInfo(
+                "unsupported AST lowering without enabled AST feature: GNU asm labels",
+                function_decl->get_source_span());
+            return false;
+        }
         if (!validate_node(function_decl->get_return_type(), feature_registry,
                            error_info)) {
             return false;
@@ -48,7 +55,18 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
     }
     case AstKind::FieldDecl: {
         const auto *field_decl = static_cast<const FieldDecl *>(node);
-        return validate_node(field_decl->get_declared_type(), feature_registry,
+        if (!validate_node(field_decl->get_declared_type(), feature_registry,
+                           error_info)) {
+            return false;
+        }
+        if (field_decl->get_bit_width() != nullptr &&
+            !feature_registry.has_feature(AstFeature::BitFieldWidths)) {
+            error_info = AstFeatureErrorInfo(
+                "unsupported AST node without enabled AST feature: bit-field widths",
+                field_decl->get_source_span());
+            return false;
+        }
+        return validate_node(field_decl->get_bit_width(), feature_registry,
                              error_info);
     }
     case AstKind::VarDecl: {
@@ -183,6 +201,12 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
         return validate_node(default_stmt->get_body(), feature_registry,
                              error_info);
     }
+    case AstKind::LabelStmt: {
+        const auto *label_stmt = static_cast<const LabelStmt *>(node);
+        return validate_node(label_stmt->get_body(), feature_registry, error_info);
+    }
+    case AstKind::GotoStmt:
+        return true;
     case AstKind::ReturnStmt: {
         const auto *return_stmt = static_cast<const ReturnStmt *>(node);
         return validate_node(return_stmt->get_value(), feature_registry,
@@ -258,6 +282,20 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
         const auto *pointer_type = static_cast<const PointerTypeNode *>(node);
         return validate_node(pointer_type->get_pointee_type(), feature_registry,
                              error_info);
+    }
+    case AstKind::FunctionType: {
+        const auto *function_type = static_cast<const FunctionTypeNode *>(node);
+        if (!validate_node(function_type->get_return_type(), feature_registry,
+                           error_info)) {
+            return false;
+        }
+        for (const auto &parameter_type : function_type->get_parameter_types()) {
+            if (!validate_node(parameter_type.get(), feature_registry,
+                               error_info)) {
+                return false;
+            }
+        }
+        return true;
     }
     case AstKind::QualifiedType:
         if (!feature_registry.has_feature(AstFeature::QualifiedTypeNodes)) {
