@@ -1,0 +1,5 @@
+int main() {
+    putint(-getint());
+    putch(10);
+    return 0;
+}

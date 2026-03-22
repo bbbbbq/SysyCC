@@ -1,0 +1,39 @@
+int compare_float(float lhs, float rhs) {
+    return lhs < rhs;
+}
+
+int compare_double(double lhs, double rhs) {
+    return lhs == rhs;
+}
+
+int branch_float(float value) {
+    if (value) {
+        return 1;
+    }
+    return 0;
+}
+
+int branch_double(double value) {
+    if (value) {
+        return 4;
+    }
+    return 5;
+}
+
+int main() {
+    float f;
+    double d;
+    int result = 0;
+
+    f = getint();
+    d = getint();
+
+    result = result + compare_float(f, 2);
+    result = result + compare_double(d, 0);
+    result = result + branch_float(f);
+    result = result + branch_double(d);
+
+    putint(result);
+    putch(10);
+    return 0;
+}

@@ -1,0 +1,10 @@
+int main() {
+    union {
+        unsigned int raw;
+        int signed_value;
+    } bits;
+    bits.raw = 4U;
+    putint((int)(bits.raw >> 2));
+    putch(10);
+    return 0;
+}

@@ -1,0 +1,11 @@
+struct Flags {
+    int value : 5;
+};
+
+int main() {
+    struct Flags flags;
+    flags.value = 31;
+    putint(flags.value);
+    putch(10);
+    return 0;
+}

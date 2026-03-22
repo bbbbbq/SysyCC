@@ -1,0 +1,5 @@
+int main() {
+    putint(((-9223372036854775807LL - 1) < 0));
+    putch(10);
+    return 0;
+}

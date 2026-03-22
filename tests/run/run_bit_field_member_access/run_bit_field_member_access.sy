@@ -1,0 +1,13 @@
+struct Flags {
+    unsigned value : 5;
+    int payload;
+};
+
+int main() {
+    struct Flags flags;
+    flags.value = 35;
+    flags.payload = 9;
+    putint(flags.value + flags.payload);
+    putch(10);
+    return 0;
+}

@@ -1,0 +1,8 @@
+int values[4];
+
+int main() {
+    values[2] = 7;
+    putint(values[2]);
+    putch(10);
+    return 0;
+}

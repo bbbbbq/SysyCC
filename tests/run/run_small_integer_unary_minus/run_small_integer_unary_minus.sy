@@ -1,0 +1,7 @@
+int main() {
+    signed char value;
+    value = 5;
+    putint(-value);
+    putch(10);
+    return 0;
+}
