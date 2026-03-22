@@ -1,6 +1,8 @@
 #include "frontend/semantic/type_system/type_resolver.hpp"
 
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include "frontend/ast/ast_node.hpp"
@@ -77,14 +79,40 @@ const SemanticType *TypeResolver::resolve_type(
             static_cast<const QualifiedTypeNode *>(type_node);
         return semantic_model.own_type(std::make_unique<QualifiedSemanticType>(
             qualified_type->get_is_const(),
+            qualified_type->get_is_volatile(),
+            false,
             resolve_type(qualified_type->get_base_type(), semantic_context,
                          scope_stack)));
     }
     case AstKind::PointerType: {
         const auto *pointer_type = static_cast<const PointerTypeNode *>(type_node);
-        return semantic_model.own_type(std::make_unique<PointerSemanticType>(
+        const SemanticType *resolved_pointer =
+            semantic_model.own_type(std::make_unique<PointerSemanticType>(
             resolve_type(pointer_type->get_pointee_type(), semantic_context,
-                         scope_stack)));
+                         scope_stack),
+            pointer_type->get_nullability_kind()));
+        if (pointer_type->get_is_const() || pointer_type->get_is_volatile() ||
+            pointer_type->get_is_restrict()) {
+            return semantic_model.own_type(std::make_unique<QualifiedSemanticType>(
+                pointer_type->get_is_const(), pointer_type->get_is_volatile(),
+                pointer_type->get_is_restrict(),
+                resolved_pointer));
+        }
+        return resolved_pointer;
+    }
+    case AstKind::FunctionType: {
+        const auto *function_type =
+            static_cast<const FunctionTypeNode *>(type_node);
+        std::vector<const SemanticType *> parameter_types;
+        parameter_types.reserve(function_type->get_parameter_types().size());
+        for (const auto &parameter_type : function_type->get_parameter_types()) {
+            parameter_types.push_back(resolve_type(parameter_type.get(),
+                                                   semantic_context, scope_stack));
+        }
+        return semantic_model.own_type(std::make_unique<FunctionSemanticType>(
+            resolve_type(function_type->get_return_type(), semantic_context,
+                         scope_stack),
+            std::move(parameter_types), function_type->get_is_variadic()));
     }
     case AstKind::StructType: {
         const auto *struct_type = static_cast<const StructTypeNode *>(type_node);
@@ -138,10 +166,35 @@ const SemanticType *TypeResolver::apply_array_dimensions(
     const SemanticType *current_type = base_type;
     for (auto it = dimensions.rbegin(); it != dimensions.rend(); ++it) {
         std::vector<int> semantic_dimensions(1, 0);
+        if (it->get() != nullptr) {
+            const std::optional<long long> dimension_value =
+                semantic_model.get_integer_constant_value(it->get());
+            if (dimension_value.has_value() && *dimension_value > 0) {
+                semantic_dimensions[0] = static_cast<int>(*dimension_value);
+            }
+        }
         current_type = semantic_model.own_type(std::make_unique<ArraySemanticType>(
             current_type, std::move(semantic_dimensions)));
     }
     return current_type;
+}
+
+const SemanticType *TypeResolver::adjust_parameter_type(
+    const SemanticType *type, SemanticContext &semantic_context) const {
+    if (type == nullptr) {
+        return nullptr;
+    }
+
+    SemanticModel &semantic_model = semantic_context.get_semantic_model();
+    if (type->get_kind() == SemanticTypeKind::Array) {
+        const auto *array_type = static_cast<const ArraySemanticType *>(type);
+        return semantic_model.own_type(
+            std::make_unique<PointerSemanticType>(array_type->get_element_type()));
+    }
+    if (type->get_kind() == SemanticTypeKind::Function) {
+        return semantic_model.own_type(std::make_unique<PointerSemanticType>(type));
+    }
+    return type;
 }
 
 } // namespace sysycc::detail

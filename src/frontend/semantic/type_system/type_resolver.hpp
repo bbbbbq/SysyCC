@@ -24,6 +24,8 @@ class TypeResolver {
         const SemanticType *base_type,
         const std::vector<std::unique_ptr<Expr>> &dimensions,
         SemanticContext &semantic_context) const;
+    const SemanticType *adjust_parameter_type(
+        const SemanticType *type, SemanticContext &semantic_context) const;
 };
 
 } // namespace detail

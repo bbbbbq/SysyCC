@@ -26,9 +26,27 @@ const SemanticType *strip_qualifiers(const SemanticType *type) {
     return current;
 }
 
-bool is_const_qualified_type(const SemanticType *type) {
+bool is_qualified_pointee_type(const SemanticType *type) {
     return type != nullptr && type->get_kind() == SemanticTypeKind::Qualified &&
-           static_cast<const QualifiedSemanticType *>(type)->get_is_const();
+           (static_cast<const QualifiedSemanticType *>(type)->get_is_const() ||
+            static_cast<const QualifiedSemanticType *>(type)->get_is_volatile() ||
+           static_cast<const QualifiedSemanticType *>(type)->get_is_restrict());
+}
+
+bool is_void_type_name(const SemanticType *type) {
+    return type != nullptr && type->get_kind() == SemanticTypeKind::Builtin &&
+           static_cast<const BuiltinSemanticType *>(type)->get_name() == "void";
+}
+
+bool is_void_pointer_type(const SemanticType *type) {
+    const SemanticType *unqualified_type = strip_qualifiers(type);
+    if (unqualified_type == nullptr ||
+        unqualified_type->get_kind() != SemanticTypeKind::Pointer) {
+        return false;
+    }
+    const auto *pointer_type =
+        static_cast<const PointerSemanticType *>(unqualified_type);
+    return is_void_type_name(strip_qualifiers(pointer_type->get_pointee_type()));
 }
 
 bool is_standard_numeric_builtin_name(const std::string &name) {
@@ -37,6 +55,7 @@ bool is_standard_numeric_builtin_name(const std::string &name) {
            name == "ptrdiff_t" ||
            name == "short" || name == "signed char" ||
            name == "unsigned int" || name == "unsigned short" ||
+           name == "unsigned long" ||
            name == "unsigned long long" || name == "unsigned char" ||
            name == "char";
 }
@@ -97,6 +116,10 @@ bool ConversionChecker::is_same_type(const SemanticType *lhs,
         const auto *rhs_qualified =
             static_cast<const QualifiedSemanticType *>(rhs);
         return lhs_qualified->get_is_const() == rhs_qualified->get_is_const() &&
+               lhs_qualified->get_is_volatile() ==
+                   rhs_qualified->get_is_volatile() &&
+               lhs_qualified->get_is_restrict() ==
+                   rhs_qualified->get_is_restrict() &&
                is_same_type(lhs_qualified->get_base_type(),
                             rhs_qualified->get_base_type());
     }
@@ -125,6 +148,7 @@ bool ConversionChecker::is_same_type(const SemanticType *lhs,
         const auto *rhs_function = static_cast<const FunctionSemanticType *>(rhs);
         if (!is_same_type(lhs_function->get_return_type(),
                           rhs_function->get_return_type()) ||
+            lhs_function->get_is_variadic() != rhs_function->get_is_variadic() ||
             lhs_function->get_parameter_types().size() !=
                 rhs_function->get_parameter_types().size()) {
             return false;
@@ -167,11 +191,15 @@ bool ConversionChecker::is_assignable_type(const SemanticType *target,
             return true;
         }
         if (has_semantic_feature(SemanticFeature::QualifiedPointerConversions) &&
-            is_const_qualified_type(target_pointee) &&
+            is_qualified_pointee_type(target_pointee) &&
             is_same_type(
                 static_cast<const QualifiedSemanticType *>(target_pointee)
                     ->get_base_type(),
                 value_pointee)) {
+            return true;
+        }
+        if (is_void_pointer_type(unqualified_target) ||
+            is_void_pointer_type(unqualified_value)) {
             return true;
         }
         return false;
@@ -247,7 +275,7 @@ bool ConversionChecker::is_compatible_equality_type(
     if (unqualified_lhs != nullptr && unqualified_rhs != nullptr &&
         unqualified_lhs->get_kind() == SemanticTypeKind::Pointer &&
         unqualified_rhs->get_kind() == SemanticTypeKind::Pointer) {
-        return is_same_type(unqualified_lhs, unqualified_rhs);
+        return true;
     }
 
     const auto lhs_constant =
@@ -329,6 +357,7 @@ bool ConversionChecker::is_arithmetic_type(const SemanticType *type) const {
         name == "signed char" ||
         name == "long int" || name == "long long int" ||
         name == "unsigned int" || name == "unsigned short" ||
+        name == "unsigned long" ||
         name == "unsigned long long" || name == "unsigned char" ||
         name == "char" || name == "float" || name == "double" ||
         name == "long double") {
@@ -377,6 +406,7 @@ bool ConversionChecker::is_integer_like_type(const SemanticType *type) const {
            name == "signed char" ||
            name == "long int" || name == "long long int" ||
            name == "unsigned int" || name == "unsigned short" ||
+           name == "unsigned long" ||
            name == "unsigned long long" || name == "unsigned char" ||
            name == "char";
 }
@@ -397,6 +427,7 @@ bool ConversionChecker::is_incrementable_type(const SemanticType *type) const {
         name == "signed char" ||
         name == "long int" || name == "long long int" ||
         name == "unsigned int" || name == "unsigned short" ||
+        name == "unsigned long" ||
         name == "unsigned long long" || name == "unsigned char" ||
         name == "float" || name == "double" || name == "long double" ||
         name == "char") {

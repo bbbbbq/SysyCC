@@ -19,6 +19,7 @@ class VariableSemanticInfo {
   private:
     bool is_global_storage_ = false;
     bool has_external_linkage_ = false;
+    bool has_internal_linkage_ = false;
     bool has_tentative_definition_ = false;
     bool has_initialized_definition_ = false;
 
@@ -26,16 +27,21 @@ class VariableSemanticInfo {
     VariableSemanticInfo() = default;
 
     VariableSemanticInfo(bool is_global_storage, bool has_external_linkage,
+                         bool has_internal_linkage,
                          bool has_tentative_definition,
                          bool has_initialized_definition)
         : is_global_storage_(is_global_storage),
           has_external_linkage_(has_external_linkage),
+          has_internal_linkage_(has_internal_linkage),
           has_tentative_definition_(has_tentative_definition),
           has_initialized_definition_(has_initialized_definition) {}
 
     bool get_is_global_storage() const noexcept { return is_global_storage_; }
     bool get_has_external_linkage() const noexcept {
         return has_external_linkage_;
+    }
+    bool get_has_internal_linkage() const noexcept {
+        return has_internal_linkage_;
     }
     bool get_has_tentative_definition() const noexcept {
         return has_tentative_definition_;

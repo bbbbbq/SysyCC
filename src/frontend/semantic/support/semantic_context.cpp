@@ -1,5 +1,8 @@
 #include "frontend/semantic/support/semantic_context.hpp"
 
+#include "compiler/compiler_context/compiler_context.hpp"
+
+#include <filesystem>
 #include <optional>
 #include <utility>
 
@@ -94,6 +97,72 @@ std::optional<long long> SemanticContext::get_current_switch_case_count() const
         return std::nullopt;
     }
     return static_cast<long long>(switch_frames_.back().case_values.size());
+}
+
+void SemanticContext::begin_function_labels() noexcept {
+    defined_labels_.clear();
+    goto_references_.clear();
+}
+
+void SemanticContext::end_function_labels() noexcept {
+    defined_labels_.clear();
+    goto_references_.clear();
+}
+
+bool SemanticContext::record_label_definition(const std::string &label_name) {
+    return defined_labels_.insert(label_name).second;
+}
+
+void SemanticContext::record_goto_reference(std::string label_name,
+                                            SourceSpan source_span) {
+    goto_references_.push_back(
+        GotoReference{std::move(label_name), std::move(source_span)});
+}
+
+std::vector<GotoReference> SemanticContext::get_undefined_goto_references() const {
+    std::vector<GotoReference> undefined_references;
+    for (const auto &reference : goto_references_) {
+        if (defined_labels_.find(reference.label_name) == defined_labels_.end()) {
+            undefined_references.push_back(reference);
+        }
+    }
+    return undefined_references;
+}
+
+bool SemanticContext::is_system_header_path(const std::string &file_path) const {
+    if (file_path.empty()) {
+        return false;
+    }
+
+    const std::filesystem::path normalized_file_path =
+        std::filesystem::path(file_path).lexically_normal();
+    for (const std::string &system_directory :
+         compiler_context_.get_system_include_directories()) {
+        const std::filesystem::path normalized_system_directory =
+            std::filesystem::path(system_directory).lexically_normal();
+        if (normalized_file_path == normalized_system_directory) {
+            return true;
+        }
+
+        const std::string directory_with_separator =
+            normalized_system_directory.string() +
+            std::filesystem::path::preferred_separator;
+        const std::string normalized_file_string = normalized_file_path.string();
+        if (normalized_file_string.rfind(directory_with_separator, 0) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool SemanticContext::is_system_header_span(
+    const SourceSpan &source_span) const {
+    const SourceFile *source_file = source_span.get_begin().get_file();
+    if (source_file == nullptr) {
+        return false;
+    }
+    return is_system_header_path(source_file->get_path());
 }
 
 } // namespace sysycc::detail

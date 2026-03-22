@@ -1,8 +1,10 @@
 #pragma once
 
 #include <optional>
-#include <unordered_set>
+#include <filesystem>
 #include <memory>
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "frontend/semantic/model/semantic_model.hpp"
@@ -21,6 +23,11 @@ struct SwitchFrame {
     bool has_default = false;
 };
 
+struct GotoReference {
+    std::string label_name;
+    SourceSpan source_span;
+};
+
 // Holds transient state for one semantic analysis run.
 class SemanticContext {
   private:
@@ -31,6 +38,8 @@ class SemanticContext {
     int loop_depth_ = 0;
     int switch_depth_ = 0;
     std::vector<SwitchFrame> switch_frames_;
+    std::unordered_set<std::string> defined_labels_;
+    std::vector<GotoReference> goto_references_;
 
   public:
     SemanticContext(CompilerContext &compiler_context,
@@ -59,6 +68,16 @@ class SemanticContext {
     bool record_case_value(long long value) noexcept;
     bool record_default_label() noexcept;
     std::optional<long long> get_current_switch_case_count() const noexcept;
+
+    void begin_function_labels() noexcept;
+    void end_function_labels() noexcept;
+    bool record_label_definition(const std::string &label_name);
+    void record_goto_reference(std::string label_name,
+                               SourceSpan source_span);
+    std::vector<GotoReference> get_undefined_goto_references() const;
+
+    bool is_system_header_path(const std::string &file_path) const;
+    bool is_system_header_span(const SourceSpan &source_span) const;
 };
 
 } // namespace detail

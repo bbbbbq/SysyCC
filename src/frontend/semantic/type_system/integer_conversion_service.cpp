@@ -38,7 +38,7 @@ std::optional<int> get_integer_rank_from_name(std::string_view name) {
         name == "enum") {
         return 3;
     }
-    if (name == "long int") {
+    if (name == "long int" || name == "unsigned long") {
         return 4;
     }
     if (name == "long long int" || name == "unsigned long long") {
@@ -97,6 +97,9 @@ const SemanticType *get_canonical_integer_type_for_info(
             if (source_name == "ptrdiff_t") {
                 return make_builtin_type(semantic_model, "ptrdiff_t");
             }
+            if (source_name == "unsigned long") {
+                return make_builtin_type(semantic_model, "unsigned long");
+            }
             return make_builtin_type(semantic_model, "long int");
         }
         if (info.get_rank() == 5) {
@@ -116,6 +119,9 @@ const SemanticType *get_canonical_integer_type_for_info(
         }
         if (info.get_rank() == 3) {
             return make_builtin_type(semantic_model, "unsigned int");
+        }
+        if (info.get_rank() == 4) {
+            return make_builtin_type(semantic_model, "unsigned long");
         }
         if (info.get_rank() == 5) {
             return make_builtin_type(semantic_model, "unsigned long long");
@@ -179,6 +185,9 @@ IntegerConversionService::get_integer_type_info(const SemanticType *type) const 
     }
     if (name == "long int") {
         return IntegerTypeInfo(true, 64, 4);
+    }
+    if (name == "unsigned long") {
+        return IntegerTypeInfo(false, 64, 4);
     }
     if (name == "long long int") {
         return IntegerTypeInfo(true, 64, 5);
