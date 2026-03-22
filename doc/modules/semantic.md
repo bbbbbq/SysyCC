@@ -80,7 +80,8 @@ The current implementation has a first batch of real semantic rules:
 - transient analysis state and builtin installation live in `support/`
 - semantic output data structures live in `model/`
 - builtin functions such as `getint`, `putint`, `putfloat`, `putch`,
-  `starttime`, and `stoptime` are registered into the initial scope
+  `starttime`, and `stoptime` are registered into the initial scope alongside
+  bootstrap typedef aliases
 - builtin scalar type names now include `double` alongside `int`, `float`,
   `char`, and `void`
 - declaration-side builtin scalar types now also include `long double`
@@ -89,18 +90,45 @@ The current implementation has a first batch of real semantic rules:
 - declaration-side builtin integer forms now also include `long long int`
 - declaration-side builtin integer forms now also include `unsigned int` and
   `unsigned long long`
+- declaration-side builtin integer forms now also include `unsigned long`
 - declaration-side builtin integer forms now also include `signed char`,
   `short`, `unsigned char`, and `unsigned short`
+- bootstrap typedef names such as `size_t`, `ptrdiff_t`, `va_list`,
+  `__builtin_va_list`, `wchar_t`, and common fixed-width or pointer-width
+  aliases such as `uint32_t`, `int32_t`, `uint64_t`, `intptr_t`, and
+  `uintptr_t` are preinstalled as `TypedefName` symbols so system-header
+  typedef chains resolve through the same semantic path as user-authored
+  aliases
+- function-pointer declaration types now resolve through
+  `PointerSemanticType(FunctionSemanticType(...))` when parser lowering sees
+  grouped declarators such as `void (*routine)(void *)`
+- grouped ordinary function declarators such as
+  `static int (safe_add)(int x, int y)` are accepted through the same
+  declaration path, so macro-expanded wrapper names still bind one ordinary
+  function symbol
+- top-level pointer-return prototypes such as `void *memchr(...)` now resolve
+  through the same return-type path as other supported function declarations
+- GNU asm-labeled function prototypes such as
+  `char *strerror(int) __asm("_strerror");` are accepted semantically and keep
+  their external symbol spelling available for downstream IR lowering
+- variadic function declarations and definitions now preserve their `...`
+  marker in `FunctionSemanticType`, so semantic call checking can enforce the
+  fixed parameter prefix while allowing extra arguments after `...`
 - declaration analysis accepts `extern` variable declarations
 - file-scope variable analysis now preserves one `VariableSemanticInfo` record
   per bound variable symbol, tracking:
   - whether the variable uses global storage
   - whether external linkage was seen
+  - whether internal linkage was seen
   - whether a tentative definition was seen
   - whether an initialized definition was seen
 - compatible file-scope redeclaration patterns such as
   `extern int g; int g; extern int g;` are now accepted and rebound to one
   shared semantic symbol
+- file-scope `static` variables now preserve internal linkage through
+  `VariableSemanticInfo`
+- top-level `static` function declarations and definitions are now accepted so
+  downstream IR lowering can emit internal-linkage functions
 - declaration analysis now rejects non-list variable initializers whose
   expression type is not assignable to the declared type
 - top-level declaration-only function prototypes are accepted without requiring
@@ -115,17 +143,54 @@ The current implementation has a first batch of real semantic rules:
   into the local scope as named symbols
 - unnamed pointer prototype parameters are analyzed as ordinary pointer-typed
   parameters and likewise stay out of the named local symbol table
+- unnamed typedef-name prototype parameters follow the same unnamed-parameter
+  semantic path while resolving their typedef-backed type normally
 - simple parameter-side `const` qualifiers now resolve into
-  `QualifiedSemanticType` under pointer pointees, so `const char *` and
-  `char *` are distinct semantic pointer types
+  `QualifiedSemanticType` under pointer pointees, while pointer-side
+  qualifiers such as `restrict`, `__restrict`, and `__restrict__` resolve into
+  `QualifiedSemanticType` wrapped around the pointer itself, so
+  `const char * __restrict`, `const char *`, and `char *` remain
+  distinguishable semantic pointer types
+- declaration-side and parameter-side `volatile` qualifiers now resolve
+  through the same `QualifiedSemanticType` model as `const`, while
+  pointer-side `volatile` resolves into `QualifiedSemanticType` wrapped around
+  the pointer itself, so `volatile int * volatile`, `volatile int *`, and
+  `int *` remain distinguishable semantic pointer types even though IR later
+  erases the qualifier
+- pointer-side nullability annotations such as `_Nullable`, `_Nonnull`, and
+  `_Null_unspecified` now resolve into `PointerSemanticType` metadata on the
+  pointer itself, so the semantic model can preserve the annotation while
+  still accepting the underlying pointer type in ordinary compatibility checks
+- declarator-side compatibility annotations such as `_LIBC_COUNT(__n)` and
+  `_LIBC_CSTR` are accepted around pointer declarators and function-pointer
+  parameters, and bare pointer-side compatibility annotations such as
+  `_LIBC_UNSAFE_INDEXABLE` are accepted through the same path, while
+  continuing to resolve to the same underlying pointer semantic type
+- GNU spelling aliases such as `__const` and `__const__` now resolve through
+  the same qualifier/type path as ordinary `const`, including file-scope
+  `extern const` variables and pointer-side `__const` qualifiers
+- GNU spelling aliases such as `__volatile` and `__volatile__` now resolve
+  through the same qualifier/type path as ordinary `volatile`
 - extension builtin scalar semantics such as `_Float16` are now owned through
   one shared builtin-type semantic handler registry exported by the dialect
   manager, so `ConversionChecker` no longer treats `_Float16` as an unowned
   stage-local special case
+- usual arithmetic conversion planning now explicitly covers the current
+  supported floating family `(_Float16, float, double, long double)` alongside
+  the modeled integer family
+- arithmetic casts such as `_Float16 <-> int`, `_Float16 <-> long double`, and
+  `long double <-> int` are now accepted through the shared conversion checker
+  for the current supported scalar subset
+- decimal and hexadecimal floating literals now bind according to their C
+  suffix spelling: unsuffixed literals use `double`, `f/F` suffixed literals
+  use `float`, and `l/L` suffixed literals use `long double`
+- pointer-target casts such as `(int *)value` and `(const char *)ptr` now
+  lower through the same explicit-cast semantic path used by other supported
+  scalar and pointer casts
 - qualification-preserving pointer conversions such as
-  `char * -> const char *` are accepted for calls and assignments, while
-  qualification-dropping conversions such as `const char * -> char *` are
-  rejected
+  `char * -> const char *` and `char * -> char * __restrict` are accepted for
+  calls and assignments, while qualification-dropping conversions such as
+  `const char * -> char *` are rejected
 - declaration analysis records symbols for functions, parameters, variables,
   constants, typedefs, structs, unions, enums, and enumerators
 - semantic type construction now includes `UnionSemanticType` for lowered
@@ -158,6 +223,8 @@ The current implementation has a first batch of real semantic rules:
   - invalid operands for unary `&` and `*`
   - invalid operands for unary `+`, unary `-`, `!`, and `~`
   - unsupported explicit casts between incompatible source/target kinds
+  - invalid operands for compound assignment operators such as `+=`, `>>=`,
+    and `&=`
   - invalid operands for prefix/postfix `++`
   - `break` outside loops or `switch`
   - `continue` outside loops
@@ -215,5 +282,8 @@ The current implementation has a first batch of real semantic rules:
   integer promotions and usual arithmetic conversion selection, so
   `ConversionChecker` can distinguish mixed integer/integer, float/integer, and
   extended builtin float results using one shared rule table.
+- variadic call checking now validates and type-checks only the fixed
+  parameter prefix, leaving extra operands to later default-argument-promotion
+  lowering in IR generation.
 - The recent refactor keeps `SemanticAnalyzer` thin so future semantic work can
   continue in specialized helpers instead of growing one class indefinitely.

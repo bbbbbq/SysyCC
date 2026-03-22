@@ -123,17 +123,45 @@ Function lowering also preserves declaration-only prototypes:
 - declaration-only prototypes now include both `extern` and `inline` forms
 - `FunctionDecl` nodes now preserve parsed GNU attribute lists from
   declaration-specifier position
+- `FunctionDecl` nodes now also preserve optional GNU asm-label suffixes used
+  by system-header alias declarations
+- `FunctionDecl` nodes now preserve whether the parsed signature is variadic so
+  later semantic and IR stages can distinguish fixed-arity and variadic
+  functions
 - unnamed prototype parameters remain `ParamDecl` nodes with an empty internal
   name and appear as `<unnamed>` in AST dumps
 - unnamed pointer prototype parameters lower through `PointerTypeNode`
   parameter types without introducing synthetic parameter names
+- unnamed typedef-name prototype parameters such as `size_t` lower through the
+  same empty-name `ParamDecl` path
 - simple parameter-side `const` qualifiers now lower as `QualifiedTypeNode`
   wrapped under the pointee side of `PointerTypeNode`, so `const char *`
   preserves qualifier structure in the AST
+- parameter-side and declaration-side `volatile` qualifiers now lower through
+  the same `QualifiedTypeNode` path, so forms such as `volatile int *` and
+  `const volatile int` preserve their qualifier structure instead of being
+  erased during AST construction
+- pointer-side qualifiers such as `restrict`, `__restrict`, and
+  `__restrict__` now lower onto `PointerTypeNode` itself, so
+  `const char * __restrict name` preserves both the pointee-side `const`
+  and the pointer-side `restrict`
+- pointer-side `volatile` now also lowers onto `PointerTypeNode` itself, so
+  `volatile int * volatile p` preserves both the pointee-side and pointer-side
+  qualifier placement in AST dumps and downstream semantic analysis
+- pointer-side nullability annotations such as `_Nullable`, `_Nonnull`, and
+  `_Null_unspecified` now also lower onto `PointerTypeNode` itself, so
+  pointer annotations can be preserved in the AST and passed through semantic
+  analysis before being erased by IR lowering
+- Darwin-style pointer annotation spellings such as `_LIBC_COUNT(__n)` and
+  `_LIBC_CSTR` are accepted in declarators and function-pointer parameter
+  shapes, and bare pointer-side annotation qualifiers such as
+  `_LIBC_UNSAFE_INDEXABLE` are accepted through the same path, without
+  changing the lowered pointee type structure
 - builtin declaration lowering now includes `long double`
 - builtin declaration lowering now includes `_Float16`
 - builtin declaration lowering now also includes `long int`
 - builtin declaration lowering now also includes `long long int`
+- builtin declaration lowering now also includes `unsigned long`
 - builtin declaration lowering now also includes `signed char`, `short`,
   `unsigned char`, and `unsigned short`
 - declaration lowering now also preserves `union` declarations and inline
@@ -142,11 +170,36 @@ Function lowering also preserves declaration-only prototypes:
   `unsigned long long`
 - declaration lowering also accepts `extern` variable declarations and lowers
   them through the same `VarDecl` node family
+- declaration lowering also preserves top-level `static` on both `VarDecl`
+  and `FunctionDecl`, so later semantic and IR stages can distinguish
+  internal-linkage declarations from ordinary external-linkage declarations
+- GNU qualifier spellings such as `__const` and `__const__` lower through the
+  same `Const` / `QualifiedTypeNode` path as ordinary `const`
+- GNU qualifier spellings such as `__volatile` and `__volatile__` lower
+  through the same `QualifiedTypeNode` / `PointerTypeNode` qualifier path as
+  ordinary `volatile`
 - `VarDecl` now preserves whether the parsed declaration carried `extern`, so
   later semantic and IR stages can distinguish global/external storage from
   ordinary local storage
 - expression lowering now includes C-style cast nodes with one target
   `TypeNode` and one operand expression
+- cast-target lowering now also preserves pointer-target spellings such as
+  `(int *)value` and qualifier-carrying target spellings such as
+  `(const char *)buffer`
+- named-type lowering now preserves parser-seeded bootstrap typedef spellings
+  such as `size_t`, `ptrdiff_t`, and `va_list` through `NamedTypeNode` so
+  later semantic resolution can bind them to builtin aliases
+- declaration lowering now also preserves grouped function-pointer declarators
+  such as `void (*routine)(void *)` as `PointerTypeNode` over
+  `FunctionTypeNode`
+- declaration lowering also accepts grouped ordinary function declarators such
+  as `static int (safe_add)(int x, int y)` and still preserves the lowered
+  `FunctionDecl` name as `safe_add`
+- `FunctionTypeNode` now also preserves whether a declarator-level function
+  type is variadic
+- top-level function lowering now also preserves pointer-return prototypes
+  such as `void *memchr(...)` by wrapping the function return type in
+  `PointerTypeNode`
 
 ## Notes
 
@@ -168,6 +221,7 @@ Function lowering also preserves declaration-only prototypes:
 - [tests/ast/ast_gnu_attribute_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_gnu_attribute_prototype/run.sh)
 - [tests/ast/ast_inline_function_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_inline_function_prototype/run.sh)
 - [tests/ast/ast_const_char_pointer_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_const_char_pointer_prototype/run.sh)
+- [tests/ast/ast_pointer_target_cast_expr/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_pointer_target_cast_expr/run.sh)
 - [tests/ast/ast_nested_init_list/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_nested_init_list/run.sh)
 - [tests/ast/ast_unnamed_pointer_parameter_prototype/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_unnamed_pointer_parameter_prototype/run.sh)
 - [tests/ast/ast_pointer_types/run.sh](/Users/caojunze424/code/SysyCC/tests/ast/ast_pointer_types/run.sh)
