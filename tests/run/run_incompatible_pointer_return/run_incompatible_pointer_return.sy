@@ -1,0 +1,12 @@
+static unsigned int storage = 7;
+
+static int *get_ptr(void) {
+    unsigned int *local = &storage;
+    return local;
+}
+
+int main(void) {
+    putint(get_ptr() != (void*)0);
+    putch(10);
+    return 0;
+}

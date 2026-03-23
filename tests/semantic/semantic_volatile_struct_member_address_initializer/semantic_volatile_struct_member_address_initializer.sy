@@ -1,0 +1,11 @@
+struct Box {
+    const int value;
+    int other;
+};
+
+static volatile struct Box g_box = {7, 0};
+static const volatile int * volatile g_ptr = &g_box.value;
+
+int main(void) {
+    return *g_ptr != 7;
+}

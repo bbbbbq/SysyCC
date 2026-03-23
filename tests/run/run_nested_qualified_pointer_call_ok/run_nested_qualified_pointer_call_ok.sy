@@ -1,0 +1,11 @@
+int read_value(volatile int * const volatile *value_ptr) {
+    return **value_ptr;
+}
+
+int main(void) {
+    volatile int value = 7;
+    volatile int * volatile inner = &value;
+    putint(read_value(&inner));
+    putch(10);
+    return 0;
+}

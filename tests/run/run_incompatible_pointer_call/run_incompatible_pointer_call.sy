@@ -1,0 +1,11 @@
+int takes_unsigned(unsigned int *value_ptr) {
+    return value_ptr != (void*)0;
+}
+
+int main(void) {
+    int value = 7;
+    int *ptr = &value;
+    putint(takes_unsigned(ptr));
+    putch(10);
+    return 0;
+}

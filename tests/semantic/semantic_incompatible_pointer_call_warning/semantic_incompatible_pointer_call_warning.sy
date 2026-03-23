@@ -1,0 +1,9 @@
+int takes_unsigned(unsigned int *value_ptr) {
+    return value_ptr != (void*)0;
+}
+
+int main(void) {
+    int value = 7;
+    int *ptr = &value;
+    return takes_unsigned(ptr) != 1;
+}

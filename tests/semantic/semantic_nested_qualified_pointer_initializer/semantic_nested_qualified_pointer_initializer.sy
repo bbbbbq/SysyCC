@@ -1,0 +1,7 @@
+static volatile int g_value = 7;
+static volatile int * volatile g_inner = &g_value;
+static volatile int * const volatile *g_outer = &g_inner;
+
+int main(void) {
+    return **g_outer != 7;
+}
