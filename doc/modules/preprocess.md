@@ -91,6 +91,10 @@ src/frontend/preprocess/
   instead of scattering mutable state directly across the session and helpers
 - seed one minimal host/compiler predefined macro set at preprocess startup so
   system headers can probe platform and compiler identity
+- seed standard integer limit macros and the double-underscore builtin numeric
+  macros used by common `limits.h` implementations so preprocess-only
+  conditionals in system headers and csmith runtime helpers evaluate
+  consistently
 - centralize include-stack tracking and `#line` logical-file remapping inside a
   dedicated source mapper
 - preserve the logical include chain for nested preprocess failures so
@@ -162,7 +166,10 @@ At the start of each run, the session also seeds a minimal host predefined
 macro set, including standard hosted-C macros plus the current compiler and
 architecture identity macros used by common system headers, but that seeding is
 now gated by the shared `PreprocessFeatureRegistry` through the
-`GnuPredefinedMacros` feature flag.
+`GnuPredefinedMacros` feature flag. That seeded set now also includes standard
+integer limit macros such as `INT_MAX`, `INT16_MAX`, and `CHAR_BIT`, together
+with builtin numeric spellings such as `__INT_MAX__`, `__INT16_MAX__`, and
+`__CHAR_BIT__` that host headers often expand through.
 The non-standard probe path now also consults the shared dialect manager before
 dispatching to provider implementations, so clang-style builtin-probe support
 is enabled by declared handler ownership instead of by an always-on implicit

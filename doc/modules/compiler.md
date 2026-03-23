@@ -35,6 +35,7 @@ The run configuration for one compilation task. It stores:
 - default system include search directories
 - CLI-supplied system include search directories merged ahead of defaults
 - dump options
+- stop-after stage
 
 ### `CompilerContext`
 
@@ -59,6 +60,7 @@ The shared data container for passes. It stores:
 - semantic model
 - ir result
 - diagnostic engine
+- stop-after stage
 - ir dump output path
 - dump output paths
 
@@ -69,6 +71,9 @@ The scheduler and owner of pass objects. It is responsible for:
 - adding passes
 - rejecting duplicate `PassKind`
 - running passes in order
+- stopping cleanly after the configured pass stage when
+  [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+  requests `preprocess`, `lex`, `parse`, `ast`, `semantic`, or `ir`
 
 ## Pipeline
 
@@ -130,3 +135,10 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass -> IRGenPas
 - `ComplierOption` now also carries dialect-pack selection flags, and
   `Complier` reconfigures the compiler context's dialect set per invocation
   before validation and pass execution.
+- `ComplierOption` and
+  [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+  now also carry one stop-after stage, and
+  [PassManager](/Users/caojunze424/code/SysyCC/src/compiler/pass/pass.hpp)
+  stops the pipeline immediately after that pass succeeds. This keeps
+  parser/AST/semantic-focused tests from being blocked by intentionally
+  unsupported later-stage IR.

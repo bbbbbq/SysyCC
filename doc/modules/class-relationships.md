@@ -31,6 +31,7 @@ classDiagram
         -dump_parse_
         -dump_ast_
         -dump_ir_
+        -stop_after_stage_
         -enable_gnu_dialect_
         -enable_clang_dialect_
         -enable_builtin_type_extension_pack_
@@ -46,6 +47,7 @@ classDiagram
         -dialect_manager_
         -preprocessed_line_map_
         -tokens_
+        -stop_after_stage_
         -parse_tree_root_
         -ast_root_
         -ast_complete_

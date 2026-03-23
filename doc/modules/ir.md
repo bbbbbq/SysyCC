@@ -109,7 +109,8 @@ LLVM IR lowering path:
   - `AssignExpr` with identifier and member-expression targets
     - including compound assignments such as `+=`, `>>=`, and `&=`
   - `CallExpr` whose callee is an identifier
-  - `UnaryExpr` for `&` and `*`
+    - including fixed-parameter aggregate arguments such as `union` values
+  - `UnaryExpr` for `&`, `*`, `+`, `-`, `!`, and `~`
   - `PrefixExpr` for `++` and `--`
   - `PostfixExpr` for `++` and `--`
   - `IndexExpr`
@@ -143,10 +144,16 @@ LLVM IR lowering path:
   - direct aggregate returns for supported `struct` and `union` functions
   - direct aggregate-return calls, including value-discarded uses such as the
     left-hand side of the comma operator
+  - aggregate assignment expressions whose source and target already share the
+    same lowered LLVM storage type, so expressions such as
+    `box = make_box(7)` can feed later call arguments directly
   - explicit variadic call-site signatures such as
     `call i32 (ptr, ...) @printf(...)`, which are required for ABI-correct
     lowering of variadic arguments on Darwin AArch64
   - integer arithmetic instructions
+  - unary integer `+`, unary integer `-`, logical-not, and bitwise-not
+    lowering over the current promoted integer result type, including
+    `long long`-width `~` expressions
   - prefix/postfix increment and decrement lowering through
     load / update / store, including pointer increments lowered through GEP
   - integer compound-assignment lowering through load / binary-op / store for
@@ -157,6 +164,17 @@ LLVM IR lowering path:
     owning storage unit, including truncation to field width
   - `_Float16`, `float`, `double`, and `long double` arithmetic instructions
   - integer comparisons lowered as `icmp` + `zext`
+    - including mixed signed/unsigned operands whose LLVM storage width is the
+      same, where IR coercion must still retain the target semantic signedness
+      so the backend selects `icmp ult/ule/ugt/uge` instead of signed compares
+    - including typedef-backed 64-bit integers such as `int64_t` compared with
+      `unsigned long` operands like `0UL`, where usual arithmetic conversions
+      still require an unsigned LLVM compare even though both operands stay
+      in `i64`
+    - including narrow `unsigned` bit-field operands wrapped in value-
+      preserving expressions such as `(side_effect, bits.value)`, where C
+      integer promotions still require the compare to use signed `int`
+      semantics when the field width fits in `int`
   - pointer comparisons against null-pointer constants lowered through LLVM
     `null` operands instead of integer `0`
   - short-circuit lowering for `&&` and `||` through dedicated rhs/true/end
@@ -199,6 +217,12 @@ LLVM IR lowering path:
     `@name = global <type> <initializer>`
   - struct global initializers that pack bit-field members into their shared
     storage elements before emitting one LLVM aggregate initializer
+  - union global initializers that pack the first initialized field into one
+    shared union storage element before emitting the LLVM aggregate
+    initializer, including array elements of union type
+  - local union initializer-list lowering that zero-fills the whole union
+    storage before storing the first initialized field through the ordinary
+    member-address path
   - top-level `static` global declarations and definitions emitted as LLVM
     `internal global`
   - top-level `static` function declarations and definitions emitted with LLVM
@@ -229,8 +253,9 @@ LLVM IR lowering path:
   - implicit `ret void` insertion for supported `void` functions whose body
     falls off the end without an explicit `return;`
   - default argument promotions for variadic call operands, currently
-    promoting `float -> double` and small integer types to `int` before
-    emission
+    promoting `float -> double`, small integer types to `int`, and narrow
+    bit-field-valued expressions to the same promoted integer type they would
+    receive in ordinary expression semantics before emission
   - loop back edges and loop-exit branches for `while`, `for`, `do-while`,
     `break`, and `continue`
   - `switch` compare chains over integer `case` labels with `default`

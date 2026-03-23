@@ -17,6 +17,8 @@ The CLI module converts `argv` into a compiler configuration object.
 - collect system include search directories from `-isystem`
 - map dialect-selection flags into compiler configuration
 - enable dump switches such as `--dump-tokens` and `--dump-parse`
+- support `--stop-after=<stage>` so tests and tooling can stop after
+  `preprocess`, `lex`, `parse`, `ast`, `semantic`, or `ir`
 - print help and version information
 - fill [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
 
@@ -43,6 +45,9 @@ Output:
 - The parsed system include directories are also forwarded through the compiler context and consumed by the preprocess stage during angle-include and `#include_next` resolution.
 - `--strict-c99` disables the GNU, Clang, and builtin-type extension packs for
   one invocation.
+- `--stop-after=<stage>` and `--stop-after <stage>` are both accepted.
+- `--stop-after` does not disable dump switches; it only prevents later passes
+  from running after the requested stage succeeds.
 - `--enable-gnu-dialect` / `--disable-gnu-dialect`,
   `--enable-clang-dialect` / `--disable-clang-dialect`, and
   `--enable-builtin-types` / `--disable-builtin-types` explicitly reconfigure

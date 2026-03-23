@@ -178,6 +178,19 @@ The current implementation has a first batch of real semantic rules:
 - usual arithmetic conversion planning now explicitly covers the current
   supported floating family `(_Float16, float, double, long double)` alongside
   the modeled integer family
+- usual arithmetic conversion selection for mixed signed/unsigned integers now
+  also preserves the unsigned corresponding type when a higher-rank signed
+  operand shares the same storage width as the unsigned operand, so typedef-
+  backed 64-bit integers such as `int64_t` compare against `0UL` through the
+  same rule as their builtin `long long int` spelling
+- integer promotions for bit-field-valued expressions now keep track of the
+  source field width through direct member access and value-preserving wrappers
+  such as the comma operator, assignment expressions, and prefix/postfix
+  `++/--`, so narrow `unsigned` bit-fields that fit in `int` compare through
+  signed `int` semantics instead of being forced down the `unsigned int` path
+- unary bitwise-not now follows C integer promotions, so `~value` on a narrow
+  integer still yields `int`, while `~9223372036854775807LL` preserves
+  `long long int` through semantic typing
 - arithmetic casts such as `_Float16 <-> int`, `_Float16 <-> long double`, and
   `long double <-> int` are now accepted through the shared conversion checker
   for the current supported scalar subset
@@ -191,6 +204,18 @@ The current implementation has a first batch of real semantic rules:
   `char * -> const char *` and `char * -> char * __restrict` are accepted for
   calls and assignments, while qualification-dropping conversions such as
   `const char * -> char *` are rejected
+- incompatible pointer assignments such as `unsigned int *dst = ...; dst = src;`
+  now produce semantic warnings instead of hard failures, matching the current
+  C-compatibility goal while still preserving hard errors for non-pointer
+  assignment mismatches
+- member expressions now merge top-level qualifiers from the containing object
+  onto the selected field type, so accesses such as `volatile struct S g;`
+  `&g.field` preserve the field's own qualifiers and the owning object's
+  `volatile` qualification through the semantic model
+- incompatible pointer returns such as `int *f(void) { unsigned int *p = ...;`
+  `return p; }` now produce semantic warnings instead of hard failures,
+  matching the current C-compatibility goal while still preserving hard errors
+  for non-pointer return mismatches
 - declaration analysis records symbols for functions, parameters, variables,
   constants, typedefs, structs, unions, enums, and enumerators
 - semantic type construction now includes `UnionSemanticType` for lowered

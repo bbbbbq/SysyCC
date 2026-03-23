@@ -58,6 +58,30 @@ includes:
   functions
 - IR/runtime coverage for string literals lowered through private LLVM globals
 - IR/runtime coverage for prefix and postfix increment expressions
+- preprocess/runtime coverage for csmith safe-math headers whose `#if`
+  branches depend on standard limit macros and builtin numeric macros
+- semantic/IR/runtime coverage for unary bitwise-not integer promotions,
+  including `long long` operands that must keep their widened result type
+- IR/runtime coverage for mixed signed/unsigned integer comparisons whose
+  usual arithmetic conversion changes comparison signedness without changing
+  the lowered LLVM storage width
+- IR/runtime coverage for typedef-backed 64-bit integer comparisons such as
+  `int64_t value = -1; value <= 0UL;`, which must still lower through
+  unsigned `i64` comparison semantics
+- IR/runtime coverage for narrow unsigned bit-field comparisons such as
+  `bits.value <= -1`, including comma-expression wrappers that must preserve
+  the bit-field width long enough for integer-promotion selection
+- semantic/runtime coverage for incompatible pointer assignments that must warn
+  without aborting compilation
+- semantic/runtime coverage for incompatible pointer returns that must warn
+  without aborting compilation
+- semantic/runtime coverage for `volatile struct` member address initializers,
+  including qualifier propagation from the owning aggregate onto the selected
+  field type
+- IR/runtime coverage for global and local union initializer lists, including
+  cases where the first initialized field is narrower than the union storage
+- IR/runtime coverage for aggregate assignment expressions used directly as
+  fixed-parameter call arguments
 - IR failure coverage for unsupported function bodies, which must now stop
   compilation with a diagnostic instead of being silently skipped
 
@@ -151,6 +175,7 @@ Representative paths:
 - [tests/preprocess/macro_redefinition_conflict](/Users/caojunze424/code/SysyCC/tests/preprocess/macro_redefinition_conflict)
 - [tests/preprocess/macro_redefinition_equivalent](/Users/caojunze424/code/SysyCC/tests/preprocess/macro_redefinition_equivalent)
 - [tests/preprocess/predefined_host_macros](/Users/caojunze424/code/SysyCC/tests/preprocess/predefined_host_macros)
+- [tests/preprocess/predefined_standard_limit_conditionals](/Users/caojunze424/code/SysyCC/tests/preprocess/predefined_standard_limit_conditionals)
 - [tests/preprocess/long_include_graph](/Users/caojunze424/code/SysyCC/tests/preprocess/long_include_graph)
 - [tests/preprocess/long_condition_matrix](/Users/caojunze424/code/SysyCC/tests/preprocess/long_condition_matrix)
 - [tests/preprocess/preprocess_error_location](/Users/caojunze424/code/SysyCC/tests/preprocess/preprocess_error_location)
@@ -303,6 +328,7 @@ AST lowering regressions, including:
 - builtin `long int` type lowering
 - builtin `long long int` type lowering
 - union declaration lowering
+- unary bitwise-not width preservation for promoted integer operands
 - declaration-only function prototype lowering
 - GNU-style function attribute lowering
 - pointers to forward-declared `struct` types
@@ -356,6 +382,7 @@ Semantic-analysis regressions, including:
 - variable-initializer type rules
 - unary/binary operand constraints
 - member-access validation
+- aggregate-member qualifier propagation
 - switch/case/default checks
 - constant-expression checks
 - pointer arithmetic and array decay
@@ -374,12 +401,16 @@ Semantic-analysis regressions, including:
 - builtin `long int` declaration types
 - builtin `long long int` declaration types
 - union declarations and union-member access through `.` / `->`
+- unary bitwise-not integer-promotion coverage across narrow and wide integer
+  operands
 - unnamed pointer prototype parameters
 - `const char *` prototype parameters
 - `volatile int * volatile` prototype parameters
 - pointer-side `restrict` prototype parameters
 - nullability-marked function-pointer parameter prototypes
 - qualification-preserving and qualification-dropping pointer call checks
+- incompatible pointer returns that must warn without aborting semantic
+  analysis
 - runtime pointer arithmetic through `pointer + integer`, `pointer - integer`,
   and `pointer - pointer`
 - variadic function calls with fixed-parameter semantic checking
@@ -404,6 +435,7 @@ Representative paths:
 - [tests/semantic/semantic_global_redeclaration](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_global_redeclaration)
 - [tests/semantic/semantic_float16_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_float16_type)
 - [tests/semantic/semantic_bootstrap_typedef_names](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_bootstrap_typedef_names)
+- [tests/semantic/semantic_unary_bitwise_not_integer_promotion](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_unary_bitwise_not_integer_promotion)
 - [tests/semantic/semantic_function_pointer_field](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_function_pointer_field)
 - [tests/semantic/semantic_duplicate_case](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_duplicate_case)
 - [tests/semantic/semantic_pointer_arithmetic](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_pointer_arithmetic)
@@ -428,6 +460,8 @@ Representative paths:
 - [tests/semantic/semantic_union_decl](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_union_decl)
 - [tests/semantic/semantic_unsupported_attribute](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_unsupported_attribute)
 - [tests/semantic/semantic_unnamed_parameter_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_unnamed_parameter_prototype)
+- [tests/semantic/semantic_incompatible_pointer_return_warning](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_incompatible_pointer_return_warning)
+- [tests/semantic/semantic_volatile_struct_member_address_initializer](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_volatile_struct_member_address_initializer)
 
 ### `tests/ir/`
 
@@ -455,6 +489,8 @@ IR-lowering regressions, including:
   promotions for extra operands
 - supported aggregate-return function definitions and comma-expression calls
   whose aggregate result is discarded
+- unary bitwise-not width preservation for `long long` operands
+- csmith safe-math preprocess parity for limit-macro-controlled helper bodies
 
 Representative paths:
 
@@ -475,6 +511,8 @@ Representative paths:
 - [tests/ir/ir_floating_comparison_and_condition](/Users/caojunze424/code/SysyCC/tests/ir/ir_floating_comparison_and_condition)
 - [tests/ir/ir_variadic_function_definition](/Users/caojunze424/code/SysyCC/tests/ir/ir_variadic_function_definition)
 - [tests/ir/ir_nullable_function_pointer_parameter_prototype](/Users/caojunze424/code/SysyCC/tests/ir/ir_nullable_function_pointer_parameter_prototype)
+- [tests/ir/ir_unary_bitwise_not_long_long](/Users/caojunze424/code/SysyCC/tests/ir/ir_unary_bitwise_not_long_long)
+- [tests/ir/ir_unsigned_bit_field_integer_promotion](/Users/caojunze424/code/SysyCC/tests/ir/ir_unsigned_bit_field_integer_promotion)
 
 ### `tests/run/`
 
@@ -491,8 +529,14 @@ runtime stub, feed stdin, and compare stdout, including:
 - floating comparisons and floating truthiness in control flow for the current
   supported runtime subset
 - variadic function calls where the callee only consumes fixed parameters
+- incompatible pointer returns that must warn while still lowering through IR
 - supported aggregate-return calls whose result is discarded before control
   continues with scalar work
+- csmith safe-math helper parity when preprocess-selected branches depend on
+  system-header numeric limit macros
+- unary bitwise-not runtime parity for `long long` operands
+- `volatile struct` member address initializers that must lower through
+  constant-address global initialization and runtime loads
 - fixed-size scalarized data-structure scenarios such as:
   - stack / queue / deque
   - ring buffer
@@ -524,6 +568,9 @@ Representative paths:
 - [tests/run/run_map_lookup](/Users/caojunze424/code/SysyCC/tests/run/run_map_lookup)
 - [tests/run/run_variadic_function_call](/Users/caojunze424/code/SysyCC/tests/run/run_variadic_function_call)
 - [tests/run/run_struct_return_call_expr](/Users/caojunze424/code/SysyCC/tests/run/run_struct_return_call_expr)
+- [tests/run/run_incompatible_pointer_return](/Users/caojunze424/code/SysyCC/tests/run/run_incompatible_pointer_return)
+- [tests/run/run_volatile_struct_member_address_initializer](/Users/caojunze424/code/SysyCC/tests/run/run_volatile_struct_member_address_initializer)
+- [tests/run/run_unsigned_bit_field_integer_promotion](/Users/caojunze424/code/SysyCC/tests/run/run_unsigned_bit_field_integer_promotion)
 - [tests/run/support/runtime_stub.c](/Users/caojunze424/code/SysyCC/tests/run/support/runtime_stub.c)
 
 Each runtime case also maintains its own `build/` directory under
@@ -543,8 +590,10 @@ The script accepts either:
 - `<count>`
 - `--generate-only <count>`
 
-and creates numbered case directories such as `tests/fuzz/001/`,
-`tests/fuzz/002/`, and so on.
+It appends new cases after the highest existing numeric case directory under
+`tests/fuzz/`. For example, if `tests/fuzz/005/` already exists, running the
+script with `10` creates `006/` through `015/` instead of overwriting
+`001/` through `010/`.
 
 By default it invokes the locally built Csmith binary at
 `tools/csmith/build/src/csmith`, generates one C source file named
@@ -563,13 +612,22 @@ headers it transitively includes. Each numbered directory then contains:
 When `--generate-only` is used, the same numbered directories are created but
 only `fuzz_<id>.c` is generated.
 
+For testing or local automation, the script also honors these environment
+overrides:
+
+- `SYSYCC_FUZZ_CASE_ROOT`: alternate case-output directory
+- `SYSYCC_CSMITH_BIN`: alternate `csmith` executable path
+- `SYSYCC_CLANG_BIN`: alternate `clang` executable name/path
+- `SYSYCC_CSMITH_RUNTIME_DIR`: alternate Csmith runtime include directory
+- `SYSYCC_CSMITH_BUILD_RUNTIME_DIR`: alternate built-runtime include directory
+
 Example with generation only:
 
 ```bash
 bash tests/fuzz/generate_and_build_csmith_cases.sh --generate-only 3
 ```
 
-This produces:
+In an empty `tests/fuzz/` workspace this produces:
 
 ```text
 tests/fuzz/001/fuzz_001.c
@@ -583,7 +641,7 @@ Example with generation and compilation:
 bash tests/fuzz/generate_and_build_csmith_cases.sh 2
 ```
 
-This produces:
+In an empty `tests/fuzz/` workspace this produces:
 
 ```text
 tests/fuzz/001/fuzz_001.c
@@ -592,15 +650,46 @@ tests/fuzz/002/fuzz_002.c
 tests/fuzz/002/fuzz_002.out
 ```
 
+Example with incremental numbering from an existing local workspace:
+
+```bash
+bash tests/fuzz/generate_and_build_csmith_cases.sh 10
+```
+
+If `tests/fuzz/005/` already exists, this appends:
+
+```text
+tests/fuzz/006/fuzz_006.c
+tests/fuzz/006/fuzz_006.out
+...
+tests/fuzz/015/fuzz_015.c
+tests/fuzz/015/fuzz_015.out
+```
+
 Generated numbered directories under `tests/fuzz/` are ignored by Git so the
 script can be used as a local fuzz-input workspace.
 
+A dedicated script regression now also covers this incremental numbering
+behavior:
+
+- [tests/fuzz/generate_and_build_csmith_cases_incremental](/Users/caojunze424/code/SysyCC/tests/fuzz/generate_and_build_csmith_cases_incremental)
+
 `run_csmith_cases.sh` executes generated fuzz cases as a differential test
 between the host toolchain and `SysyCC`, then archives all intermediate results
-per numbered directory. It supports:
+per numbered directory. It runs the requested cases in parallel by default,
+using the detected logical CPU count unless `RUN_FUZZ_JOBS` overrides it, and
+prints a simple completed-case progress line while workers finish. It supports:
 
 - `all` to run every numbered case directory under `tests/fuzz/`
+- no arguments to run every numbered case directory under `tests/fuzz/`
 - one or more specific case ids such as `001` or `1 4 7`
+- either plain decimal or zero-padded case ids such as `8` and `008`
+
+Numbered case discovery now accepts any pure-decimal directory name and sorts
+them numerically, so mixed-width layouts such as
+`001 ... 200 0201 ... 0999 1000 ... 1200` are all included by `all` and by the
+empty-argument default. Explicit decimal requests are resolved back to the
+existing on-disk directory name, so `201` correctly selects `0201`.
 
 For each requested case, the script:
 
@@ -613,7 +702,8 @@ For each requested case, the script:
 6. compares stdout, stderr, and exit code
 
 If `SysyCC` compilation fails, the script keeps the compiler error output in the
-same case directory and records the failure in a top-level summary file:
+same case directory and records the run in a Markdown summary file that also
+captures run metadata plus per-status totals:
 
 - [tests/fuzz/result.md](/Users/caojunze424/code/SysyCC/tests/fuzz/result.md)
 
@@ -655,15 +745,26 @@ on the copied `.preprocessed.sy`, `.tokens.txt`, `.parse.txt`, `.ast.txt`, and
 - `failure`: print the report only for non-`MATCH` outcomes
 - `always`: print the report for every requested case
 
+Additional environment:
+
+- `RUN_FUZZ_JOBS=<n>`: override automatic logical-CPU parallelism
+- `SYSYCC_FUZZ_RESULT_FILE=<path>`: write the Markdown report to a custom file
+- `SYSYCC_FUZZ_CASE_ROOT=<dir>`: override the fuzz case root directory
+
 `never` is the default mode.
 
 Example:
 
 ```bash
+bash tests/fuzz/run_csmith_cases.sh
 bash tests/fuzz/run_csmith_cases.sh 001
 bash tests/fuzz/run_csmith_cases.sh all
 PRINT_INTERMEDIATE_MODE=always bash tests/fuzz/run_csmith_cases.sh 001
 ```
+
+Representative script regression:
+
+- [tests/fuzz/run_csmith_cases_multi_width_ids](/Users/caojunze424/code/SysyCC/tests/fuzz/run_csmith_cases_multi_width_ids)
 
 ### `tests/ir/`
 
@@ -749,3 +850,9 @@ The same dedicated-assertion path is also used for `tests/run/`, because those
 cases validate executable stdout instead of only checking intermediate artifacts.
 Their per-case `build/` directories provide a stable place to inspect the
 runtime-focused intermediate files after a test run.
+
+Parser-, AST-, and semantic-focused regression scripts now commonly invoke
+`SysyCC` with `--stop-after=parse`, `--stop-after=ast`, or
+`--stop-after=semantic` so those tests can validate the intended stage without
+being blocked by fail-fast IR diagnostics from intentionally unsupported later
+constructs.
