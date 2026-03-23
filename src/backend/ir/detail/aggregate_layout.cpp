@@ -294,10 +294,30 @@ std::string get_llvm_type_name(const SemanticType *type) {
     }
 
     if (type->get_kind() == SemanticTypeKind::Union) {
-        return "[" + std::to_string(get_type_size(type)) + " x i8]";
+        const auto *union_type = static_cast<const UnionSemanticType *>(type);
+        for (const auto &field : union_type->get_fields()) {
+            if (field.get_name().empty()) {
+                continue;
+            }
+            return get_padded_storage_llvm_type_name(
+                field.get_type(), get_type_size(type));
+        }
+        return "{}";
     }
 
     return "void";
+}
+
+std::string get_padded_storage_llvm_type_name(const SemanticType *type,
+                                              std::size_t total_size) {
+    const std::string base_type_name = get_llvm_type_name(type);
+    const std::size_t base_size = get_type_size(type);
+    if (base_size >= total_size) {
+        return base_type_name;
+    }
+
+    return "{ " + base_type_name + ", [" +
+           std::to_string(total_size - base_size) + " x i8] }";
 }
 
 std::size_t get_type_alignment(const SemanticType *type) {

@@ -215,6 +215,13 @@ std::size_t get_type_size(const SemanticType *type) {
 
 } // namespace
 
+std::ostringstream &LlvmIrBackend::get_instruction_stream() {
+    if (is_emitting_function_) {
+        return function_body_;
+    }
+    return output_;
+}
+
 IrKind LlvmIrBackend::get_kind() const noexcept { return IrKind::LLVM; }
 
 void LlvmIrBackend::begin_module() {
@@ -224,12 +231,17 @@ void LlvmIrBackend::begin_module() {
     declarations_.clear();
     output_.str("");
     output_.clear();
+    function_entry_allocas_.str("");
+    function_entry_allocas_.clear();
+    function_body_.str("");
+    function_body_.clear();
     ir_context_.reset();
     address_counts_.clear();
     declared_function_signatures_.clear();
     declared_globals_.clear();
     defined_globals_.clear();
     string_literal_globals_.clear();
+    is_emitting_function_ = false;
 
     const std::string target_triple = get_default_target_triple();
     const std::string target_datalayout = get_default_target_datalayout();
@@ -265,6 +277,15 @@ void LlvmIrBackend::define_global(const std::string &name,
                                   const SemanticType *type,
                                   const std::string &initializer_text,
                                   bool is_internal_linkage) {
+    define_raw_global(name, get_llvm_type_name(type), initializer_text,
+                      is_internal_linkage, 0);
+}
+
+void LlvmIrBackend::define_raw_global(const std::string &name,
+                                      const std::string &llvm_type_text,
+                                      const std::string &initializer_text,
+                                      bool is_internal_linkage,
+                                      std::size_t explicit_alignment) {
     if (defined_globals_.find(name) != defined_globals_.end()) {
         return;
     }
@@ -272,8 +293,26 @@ void LlvmIrBackend::define_global(const std::string &name,
     declared_globals_.erase(name);
     declarations_ << "@" << name << " = "
                   << (is_internal_linkage ? "internal " : "") << "global "
-                  << get_llvm_type_name(type)
-                  << " " << initializer_text << "\n";
+                  << llvm_type_text << " " << initializer_text;
+    if (explicit_alignment > 0) {
+        declarations_ << ", align " << explicit_alignment;
+    }
+    declarations_ << "\n";
+}
+
+void LlvmIrBackend::define_global_alias(const std::string &name,
+                                        const std::string &llvm_type_text,
+                                        const std::string &target_name,
+                                        bool is_internal_linkage) {
+    if (defined_globals_.find(name) != defined_globals_.end()) {
+        return;
+    }
+    defined_globals_.insert(name);
+    declared_globals_.erase(name);
+    declarations_ << "@" << name << " = "
+                  << (is_internal_linkage ? "internal " : "")
+                  << "alias " << llvm_type_text << ", ptr @" << target_name
+                  << "\n";
 }
 
 void LlvmIrBackend::declare_function(
@@ -329,6 +368,12 @@ void LlvmIrBackend::begin_function(const std::string &name,
                                    const std::vector<IRFunctionAttribute>
                                        &attributes,
                                    bool is_internal_linkage) {
+    function_entry_allocas_.str("");
+    function_entry_allocas_.clear();
+    function_body_.str("");
+    function_body_.clear();
+    is_emitting_function_ = true;
+
     output_ << "define " << (is_internal_linkage ? "internal " : "")
             << get_llvm_type_name(return_type) << " @" << name
             << "(";
@@ -355,7 +400,16 @@ void LlvmIrBackend::begin_function(const std::string &name,
     output_ << "entry:\n";
 }
 
-void LlvmIrBackend::end_function() { output_ << "}\n"; }
+void LlvmIrBackend::end_function() {
+    output_ << function_entry_allocas_.str();
+    output_ << function_body_.str();
+    output_ << "}\n";
+    function_entry_allocas_.str("");
+    function_entry_allocas_.clear();
+    function_body_.str("");
+    function_body_.clear();
+    is_emitting_function_ = false;
+}
 
 std::string LlvmIrBackend::create_label(const std::string &hint) {
     const std::string base = hint.empty() ? "label" : hint;
@@ -363,36 +417,37 @@ std::string LlvmIrBackend::create_label(const std::string &hint) {
 }
 
 void LlvmIrBackend::emit_label(const std::string &label) {
-    output_ << label << ":\n";
+    get_instruction_stream() << label << ":\n";
 }
 
 void LlvmIrBackend::emit_branch(const std::string &target_label) {
-    output_ << "  br label %" << target_label << "\n";
+    get_instruction_stream() << "  br label %" << target_label << "\n";
 }
 
 void LlvmIrBackend::emit_cond_branch(const IRValue &condition,
                                      const std::string &true_label,
                                      const std::string &false_label) {
+    auto &stream = get_instruction_stream();
     std::string condition_text = condition.text;
     if (condition.type != nullptr && get_llvm_type_name(condition.type) != "i1") {
         const std::string lowered_condition = ir_context_.get_temp_name();
         if (is_floating_llvm_type_name(get_llvm_type_name(condition.type))) {
-            output_ << "  " << lowered_condition << " = fcmp une "
-                    << get_llvm_type_name(condition.type) << " "
-                    << condition.text << ", 0.0\n";
+            stream << "  " << lowered_condition << " = fcmp une "
+                   << get_llvm_type_name(condition.type) << " "
+                   << condition.text << ", 0.0\n";
         } else if (is_pointer_type(condition.type)) {
-            output_ << "  " << lowered_condition << " = icmp ne ptr "
-                    << condition.text << ", null\n";
+            stream << "  " << lowered_condition << " = icmp ne ptr "
+                   << condition.text << ", null\n";
         } else {
-            output_ << "  " << lowered_condition << " = icmp ne "
-                    << get_llvm_type_name(condition.type) << " "
-                    << condition.text << ", 0\n";
+            stream << "  " << lowered_condition << " = icmp ne "
+                   << get_llvm_type_name(condition.type) << " "
+                   << condition.text << ", 0\n";
         }
         condition_text = lowered_condition;
     }
 
-    output_ << "  br i1 " << condition_text << ", label %" << true_label
-            << ", label %" << false_label << "\n";
+    stream << "  br i1 " << condition_text << ", label %" << true_label
+           << ", label %" << false_label << "\n";
 }
 
 IRValue LlvmIrBackend::emit_integer_literal(int value) {
@@ -427,9 +482,9 @@ IRValue LlvmIrBackend::emit_string_literal(const std::string &value_text,
     }
 
     const std::string result = ir_context_.get_temp_name();
-    output_ << "  " << result << " = getelementptr inbounds ["
-            << (decoded_text.size() + 1) << " x i8], ptr @" << global_name
-            << ", i32 0, i32 0\n";
+    get_instruction_stream() << "  " << result << " = getelementptr inbounds ["
+                             << (decoded_text.size() + 1) << " x i8], ptr @"
+                             << global_name << ", i32 0, i32 0\n";
     return {result, type};
 }
 
@@ -441,8 +496,8 @@ std::string LlvmIrBackend::emit_alloca(const std::string &name,
     ++count;
 
     const std::string address = "%" + sanitized_name + ".addr" + suffix;
-    output_ << "  " << address << " = alloca " << get_llvm_type_name(type)
-            << "\n";
+    function_entry_allocas_ << "  " << address << " = alloca "
+                            << get_llvm_type_name(type) << "\n";
     return address;
 }
 
@@ -457,16 +512,17 @@ std::string LlvmIrBackend::emit_member_address(const std::string &base_address,
         return "";
     }
     const std::string result = ir_context_.get_temp_name();
+    auto &stream = get_instruction_stream();
     if (owner_type != nullptr && owner_type->get_kind() == SemanticTypeKind::Struct) {
-        output_ << "  " << result << " = getelementptr inbounds "
-                << get_llvm_type_name(owner_type) << ", ptr " << base_address
-                << ", i32 0, i32 " << field_layout->llvm_element_index << "\n";
+        stream << "  " << result << " = getelementptr inbounds "
+               << get_llvm_type_name(owner_type) << ", ptr " << base_address
+               << ", i32 0, i32 " << field_layout->llvm_element_index << "\n";
         return result;
     }
 
     if (owner_type != nullptr && owner_type->get_kind() == SemanticTypeKind::Union) {
-        output_ << "  " << result << " = bitcast ptr " << base_address
-                << " to ptr\n";
+        stream << "  " << result << " = bitcast ptr " << base_address
+               << " to ptr\n";
         return result;
     }
 
@@ -481,10 +537,11 @@ std::string LlvmIrBackend::emit_element_address(const std::string &base_address,
     }
 
     const std::string result = ir_context_.get_temp_name();
-    output_ << "  " << result << " = getelementptr inbounds "
-            << get_llvm_type_name(element_type) << ", ptr " << base_address
-            << ", " << get_llvm_type_name(index_value.type) << " "
-            << index_value.text << "\n";
+    get_instruction_stream() << "  " << result << " = getelementptr inbounds "
+                             << get_llvm_type_name(element_type) << ", ptr "
+                             << base_address << ", "
+                             << get_llvm_type_name(index_value.type) << " "
+                             << index_value.text << "\n";
     return result;
 }
 
@@ -505,15 +562,16 @@ IRValue LlvmIrBackend::emit_pointer_difference(const IRValue &lhs_pointer,
     const std::string rhs_int = ir_context_.get_temp_name();
     const std::string diff_int = ir_context_.get_temp_name();
     const std::string elems_int = ir_context_.get_temp_name();
+    auto &stream = get_instruction_stream();
 
-    output_ << "  " << lhs_int << " = ptrtoint ptr " << lhs_pointer.text
-            << " to i64\n";
-    output_ << "  " << rhs_int << " = ptrtoint ptr " << rhs_pointer.text
-            << " to i64\n";
-    output_ << "  " << diff_int << " = sub i64 " << lhs_int << ", " << rhs_int
-            << "\n";
-    output_ << "  " << elems_int << " = sdiv i64 " << diff_int << ", "
-            << pointee_size << "\n";
+    stream << "  " << lhs_int << " = ptrtoint ptr " << lhs_pointer.text
+           << " to i64\n";
+    stream << "  " << rhs_int << " = ptrtoint ptr " << rhs_pointer.text
+           << " to i64\n";
+    stream << "  " << diff_int << " = sub i64 " << lhs_int << ", " << rhs_int
+           << "\n";
+    stream << "  " << elems_int << " = sdiv i64 " << diff_int << ", "
+           << pointee_size << "\n";
 
     const std::string result_type_name = get_llvm_type_name(result_type);
     if (result_type_name == "i64") {
@@ -521,8 +579,8 @@ IRValue LlvmIrBackend::emit_pointer_difference(const IRValue &lhs_pointer,
     }
     if (result_type_name == "i32") {
         const std::string truncated = ir_context_.get_temp_name();
-        output_ << "  " << truncated << " = trunc i64 " << elems_int
-                << " to i32\n";
+        stream << "  " << truncated << " = trunc i64 " << elems_int
+               << " to i32\n";
         return {truncated, result_type};
     }
     return {"", result_type};
@@ -530,21 +588,24 @@ IRValue LlvmIrBackend::emit_pointer_difference(const IRValue &lhs_pointer,
 
 void LlvmIrBackend::emit_store(const std::string &address,
                                const IRValue &value) {
-    output_ << "  store " << get_llvm_type_name(value.type) << " "
-            << value.text << ", ptr " << address << "\n";
+    get_instruction_stream() << "  store " << get_llvm_type_name(value.type)
+                             << " " << value.text << ", ptr " << address
+                             << "\n";
 }
 
 IRValue LlvmIrBackend::emit_load(const std::string &address,
                                  const SemanticType *type) {
     const std::string result = ir_context_.get_temp_name();
-    output_ << "  " << result << " = load " << get_llvm_type_name(type)
-            << ", ptr " << address << "\n";
+    get_instruction_stream() << "  " << result << " = load "
+                             << get_llvm_type_name(type) << ", ptr "
+                             << address << "\n";
     return {result, type};
 }
 
 IRValue LlvmIrBackend::emit_binary(const std::string &op, const IRValue &lhs,
                                    const IRValue &rhs,
                                    const SemanticType *result_type) {
+    auto &stream = get_instruction_stream();
     std::string llvm_opcode;
     bool is_comparison = false;
     detail::IntegerConversionService integer_conversion_service;
@@ -605,9 +666,9 @@ IRValue LlvmIrBackend::emit_binary(const std::string &op, const IRValue &lhs,
 
     const std::string result = ir_context_.get_temp_name();
     if (!is_comparison) {
-        output_ << "  " << result << " = " << llvm_opcode << " "
-                << get_llvm_type_name(result_type) << " " << lhs.text << ", "
-                << rhs.text << "\n";
+        stream << "  " << result << " = " << llvm_opcode << " "
+               << get_llvm_type_name(result_type) << " " << lhs.text << ", "
+               << rhs.text << "\n";
         return {result, result_type};
     }
 
@@ -624,11 +685,11 @@ IRValue LlvmIrBackend::emit_binary(const std::string &op, const IRValue &lhs,
             rhs_operand = "null";
         }
     }
-    output_ << "  " << comparison << " = " << llvm_opcode << " "
-            << comparison_type_name << " " << lhs_operand << ", "
-            << rhs_operand << "\n";
-    output_ << "  " << result << " = zext i1 " << comparison << " to "
-            << get_llvm_type_name(result_type) << "\n";
+    stream << "  " << comparison << " = " << llvm_opcode << " "
+           << comparison_type_name << " " << lhs_operand << ", "
+           << rhs_operand << "\n";
+    stream << "  " << result << " = zext i1 " << comparison << " to "
+           << get_llvm_type_name(result_type) << "\n";
     return {result, result_type};
 }
 
@@ -651,6 +712,7 @@ IRValue LlvmIrBackend::emit_cast(const IRValue &value,
     }
 
     const std::string result = ir_context_.get_temp_name();
+    auto &stream = get_instruction_stream();
     const auto source_float_rank = get_floating_type_rank(value.type);
     const auto target_float_rank = get_floating_type_rank(target_type);
     const auto source_integer_info =
@@ -662,44 +724,44 @@ IRValue LlvmIrBackend::emit_cast(const IRValue &value,
 
     if (source_unqualified != nullptr && target_integer_info.has_value() &&
         source_unqualified->get_kind() == SemanticTypeKind::Pointer) {
-        output_ << "  " << result << " = ptrtoint ptr " << value.text << " to "
-                << target_type_name << "\n";
+        stream << "  " << result << " = ptrtoint ptr " << value.text << " to "
+               << target_type_name << "\n";
         return {result, target_type};
     }
 
     if (source_integer_info.has_value() && target_unqualified != nullptr &&
         target_unqualified->get_kind() == SemanticTypeKind::Pointer) {
-        output_ << "  " << result << " = inttoptr " << source_type_name << " "
-                << value.text << " to ptr\n";
+        stream << "  " << result << " = inttoptr " << source_type_name << " "
+               << value.text << " to ptr\n";
         return {result, target_type};
     }
 
     if (source_float_rank.has_value() && target_float_rank.has_value()) {
         if (*source_float_rank < *target_float_rank) {
-            output_ << "  " << result << " = fpext " << source_type_name << " "
-                    << value.text << " to " << target_type_name << "\n";
+            stream << "  " << result << " = fpext " << source_type_name
+                   << " " << value.text << " to " << target_type_name << "\n";
             return {result, target_type};
         }
-        output_ << "  " << result << " = fptrunc " << source_type_name << " "
-                << value.text << " to " << target_type_name << "\n";
+        stream << "  " << result << " = fptrunc " << source_type_name << " "
+               << value.text << " to " << target_type_name << "\n";
         return {result, target_type};
     }
 
     if (source_integer_info.has_value() && target_float_rank.has_value()) {
         const char *opcode = source_integer_info->get_is_signed() ? "sitofp"
                                                                  : "uitofp";
-        output_ << "  " << result << " = " << opcode << " "
-                << source_type_name << " " << value.text << " to "
-                << target_type_name << "\n";
+        stream << "  " << result << " = " << opcode << " "
+               << source_type_name << " " << value.text << " to "
+               << target_type_name << "\n";
         return {result, target_type};
     }
 
     if (source_float_rank.has_value() && target_integer_info.has_value()) {
         const char *opcode = target_integer_info->get_is_signed() ? "fptosi"
                                                                  : "fptoui";
-        output_ << "  " << result << " = " << opcode << " "
-                << source_type_name << " " << value.text << " to "
-                << target_type_name << "\n";
+        stream << "  " << result << " = " << opcode << " "
+               << source_type_name << " " << value.text << " to "
+               << target_type_name << "\n";
         return {result, target_type};
     }
 
@@ -717,19 +779,20 @@ IRValue LlvmIrBackend::emit_integer_conversion(
     }
 
     const std::string result = ir_context_.get_temp_name();
+    auto &stream = get_instruction_stream();
     if (conversion_kind == detail::IntegerConversionKind::Truncate) {
-        output_ << "  " << result << " = trunc " << source_type_name << " "
-                << value.text << " to " << target_type_name << "\n";
+        stream << "  " << result << " = trunc " << source_type_name << " "
+               << value.text << " to " << target_type_name << "\n";
         return {result, target_type};
     }
     if (conversion_kind == detail::IntegerConversionKind::SignExtend) {
-        output_ << "  " << result << " = sext " << source_type_name << " "
-                << value.text << " to " << target_type_name << "\n";
+        stream << "  " << result << " = sext " << source_type_name << " "
+               << value.text << " to " << target_type_name << "\n";
         return {result, target_type};
     }
     if (conversion_kind == detail::IntegerConversionKind::ZeroExtend) {
-        output_ << "  " << result << " = zext " << source_type_name << " "
-                << value.text << " to " << target_type_name << "\n";
+        stream << "  " << result << " = zext " << source_type_name << " "
+               << value.text << " to " << target_type_name << "\n";
         return {result, target_type};
     }
 
@@ -742,6 +805,7 @@ IRValue LlvmIrBackend::emit_call(const std::string &callee,
                                  const std::vector<const SemanticType *>
                                      &parameter_types,
                                  bool is_variadic) {
+    auto &stream = get_instruction_stream();
     const std::string return_type_name = get_llvm_type_name(return_type);
     std::ostringstream callee_signature;
     if (is_variadic) {
@@ -761,37 +825,39 @@ IRValue LlvmIrBackend::emit_call(const std::string &callee,
     }
 
     if (return_type_name == "void") {
-        output_ << "  call " << callee_signature.str() << "(";
+        stream << "  call " << callee_signature.str() << "(";
         for (std::size_t index = 0; index < arguments.size(); ++index) {
             if (index > 0) {
-                output_ << ", ";
+                stream << ", ";
             }
-            output_ << get_llvm_type_name(arguments[index].type) << " "
-                    << arguments[index].text;
+            stream << get_llvm_type_name(arguments[index].type) << " "
+                   << arguments[index].text;
         }
-        output_ << ")\n";
+        stream << ")\n";
         return {"", return_type};
     }
 
     const std::string result = ir_context_.get_temp_name();
-    output_ << "  " << result << " = call " << callee_signature.str() << "(";
+    stream << "  " << result << " = call " << callee_signature.str() << "(";
     for (std::size_t index = 0; index < arguments.size(); ++index) {
         if (index > 0) {
-            output_ << ", ";
+            stream << ", ";
         }
-        output_ << get_llvm_type_name(arguments[index].type) << " "
-                << arguments[index].text;
+        stream << get_llvm_type_name(arguments[index].type) << " "
+               << arguments[index].text;
     }
-    output_ << ")\n";
+    stream << ")\n";
     return {result, return_type};
 }
 
 void LlvmIrBackend::emit_return(const IRValue &value) {
-    output_ << "  ret " << get_llvm_type_name(value.type) << " " << value.text
-            << "\n";
+    get_instruction_stream() << "  ret " << get_llvm_type_name(value.type)
+                             << " " << value.text << "\n";
 }
 
-void LlvmIrBackend::emit_return_void() { output_ << "  ret void\n"; }
+void LlvmIrBackend::emit_return_void() {
+    get_instruction_stream() << "  ret void\n";
+}
 
 std::string LlvmIrBackend::get_output_text() const {
     const std::string header_text = module_header_.str();

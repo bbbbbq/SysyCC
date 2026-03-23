@@ -152,6 +152,32 @@ bool is_supported_array_storage_type(const SemanticType *type) {
     return is_supported_storage_type(array_type->get_element_type());
 }
 
+bool is_supported_extern_incomplete_array_type(const SemanticType *type) {
+    type = strip_qualifiers(type);
+    if (type == nullptr || type->get_kind() != SemanticTypeKind::Array) {
+        return false;
+    }
+
+    const auto *array_type = static_cast<const ArraySemanticType *>(type);
+    const auto &dimensions = array_type->get_dimensions();
+    if (dimensions.empty()) {
+        return false;
+    }
+
+    bool saw_incomplete_dimension = false;
+    for (int dimension : dimensions) {
+        if (dimension < 0) {
+            return false;
+        }
+        if (dimension == 0) {
+            saw_incomplete_dimension = true;
+        }
+    }
+
+    return saw_incomplete_dimension &&
+           is_supported_storage_type(array_type->get_element_type());
+}
+
 bool is_supported_aggregate_storage_type(const SemanticType *type) {
     type = strip_qualifiers(type);
     if (type == nullptr) {
@@ -160,7 +186,7 @@ bool is_supported_aggregate_storage_type(const SemanticType *type) {
     if (type->get_kind() == SemanticTypeKind::Struct) {
         const auto *struct_type = static_cast<const StructSemanticType *>(type);
         for (const auto &field : struct_type->get_fields()) {
-            if (!is_supported_scalar_storage_type(field.get_type())) {
+            if (!is_supported_storage_type(field.get_type())) {
                 return false;
             }
         }
@@ -169,7 +195,7 @@ bool is_supported_aggregate_storage_type(const SemanticType *type) {
     if (type->get_kind() == SemanticTypeKind::Union) {
         const auto *union_type = static_cast<const UnionSemanticType *>(type);
         for (const auto &field : union_type->get_fields()) {
-            if (!is_supported_scalar_storage_type(field.get_type())) {
+            if (!is_supported_storage_type(field.get_type())) {
                 return false;
             }
         }
@@ -267,8 +293,92 @@ std::string get_compound_assignment_binary_operator(const std::string &op) {
 std::optional<IRValue> coerce_ir_value(IRBackend &backend, const IRValue &value,
                                        const SemanticType *target_type);
 
+const SemanticType *get_member_owner_type(const SemanticType *type,
+                                          const std::string &op);
+
+bool get_member_info(const SemanticType *owner_type,
+                     const std::string &member_name, std::size_t &field_index,
+                     const SemanticType *&field_type);
+
+const SemanticType *get_usual_arithmetic_conversion_type(
+    const CompilerContext &context, const Expr *lhs_expr,
+    const SemanticType *lhs_type, const Expr *rhs_expr,
+    const SemanticType *rhs_type);
+
 const SemanticType *get_usual_arithmetic_conversion_type(
     const CompilerContext &context, const SemanticType *lhs_type,
+    const SemanticType *rhs_type) {
+    return get_usual_arithmetic_conversion_type(context, nullptr, lhs_type,
+                                                nullptr, rhs_type);
+}
+
+std::optional<int> get_bit_field_width_for_expr(const CompilerContext &context,
+                                                const Expr *expr) {
+    if (expr == nullptr) {
+        return std::nullopt;
+    }
+
+    if (expr->get_kind() == AstKind::MemberExpr) {
+        const auto *member_expr = static_cast<const MemberExpr *>(expr);
+        const SemanticType *owner_type =
+            get_member_owner_type(get_node_type(context, member_expr->get_base()),
+                                  member_expr->get_operator_text());
+        std::size_t field_index = 0;
+        const SemanticType *field_type = nullptr;
+        if (!get_member_info(owner_type, member_expr->get_member_name(),
+                             field_index, field_type)) {
+            return std::nullopt;
+        }
+
+        const auto field_layout =
+            detail::get_aggregate_field_layout(owner_type, field_index);
+        if (!field_layout.has_value() || !field_layout->is_bit_field) {
+            return std::nullopt;
+        }
+        return static_cast<int>(field_layout->bit_width);
+    }
+
+    if (expr->get_kind() == AstKind::BinaryExpr) {
+        const auto *binary_expr = static_cast<const BinaryExpr *>(expr);
+        if (binary_expr->get_operator_text() == ",") {
+            return get_bit_field_width_for_expr(context, binary_expr->get_rhs());
+        }
+        return std::nullopt;
+    }
+
+    if (expr->get_kind() == AstKind::AssignExpr) {
+        const auto *assign_expr = static_cast<const AssignExpr *>(expr);
+        return get_bit_field_width_for_expr(context, assign_expr->get_target());
+    }
+
+    if (expr->get_kind() == AstKind::PrefixExpr) {
+        const auto *prefix_expr = static_cast<const PrefixExpr *>(expr);
+        return get_bit_field_width_for_expr(context, prefix_expr->get_operand());
+    }
+
+    if (expr->get_kind() == AstKind::PostfixExpr) {
+        const auto *postfix_expr = static_cast<const PostfixExpr *>(expr);
+        return get_bit_field_width_for_expr(context, postfix_expr->get_operand());
+    }
+
+    if (expr->get_kind() == AstKind::ConditionalExpr) {
+        const auto *conditional_expr = static_cast<const ConditionalExpr *>(expr);
+        const auto true_width =
+            get_bit_field_width_for_expr(context, conditional_expr->get_true_expr());
+        const auto false_width = get_bit_field_width_for_expr(
+            context, conditional_expr->get_false_expr());
+        if (true_width.has_value() && false_width.has_value() &&
+            *true_width == *false_width) {
+            return true_width;
+        }
+    }
+
+    return std::nullopt;
+}
+
+const SemanticType *get_usual_arithmetic_conversion_type(
+    const CompilerContext &context, const Expr *lhs_expr,
+    const SemanticType *lhs_type, const Expr *rhs_expr,
     const SemanticType *rhs_type) {
     const SemanticModel *semantic_model = get_semantic_model(context);
     if (semantic_model == nullptr || lhs_type == nullptr || rhs_type == nullptr) {
@@ -282,11 +392,22 @@ const SemanticType *get_usual_arithmetic_conversion_type(
         !conversion_checker.is_arithmetic_type(rhs_type)) {
         return nullptr;
     }
+    detail::IntegerConversionService integer_conversion_service;
+    if (const SemanticType *converted =
+            integer_conversion_service.get_usual_arithmetic_conversion_type(
+                lhs_type, get_bit_field_width_for_expr(context, lhs_expr),
+                rhs_type, get_bit_field_width_for_expr(context, rhs_expr),
+                const_cast<SemanticModel &>(*semantic_model));
+        converted != nullptr) {
+        return converted;
+    }
     return conversion_checker.get_usual_arithmetic_conversion_type(
         lhs_type, rhs_type, const_cast<SemanticModel &>(*semantic_model));
 }
 
-const SemanticType *get_variadic_promotion_type(const SemanticType *type) {
+const SemanticType *get_variadic_promotion_type(const CompilerContext &context,
+                                                const Expr *expr,
+                                                const SemanticType *type) {
     type = strip_qualifiers(type);
     if (type == nullptr) {
         return nullptr;
@@ -303,16 +424,31 @@ const SemanticType *get_variadic_promotion_type(const SemanticType *type) {
         return type;
     }
 
-    if (type_info->get_rank() < 3) {
-        static BuiltinSemanticType int_type("int");
-        return &int_type;
+    const SemanticModel *semantic_model = get_semantic_model(context);
+    if (semantic_model == nullptr) {
+        if (type_info->get_rank() < 3) {
+            static BuiltinSemanticType int_type("int");
+            return &int_type;
+        }
+        return type;
+    }
+
+    if (const SemanticType *promotion_type =
+            integer_conversion_service.get_integer_promotion_type(
+                type, get_bit_field_width_for_expr(context, expr),
+                const_cast<SemanticModel &>(*semantic_model));
+        promotion_type != nullptr) {
+        return promotion_type;
     }
     return type;
 }
 
 std::optional<IRValue> coerce_variadic_argument(IRBackend &backend,
+                                                const CompilerContext &context,
+                                                const Expr *expr,
                                                 const IRValue &value) {
-    const SemanticType *promotion_type = get_variadic_promotion_type(value.type);
+    const SemanticType *promotion_type =
+        get_variadic_promotion_type(context, expr, value.type);
     if (promotion_type == nullptr) {
         return std::nullopt;
     }
@@ -390,7 +526,9 @@ std::optional<IRValue> build_compound_assignment_result(
     if (binary_operator == "+" || binary_operator == "-" ||
         binary_operator == "*" || binary_operator == "/") {
         const SemanticType *arithmetic_type =
-            get_usual_arithmetic_conversion_type(context, lhs_type, rhs_type);
+            get_usual_arithmetic_conversion_type(
+                context, assign_expr->get_target(), lhs_type,
+                assign_expr->get_value(), rhs_type);
         if (arithmetic_type != nullptr) {
             operation_type = arithmetic_type;
         }
@@ -618,6 +756,11 @@ struct GlobalEmissionInfo {
     const VarDecl *initialized_definition = nullptr;
 };
 
+struct UnionFirstNamedFieldInfo {
+    std::size_t field_index = 0;
+    const SemanticFieldInfo *field = nullptr;
+};
+
 std::optional<IRValue> build_expr(IRBackend &backend,
                                   const CompilerContext &context,
                                   EmissionState &state, const Expr *expr);
@@ -646,6 +789,14 @@ std::optional<std::string> build_global_initializer_text(
 std::optional<std::string> build_global_initializer_text_for_expr(
     const CompilerContext &context, const Expr *initializer,
     const SemanticType *target_type);
+std::optional<std::string> build_global_backing_initializer_text_for_expr(
+    const CompilerContext &context, const Expr *initializer,
+    const SemanticType *target_type);
+std::string build_padded_storage_initializer_text(
+    const std::string &base_type_name, const std::string &initializer_text,
+    std::size_t base_size, std::size_t total_size);
+std::optional<UnionFirstNamedFieldInfo>
+get_first_named_union_field(const SemanticType *target_type);
 std::string get_symbol_ir_name(const SemanticSymbol *symbol);
 
 std::optional<IRValue> load_lvalue_value(IRBackend &backend,
@@ -780,8 +931,14 @@ std::optional<IRValue> store_lvalue_value(IRBackend &backend,
                                           const IRValue &value) {
     if (!lvalue.bit_field_layout.has_value() ||
         !lvalue.bit_field_layout->is_bit_field) {
-        std::optional<IRValue> coerced_value =
-            coerce_ir_value(backend, value, lvalue.type);
+        std::optional<IRValue> coerced_value;
+        if (value.type != nullptr && lvalue.type != nullptr &&
+            detail::get_llvm_type_name(value.type) ==
+                detail::get_llvm_type_name(lvalue.type)) {
+            coerced_value = value;
+        } else {
+            coerced_value = coerce_ir_value(backend, value, lvalue.type);
+        }
         if (!coerced_value.has_value()) {
             return std::nullopt;
         }
@@ -1088,6 +1245,183 @@ bool is_null_pointer_constant_initializer(const CompilerContext &context,
     return is_null_pointer_constant_initializer(context, cast_expr->get_operand());
 }
 
+std::string get_integer_storage_llvm_type_name(std::size_t bit_width) {
+    return "i" + std::to_string(bit_width);
+}
+
+std::optional<std::string> build_global_union_initializer_text(
+    const CompilerContext &context, const InitListExpr *initializer,
+    const SemanticType *target_type) {
+    target_type = strip_qualifiers(target_type);
+    if (target_type == nullptr ||
+        target_type->get_kind() != SemanticTypeKind::Union ||
+        initializer == nullptr) {
+        return std::nullopt;
+    }
+    const auto *union_type = static_cast<const UnionSemanticType *>(target_type);
+
+    if (initializer->get_elements().empty()) {
+        return std::string("zeroinitializer");
+    }
+    if (initializer->get_elements().size() > 1) {
+        return std::nullopt;
+    }
+
+    const auto first_named_field = get_first_named_union_field(target_type);
+    if (!first_named_field.has_value() || first_named_field->field == nullptr) {
+        return std::nullopt;
+    }
+
+    const SemanticFieldInfo &field = *first_named_field->field;
+    const SemanticType *field_type = field.get_type();
+    std::string field_initializer;
+    if (field.get_is_bit_field()) {
+        const auto integer_constant =
+            get_integer_constant_value(context, initializer->get_elements().front().get());
+        if (!integer_constant.has_value()) {
+            return std::nullopt;
+        }
+
+        const std::size_t bit_width =
+            static_cast<std::size_t>(field.get_bit_width().value_or(0));
+        const std::uint64_t masked_value =
+            static_cast<std::uint64_t>(*integer_constant) &
+            get_low_bit_mask(bit_width);
+        field_initializer = std::to_string(masked_value);
+    } else {
+        const std::optional<std::string> lowered_initializer =
+            build_global_initializer_text_for_expr(
+                context, initializer->get_elements().front().get(), field_type);
+        if (!lowered_initializer.has_value()) {
+            return std::nullopt;
+        }
+        field_initializer = *lowered_initializer;
+    }
+
+    return build_padded_storage_initializer_text(
+        detail::get_llvm_type_name(field_type), field_initializer,
+        detail::get_type_size(field_type), detail::get_type_size(target_type));
+}
+
+std::optional<UnionFirstNamedFieldInfo>
+get_first_named_union_field(const SemanticType *target_type) {
+    target_type = strip_qualifiers(target_type);
+    if (target_type == nullptr ||
+        target_type->get_kind() != SemanticTypeKind::Union) {
+        return std::nullopt;
+    }
+    const auto *union_type = static_cast<const UnionSemanticType *>(target_type);
+
+    for (std::size_t index = 0; index < union_type->get_fields().size(); ++index) {
+        const auto &field = union_type->get_fields()[index];
+        if (!field.get_name().empty()) {
+            return UnionFirstNamedFieldInfo{index, &field};
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::string get_padded_storage_llvm_type_name(
+    const std::string &base_type_name, std::size_t base_size,
+    std::size_t total_size) {
+    if (base_size >= total_size) {
+        return base_type_name;
+    }
+    return "{ " + base_type_name + ", [" +
+           std::to_string(total_size - base_size) + " x i8] }";
+}
+
+std::string build_global_backing_storage_llvm_type_name(
+    const SemanticType *target_type) {
+    target_type = strip_qualifiers(target_type);
+    if (target_type == nullptr) {
+        return "void";
+    }
+
+    if (target_type->get_kind() == SemanticTypeKind::Array) {
+        const auto *array_type = static_cast<const ArraySemanticType *>(target_type);
+        const auto &dimensions = array_type->get_dimensions();
+        std::string element_type_name = build_global_backing_storage_llvm_type_name(
+            array_type->get_element_type());
+        for (auto it = dimensions.rbegin(); it != dimensions.rend(); ++it) {
+            element_type_name = "[" + std::to_string(*it) + " x " +
+                                element_type_name + "]";
+        }
+        return element_type_name;
+    }
+
+    if (target_type->get_kind() == SemanticTypeKind::Struct) {
+        const detail::AggregateLayoutInfo layout =
+            detail::compute_aggregate_layout(target_type);
+        std::string result = "{ ";
+        for (std::size_t index = 0; index < layout.elements.size(); ++index) {
+            if (index > 0) {
+                result += ", ";
+            }
+            const auto &element = layout.elements[index];
+            if (element.kind == detail::AggregateLayoutElementKind::Padding) {
+                result += "[" + std::to_string(element.padding_size) + " x i8]";
+                continue;
+            }
+            result += build_global_backing_storage_llvm_type_name(element.type);
+        }
+        result += " }";
+        return result;
+    }
+
+    if (target_type->get_kind() == SemanticTypeKind::Union) {
+        const auto first_named_field = get_first_named_union_field(target_type);
+        if (!first_named_field.has_value() || first_named_field->field == nullptr) {
+            return detail::get_llvm_type_name(target_type);
+        }
+        const SemanticType *field_type = first_named_field->field->get_type();
+        return get_padded_storage_llvm_type_name(
+            build_global_backing_storage_llvm_type_name(field_type),
+            detail::get_type_size(field_type),
+            detail::get_type_size(target_type));
+    }
+
+    return detail::get_llvm_type_name(target_type);
+}
+
+std::string build_global_backing_storage_name(const std::string &symbol_name) {
+    return "__sysycc.storage." + symbol_name;
+}
+
+std::string build_padded_storage_initializer_text(
+    const std::string &base_type_name, const std::string &initializer_text,
+    std::size_t base_size, std::size_t total_size) {
+    if (base_size >= total_size) {
+        return initializer_text;
+    }
+
+    return "{ " + base_type_name + " " + initializer_text + ", [" +
+           std::to_string(total_size - base_size) +
+           " x i8] zeroinitializer }";
+}
+
+bool uses_global_storage_alias(const CompilerContext &context,
+                               const VarDecl *var_decl,
+                               const SemanticType *type) {
+    if (var_decl == nullptr || type == nullptr || var_decl->get_initializer() == nullptr) {
+        return false;
+    }
+
+    if (build_global_initializer_text(context, var_decl, type).has_value()) {
+        return false;
+    }
+
+    if (!build_global_backing_initializer_text_for_expr(
+             context, var_decl->get_initializer(), type)
+             .has_value()) {
+        return false;
+    }
+
+    return build_global_backing_storage_llvm_type_name(type) !=
+           detail::get_llvm_type_name(type);
+}
+
 std::optional<std::string> build_global_array_initializer_text(
     const CompilerContext &context, const InitListExpr *initializer,
     const SemanticType *target_type) {
@@ -1132,6 +1466,233 @@ std::optional<std::string> build_global_array_initializer_text(
     }
     result += "]";
     return result;
+}
+
+std::optional<std::string> build_global_backing_struct_initializer_text(
+    const CompilerContext &context, const InitListExpr *initializer,
+    const SemanticType *target_type) {
+    const auto *struct_type =
+        static_cast<const StructSemanticType *>(strip_qualifiers(target_type));
+    if (struct_type == nullptr) {
+        return std::nullopt;
+    }
+
+    const detail::AggregateLayoutInfo layout =
+        detail::compute_aggregate_layout(target_type);
+    std::vector<std::string> element_initializers(layout.elements.size());
+    std::vector<bool> element_initialized(layout.elements.size(), false);
+    std::vector<std::uint64_t> bit_field_storage_values(layout.elements.size(), 0);
+    std::vector<bool> bit_field_storage_initialized(layout.elements.size(), false);
+
+    std::size_t initializer_index = 0;
+    for (std::size_t field_index = 0; field_index < struct_type->get_fields().size();
+         ++field_index) {
+        const auto &field = struct_type->get_fields()[field_index];
+        const auto &field_layout = layout.field_layouts[field_index];
+        if (!field_layout.has_value()) {
+            continue;
+        }
+
+        const Expr *field_initializer = nullptr;
+        if (!field.get_name().empty()) {
+            if (initializer_index < initializer->get_elements().size()) {
+                field_initializer =
+                    initializer->get_elements()[initializer_index].get();
+            }
+            ++initializer_index;
+        }
+
+        if (field.get_is_bit_field()) {
+            const auto integer_constant = field_initializer == nullptr
+                                              ? std::optional<long long>(0)
+                                              : get_integer_constant_value(
+                                                    context, field_initializer);
+            if (!integer_constant.has_value()) {
+                return std::nullopt;
+            }
+
+            const std::uint64_t field_bits =
+                static_cast<std::uint64_t>(*integer_constant) &
+                get_low_bit_mask(field_layout->bit_width);
+            bit_field_storage_values[field_layout->llvm_element_index] |=
+                field_bits << field_layout->bit_offset;
+            bit_field_storage_initialized[field_layout->llvm_element_index] = true;
+            continue;
+        }
+
+        if (field_layout->llvm_element_index >= element_initializers.size()) {
+            return std::nullopt;
+        }
+
+        const std::optional<std::string> lowered_initializer =
+            build_global_backing_initializer_text_for_expr(context,
+                                                           field_initializer,
+                                                           field.get_type());
+        if (!lowered_initializer.has_value()) {
+            return std::nullopt;
+        }
+
+        element_initializers[field_layout->llvm_element_index] =
+            *lowered_initializer;
+        element_initialized[field_layout->llvm_element_index] = true;
+    }
+
+    if (initializer_index < initializer->get_elements().size()) {
+        return std::nullopt;
+    }
+
+    std::string result = "{ ";
+    for (std::size_t index = 0; index < layout.elements.size(); ++index) {
+        if (index > 0) {
+            result += ", ";
+        }
+
+        const auto &element = layout.elements[index];
+        if (element.kind == detail::AggregateLayoutElementKind::Padding) {
+            result += "[" + std::to_string(element.padding_size) + " x i8]";
+            result += " zeroinitializer";
+            continue;
+        }
+
+        result += build_global_backing_storage_llvm_type_name(element.type);
+        result += " ";
+        if (bit_field_storage_initialized[index]) {
+            result += std::to_string(bit_field_storage_values[index]);
+            continue;
+        }
+        if (element_initialized[index]) {
+            result += element_initializers[index];
+            continue;
+        }
+        result += "zeroinitializer";
+    }
+    result += " }";
+    return result;
+}
+
+std::optional<std::string> build_global_backing_union_initializer_text(
+    const CompilerContext &context, const InitListExpr *initializer,
+    const SemanticType *target_type) {
+    target_type = strip_qualifiers(target_type);
+    if (target_type == nullptr ||
+        target_type->get_kind() != SemanticTypeKind::Union ||
+        initializer == nullptr) {
+        return std::nullopt;
+    }
+
+    if (initializer->get_elements().empty()) {
+        return std::string("zeroinitializer");
+    }
+    if (initializer->get_elements().size() > 1) {
+        return std::nullopt;
+    }
+
+    const auto first_named_field = get_first_named_union_field(target_type);
+    if (!first_named_field.has_value() || first_named_field->field == nullptr) {
+        return std::nullopt;
+    }
+
+    const SemanticType *field_type = first_named_field->field->get_type();
+    const std::optional<std::string> field_initializer =
+        build_global_backing_initializer_text_for_expr(
+            context, initializer->get_elements().front().get(), field_type);
+    if (!field_initializer.has_value()) {
+        return std::nullopt;
+    }
+
+    return build_padded_storage_initializer_text(
+        build_global_backing_storage_llvm_type_name(field_type),
+        *field_initializer, detail::get_type_size(field_type),
+        detail::get_type_size(target_type));
+}
+
+std::optional<std::string> build_global_backing_array_initializer_text(
+    const CompilerContext &context, const InitListExpr *initializer,
+    const SemanticType *target_type) {
+    const auto *array_type =
+        static_cast<const ArraySemanticType *>(strip_qualifiers(target_type));
+    if (array_type == nullptr || array_type->get_dimensions().empty()) {
+        return std::nullopt;
+    }
+
+    const int element_count = array_type->get_dimensions().front();
+    if (element_count < 0) {
+        return std::nullopt;
+    }
+
+    const SemanticType *element_type = array_type->get_element_type();
+    std::vector<std::string> element_initializers(
+        static_cast<std::size_t>(element_count), "zeroinitializer");
+
+    const auto &elements = initializer->get_elements();
+    if (elements.size() > static_cast<std::size_t>(element_count)) {
+        return std::nullopt;
+    }
+
+    for (std::size_t index = 0; index < elements.size(); ++index) {
+        const std::optional<std::string> lowered_initializer =
+            build_global_backing_initializer_text_for_expr(
+                context, elements[index].get(), element_type);
+        if (!lowered_initializer.has_value()) {
+            return std::nullopt;
+        }
+        element_initializers[index] = *lowered_initializer;
+    }
+
+    std::string result = "[";
+    for (int index = 0; index < element_count; ++index) {
+        if (index > 0) {
+            result += ", ";
+        }
+        result += build_global_backing_storage_llvm_type_name(element_type);
+        result += " ";
+        result += element_initializers[static_cast<std::size_t>(index)];
+    }
+    result += "]";
+    return result;
+}
+
+std::optional<std::string> build_global_backing_initializer_text_for_expr(
+    const CompilerContext &context, const Expr *initializer,
+    const SemanticType *target_type) {
+    if (target_type == nullptr) {
+        return std::nullopt;
+    }
+
+    if (initializer == nullptr) {
+        return std::string("zeroinitializer");
+    }
+
+    const SemanticType *unqualified_target = strip_qualifiers(target_type);
+    if (unqualified_target == nullptr) {
+        return std::nullopt;
+    }
+
+    if (unqualified_target->get_kind() == SemanticTypeKind::Array) {
+        if (initializer->get_kind() != AstKind::InitListExpr) {
+            return std::nullopt;
+        }
+        return build_global_backing_array_initializer_text(
+            context, static_cast<const InitListExpr *>(initializer), target_type);
+    }
+
+    if (unqualified_target->get_kind() == SemanticTypeKind::Struct) {
+        if (initializer->get_kind() != AstKind::InitListExpr) {
+            return std::nullopt;
+        }
+        return build_global_backing_struct_initializer_text(
+            context, static_cast<const InitListExpr *>(initializer), target_type);
+    }
+
+    if (unqualified_target->get_kind() == SemanticTypeKind::Union) {
+        if (initializer->get_kind() != AstKind::InitListExpr) {
+            return std::nullopt;
+        }
+        return build_global_backing_union_initializer_text(
+            context, static_cast<const InitListExpr *>(initializer), target_type);
+    }
+
+    return build_global_initializer_text_for_expr(context, initializer, target_type);
 }
 
 std::optional<std::string> build_global_lvalue_address_initializer_text(
@@ -1206,6 +1767,12 @@ std::optional<std::string> build_global_lvalue_address_initializer_text(
             return std::nullopt;
         }
 
+        const SemanticType *unqualified_owner_type = strip_qualifiers(owner_type);
+        if (unqualified_owner_type != nullptr &&
+            unqualified_owner_type->get_kind() == SemanticTypeKind::Union) {
+            return *base_address;
+        }
+
         return "getelementptr inbounds (" +
                detail::get_llvm_type_name(owner_type) + ", ptr " + *base_address +
                ", i32 0, i32 " +
@@ -1271,6 +1838,14 @@ std::optional<std::string> build_global_initializer_text_for_expr(
             return std::nullopt;
         }
         return build_global_struct_initializer_text(
+            context, static_cast<const InitListExpr *>(initializer), target_type);
+    }
+
+    if (unqualified_target->get_kind() == SemanticTypeKind::Union) {
+        if (initializer->get_kind() != AstKind::InitListExpr) {
+            return std::nullopt;
+        }
+        return build_global_union_initializer_text(
             context, static_cast<const InitListExpr *>(initializer), target_type);
     }
 
@@ -1363,6 +1938,31 @@ bool is_supported_initializer_for_type(const CompilerContext &context,
         return initializer_index == init_list->get_elements().size();
     }
 
+    if (unqualified_target->get_kind() == SemanticTypeKind::Union) {
+        if (initializer->get_kind() != AstKind::InitListExpr) {
+            return false;
+        }
+        const auto *union_type =
+            static_cast<const UnionSemanticType *>(unqualified_target);
+        const auto *init_list = static_cast<const InitListExpr *>(initializer);
+        if (init_list->get_elements().size() > 1) {
+            return false;
+        }
+        if (init_list->get_elements().empty()) {
+            return true;
+        }
+        const auto named_field_it =
+            std::find_if(union_type->get_fields().begin(),
+                         union_type->get_fields().end(),
+                         [](const SemanticFieldInfo &field) {
+                             return !field.get_name().empty();
+                         });
+        return named_field_it != union_type->get_fields().end() &&
+               is_supported_initializer_for_type(
+                   context, init_list->get_elements().front().get(),
+                   named_field_it->get_type());
+    }
+
     return is_supported_expr(context, initializer);
 }
 
@@ -1436,6 +2036,38 @@ std::string describe_unsupported_initializer_for_type(
         return initializer_index == init_list->get_elements().size()
                    ? std::string()
                    : "struct initializer has too many elements";
+    }
+
+    if (unqualified_target->get_kind() == SemanticTypeKind::Union) {
+        if (initializer->get_kind() != AstKind::InitListExpr) {
+            return "union initializer must be an initializer list";
+        }
+        const auto *union_type =
+            static_cast<const UnionSemanticType *>(unqualified_target);
+        const auto *init_list = static_cast<const InitListExpr *>(initializer);
+        if (init_list->get_elements().size() > 1) {
+            return "union initializer has too many elements";
+        }
+        if (init_list->get_elements().empty()) {
+            return {};
+        }
+        const auto named_field_it =
+            std::find_if(union_type->get_fields().begin(),
+                         union_type->get_fields().end(),
+                         [](const SemanticFieldInfo &field) {
+                             return !field.get_name().empty();
+                         });
+        if (named_field_it == union_type->get_fields().end()) {
+            return "union initializer has no named field to initialize";
+        }
+        const std::string field_reason =
+            describe_unsupported_initializer_for_type(
+                context, init_list->get_elements().front().get(),
+                named_field_it->get_type());
+        return field_reason.empty()
+                   ? std::string()
+                   : "union first field '" + named_field_it->get_name() +
+                         "': " + field_reason;
     }
 
     const std::string expr_reason =
@@ -1662,7 +2294,7 @@ bool is_supported_expr(const CompilerContext &context, const Expr *expr) {
         if (!is_supported_lvalue_expr(assign_expr->get_target())) {
             return false;
         }
-        return is_supported_scalar_storage_type(get_node_type(context, assign_expr)) &&
+        return is_supported_storage_type(get_node_type(context, assign_expr)) &&
                is_supported_expr(context, assign_expr->get_value());
     }
     case AstKind::MemberExpr: {
@@ -1753,7 +2385,7 @@ bool is_supported_expr(const CompilerContext &context, const Expr *expr) {
                 return false;
             }
             if (index < parameter_types.size() &&
-                !is_supported_scalar_storage_type(parameter_types[index])) {
+                !is_supported_storage_type(parameter_types[index])) {
                 return false;
             }
         }
@@ -2081,7 +2713,7 @@ std::string describe_unsupported_expr(const CompilerContext &context,
             !value_reason.empty()) {
             return value_reason;
         }
-        return is_supported_scalar_storage_type(get_node_type(context, assign_expr))
+        return is_supported_storage_type(get_node_type(context, assign_expr))
                    ? std::string()
                    : "assignment result type is unsupported";
     }
@@ -2221,7 +2853,7 @@ std::string describe_unsupported_expr(const CompilerContext &context,
                        argument_reason;
             }
             if (index < parameter_types.size() &&
-                !is_supported_scalar_storage_type(parameter_types[index])) {
+                !is_supported_storage_type(parameter_types[index])) {
                 return "call parameter " + std::to_string(index) +
                        " has unsupported type";
             }
@@ -2752,7 +3384,8 @@ build_expr(IRBackend &backend, const CompilerContext &context,
             if (is_comparison_binary) {
                 const SemanticType *arithmetic_type =
                     get_usual_arithmetic_conversion_type(
-                        context, lhs_type, rhs_type);
+                        context, binary_expr->get_lhs(), lhs_type,
+                        binary_expr->get_rhs(), rhs_type);
                 if (arithmetic_type != nullptr) {
                     operand_target_type = arithmetic_type;
                 } else {
@@ -2958,8 +3591,8 @@ build_expr(IRBackend &backend, const CompilerContext &context,
                     backend, *lowered_argument,
                     function_type->get_parameter_types()[index]);
             } else {
-                coerced_argument =
-                    coerce_variadic_argument(backend, *lowered_argument);
+                coerced_argument = coerce_variadic_argument(
+                    backend, context, argument.get(), *lowered_argument);
             }
             if (!coerced_argument.has_value()) {
                 return std::nullopt;
@@ -3036,6 +3669,10 @@ std::optional<IRValue> coerce_ir_value(IRBackend &backend, const IRValue &value,
     if (target_type == nullptr || value.type == nullptr) {
         return std::nullopt;
     }
+    if (detail::get_llvm_type_name(value.type) ==
+        detail::get_llvm_type_name(target_type)) {
+        return IRValue{value.text, target_type};
+    }
     detail::IntegerConversionService integer_conversion_service;
     const auto integer_conversion_plan =
         integer_conversion_service.get_integer_conversion_plan(value.type,
@@ -3060,6 +3697,13 @@ std::optional<IRValue> build_zero_ir_value(IRBackend &backend,
                                            const SemanticType *type) {
     if (type == nullptr) {
         return std::nullopt;
+    }
+    const SemanticType *unqualified_type = strip_qualifiers(type);
+    if (unqualified_type != nullptr &&
+        (unqualified_type->get_kind() == SemanticTypeKind::Array ||
+         unqualified_type->get_kind() == SemanticTypeKind::Struct ||
+         unqualified_type->get_kind() == SemanticTypeKind::Union)) {
+        return IRValue{"zeroinitializer", type};
     }
     if (is_builtin_type_named(type, "float") || is_builtin_type_named(type, "double") ||
         is_builtin_type_named(type, "_Float16") ||
@@ -3142,6 +3786,14 @@ bool emit_zero_initialize_lvalue(IRBackend &backend,
             }
         }
         return true;
+    }
+
+    if (target_type->get_kind() == SemanticTypeKind::Union) {
+        std::optional<IRValue> zero_union = build_zero_ir_value(backend, lvalue.type);
+        if (!zero_union.has_value()) {
+            return false;
+        }
+        return store_lvalue_value(backend, context, lvalue, *zero_union).has_value();
     }
 
     std::optional<IRValue> zero = build_zero_ir_value(backend, lvalue.type);
@@ -3247,6 +3899,52 @@ bool emit_local_initializer_to_lvalue(IRBackend &backend,
             }
         }
         return initializer_index == init_list->get_elements().size();
+    }
+
+    if (target_type->get_kind() == SemanticTypeKind::Union) {
+        if (initializer->get_kind() != AstKind::InitListExpr) {
+            return false;
+        }
+        const auto *union_type = static_cast<const UnionSemanticType *>(target_type);
+        const auto *init_list = static_cast<const InitListExpr *>(initializer);
+        if (init_list->get_elements().size() > 1) {
+            return false;
+        }
+        if (!emit_zero_initialize_lvalue(backend, context, state, lvalue)) {
+            return false;
+        }
+        if (init_list->get_elements().empty()) {
+            return true;
+        }
+
+        std::size_t field_index = 0;
+        while (field_index < union_type->get_fields().size() &&
+               union_type->get_fields()[field_index].get_name().empty()) {
+            ++field_index;
+        }
+        if (field_index >= union_type->get_fields().size()) {
+            return false;
+        }
+
+        const auto &field = union_type->get_fields()[field_index];
+        const auto field_layout =
+            detail::get_aggregate_field_layout(target_type, field_index);
+        if (!field_layout.has_value()) {
+            return false;
+        }
+
+        const std::string field_address = backend.emit_member_address(
+            lvalue.address, target_type, field_index, field.get_type());
+        if (field_address.empty()) {
+            return false;
+        }
+        LValueAddress field_lvalue{field_address, field.get_type()};
+        if (field_layout->is_bit_field) {
+            field_lvalue.bit_field_layout = field_layout;
+        }
+        return emit_local_initializer_to_lvalue(
+            backend, context, state, field_lvalue,
+            init_list->get_elements().front().get());
     }
 
     std::optional<IRValue> value =
@@ -3732,7 +4430,7 @@ bool emit_supported_function_declaration(
             parameter_type = function_type->get_parameter_types()[index];
         }
         if (parameter_type == nullptr ||
-            !is_supported_scalar_storage_type(parameter_type)) {
+            !is_supported_storage_type(parameter_type)) {
             return false;
         }
         parameter_types.push_back(parameter_type);
@@ -3818,7 +4516,7 @@ bool validate_ir_function_declaration(
             parameter_type = function_type->get_parameter_types()[index];
         }
         if (parameter_type == nullptr ||
-            !is_supported_scalar_storage_type(parameter_type)) {
+            !is_supported_storage_type(parameter_type)) {
             if (is_system_header_decl(context, function_decl)) {
                 return true;
             }
@@ -3840,7 +4538,14 @@ bool validate_ir_global_var(CompilerContext &context, const VarDecl *var_decl) {
     }
 
     const SemanticType *type = get_node_type(context, var_decl);
-    if (type == nullptr || !is_supported_storage_type(type)) {
+    const bool supports_storage_type =
+        type != nullptr && is_supported_storage_type(type);
+    const bool supports_extern_incomplete_array =
+        type != nullptr && var_decl->get_is_extern() &&
+        var_decl->get_initializer() == nullptr &&
+        is_supported_extern_incomplete_array_type(type);
+    if (type == nullptr ||
+        (!supports_storage_type && !supports_extern_incomplete_array)) {
         if (is_system_header_decl(context, var_decl)) {
             return true;
         }
@@ -3857,7 +4562,9 @@ bool validate_ir_global_var(CompilerContext &context, const VarDecl *var_decl) {
         return false;
     }
 
-    if (var_decl->get_initializer() != nullptr &&
+    const bool uses_backing_storage_alias =
+        uses_global_storage_alias(context, var_decl, type);
+    if (var_decl->get_initializer() != nullptr && !uses_backing_storage_alias &&
         !build_global_initializer_text(context, var_decl, type).has_value()) {
         context.get_diagnostic_engine().add_error(
             DiagnosticStage::Compiler,
@@ -3935,7 +4642,9 @@ void collect_global_emission_infos(
         const SemanticSymbol *symbol = semantic_model->get_symbol_binding(var_decl);
         const SemanticType *type = semantic_model->get_node_type(var_decl);
         if (symbol == nullptr || type == nullptr ||
-            !is_supported_storage_type(type)) {
+            (!is_supported_storage_type(type) &&
+             !(var_decl->get_is_extern() && var_decl->get_initializer() == nullptr &&
+               is_supported_extern_incomplete_array_type(type)))) {
             continue;
         }
 
@@ -3990,6 +4699,29 @@ void emit_global_objects(IRBackend &backend, const CompilerContext &context,
         const std::optional<std::string> initializer_text =
             build_global_initializer_text(context, definition_decl, info.type);
         if (!initializer_text.has_value()) {
+            if (!uses_global_storage_alias(context, definition_decl, info.type)) {
+                continue;
+            }
+
+            const std::optional<std::string> backing_initializer_text =
+                build_global_backing_initializer_text_for_expr(
+                    context, definition_decl->get_initializer(), info.type);
+            if (!backing_initializer_text.has_value()) {
+                continue;
+            }
+
+            const std::string backing_name =
+                build_global_backing_storage_name(info.symbol->get_name());
+            const std::string backing_type_name =
+                build_global_backing_storage_llvm_type_name(info.type);
+
+            backend.define_raw_global(backing_name, backing_type_name,
+                                      *backing_initializer_text,
+                                      info.is_internal_linkage,
+                                      detail::get_type_alignment(info.type));
+            backend.define_global_alias(info.symbol->get_name(),
+                                        detail::get_llvm_type_name(info.type),
+                                        backing_name, info.is_internal_linkage);
             continue;
         }
         backend.define_global(info.symbol->get_name(), info.type,

@@ -42,6 +42,9 @@ const SemanticType *strip_qualifiers(const SemanticType *type);
 
 std::string get_llvm_type_name(const SemanticType *type);
 
+std::string get_padded_storage_llvm_type_name(const SemanticType *type,
+                                              std::size_t total_size);
+
 std::size_t get_type_alignment(const SemanticType *type);
 
 std::size_t get_type_size(const SemanticType *type);

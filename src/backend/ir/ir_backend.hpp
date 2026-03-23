@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,15 @@ class IRBackend {
                                const SemanticType *type,
                                const std::string &initializer_text,
                                bool is_internal_linkage = false) = 0;
+    virtual void define_raw_global(const std::string &name,
+                                   const std::string &llvm_type_text,
+                                   const std::string &initializer_text,
+                                   bool is_internal_linkage = false,
+                                   std::size_t explicit_alignment = 0) = 0;
+    virtual void define_global_alias(const std::string &name,
+                                     const std::string &llvm_type_text,
+                                     const std::string &target_name,
+                                     bool is_internal_linkage = false) = 0;
     virtual void declare_function(
         const std::string &name, const SemanticType *return_type,
         const std::vector<const SemanticType *> &parameter_types,

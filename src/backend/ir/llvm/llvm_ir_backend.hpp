@@ -19,12 +19,17 @@ class LlvmIrBackend : public IRBackend {
     std::ostringstream module_header_;
     std::ostringstream declarations_;
     std::ostringstream output_;
+    std::ostringstream function_entry_allocas_;
+    std::ostringstream function_body_;
     detail::IRContext ir_context_;
     std::unordered_map<std::string, int> address_counts_;
     std::unordered_set<std::string> declared_function_signatures_;
     std::unordered_set<std::string> declared_globals_;
     std::unordered_set<std::string> defined_globals_;
     std::unordered_map<std::string, std::string> string_literal_globals_;
+    bool is_emitting_function_ = false;
+
+    std::ostringstream &get_instruction_stream();
 
   public:
     IrKind get_kind() const noexcept override;
@@ -36,6 +41,15 @@ class LlvmIrBackend : public IRBackend {
     void define_global(const std::string &name, const SemanticType *type,
                        const std::string &initializer_text,
                        bool is_internal_linkage) override;
+    void define_raw_global(const std::string &name,
+                           const std::string &llvm_type_text,
+                           const std::string &initializer_text,
+                           bool is_internal_linkage,
+                           std::size_t explicit_alignment) override;
+    void define_global_alias(const std::string &name,
+                             const std::string &llvm_type_text,
+                             const std::string &target_name,
+                             bool is_internal_linkage) override;
     void declare_function(
         const std::string &name, const SemanticType *return_type,
         const std::vector<const SemanticType *> &parameter_types,
