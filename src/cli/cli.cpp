@@ -1,6 +1,39 @@
 #include "cli.hpp"
 
 namespace ClI {
+namespace {
+
+bool parse_stop_after_stage(const std::string &stage_name,
+                            sysycc::StopAfterStage &stage) {
+    if (stage_name == "preprocess") {
+        stage = sysycc::StopAfterStage::Preprocess;
+        return true;
+    }
+    if (stage_name == "lex") {
+        stage = sysycc::StopAfterStage::Lex;
+        return true;
+    }
+    if (stage_name == "parse") {
+        stage = sysycc::StopAfterStage::Parse;
+        return true;
+    }
+    if (stage_name == "ast") {
+        stage = sysycc::StopAfterStage::Ast;
+        return true;
+    }
+    if (stage_name == "semantic") {
+        stage = sysycc::StopAfterStage::Semantic;
+        return true;
+    }
+    if (stage_name == "ir") {
+        stage = sysycc::StopAfterStage::IR;
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
 void Cli::Run(int argc, char *argv[]) {
     input_file_.clear();
     output_file_.clear();
@@ -11,6 +44,7 @@ void Cli::Run(int argc, char *argv[]) {
     dump_parse_ = false;
     dump_ast_ = false;
     dump_ir_ = false;
+    stop_after_stage_ = sysycc::StopAfterStage::None;
     enable_gnu_dialect_ = true;
     enable_clang_dialect_ = true;
     enable_builtin_type_extension_pack_ = true;
@@ -56,6 +90,39 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "--dump-ir") {
             dump_ir_ = true;
+            continue;
+        }
+
+        if (arg.rfind("--stop-after=", 0) == 0) {
+            const std::string stage_name =
+                arg.substr(std::string("--stop-after=").size());
+            if (!parse_stop_after_stage(stage_name, stop_after_stage_)) {
+                has_error_ = true;
+                std::cerr << "error: invalid stop-after stage: " << stage_name
+                          << '\n';
+                PrintHelp();
+                return;
+            }
+            continue;
+        }
+
+        if (arg == "--stop-after") {
+            if (i + 1 >= argc) {
+                has_error_ = true;
+                std::cerr << "error: missing stage name after --stop-after"
+                          << '\n';
+                PrintHelp();
+                return;
+            }
+
+            const std::string stage_name = argv[++i];
+            if (!parse_stop_after_stage(stage_name, stop_after_stage_)) {
+                has_error_ = true;
+                std::cerr << "error: invalid stop-after stage: " << stage_name
+                          << '\n';
+                PrintHelp();
+                return;
+            }
             continue;
         }
 

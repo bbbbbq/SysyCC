@@ -4,6 +4,31 @@
 
 namespace sysycc {
 
+namespace {
+
+bool should_stop_after_pass(const CompilerContext &context, PassKind pass_kind) {
+    switch (context.get_stop_after_stage()) {
+    case StopAfterStage::None:
+        return false;
+    case StopAfterStage::Preprocess:
+        return pass_kind == PassKind::Preprocess;
+    case StopAfterStage::Lex:
+        return pass_kind == PassKind::Lex;
+    case StopAfterStage::Parse:
+        return pass_kind == PassKind::Parse;
+    case StopAfterStage::Ast:
+        return pass_kind == PassKind::Ast;
+    case StopAfterStage::Semantic:
+        return pass_kind == PassKind::Semantic;
+    case StopAfterStage::IR:
+        return pass_kind == PassKind::IRGen;
+    }
+
+    return false;
+}
+
+} // namespace
+
 void PassManager::AddPass(std::unique_ptr<Pass> pass) {
     if (pass == nullptr) {
         return;
@@ -36,6 +61,9 @@ PassResult PassManager::Run(CompilerContext &context) {
         PassResult result = pass->Run(context);
         if (!result.ok) {
             return result;
+        }
+        if (should_stop_after_pass(context, pass->Kind())) {
+            return PassResult::Success();
         }
     }
 

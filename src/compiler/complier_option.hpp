@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <stdint.h>
 #include <string>
 #include <utility>
 #include <vector>
@@ -57,6 +58,16 @@ inline std::vector<std::string> get_default_system_include_directories() {
 
 } // namespace detail
 
+enum class StopAfterStage : uint8_t {
+    None,
+    Preprocess,
+    Lex,
+    Parse,
+    Ast,
+    Semantic,
+    IR,
+};
+
 // Stores the configuration for one compiler invocation.
 class ComplierOption {
   private:
@@ -69,6 +80,7 @@ class ComplierOption {
     bool dump_parse_ = false;
     bool dump_ast_ = false;
     bool dump_ir_ = false;
+    StopAfterStage stop_after_stage_ = StopAfterStage::None;
     bool enable_gnu_dialect_ = true;
     bool enable_clang_dialect_ = true;
     bool enable_builtin_type_extension_pack_ = true;
@@ -134,6 +146,14 @@ class ComplierOption {
     bool dump_ir() const noexcept { return dump_ir_; }
 
     void set_dump_ir(bool dump_ir) noexcept { dump_ir_ = dump_ir; }
+
+    StopAfterStage get_stop_after_stage() const noexcept {
+        return stop_after_stage_;
+    }
+
+    void set_stop_after_stage(StopAfterStage stop_after_stage) noexcept {
+        stop_after_stage_ = stop_after_stage;
+    }
 
     bool get_enable_gnu_dialect() const noexcept {
         return enable_gnu_dialect_;

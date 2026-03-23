@@ -12,6 +12,7 @@
 #include "common/source_manager.hpp"
 #include "backend/ir/ir_result.hpp"
 #include "common/source_span.hpp"
+#include "compiler/complier_option.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/dialects/core/dialect_manager.hpp"
 #include "frontend/dialects/packs/c99/c99_dialect.hpp"
@@ -443,6 +444,7 @@ class CompilerContext {
     bool dump_parse_ = false;
     bool dump_ast_ = false;
     bool dump_ir_ = false;
+    StopAfterStage stop_after_stage_ = StopAfterStage::None;
     bool ast_complete_ = false;
     std::string token_dump_file_path_;
     std::string parse_dump_file_path_;
@@ -552,6 +554,14 @@ class CompilerContext {
     bool get_dump_ir() const noexcept { return dump_ir_; }
 
     void set_dump_ir(bool dump_ir) noexcept { dump_ir_ = dump_ir; }
+
+    StopAfterStage get_stop_after_stage() const noexcept {
+        return stop_after_stage_;
+    }
+
+    void set_stop_after_stage(StopAfterStage stop_after_stage) noexcept {
+        stop_after_stage_ = stop_after_stage;
+    }
 
     bool get_ast_complete() const noexcept { return ast_complete_; }
 

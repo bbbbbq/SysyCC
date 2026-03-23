@@ -17,6 +17,7 @@ class Cli {
     bool dump_parse_ = false;
     bool dump_ast_ = false;
     bool dump_ir_ = false;
+    sysycc::StopAfterStage stop_after_stage_ = sysycc::StopAfterStage::None;
     bool enable_gnu_dialect_ = true;
     bool enable_clang_dialect_ = true;
     bool enable_builtin_type_extension_pack_ = true;
@@ -43,6 +44,7 @@ class Cli {
                   << "  --dump-parse       Dump parse result\n"
                   << "  --dump-ast         Dump AST\n"
                   << "  --dump-ir          Dump IR\n"
+                  << "  --stop-after=<stage>  Stop after preprocess, lex, parse, ast, semantic, or ir\n"
                   << "  --strict-c99       Disable GNU/Clang/builtin-type extension packs\n"
                   << "  --enable-gnu-dialect       Enable GNU dialect pack\n"
                   << "  --disable-gnu-dialect      Disable GNU dialect pack\n"
@@ -73,6 +75,7 @@ class Cli {
         option.set_dump_parse(dump_parse_);
         option.set_dump_ast(dump_ast_);
         option.set_dump_ir(dump_ir_);
+        option.set_stop_after_stage(stop_after_stage_);
         option.set_enable_gnu_dialect(enable_gnu_dialect_);
         option.set_enable_clang_dialect(enable_clang_dialect_);
         option.set_enable_builtin_type_extension_pack(

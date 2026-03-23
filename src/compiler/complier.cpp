@@ -21,6 +21,7 @@ Complier::Complier(ComplierOption option) : option_(std::move(option)) {
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
     context_.set_dump_ir(option_.dump_ir());
+    context_.set_stop_after_stage(option_.get_stop_after_stage());
     context_.configure_dialects(option_.get_enable_gnu_dialect(),
                                 option_.get_enable_clang_dialect(),
                                 option_.get_enable_builtin_type_extension_pack());
@@ -50,6 +51,7 @@ void Complier::set_option(ComplierOption option) {
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
     context_.set_dump_ir(option_.dump_ir());
+    context_.set_stop_after_stage(option_.get_stop_after_stage());
     context_.configure_dialects(option_.get_enable_gnu_dialect(),
                                 option_.get_enable_clang_dialect(),
                                 option_.get_enable_builtin_type_extension_pack());
@@ -104,6 +106,7 @@ PassResult Complier::Run() {
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
     context_.set_dump_ir(option_.dump_ir());
+    context_.set_stop_after_stage(option_.get_stop_after_stage());
     context_.configure_dialects(option_.get_enable_gnu_dialect(),
                                 option_.get_enable_clang_dialect(),
                                 option_.get_enable_builtin_type_extension_pack());
