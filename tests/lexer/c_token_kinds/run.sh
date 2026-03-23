@@ -11,7 +11,8 @@ TOKENS_FILE="${BUILD_DIR}/intermediate_results/c_token_kinds.tokens.txt"
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
-"${BUILD_DIR}/SysyCC" --dump-tokens --dump-parse "${INPUT_FILE}" >/tmp/sysycc_c_token_kinds.out 2>&1
+"${BUILD_DIR}/SysyCC" --dump-tokens --dump-parse --stop-after=parse \
+    "${INPUT_FILE}" >/tmp/sysycc_c_token_kinds.out 2>&1
 
 assert_file_nonempty "${TOKENS_FILE}"
 

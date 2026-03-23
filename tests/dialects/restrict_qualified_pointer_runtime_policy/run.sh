@@ -17,6 +17,7 @@ mkdir -p "${TEST_BUILD_DIR}"
 
 clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
+    "${PROJECT_ROOT}/src/backend/ir/detail/aggregate_layout.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/llvm/llvm_ir_backend.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/detail/ir_context.cpp" \
     "${PROJECT_ROOT}/src/common/integer_literal.cpp" \

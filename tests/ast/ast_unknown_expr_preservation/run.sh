@@ -11,7 +11,8 @@ AST_FILE="${BUILD_DIR}/intermediate_results/ast_unknown_expr_preservation.ast.tx
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
-"${BUILD_DIR}/SysyCC" --dump-tokens --dump-parse --dump-ast "${INPUT_FILE}" >/tmp/sysycc_ast_unknown_expr_preservation.out 2>&1
+"${BUILD_DIR}/SysyCC" --dump-tokens --dump-parse --dump-ast \
+    --stop-after=ast "${INPUT_FILE}" >/tmp/sysycc_ast_unknown_expr_preservation.out 2>&1
 
 grep -q "PrefixExpr ++" "${AST_FILE}"
 grep -q "PostfixExpr ++" "${AST_FILE}"

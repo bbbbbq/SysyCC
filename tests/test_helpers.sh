@@ -189,6 +189,38 @@ assert_compiler_fails_with_message() {
     fi
 }
 
+assert_compiler_succeeds_with_message() {
+    local compiler_binary="$1"
+    local input_file="$2"
+    local expected_message="$3"
+
+    local output
+    local exit_code
+
+    set +e
+    output="$("${compiler_binary}" "${input_file}" 2>&1)"
+    exit_code=$?
+    set -e
+
+    if [[ "${exit_code}" -ne 0 ]]; then
+        echo "error: compiler unexpectedly failed for ${input_file}" >&2
+        echo "${output}" >&2
+        return 1
+    fi
+
+    if [[ "${output}" == *"${expected_message}"* ]]; then
+        return 0
+    fi
+
+    local normalized_output
+    normalized_output="$(printf '%s' "${output}" | sed -E 's#[^[:space:]]+:([0-9]+:[0-9]+-[0-9]+:[0-9]+)#\1#g')"
+    if [[ "${normalized_output}" != *"${expected_message}"* ]]; then
+        echo "error: expected compiler diagnostic not found" >&2
+        echo "${output}" >&2
+        return 1
+    fi
+}
+
 assert_program_output() {
     local program_binary="$1"
     local input_file="$2"

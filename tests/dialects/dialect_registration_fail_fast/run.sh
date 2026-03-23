@@ -17,6 +17,7 @@ mkdir -p "${TEST_BUILD_DIR}"
 
 clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
+    "${PROJECT_ROOT}/src/backend/ir/detail/aggregate_layout.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/ir_backend_factory.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/gnu_function_attribute_lowering_handler.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/ir_builder.cpp" \
