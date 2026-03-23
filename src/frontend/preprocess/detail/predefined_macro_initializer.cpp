@@ -90,8 +90,125 @@ void initialize_predefined_macros(
                              std::to_string(__GNUC_PATCHLEVEL__));
 #endif
 
+#if defined(__CHAR_BIT__)
+    define_object_like_macro(macro_table, "__CHAR_BIT__",
+                             SYSYCC_STRINGIZE(__CHAR_BIT__));
+#endif
+#if defined(__SCHAR_MAX__)
+    define_object_like_macro(macro_table, "__SCHAR_MAX__",
+                             SYSYCC_STRINGIZE(__SCHAR_MAX__));
+#endif
+#if defined(__SHRT_MAX__)
+    define_object_like_macro(macro_table, "__SHRT_MAX__",
+                             SYSYCC_STRINGIZE(__SHRT_MAX__));
+#endif
+#if defined(__INT_MAX__)
+    define_object_like_macro(macro_table, "__INT_MAX__",
+                             SYSYCC_STRINGIZE(__INT_MAX__));
+#endif
+#if defined(__LONG_MAX__)
+    define_object_like_macro(macro_table, "__LONG_MAX__",
+                             SYSYCC_STRINGIZE(__LONG_MAX__));
+#endif
+#if defined(__LONG_LONG_MAX__)
+    define_object_like_macro(macro_table, "__LONG_LONG_MAX__",
+                             SYSYCC_STRINGIZE(__LONG_LONG_MAX__));
+#endif
+#if defined(__INT8_MAX__)
+    define_object_like_macro(macro_table, "__INT8_MAX__",
+                             SYSYCC_STRINGIZE(__INT8_MAX__));
+#endif
+#if defined(__INT16_MAX__)
+    define_object_like_macro(macro_table, "__INT16_MAX__",
+                             SYSYCC_STRINGIZE(__INT16_MAX__));
+#endif
+#if defined(__INT32_MAX__)
+    define_object_like_macro(macro_table, "__INT32_MAX__",
+                             SYSYCC_STRINGIZE(__INT32_MAX__));
+#endif
+#if defined(__INT64_MAX__)
+    define_object_like_macro(macro_table, "__INT64_MAX__",
+                             SYSYCC_STRINGIZE(__INT64_MAX__));
+#endif
+#if defined(__SIZE_MAX__)
+    define_object_like_macro(macro_table, "__SIZE_MAX__",
+                             SYSYCC_STRINGIZE(__SIZE_MAX__));
+#endif
+
 #if defined(INT8_MIN)
     define_object_like_macro(macro_table, "INT8_MIN", SYSYCC_STRINGIZE(INT8_MIN));
+#endif
+#if defined(CHAR_BIT)
+    define_object_like_macro(macro_table, "CHAR_BIT",
+                             SYSYCC_STRINGIZE(CHAR_BIT));
+#endif
+#if defined(SCHAR_MIN)
+    define_object_like_macro(macro_table, "SCHAR_MIN",
+                             SYSYCC_STRINGIZE(SCHAR_MIN));
+#endif
+#if defined(SCHAR_MAX)
+    define_object_like_macro(macro_table, "SCHAR_MAX",
+                             SYSYCC_STRINGIZE(SCHAR_MAX));
+#endif
+#if defined(UCHAR_MAX)
+    define_object_like_macro(macro_table, "UCHAR_MAX",
+                             SYSYCC_STRINGIZE(UCHAR_MAX));
+#endif
+#if defined(CHAR_MIN)
+    define_object_like_macro(macro_table, "CHAR_MIN",
+                             SYSYCC_STRINGIZE(CHAR_MIN));
+#endif
+#if defined(CHAR_MAX)
+    define_object_like_macro(macro_table, "CHAR_MAX",
+                             SYSYCC_STRINGIZE(CHAR_MAX));
+#endif
+#if defined(SHRT_MIN)
+    define_object_like_macro(macro_table, "SHRT_MIN",
+                             SYSYCC_STRINGIZE(SHRT_MIN));
+#endif
+#if defined(SHRT_MAX)
+    define_object_like_macro(macro_table, "SHRT_MAX",
+                             SYSYCC_STRINGIZE(SHRT_MAX));
+#endif
+#if defined(USHRT_MAX)
+    define_object_like_macro(macro_table, "USHRT_MAX",
+                             SYSYCC_STRINGIZE(USHRT_MAX));
+#endif
+#if defined(INT_MIN)
+    define_object_like_macro(macro_table, "INT_MIN",
+                             SYSYCC_STRINGIZE(INT_MIN));
+#endif
+#if defined(INT_MAX)
+    define_object_like_macro(macro_table, "INT_MAX",
+                             SYSYCC_STRINGIZE(INT_MAX));
+#endif
+#if defined(UINT_MAX)
+    define_object_like_macro(macro_table, "UINT_MAX",
+                             SYSYCC_STRINGIZE(UINT_MAX));
+#endif
+#if defined(LONG_MIN)
+    define_object_like_macro(macro_table, "LONG_MIN",
+                             SYSYCC_STRINGIZE(LONG_MIN));
+#endif
+#if defined(LONG_MAX)
+    define_object_like_macro(macro_table, "LONG_MAX",
+                             SYSYCC_STRINGIZE(LONG_MAX));
+#endif
+#if defined(ULONG_MAX)
+    define_object_like_macro(macro_table, "ULONG_MAX",
+                             SYSYCC_STRINGIZE(ULONG_MAX));
+#endif
+#if defined(LLONG_MIN)
+    define_object_like_macro(macro_table, "LLONG_MIN",
+                             SYSYCC_STRINGIZE(LLONG_MIN));
+#endif
+#if defined(LLONG_MAX)
+    define_object_like_macro(macro_table, "LLONG_MAX",
+                             SYSYCC_STRINGIZE(LLONG_MAX));
+#endif
+#if defined(ULLONG_MAX)
+    define_object_like_macro(macro_table, "ULLONG_MAX",
+                             SYSYCC_STRINGIZE(ULLONG_MAX));
 #endif
 #if defined(INT8_MAX)
     define_object_like_macro(macro_table, "INT8_MAX", SYSYCC_STRINGIZE(INT8_MAX));
