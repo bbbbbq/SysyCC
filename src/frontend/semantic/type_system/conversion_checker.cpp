@@ -26,6 +26,65 @@ const SemanticType *strip_qualifiers(const SemanticType *type) {
     return current;
 }
 
+struct TypeQualifiers {
+    bool is_const = false;
+    bool is_volatile = false;
+    bool is_restrict = false;
+    const SemanticType *base_type = nullptr;
+};
+
+TypeQualifiers split_top_level_qualifiers(const SemanticType *type) {
+    TypeQualifiers qualifiers;
+    qualifiers.base_type = type;
+    while (qualifiers.base_type != nullptr &&
+           qualifiers.base_type->get_kind() == SemanticTypeKind::Qualified) {
+        const auto *qualified_type =
+            static_cast<const QualifiedSemanticType *>(qualifiers.base_type);
+        qualifiers.is_const =
+            qualifiers.is_const || qualified_type->get_is_const();
+        qualifiers.is_volatile =
+            qualifiers.is_volatile || qualified_type->get_is_volatile();
+        qualifiers.is_restrict =
+            qualifiers.is_restrict || qualified_type->get_is_restrict();
+        qualifiers.base_type = qualified_type->get_base_type();
+    }
+    return qualifiers;
+}
+
+bool qualifiers_are_superset(const TypeQualifiers &target,
+                             const TypeQualifiers &value) {
+    return (!value.is_const || target.is_const) &&
+           (!value.is_volatile || target.is_volatile) &&
+           (!value.is_restrict || target.is_restrict);
+}
+
+bool drops_qualifiers_in_pointer_conversion(const SemanticType *target,
+                                            const SemanticType *value) {
+    const SemanticType *unqualified_target = strip_qualifiers(target);
+    const SemanticType *unqualified_value = strip_qualifiers(value);
+    if (unqualified_target == nullptr || unqualified_value == nullptr ||
+        unqualified_target->get_kind() != SemanticTypeKind::Pointer ||
+        unqualified_value->get_kind() != SemanticTypeKind::Pointer) {
+        return false;
+    }
+
+    const auto *target_pointer =
+        static_cast<const PointerSemanticType *>(unqualified_target);
+    const auto *value_pointer =
+        static_cast<const PointerSemanticType *>(unqualified_value);
+    const TypeQualifiers target_qualifiers =
+        split_top_level_qualifiers(target_pointer->get_pointee_type());
+    const TypeQualifiers value_qualifiers =
+        split_top_level_qualifiers(value_pointer->get_pointee_type());
+
+    if (!qualifiers_are_superset(target_qualifiers, value_qualifiers)) {
+        return true;
+    }
+
+    return drops_qualifiers_in_pointer_conversion(target_qualifiers.base_type,
+                                                  value_qualifiers.base_type);
+}
+
 bool is_qualified_pointee_type(const SemanticType *type) {
     return type != nullptr && type->get_kind() == SemanticTypeKind::Qualified &&
            (static_cast<const QualifiedSemanticType *>(type)->get_is_const() ||
@@ -190,13 +249,20 @@ bool ConversionChecker::is_assignable_type(const SemanticType *target,
         if (is_same_type(target_pointee, value_pointee)) {
             return true;
         }
-        if (has_semantic_feature(SemanticFeature::QualifiedPointerConversions) &&
-            is_qualified_pointee_type(target_pointee) &&
-            is_same_type(
-                static_cast<const QualifiedSemanticType *>(target_pointee)
-                    ->get_base_type(),
-                value_pointee)) {
-            return true;
+        if (has_semantic_feature(SemanticFeature::QualifiedPointerConversions)) {
+            const TypeQualifiers target_qualifiers =
+                split_top_level_qualifiers(target_pointee);
+            const TypeQualifiers value_qualifiers =
+                split_top_level_qualifiers(value_pointee);
+            if ((target_qualifiers.is_const || target_qualifiers.is_volatile ||
+                 target_qualifiers.is_restrict ||
+                 value_qualifiers.is_const || value_qualifiers.is_volatile ||
+                 value_qualifiers.is_restrict) &&
+                qualifiers_are_superset(target_qualifiers, value_qualifiers) &&
+                is_same_type(target_qualifiers.base_type,
+                             value_qualifiers.base_type)) {
+                return true;
+            }
         }
         if (is_void_pointer_type(unqualified_target) ||
             is_void_pointer_type(unqualified_value)) {
@@ -258,6 +324,23 @@ bool ConversionChecker::is_assignable_value(
         return is_assignable_type(decayed_target, decayed_value);
     }
     return false;
+}
+
+bool ConversionChecker::is_incompatible_pointer_assignment(
+    const SemanticType *target, const SemanticType *value,
+    SemanticModel &semantic_model) const {
+    if (target == nullptr || value == nullptr) {
+        return false;
+    }
+
+    const SemanticType *decayed_target = get_decayed_type(target, semantic_model);
+    const SemanticType *decayed_value = get_decayed_type(value, semantic_model);
+    if (!is_pointer_type(decayed_target) || !is_pointer_type(decayed_value)) {
+        return false;
+    }
+
+    return !is_assignable_type(decayed_target, decayed_value) &&
+           !drops_qualifiers_in_pointer_conversion(decayed_target, decayed_value);
 }
 
 bool ConversionChecker::is_compatible_equality_type(

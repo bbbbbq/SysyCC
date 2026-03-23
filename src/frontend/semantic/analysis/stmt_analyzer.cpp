@@ -33,6 +33,14 @@ void StmtAnalyzer::add_error(SemanticContext &semantic_context,
                            source_span));
 }
 
+void StmtAnalyzer::add_warning(SemanticContext &semantic_context,
+                               std::string message,
+                               const SourceSpan &source_span) const {
+    semantic_context.get_semantic_model().add_diagnostic(
+        SemanticDiagnostic(DiagnosticSeverity::Warning, std::move(message),
+                           source_span));
+}
+
 void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
                                 SemanticContext &semantic_context,
                                 ScopeStack &scope_stack) const {
@@ -234,6 +242,13 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         if (!conversion_checker_.is_assignable_value(
                 expected_type, actual_type, return_stmt->get_value(),
                 semantic_context, constant_evaluator_)) {
+            if (conversion_checker_.is_incompatible_pointer_assignment(
+                    expected_type, actual_type, semantic_model)) {
+                add_warning(semantic_context,
+                            "return between incompatible pointer types",
+                            return_stmt->get_source_span());
+                return;
+            }
             add_error(semantic_context,
                       "return type does not match function return type",
                       return_stmt->get_source_span());

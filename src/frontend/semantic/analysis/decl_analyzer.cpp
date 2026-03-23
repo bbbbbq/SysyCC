@@ -106,6 +106,10 @@ bool is_system_header_symbol(const SemanticSymbol *symbol,
         symbol->get_decl_node()->get_source_span());
 }
 
+bool is_anonymous_tag_name(const std::string &name) {
+    return name.empty() || name == "<anonymous>";
+}
+
 } // namespace
 
 DeclAnalyzer::DeclAnalyzer(const TypeResolver &type_resolver,
@@ -455,14 +459,16 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                                              constant_evaluator_,
                                              conversion_checker_,
                                              semantic_context, scope_stack)));
-        const auto *symbol = semantic_model.own_symbol(
-            std::make_unique<SemanticSymbol>(SymbolKind::StructName,
-                                             struct_decl->get_name(),
-                                             struct_type, struct_decl));
-        if (define_symbol(semantic_context, scope_stack, symbol,
-                          struct_decl->get_source_span())) {
-            semantic_model.bind_symbol(struct_decl, symbol);
-            semantic_model.bind_node_type(struct_decl, struct_type);
+        semantic_model.bind_node_type(struct_decl, struct_type);
+        if (!is_anonymous_tag_name(struct_decl->get_name())) {
+            const auto *symbol = semantic_model.own_symbol(
+                std::make_unique<SemanticSymbol>(SymbolKind::StructName,
+                                                 struct_decl->get_name(),
+                                                 struct_type, struct_decl));
+            if (define_symbol(semantic_context, scope_stack, symbol,
+                              struct_decl->get_source_span())) {
+                semantic_model.bind_symbol(struct_decl, symbol);
+            }
         }
         for (const auto &field : struct_decl->get_fields()) {
             analyze_decl(field.get(), semantic_context, scope_stack);
@@ -478,14 +484,16 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                                             constant_evaluator_,
                                             conversion_checker_,
                                             semantic_context, scope_stack)));
-        const auto *symbol = semantic_model.own_symbol(
-            std::make_unique<SemanticSymbol>(SymbolKind::UnionName,
-                                             union_decl->get_name(),
-                                             union_type, union_decl));
-        if (define_symbol(semantic_context, scope_stack, symbol,
-                          union_decl->get_source_span())) {
-            semantic_model.bind_symbol(union_decl, symbol);
-            semantic_model.bind_node_type(union_decl, union_type);
+        semantic_model.bind_node_type(union_decl, union_type);
+        if (!is_anonymous_tag_name(union_decl->get_name())) {
+            const auto *symbol = semantic_model.own_symbol(
+                std::make_unique<SemanticSymbol>(SymbolKind::UnionName,
+                                                 union_decl->get_name(),
+                                                 union_type, union_decl));
+            if (define_symbol(semantic_context, scope_stack, symbol,
+                              union_decl->get_source_span())) {
+                semantic_model.bind_symbol(union_decl, symbol);
+            }
         }
         for (const auto &field : union_decl->get_fields()) {
             analyze_decl(field.get(), semantic_context, scope_stack);

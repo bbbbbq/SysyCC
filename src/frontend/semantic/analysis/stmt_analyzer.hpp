@@ -27,6 +27,8 @@ class StmtAnalyzer {
 
     void add_error(SemanticContext &semantic_context, std::string message,
                    const class SourceSpan &source_span) const;
+    void add_warning(SemanticContext &semantic_context, std::string message,
+                     const class SourceSpan &source_span) const;
 
   public:
     StmtAnalyzer(const DeclAnalyzer &decl_analyzer,

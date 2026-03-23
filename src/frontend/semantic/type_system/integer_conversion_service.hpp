@@ -59,12 +59,26 @@ class IntegerConversionService {
     const SemanticType *get_integer_promotion_type(
         const SemanticType *type, SemanticModel &semantic_model) const;
 
+    const SemanticType *get_integer_promotion_type(
+        const SemanticType *type, std::optional<int> bit_field_width,
+        SemanticModel &semantic_model) const;
+
     const SemanticType *get_common_integer_type(
         const SemanticType *lhs, const SemanticType *rhs,
         SemanticModel &semantic_model) const;
 
+    const SemanticType *get_common_integer_type(
+        const SemanticType *lhs, std::optional<int> lhs_bit_field_width,
+        const SemanticType *rhs, std::optional<int> rhs_bit_field_width,
+        SemanticModel &semantic_model) const;
+
     const SemanticType *get_usual_arithmetic_conversion_type(
         const SemanticType *lhs, const SemanticType *rhs,
+        SemanticModel &semantic_model) const;
+
+    const SemanticType *get_usual_arithmetic_conversion_type(
+        const SemanticType *lhs, std::optional<int> lhs_bit_field_width,
+        const SemanticType *rhs, std::optional<int> rhs_bit_field_width,
         SemanticModel &semantic_model) const;
 
     IntegerConversionPlan get_integer_conversion_plan(

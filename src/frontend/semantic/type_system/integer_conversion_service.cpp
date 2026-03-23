@@ -75,38 +75,44 @@ const SemanticType *get_canonical_integer_type_for_info(
         stripped_source->get_kind() == SemanticTypeKind::Builtin) {
         const auto &source_name =
             static_cast<const BuiltinSemanticType *>(stripped_source)->get_name();
-        if (info.get_rank() <= 1) {
-            if (source_name == "unsigned char") {
+        if (!info.get_is_signed()) {
+            if (info.get_rank() == 1) {
                 return make_builtin_type(semantic_model, "unsigned char");
             }
-            return make_builtin_type(semantic_model, "char");
-        }
-        if (info.get_rank() == 2) {
-            if (source_name == "unsigned short") {
+            if (info.get_rank() == 2) {
                 return make_builtin_type(semantic_model, "unsigned short");
             }
-            return make_builtin_type(semantic_model, "short");
-        }
-        if (info.get_rank() == 3) {
-            if (source_name == "unsigned int") {
+            if (info.get_rank() == 3) {
                 return make_builtin_type(semantic_model, "unsigned int");
             }
-            return make_builtin_type(semantic_model, "int");
-        }
-        if (info.get_rank() == 4) {
-            if (source_name == "ptrdiff_t") {
-                return make_builtin_type(semantic_model, "ptrdiff_t");
-            }
-            if (source_name == "unsigned long") {
+            if (info.get_rank() == 4) {
                 return make_builtin_type(semantic_model, "unsigned long");
             }
-            return make_builtin_type(semantic_model, "long int");
-        }
-        if (info.get_rank() == 5) {
-            if (source_name == "unsigned long long") {
+            if (info.get_rank() == 5) {
                 return make_builtin_type(semantic_model, "unsigned long long");
             }
-            return make_builtin_type(semantic_model, "long long int");
+        } else {
+            if (info.get_rank() <= 1) {
+                if (source_name == "signed char") {
+                    return make_builtin_type(semantic_model, "signed char");
+                }
+                return make_builtin_type(semantic_model, "char");
+            }
+            if (info.get_rank() == 2) {
+                return make_builtin_type(semantic_model, "short");
+            }
+            if (info.get_rank() == 3) {
+                return make_builtin_type(semantic_model, "int");
+            }
+            if (info.get_rank() == 4) {
+                if (source_name == "ptrdiff_t") {
+                    return make_builtin_type(semantic_model, "ptrdiff_t");
+                }
+                return make_builtin_type(semantic_model, "long int");
+            }
+            if (info.get_rank() == 5) {
+                return make_builtin_type(semantic_model, "long long int");
+            }
         }
     }
 
@@ -144,6 +150,14 @@ const SemanticType *get_canonical_integer_type_for_info(
         return make_builtin_type(semantic_model, "long long int");
     }
     return nullptr;
+}
+
+const SemanticType *get_unsigned_corresponding_integer_type(
+    const IntegerTypeInfo &signed_info, const SemanticType *signed_source_type,
+    SemanticModel &semantic_model) {
+    return get_canonical_integer_type_for_info(
+        IntegerTypeInfo(false, signed_info.get_bit_width(), signed_info.get_rank()),
+        signed_source_type, semantic_model);
 }
 
 } // namespace
@@ -214,6 +228,12 @@ IntegerConversionService::get_floating_type_rank(const SemanticType *type) const
 
 const SemanticType *IntegerConversionService::get_integer_promotion_type(
     const SemanticType *type, SemanticModel &semantic_model) const {
+    return get_integer_promotion_type(type, std::nullopt, semantic_model);
+}
+
+const SemanticType *IntegerConversionService::get_integer_promotion_type(
+    const SemanticType *type, std::optional<int> bit_field_width,
+    SemanticModel &semantic_model) const {
     type = strip_qualifiers(type);
     if (type == nullptr) {
         return nullptr;
@@ -227,6 +247,28 @@ const SemanticType *IntegerConversionService::get_integer_promotion_type(
         return nullptr;
     }
 
+    if (bit_field_width.has_value()) {
+        if (*bit_field_width <= 0) {
+            return nullptr;
+        }
+
+        constexpr int int_bit_width = 32;
+        if (info->get_is_signed()) {
+            if (*bit_field_width <= int_bit_width) {
+                return make_builtin_type(semantic_model, "int");
+            }
+            return type;
+        }
+
+        if (*bit_field_width < int_bit_width) {
+            return make_builtin_type(semantic_model, "int");
+        }
+        if (*bit_field_width == int_bit_width) {
+            return make_builtin_type(semantic_model, "unsigned int");
+        }
+        return type;
+    }
+
     if (info->get_rank() < 3) {
         return make_builtin_type(semantic_model, "int");
     }
@@ -236,8 +278,18 @@ const SemanticType *IntegerConversionService::get_integer_promotion_type(
 const SemanticType *IntegerConversionService::get_common_integer_type(
     const SemanticType *lhs, const SemanticType *rhs,
     SemanticModel &semantic_model) const {
-    const SemanticType *promoted_lhs = get_integer_promotion_type(lhs, semantic_model);
-    const SemanticType *promoted_rhs = get_integer_promotion_type(rhs, semantic_model);
+    return get_common_integer_type(lhs, std::nullopt, rhs, std::nullopt,
+                                   semantic_model);
+}
+
+const SemanticType *IntegerConversionService::get_common_integer_type(
+    const SemanticType *lhs, std::optional<int> lhs_bit_field_width,
+    const SemanticType *rhs, std::optional<int> rhs_bit_field_width,
+    SemanticModel &semantic_model) const {
+    const SemanticType *promoted_lhs =
+        get_integer_promotion_type(lhs, lhs_bit_field_width, semantic_model);
+    const SemanticType *promoted_rhs =
+        get_integer_promotion_type(rhs, rhs_bit_field_width, semantic_model);
     if (promoted_lhs == nullptr || promoted_rhs == nullptr) {
         return nullptr;
     }
@@ -298,33 +350,24 @@ const SemanticType *IntegerConversionService::get_common_integer_type(
         return signed_type;
     }
 
-    if (signed_info->get_bit_width() == unsigned_info->get_bit_width() &&
-        signed_info->get_rank() == unsigned_info->get_rank()) {
-        return unsigned_type;
-    }
-
-    if (signed_info->get_rank() == 4 && unsigned_info->get_rank() == 5) {
-        return make_builtin_type(semantic_model, "unsigned long long");
-    }
-    if (signed_info->get_rank() == 3 && unsigned_info->get_rank() == 5) {
-        return make_builtin_type(semantic_model, "unsigned long long");
-    }
-    if (signed_info->get_rank() == 2 && unsigned_info->get_rank() == 5) {
-        return make_builtin_type(semantic_model, "unsigned long long");
-    }
-    if (signed_info->get_rank() == 1 && unsigned_info->get_rank() >= 3) {
-        return unsigned_type;
-    }
-
     if (unsigned_info->get_rank() > signed_info->get_rank()) {
         return unsigned_type;
     }
 
-    return signed_type;
+    return get_unsigned_corresponding_integer_type(*signed_info, signed_type,
+                                                   semantic_model);
 }
 
 const SemanticType *IntegerConversionService::get_usual_arithmetic_conversion_type(
     const SemanticType *lhs, const SemanticType *rhs,
+    SemanticModel &semantic_model) const {
+    return get_usual_arithmetic_conversion_type(lhs, std::nullopt, rhs,
+                                                std::nullopt, semantic_model);
+}
+
+const SemanticType *IntegerConversionService::get_usual_arithmetic_conversion_type(
+    const SemanticType *lhs, std::optional<int> lhs_bit_field_width,
+    const SemanticType *rhs, std::optional<int> rhs_bit_field_width,
     SemanticModel &semantic_model) const {
     lhs = strip_qualifiers(lhs);
     rhs = strip_qualifiers(rhs);
@@ -366,7 +409,8 @@ const SemanticType *IntegerConversionService::get_usual_arithmetic_conversion_ty
         return nullptr;
     }
 
-    return get_common_integer_type(lhs, rhs, semantic_model);
+    return get_common_integer_type(lhs, lhs_bit_field_width, rhs,
+                                   rhs_bit_field_width, semantic_model);
 }
 
 IntegerConversionPlan IntegerConversionService::get_integer_conversion_plan(

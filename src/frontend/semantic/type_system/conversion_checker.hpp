@@ -43,6 +43,9 @@ class ConversionChecker {
                              const Expr *value_expr,
                              SemanticContext &semantic_context,
                              const ConstantEvaluator &constant_evaluator) const;
+    bool is_incompatible_pointer_assignment(const SemanticType *target,
+                                            const SemanticType *value,
+                                            SemanticModel &semantic_model) const;
     bool is_compatible_equality_type(const SemanticType *lhs,
                                      const SemanticType *rhs,
                                      const Expr *lhs_expr,

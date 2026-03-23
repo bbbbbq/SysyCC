@@ -15,6 +15,11 @@ struct TypeQualifierFlags {
     bool is_volatile = false;
 };
 
+struct StorageSpecifierFlags {
+    bool is_extern = false;
+    bool is_static = false;
+};
+
 std::string decode_string_literal_token(std::string token_text) {
     if (token_text.size() >= 2 && token_text.front() == '"' &&
         token_text.back() == '"') {
@@ -148,6 +153,26 @@ void collect_type_qualifiers(const ParseTreeNode *node, bool &is_const,
     }
 }
 
+void collect_storage_specifiers(const ParseTreeNode *node,
+                                StorageSpecifierFlags &flags) {
+    if (node == nullptr) {
+        return;
+    }
+
+    if (ParseTreeMatcher::label_starts_with(node, "EXTERN")) {
+        flags.is_extern = true;
+        return;
+    }
+    if (ParseTreeMatcher::label_starts_with(node, "STATIC")) {
+        flags.is_static = true;
+        return;
+    }
+
+    for (const auto &child : node->children) {
+        collect_storage_specifiers(child.get(), flags);
+    }
+}
+
 void collect_pointer_qualifiers(const ParseTreeNode *node, bool &is_const,
                                 bool &is_volatile, bool &is_restrict) {
     if (node == nullptr) {
@@ -271,7 +296,7 @@ AstBuilder::build_function_decl(const ParseTreeNode *node) const {
     std::string asm_label;
     std::unique_ptr<Stmt> body;
     TypeQualifierFlags leading_qualifiers;
-    bool is_static = false;
+    StorageSpecifierFlags storage_specifiers;
 
     if (node != nullptr) {
         const ParseTreeNode *type_specifier = nullptr;
@@ -293,12 +318,7 @@ AstBuilder::build_function_decl(const ParseTreeNode *node) const {
             }
             if (ParseTreeMatcher::label_equals(child.get(),
                                                "storage_specifier_opt")) {
-                for (const auto &storage_child : child->children) {
-                    if (ParseTreeMatcher::label_starts_with(storage_child.get(),
-                                                            "STATIC")) {
-                        is_static = true;
-                    }
-                }
+                collect_storage_specifiers(child.get(), storage_specifiers);
                 continue;
             }
             if (ParseTreeMatcher::label_equals(child.get(), "type_specifier")) {
@@ -348,7 +368,7 @@ AstBuilder::build_function_decl(const ParseTreeNode *node) const {
 
     return std::make_unique<FunctionDecl>(
         function_name, std::move(return_type), std::move(parameters),
-        is_static, is_variadic,
+        storage_specifiers.is_static, is_variadic,
         std::move(attributes), std::move(asm_label),
         std::move(body), get_node_source_span(node));
 }
@@ -547,8 +567,7 @@ AstBuilder::build_var_decls(const ParseTreeNode *node) const {
     std::vector<std::unique_ptr<Decl>> decls;
     const ParseTreeNode *list_node = nullptr;
     const ParseTreeNode *type_specifier = nullptr;
-    bool is_extern = false;
-    bool is_static = false;
+    StorageSpecifierFlags storage_specifiers;
     TypeQualifierFlags leading_qualifiers;
 
     if (node != nullptr) {
@@ -561,16 +580,7 @@ AstBuilder::build_var_decls(const ParseTreeNode *node) const {
             }
             if (ParseTreeMatcher::label_equals(child.get(),
                                               "storage_specifier_opt")) {
-                for (const auto &storage_child : child->children) {
-                    if (ParseTreeMatcher::label_starts_with(storage_child.get(),
-                                                            "EXTERN")) {
-                        is_extern = true;
-                    }
-                    if (ParseTreeMatcher::label_starts_with(storage_child.get(),
-                                                            "STATIC")) {
-                        is_static = true;
-                    }
-                }
+                collect_storage_specifiers(child.get(), storage_specifiers);
             }
             if (ParseTreeMatcher::label_equals(child.get(),
                                                "type_qualifier_seq_opt") ||
@@ -624,7 +634,7 @@ AstBuilder::build_var_decls(const ParseTreeNode *node) const {
                                 leading_qualifiers.is_volatile),
             collect_declarator_dimensions(declarator),
             initializer == nullptr ? nullptr : build_expr(initializer),
-            is_extern, is_static,
+            storage_specifiers.is_extern, storage_specifiers.is_static,
             get_node_source_span(declarator_node)));
     }
 
