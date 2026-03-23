@@ -13,7 +13,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
-"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-ir
+"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
 grep -F '@g_payload = internal global { { i32 }, [4 x i8] } { { i32 } { i32 7 }, [4 x i8] zeroinitializer }' "${IR_FILE}"

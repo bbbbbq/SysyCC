@@ -10,9 +10,21 @@ INPUT_FILE="${SCRIPT_DIR}/semantic_incompatible_pointer_call_warning.sy"
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
-assert_compiler_succeeds_with_message \
-    "${BUILD_DIR}/SysyCC" \
-    "${INPUT_FILE}" \
-    "semantic warning: function call argument uses incompatible pointer type at 8:27-8:29"
+
+set +e
+OUTPUT="$("${BUILD_DIR}/SysyCC" --dump-tokens --dump-parse --dump-ast \
+    --stop-after=semantic "${INPUT_FILE}" 2>&1)"
+RC=$?
+set -e
+
+if [[ ${RC} -ne 0 ]]; then
+    echo "error: compiler unexpectedly failed for ${INPUT_FILE}" >&2
+    echo "${OUTPUT}" >&2
+    exit 1
+fi
+
+NORMALIZED_OUTPUT="$(printf '%s' "${OUTPUT}" | sed -E 's#[^[:space:]]+:([0-9]+:[0-9]+-[0-9]+:[0-9]+)#\1#g')"
+grep -Fq "semantic warning: function call argument uses incompatible pointer type at 8:27-8:29" \
+    <<<"${NORMALIZED_OUTPUT}"
 
 echo "verified: incompatible pointer call arguments warn without failing semantic analysis"
