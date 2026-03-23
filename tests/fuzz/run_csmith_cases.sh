@@ -9,43 +9,168 @@ SYSYCC_BIN="${BUILD_DIR}/SysyCC"
 CSMITH_RUNTIME_DIR="${PROJECT_ROOT}/tools/csmith/runtime"
 CSMITH_BUILD_RUNTIME_DIR="${PROJECT_ROOT}/tools/csmith/build/runtime"
 RUN_TIMEOUT_SECONDS="${RUN_TIMEOUT_SECONDS:-10}"
-RESULT_FILE="${SCRIPT_DIR}/result.md"
+CASE_ROOT="${SYSYCC_FUZZ_CASE_ROOT:-${SCRIPT_DIR}}"
+RESULT_FILE="${SYSYCC_FUZZ_RESULT_FILE:-${CASE_ROOT}/result.md}"
 PRINT_INTERMEDIATE_MODE="${PRINT_INTERMEDIATE_MODE:-never}"
+RUN_STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
 print_usage() {
-    echo "usage: $0 all | <case-id> [<case-id> ...]" >&2
+    echo "usage: $0 [all | <case-id> [<case-id> ...]]" >&2
     echo "examples:" >&2
+    echo "  $0" >&2
     echo "  $0 all" >&2
     echo "  $0 001" >&2
     echo "  $0 001 004 007" >&2
     echo >&2
     echo "environment:" >&2
     echo "  PRINT_INTERMEDIATE_MODE=never|failure|always  (default: never)" >&2
+    echo "  RUN_FUZZ_JOBS=<n>  override automatic parallel job detection" >&2
+    echo "  SYSYCC_FUZZ_RESULT_FILE=<path>  write markdown report to a custom file" >&2
 }
 
 normalize_case_id() {
     local raw_id="$1"
+    local numeric_id=0
+    local case_id=""
+
     if ! [[ "${raw_id}" =~ ^[0-9]+$ ]]; then
         echo "invalid case id: ${raw_id}" >&2
         exit 1
     fi
-    printf "%03d" "${raw_id}"
+
+    if [[ -d "${CASE_ROOT}/${raw_id}" ]]; then
+        printf '%s\n' "${raw_id}"
+        return
+    fi
+
+    numeric_id=$((10#${raw_id}))
+    while IFS= read -r case_id; do
+        if [[ $((10#${case_id})) -eq "${numeric_id}" ]]; then
+            printf '%s\n' "${case_id}"
+            return
+        fi
+    done < <(list_available_case_ids)
+
+    printf "%03d\n" "${numeric_id}"
+}
+
+list_available_case_ids() {
+    local case_dir=""
+    local case_id=""
+
+    while IFS= read -r case_dir; do
+        case_id="$(basename "${case_dir}")"
+        if [[ "${case_id}" =~ ^[0-9]+$ ]]; then
+            printf '%s\n' "${case_id}"
+        fi
+    done < <(find "${CASE_ROOT}" -mindepth 1 -maxdepth 1 -type d)
+}
+
+collect_requested_case_ids() {
+    CASE_IDS=()
+
+    if [[ $# -eq 0 || "${1:-}" == "all" ]]; then
+        while IFS= read -r case_id; do
+            CASE_IDS+=("${case_id}")
+        done < <(list_available_case_ids | sort -n)
+        return
+    fi
+
+    local raw_id=""
+    for raw_id in "$@"; do
+        CASE_IDS+=("$(normalize_case_id "${raw_id}")")
+    done
+}
+
+detect_parallel_jobs() {
+    local detected_jobs="${RUN_FUZZ_JOBS:-}"
+
+    if [[ -z "${detected_jobs}" ]] && command -v sysctl >/dev/null 2>&1; then
+        detected_jobs="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
+    fi
+
+    if [[ -z "${detected_jobs}" ]] && command -v nproc >/dev/null 2>&1; then
+        detected_jobs="$(nproc 2>/dev/null || true)"
+    fi
+
+    if [[ -z "${detected_jobs}" ]] && command -v getconf >/dev/null 2>&1; then
+        detected_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+    fi
+
+    if ! [[ "${detected_jobs}" =~ ^[1-9][0-9]*$ ]]; then
+        detected_jobs=1
+    fi
+
+    printf '%s\n' "${detected_jobs}"
 }
 
 append_result_row() {
     local case_id="$1"
     local status="$2"
     local detail="$3"
-    printf '| %s | %s | %s |\n' "${case_id}" "${status}" "${detail}" >>"${RESULT_FILE}"
+    local destination_file="${SYSYCC_FUZZ_RESULT_ROW_FILE:-${RESULT_FILE}}"
+    if [[ -n "${SYSYCC_FUZZ_RESULT_ROW_FILE:-}" ]]; then
+        printf '| %s | %s | %s |\n' "${case_id}" "${status}" "${detail}" >"${destination_file}"
+    else
+        printf '| %s | %s | %s |\n' "${case_id}" "${status}" "${detail}" >>"${destination_file}"
+    fi
 }
 
 initialize_result_file() {
+    mkdir -p "$(dirname "${RESULT_FILE}")"
     cat >"${RESULT_FILE}" <<'EOF'
 # Fuzz Result
 
 | Case | Status | Detail |
 | --- | --- | --- |
 EOF
+}
+
+append_result_metadata() {
+    {
+        echo
+        echo "Generated at: ${RUN_STARTED_AT}"
+        echo
+        echo "- Case root: ${CASE_ROOT}"
+        echo "- Requested cases: ${TOTAL_CASE_COUNT}"
+        echo "- Parallel jobs: ${PARALLEL_JOBS}"
+        echo "- Markdown report: ${RESULT_FILE}"
+    } >>"${RESULT_FILE}"
+}
+
+append_result_summary() {
+    local summary_file=""
+    summary_file="$(mktemp)"
+
+    awk '
+        /^\| [^ ]+ \| [^ ]+ \|/ {
+            if ($0 ~ /^\| Case \|/ || $0 ~ /^\| --- \|/) {
+                next;
+            }
+
+            line = $0;
+            gsub(/^\| /, "", line);
+            split(line, parts, " \\| ");
+            status = parts[2];
+            total += 1;
+            counts[status] += 1;
+        }
+        END {
+            print "## Summary";
+            print "";
+            printf("- Total cases: %d\n", total);
+            for (status in counts) {
+                printf("- %s: %d\n", status, counts[status]);
+            }
+        }
+    ' "${RESULT_FILE}" >"${summary_file}"
+
+    {
+        echo
+        cat "${summary_file}"
+    } >>"${RESULT_FILE}"
+
+    rm -f "${summary_file}"
 }
 
 copy_optional_intermediate_file() {
@@ -111,7 +236,7 @@ print_case_intermediate_report() {
     local case_id="$1"
     local status="$2"
     local detail="$3"
-    local case_dir="${SCRIPT_DIR}/${case_id}"
+    local case_dir="${CASE_ROOT}/${case_id}"
     local case_name="fuzz_${case_id}"
     local case_file="${case_dir}/${case_name}.c"
     local stdin_file="${case_dir}/${case_name}.input.txt"
@@ -336,7 +461,7 @@ compare_case_outputs() {
 
 run_case() {
     local case_id="$1"
-    local case_dir="${SCRIPT_DIR}/${case_id}"
+    local case_dir="${CASE_ROOT}/${case_id}"
     local case_name="fuzz_${case_id}"
     local case_file="${case_dir}/${case_name}.c"
     local stdin_file="${case_dir}/${case_name}.input.txt"
@@ -416,33 +541,163 @@ run_case() {
     fi
 }
 
-if [[ $# -lt 1 ]]; then
-    print_usage
+launch_case_worker() {
+    local case_id="$1"
+    local worker_root="$2"
+    local report_file="${worker_root}/${case_id}.report.txt"
+    local stderr_file="${worker_root}/${case_id}.driver.stderr.txt"
+    local row_file="${worker_root}/${case_id}.row.txt"
+
+    SYSYCC_FUZZ_RESULT_ROW_FILE="${row_file}" \
+        bash "${BASH_SOURCE[0]}" --run-case-internal "${case_id}" \
+        >"${report_file}" 2>"${stderr_file}" &
+    LAST_LAUNCHED_WORKER_PID="$!"
+}
+
+print_progress_update() {
+    local case_id="$1"
+
+    COMPLETED_CASE_COUNT=$((COMPLETED_CASE_COUNT + 1))
+    printf '==> Progress: %d/%d completed (last: %s)\n' \
+        "${COMPLETED_CASE_COUNT}" "${TOTAL_CASE_COUNT}" "${case_id}"
+}
+
+wait_for_available_slot() {
+    local max_jobs="$1"
+
+    while [[ "${#ACTIVE_PIDS[@]}" -ge "${max_jobs}" ]]; do
+        local -a remaining_pids=()
+        local -a remaining_case_ids=()
+        local worker_index=""
+        local worker_pid=""
+        local case_id=""
+
+        for worker_index in "${!ACTIVE_PIDS[@]}"; do
+            worker_pid="${ACTIVE_PIDS[worker_index]}"
+            case_id="${ACTIVE_CASE_IDS[worker_index]}"
+            if kill -0 "${worker_pid}" 2>/dev/null; then
+                remaining_pids+=("${worker_pid}")
+                remaining_case_ids+=("${case_id}")
+                continue
+            fi
+
+            wait "${worker_pid}" || true
+            print_progress_update "${case_id}"
+        done
+
+        if [[ "${#remaining_pids[@]}" -gt 0 ]]; then
+            ACTIVE_PIDS=("${remaining_pids[@]}")
+            ACTIVE_CASE_IDS=("${remaining_case_ids[@]}")
+        else
+            ACTIVE_PIDS=()
+            ACTIVE_CASE_IDS=()
+        fi
+        if [[ "${#ACTIVE_PIDS[@]}" -ge "${max_jobs}" ]]; then
+            sleep 0.1
+        fi
+    done
+}
+
+wait_for_all_workers() {
+    while [[ "${#ACTIVE_PIDS[@]}" -gt 0 ]]; do
+        wait_for_available_slot 1
+    done
+}
+
+run_requested_cases_in_parallel() {
+    local worker_root="$1"
+    local parallel_jobs="$2"
+    shift 2
+    local -a requested_case_ids=("$@")
+    local case_id=""
+    local worker_pid=""
+
+    ACTIVE_PIDS=()
+    ACTIVE_CASE_IDS=()
+
+    for case_id in "${requested_case_ids[@]}"; do
+        wait_for_available_slot "${parallel_jobs}"
+        launch_case_worker "${case_id}" "${worker_root}"
+        worker_pid="${LAST_LAUNCHED_WORKER_PID}"
+        ACTIVE_PIDS+=("${worker_pid}")
+        ACTIVE_CASE_IDS+=("${case_id}")
+    done
+
+    wait_for_all_workers
+}
+
+emit_parallel_results() {
+    local worker_root="$1"
+    shift
+    local -a requested_case_ids=("$@")
+    local case_id=""
+
+    for case_id in "${requested_case_ids[@]}"; do
+        local row_file="${worker_root}/${case_id}.row.txt"
+        local report_file="${worker_root}/${case_id}.report.txt"
+        local stderr_file="${worker_root}/${case_id}.driver.stderr.txt"
+
+        if [[ -f "${stderr_file}" && -s "${stderr_file}" ]]; then
+            cat "${stderr_file}" >&2
+        fi
+
+        if [[ -f "${row_file}" ]]; then
+            cat "${row_file}" >>"${RESULT_FILE}"
+        else
+            append_result_row "${case_id}" "SCRIPT_FAIL" \
+                "internal worker exited unexpectedly"
+        fi
+
+        if [[ -f "${report_file}" && -s "${report_file}" ]]; then
+            cat "${report_file}"
+        fi
+    done
+}
+
+if [[ "${1:-}" == "--run-case-internal" ]]; then
+    if [[ $# -ne 2 ]]; then
+        echo "usage: $0 --run-case-internal <case-id>" >&2
+        exit 1
+    fi
+
+    ensure_prerequisites
+    run_case "$(normalize_case_id "$2")"
+    exit 0
+fi
+
+if [[ "${1:-}" == "--list-case-ids-internal" ]]; then
+    shift
+    declare -a CASE_IDS=()
+    collect_requested_case_ids "$@"
+    if [[ "${#CASE_IDS[@]}" -gt 0 ]]; then
+        printf '%s\n' "${CASE_IDS[@]}"
+    fi
+    exit 0
+fi
+
+declare -a CASE_IDS=()
+collect_requested_case_ids "$@"
+
+if [[ "${#CASE_IDS[@]}" -eq 0 ]]; then
+    echo "no fuzz case directories found under ${CASE_ROOT}" >&2
     exit 1
 fi
+
+PARALLEL_JOBS="$(detect_parallel_jobs)"
+WORKER_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/run_csmith_cases.XXXXXX")"
+TOTAL_CASE_COUNT="${#CASE_IDS[@]}"
+COMPLETED_CASE_COUNT=0
+trap 'rm -rf "${WORKER_ROOT}"' EXIT
 
 ensure_prerequisites
 initialize_result_file
+append_result_metadata
 
-declare -a CASE_IDS=()
+echo "==> Running ${#CASE_IDS[@]} fuzz cases with ${PARALLEL_JOBS} parallel jobs"
 
-if [[ "$1" == "all" ]]; then
-    while IFS= read -r case_dir; do
-        CASE_IDS+=("$(basename "${case_dir}")")
-    done < <(find "${SCRIPT_DIR}" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9]' | sort)
-else
-    for raw_id in "$@"; do
-        CASE_IDS+=("$(normalize_case_id "${raw_id}")")
-    done
-fi
+run_requested_cases_in_parallel "${WORKER_ROOT}" "${PARALLEL_JOBS}" "${CASE_IDS[@]}"
+emit_parallel_results "${WORKER_ROOT}" "${CASE_IDS[@]}"
+append_result_summary
 
-if [[ "${#CASE_IDS[@]}" -eq 0 ]]; then
-    echo "no fuzz case directories found under ${SCRIPT_DIR}" >&2
-    exit 1
-fi
-
-for case_id in "${CASE_IDS[@]}"; do
-    run_case "${case_id}"
-done
-
+echo "==> Markdown report written to ${RESULT_FILE}"
 cat "${RESULT_FILE}"

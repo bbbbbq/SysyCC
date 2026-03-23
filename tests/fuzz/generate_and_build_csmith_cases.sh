@@ -4,10 +4,40 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-CSMITH_BIN="${PROJECT_ROOT}/tools/csmith/build/src/csmith"
-CSMITH_RUNTIME_DIR="${PROJECT_ROOT}/tools/csmith/runtime"
-CSMITH_BUILD_RUNTIME_DIR="${PROJECT_ROOT}/tools/csmith/build/runtime"
+CASE_ROOT="${SYSYCC_FUZZ_CASE_ROOT:-${SCRIPT_DIR}}"
+CSMITH_BIN="${SYSYCC_CSMITH_BIN:-${PROJECT_ROOT}/tools/csmith/build/src/csmith}"
+CSMITH_RUNTIME_DIR="${SYSYCC_CSMITH_RUNTIME_DIR:-${PROJECT_ROOT}/tools/csmith/runtime}"
+CSMITH_BUILD_RUNTIME_DIR="${SYSYCC_CSMITH_BUILD_RUNTIME_DIR:-${PROJECT_ROOT}/tools/csmith/build/runtime}"
+CLANG_BIN="${SYSYCC_CLANG_BIN:-clang}"
 GENERATE_ONLY=0
+
+get_existing_case_state() {
+    local max_case_number=0
+    local case_id_width=3
+
+    if [[ ! -d "${CASE_ROOT}" ]]; then
+        printf '0 3\n'
+        return 0
+    fi
+
+    while IFS= read -r case_dir; do
+        local case_name
+        case_name="$(basename "${case_dir}")"
+        if [[ ! "${case_name}" =~ ^[0-9]+$ ]]; then
+            continue
+        fi
+
+        local case_number=$((10#${case_name}))
+        if [[ "${case_number}" -gt "${max_case_number}" ]]; then
+            max_case_number="${case_number}"
+        fi
+        if [[ "${#case_name}" -gt "${case_id_width}" ]]; then
+            case_id_width="${#case_name}"
+        fi
+    done < <(find "${CASE_ROOT}" -mindepth 1 -maxdepth 1 -type d | sort)
+
+    printf '%s %s\n' "${max_case_number}" "${case_id_width}"
+}
 
 if [[ $# -eq 2 ]] && [[ "$1" == "--generate-only" ]]; then
     GENERATE_ONLY=1
@@ -31,8 +61,8 @@ if [[ ! -x "${CSMITH_BIN}" ]]; then
 fi
 
 if [[ "${GENERATE_ONLY}" -eq 0 ]]; then
-    if ! command -v clang >/dev/null 2>&1; then
-        echo "missing required tool: clang" >&2
+    if ! command -v "${CLANG_BIN}" >/dev/null 2>&1; then
+        echo "missing required tool: ${CLANG_BIN}" >&2
         exit 1
     fi
 
@@ -42,9 +72,16 @@ if [[ "${GENERATE_ONLY}" -eq 0 ]]; then
     fi
 fi
 
-for ((index = 1; index <= COUNT; ++index)); do
-    case_id="$(printf "%03d" "${index}")"
-    case_dir="${SCRIPT_DIR}/${case_id}"
+read -r max_existing_case_number case_id_width < <(get_existing_case_state)
+first_case_number=$((max_existing_case_number + 1))
+last_case_number=$((max_existing_case_number + COUNT))
+if [[ "${#last_case_number}" -gt "${case_id_width}" ]]; then
+    case_id_width="${#last_case_number}"
+fi
+
+for ((case_number = first_case_number; case_number <= last_case_number; ++case_number)); do
+    case_id="$(printf "%0${case_id_width}d" "${case_number}")"
+    case_dir="${CASE_ROOT}/${case_id}"
     case_file="${case_dir}/fuzz_${case_id}.c"
     case_binary="${case_dir}/fuzz_${case_id}.out"
 
@@ -53,7 +90,7 @@ for ((index = 1; index <= COUNT; ++index)); do
     echo "generated ${case_file}"
 
     if [[ "${GENERATE_ONLY}" -eq 0 ]]; then
-        clang -w -O0 \
+        "${CLANG_BIN}" -w -O0 \
             -I "${CSMITH_RUNTIME_DIR}" \
             -I "${CSMITH_BUILD_RUNTIME_DIR}" \
             "${case_file}" \
