@@ -1,0 +1,33 @@
+#if INT16_MAX >= INT_MAX
+int int16_ge_int() {
+    return 1;
+}
+#else
+int int16_ge_int() {
+    return 0;
+}
+#endif
+
+#if INT32_MAX >= INT_MAX
+int int32_ge_int() {
+    return 1;
+}
+#else
+int int32_ge_int() {
+    return 0;
+}
+#endif
+
+#if CHAR_BIT == 8
+int char_bit_is_eight() {
+    return 1;
+}
+#else
+int char_bit_is_eight() {
+    return 0;
+}
+#endif
+
+int main() {
+    return int16_ge_int() + int32_ge_int() + char_bit_is_eight();
+}

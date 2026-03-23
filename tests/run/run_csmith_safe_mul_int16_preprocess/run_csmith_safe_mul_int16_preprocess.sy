@@ -1,0 +1,7 @@
+#include "csmith.h"
+
+int main() {
+    putint(safe_mul_func_int16_t_s_s((short)30000, (short)2));
+    putch(10);
+    return 0;
+}
