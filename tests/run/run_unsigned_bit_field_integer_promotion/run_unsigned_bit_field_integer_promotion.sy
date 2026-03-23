@@ -1,0 +1,11 @@
+struct Bits {
+    unsigned value : 19;
+};
+
+int main(void) {
+    struct Bits bits = {673};
+    int value = -1;
+    putint(bits.value <= value);
+    putch(10);
+    return 0;
+}

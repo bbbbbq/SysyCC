@@ -15,7 +15,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -q 'alloca \[4 x i8\]' "${IR_FILE}"
+grep -q 'alloca i32' "${IR_FILE}"
 grep -q 'bitcast ptr %box.addr to ptr' "${IR_FILE}"
+grep -q 'load i32, ptr %t1' "${IR_FILE}"
 
 echo "verified: ir lowers local union storage and dot-member access"

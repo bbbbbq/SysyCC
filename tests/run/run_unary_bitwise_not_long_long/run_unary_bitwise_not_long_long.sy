@@ -1,0 +1,6 @@
+int main() {
+    long long value = ~9223372036854775807LL;
+    putint(value == (-9223372036854775807LL - 1));
+    putch(10);
+    return 0;
+}

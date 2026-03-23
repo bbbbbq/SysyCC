@@ -18,7 +18,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^define \{ i32, i32 \} @make_pair\(\) \{$' "${IR_FILE}"
+grep -Eq '^define (internal )?\{ i32, i32 \} @make_pair\(\) \{$' "${IR_FILE}"
 grep -Eq '^  %t[0-9]+ = load \{ i32, i32 \}, ptr @g_pair$' "${IR_FILE}"
 grep -Eq '^  ret \{ i32, i32 \} %t[0-9]+$' "${IR_FILE}"
 grep -Eq '^  %t[0-9]+ = call \{ i32, i32 \} @make_pair\(\)$' "${IR_FILE}"

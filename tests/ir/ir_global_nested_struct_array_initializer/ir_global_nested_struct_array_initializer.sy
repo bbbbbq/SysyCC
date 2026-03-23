@@ -1,0 +1,14 @@
+struct Inner {
+    int value;
+    short tag;
+};
+
+struct Outer {
+    const struct Inner inner;
+};
+
+static struct Outer g_outer[2] = {{{1, 2}}, {{3, 4}}};
+
+int main() {
+    return g_outer[1].inner.value;
+}

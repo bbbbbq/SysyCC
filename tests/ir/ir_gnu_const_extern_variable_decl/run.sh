@@ -16,7 +16,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_file_nonempty "${IR_FILE}"
 grep -q '^@sys_nerr = external global i32$' "${IR_FILE}"
-grep -q '^@sys_errlist = external global ptr$' "${IR_FILE}"
+grep -q '^@sys_errlist = external global \[0 x ptr\]$' "${IR_FILE}"
 grep -q 'load i32, ptr @sys_nerr' "${IR_FILE}"
 
 echo "verified: ir lowers extern GNU-const globals"

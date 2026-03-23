@@ -1,0 +1,11 @@
+union Payload {
+    int value;
+    unsigned int bits;
+};
+
+static union Payload g_payload = {7};
+static int *g_ptr = &g_payload.value;
+
+int main() {
+    return *g_ptr;
+}

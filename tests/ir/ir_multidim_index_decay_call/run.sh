@@ -12,10 +12,10 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
-"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-ir
+"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -q 'getelementptr inbounds \[3 x i32\], ptr %values, i32 0' "${IR_FILE}"
+grep -Eq 'getelementptr inbounds \[3 x i32\], ptr %values(\.addr)?, i32 0' "${IR_FILE}"
 grep -q 'call i32 @take_ptr(ptr' "${IR_FILE}"
 
 echo "verified: ir lowers multidimensional index decay in call arguments"

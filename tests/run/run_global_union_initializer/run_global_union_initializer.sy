@@ -1,0 +1,12 @@
+union Box {
+    int word;
+    unsigned long long wide;
+};
+
+static union Box g_box = {-1};
+
+int main() {
+    putint(g_box.wide == 4294967295ULL);
+    putch(10);
+    return 0;
+}

@@ -1,0 +1,8 @@
+volatile unsigned int g_unsigned = 0x7C5FCF85U;
+int g_signed = (int)0xD61C992B;
+
+int main(void) {
+    putint(g_signed < g_unsigned);
+    putch(10);
+    return 0;
+}

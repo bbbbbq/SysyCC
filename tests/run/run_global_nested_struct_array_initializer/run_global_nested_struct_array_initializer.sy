@@ -1,0 +1,22 @@
+struct Inner {
+    int value;
+    short tag;
+};
+
+struct Outer {
+    const struct Inner inner;
+};
+
+static struct Outer g_outer[2] = {{{1, 2}}, {{3, 4}}};
+
+int main() {
+    putint(g_outer[0].inner.value);
+    putch(32);
+    putint(g_outer[0].inner.tag);
+    putch(32);
+    putint(g_outer[1].inner.value);
+    putch(32);
+    putint(g_outer[1].inner.tag);
+    putch(10);
+    return 0;
+}
