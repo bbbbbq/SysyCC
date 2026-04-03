@@ -121,6 +121,10 @@ CoreIrDcePass -> LowerIrPass
   [src/backend/ir/lower/lowering](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering).
   The legacy `IRBuilder -> IRBackend -> LlvmIrBackend` stack remains in tree as
   a reference implementation during the migration.
+- `CoreIrCanonicalizePass` now performs a first conservative normalization pass
+  over built Core IR before constant folding and DCE, including branch
+  condition cleanup, local integer cast-chain simplification, jump trampoline
+  removal, and zero-index no-op GEP cleanup.
 - `LowerIrPass` now fails fast when the active IR backend cannot lower a
   required function body, function declaration, or global object. Unsupported
   IR is reported through the shared diagnostic engine and stops compilation

@@ -466,6 +466,10 @@ class CoreIrJumpInst final : public CoreIrInstruction {
 
     CoreIrBasicBlock *get_target_block() const noexcept { return target_block_; }
 
+    void set_target_block(CoreIrBasicBlock *target_block) noexcept {
+        target_block_ = target_block;
+    }
+
     bool get_has_side_effect() const noexcept override { return true; }
 
     bool get_is_terminator() const noexcept override { return true; }
@@ -492,6 +496,14 @@ class CoreIrCondJumpInst final : public CoreIrInstruction {
     CoreIrBasicBlock *get_true_block() const noexcept { return true_block_; }
 
     CoreIrBasicBlock *get_false_block() const noexcept { return false_block_; }
+
+    void set_true_block(CoreIrBasicBlock *true_block) noexcept {
+        true_block_ = true_block;
+    }
+
+    void set_false_block(CoreIrBasicBlock *false_block) noexcept {
+        false_block_ = false_block;
+    }
 
     bool get_has_side_effect() const noexcept override { return true; }
 

@@ -87,6 +87,10 @@ The current IR module is intentionally a skeleton:
 - `BuildCoreIrPass`, `CoreIrCanonicalizePass`, `CoreIrConstFoldPass`,
   `CoreIrDcePass`, and `LowerIrPass` are connected to the main pipeline after
   `SemanticPass`
+- `CoreIrCanonicalizePass` is no longer a placeholder check; its first
+  implementation now normalizes branch conditions into compare-driven forms,
+  simplifies local integer cast chains, removes non-entry trampoline blocks,
+  and erases zero-index no-op GEP wrappers before later optimization/lowering
 - `IRBuilder` coordinates IR generation through an abstract `IRBackend`
 - `IRBackend` defines backend-independent emission hooks
 - `LlvmIrBackend` is the first concrete backend implementation
@@ -184,6 +188,12 @@ LLVM IR lowering path:
 - `CompilerContext` now stores one `CoreIrBuildResult` between backend stages
 - `CoreIrCanonicalizePass`, `CoreIrConstFoldPass`, and `CoreIrDcePass` now run
   as explicit top-level compiler passes over one built Core IR module
+- `CoreIrCanonicalizePass` currently handles:
+  - branch condition normalization for compare-like and integer-valued
+    `CondJump` conditions
+  - local integer `SignExtend` / `ZeroExtend` / `Truncate` chain cleanup
+  - non-entry unconditional jump trampoline elimination
+  - zero-index `GetElementPtr` cleanup when it is a no-op wrapper
 - `CoreIrTargetBackend` now exposes one backend-independent lowering boundary
   from optimized Core IR into an `IRResult`
 - `CoreIrLlvmTargetBackend` now lowers the current staged subset into LLVM IR

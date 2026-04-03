@@ -19,9 +19,9 @@ assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
 grep -q '^  br label %while.cond0$' "${IR_FILE}"
-grep -Eq '^  br label %while\.end[0-9]+$' "${IR_FILE}"
+grep -Eq '^  br i1 %t[0-9]+(\.raw)?, label %while\.end[0-9]+, label %if\.end[0-9]+$' "${IR_FILE}"
 grep -Eq '^while\.end[0-9]+:$' "${IR_FILE}"
 grep -q 'icmp eq i32 %t[0-9][0-9]*, 2' "${IR_FILE}"
 grep -q 'icmp eq i32 %t[0-9][0-9]*, 4' "${IR_FILE}"
 
-echo "verified: break and continue lower to loop exits and back edges"
+echo "verified: break and continue lower to canonical loop exits and back edges"
