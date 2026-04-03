@@ -210,6 +210,10 @@ class CoreIrCompareInst final : public CoreIrInstruction {
 
     CoreIrComparePredicate get_predicate() const noexcept { return predicate_; }
 
+    void set_predicate(CoreIrComparePredicate predicate) noexcept {
+        predicate_ = predicate;
+    }
+
     CoreIrValue *get_lhs() const noexcept {
         return get_operands().empty() ? nullptr : get_operands()[0];
     }
@@ -439,7 +443,12 @@ class CoreIrCallInst final : public CoreIrInstruction {
 
     const std::string &get_callee_name() const noexcept { return callee_name_; }
 
-    CoreIrValue *get_callee_value() const noexcept { return callee_value_; }
+    CoreIrValue *get_callee_value() const noexcept {
+        if (callee_value_ == nullptr || get_operands().empty()) {
+            return callee_value_;
+        }
+        return get_operands()[0];
+    }
 
     const CoreIrFunctionType *get_callee_type() const noexcept {
         return callee_type_;

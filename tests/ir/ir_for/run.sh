@@ -20,9 +20,8 @@ assert_file_nonempty "${IR_FILE}"
 
 grep -q '^for.cond0:$' "${IR_FILE}"
 grep -Eq '^for\.body[0-9]+:$' "${IR_FILE}"
-grep -Eq '^for\.step[0-9]+:$' "${IR_FILE}"
 grep -Eq '^for\.end[0-9]+:$' "${IR_FILE}"
 grep -q 'icmp slt i32 ' "${IR_FILE}"
-grep -Eq '^  br label %for\.step[0-9]+$' "${IR_FILE}"
+grep -Eq '^  br label %for\.cond[0-9]+$' "${IR_FILE}"
 
-echo "verified: for loop lowers to init, cond, body, step, and end blocks"
+echo "verified: for loop lowers to canonical init, cond, body, and end blocks"

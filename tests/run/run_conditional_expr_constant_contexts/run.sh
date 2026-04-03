@@ -26,7 +26,7 @@ build_and_link_ir_executable "${IR_FILE}" \
 assert_program_output "${PROGRAM_BINARY}" "${PROGRAM_INPUT}" "${EXPECTED_OUTPUT}"
 
 grep -q '\[3 x i32\]' "${IR_FILE}"
-grep -q 'switch.test0.0:' "${IR_FILE}"
+grep -q 'switch.case0.0:' "${IR_FILE}"
 grep -q 'store i32 4, ptr %t0' "${IR_FILE}"
 
-echo "verified: conditional expressions stay constant through array dimensions enum values and case labels"
+echo "verified: canonical conditional expressions stay constant through array dimensions enum values and case labels"

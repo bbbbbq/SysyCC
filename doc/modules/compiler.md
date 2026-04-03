@@ -125,6 +125,11 @@ CoreIrDcePass -> LowerIrPass
   over built Core IR before constant folding and DCE, including branch
   condition cleanup, local integer cast-chain simplification, jump trampoline
   removal, and zero-index no-op GEP cleanup.
+- That canonicalization stage now also performs second-stage cleanup over
+  compare-wrapped branch conditions, safe nested GEP chains, conservative CFG
+  simplification, safe integer identity expressions / compare orientation, and
+  plain stack-slot address load/store normalization before later backend
+  stages run.
 - `LowerIrPass` now fails fast when the active IR backend cannot lower a
   required function body, function declaration, or global object. Unsupported
   IR is reported through the shared diagnostic engine and stops compilation

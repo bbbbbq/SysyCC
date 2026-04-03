@@ -15,6 +15,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -q 'getelementptr inbounds { i32 }, ptr %t0, i32 0, i32 0' "${IR_FILE}"
+grep -q 'getelementptr inbounds \[2 x { i32 }\], ptr %pairs.addr, i32 0, i32 1, i32 0' "${IR_FILE}"
 
-echo "verified: ir lowers indexed struct member access"
+echo "verified: canonicalized ir lowers indexed struct member access through a flattened GEP"

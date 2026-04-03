@@ -34,6 +34,6 @@ assert_program_output "${PROGRAM_FILE}" "${PROGRAM_INPUT}" "${EXPECTED_OUTPUT}"
 grep -q '^declare i32 @getint()$' "${IR_FILE}"
 grep -q '^declare void @putint(i32)$' "${IR_FILE}"
 grep -q 'dowhile\.body' "${IR_FILE}"
-grep -q 'dowhile\.cond' "${IR_FILE}"
+grep -Eq 'br i1 %t[0-9]+(\.raw)?, label %dowhile\.body[0-9]+, label %dowhile\.end[0-9]+' "${IR_FILE}"
 
-echo "verified: do-while runtime test compiles, links, and matches expected output"
+echo "verified: canonical do-while runtime test compiles, links, and matches expected output"

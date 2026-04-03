@@ -31,4 +31,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: CoreIrCanonicalizePass normalizes branches, casts, trampolines, and no-op GEPs"
+echo "verified: CoreIrCanonicalizePass normalizes branches, GEPs, CFG, expressions, and stack-slot access"

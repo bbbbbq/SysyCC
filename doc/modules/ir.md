@@ -91,6 +91,16 @@ The current IR module is intentionally a skeleton:
   implementation now normalizes branch conditions into compare-driven forms,
   simplifies local integer cast chains, removes non-entry trampoline blocks,
   and erases zero-index no-op GEP wrappers before later optimization/lowering
+- `CoreIrCanonicalizePass` has since been extended to:
+  - collapse safe cast-/compare-wrapped branch conditions into direct `i1`
+    compare branches
+  - flatten only structurally-safe nested GEP chains while preserving unsafe
+    union/reinterpretation-style address paths
+  - reduce redundant conditional jumps and merge conservative linear blocks
+  - simplify safe integer identity expressions and normalize compare operand
+    orientation
+  - rewrite plain `addr_of_stackslot`-based loads and stores into direct
+    stack-slot forms
 - `IRBuilder` coordinates IR generation through an abstract `IRBackend`
 - `IRBackend` defines backend-independent emission hooks
 - `LlvmIrBackend` is the first concrete backend implementation
@@ -194,6 +204,13 @@ LLVM IR lowering path:
   - local integer `SignExtend` / `ZeroExtend` / `Truncate` chain cleanup
   - non-entry unconditional jump trampoline elimination
   - zero-index `GetElementPtr` cleanup when it is a no-op wrapper
+  - safe compare/cast wrappers around boolean branch conditions
+  - safe nested `GetElementPtr` flattening for structural address chains
+  - redundant `condbr x, B, B` collapse and conservative single-predecessor
+    linear block merging
+  - safe integer identity-expression cleanup and compare orientation
+    normalization
+  - plain stack-slot address load/store canonicalization
 - `CoreIrTargetBackend` now exposes one backend-independent lowering boundary
   from optimized Core IR into an `IRResult`
 - `CoreIrLlvmTargetBackend` now lowers the current staged subset into LLVM IR
