@@ -1,0 +1,5 @@
+static unsigned short *value_ptr = (void*)0;
+
+int main() {
+    return value_ptr == (void*)0;
+}

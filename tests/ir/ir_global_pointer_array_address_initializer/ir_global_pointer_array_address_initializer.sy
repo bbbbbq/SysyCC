@@ -1,0 +1,6 @@
+static unsigned char seed = 7;
+static unsigned char *values[1] = {&seed};
+
+int main() {
+    return values[0] == &seed;
+}
