@@ -17,7 +17,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = trunc i64 42 to i32$' "${IR_FILE}"
-grep -Eq '^  ret i32 %t[0-9]+$' "${IR_FILE}"
+grep -Eq '^  ret i32 42$' "${IR_FILE}"
 
 echo "verified: integer literal suffixes preserve numeric value through IR lowering"

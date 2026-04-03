@@ -3,9 +3,9 @@
 #include <memory>
 #include <string>
 
-#include "backend/ir/ir_backend.hpp"
-#include "backend/ir/ir_builder.hpp"
-#include "backend/ir/llvm/llvm_ir_backend.hpp"
+#include "backend/ir/lower/legacy/ir_backend.hpp"
+#include "backend/ir/lower/legacy/ir_builder.hpp"
+#include "backend/ir/lower/legacy/llvm/llvm_ir_backend.hpp"
 #include "common/diagnostic/diagnostic.hpp"
 #include "compiler/complier.hpp"
 #include "compiler/complier_option.hpp"

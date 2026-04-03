@@ -18,7 +18,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -q '^  %t0 = srem i32 17, 5$' "${IR_FILE}"
-grep -q '^  ret i32 %t1$' "${IR_FILE}"
+grep -q '^  store i32 2, ptr %value.addr$' "${IR_FILE}"
+grep -q '^  ret i32 %t0$' "${IR_FILE}"
 
 echo "verified: integer modulo lowers to signed remainder IR"

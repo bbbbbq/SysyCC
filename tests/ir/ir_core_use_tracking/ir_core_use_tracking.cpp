@@ -2,12 +2,12 @@
 #include <string>
 #include <vector>
 
-#include "backend/ir/core/ir_context.hpp"
-#include "backend/ir/core/ir_function.hpp"
-#include "backend/ir/core/ir_instruction.hpp"
-#include "backend/ir/core/ir_module.hpp"
-#include "backend/ir/core/ir_type.hpp"
-#include "backend/ir/printer/core_ir_raw_printer.hpp"
+#include "backend/ir/shared/core/ir_context.hpp"
+#include "backend/ir/shared/core/ir_function.hpp"
+#include "backend/ir/shared/core/ir_instruction.hpp"
+#include "backend/ir/shared/core/ir_module.hpp"
+#include "backend/ir/shared/core/ir_type.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 
 using namespace sysycc;
 

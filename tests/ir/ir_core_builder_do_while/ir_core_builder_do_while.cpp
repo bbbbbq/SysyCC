@@ -2,8 +2,8 @@
 #include <memory>
 #include <string>
 
-#include "backend/ir/core/core_ir_builder.hpp"
-#include "backend/ir/printer/core_ir_raw_printer.hpp"
+#include "backend/ir/shared/core/core_ir_builder.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "compiler/complier.hpp"
 #include "compiler/complier_option.hpp"
 #include "compiler/pass/pass.hpp"

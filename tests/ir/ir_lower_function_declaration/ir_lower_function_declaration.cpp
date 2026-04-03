@@ -1,9 +1,12 @@
 #include <cassert>
-#include <memory>
 #include <string>
 
-#include "backend/ir/ir_result.hpp"
-#include "backend/ir/pipeline/core_ir_pipeline.hpp"
+#include "backend/ir/build/build_core_ir_pass.hpp"
+#include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
+#include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
+#include "backend/ir/dce/core_ir_dce_pass.hpp"
+#include "backend/ir/shared/ir_result.hpp"
+#include "backend/ir/lower/lower_ir_pass.hpp"
 #include "compiler/complier.hpp"
 #include "compiler/complier_option.hpp"
 #include "compiler/pass/pass.hpp"
@@ -53,10 +56,20 @@ int main(int argc, char **argv) {
     assert(frontend_result.ok);
 
     CompilerContext &context = complier.get_context();
-    CoreIrPipeline pipeline(IrKind::LLVM);
-    std::unique_ptr<IRResult> ir_result = pipeline.BuildOptimizeAndLower(context);
+    BuildCoreIrPass build_pass;
+    CoreIrCanonicalizePass canonicalize_pass;
+    CoreIrConstFoldPass const_fold_pass;
+    CoreIrDcePass dce_pass;
+    LowerIrPass lower_pass;
+
+    assert(build_pass.Run(context).ok);
+    assert(canonicalize_pass.Run(context).ok);
+    assert(const_fold_pass.Run(context).ok);
+    assert(dce_pass.Run(context).ok);
+    assert(lower_pass.Run(context).ok);
+
+    const IRResult *ir_result = context.get_ir_result();
     assert(ir_result != nullptr);
-    assert(ir_result->get_kind() == IrKind::LLVM);
 
     std::string expected;
     const std::string target_datalayout = get_expected_target_datalayout();
@@ -71,21 +84,14 @@ int main(int argc, char **argv) {
         expected += "\n";
     }
     expected +=
-        "define i32 @inc(i32 %x) {\n"
-        "entry:\n"
-        "  %x.addr = alloca i32\n"
-        "  store i32 %x, ptr %x.addr\n"
-        "  %t0 = load i32, ptr %x.addr\n"
-        "  %t1 = add i32 %t0, 1\n"
-        "  ret i32 %t1\n"
-        "}\n"
+        "@.str0 = private unnamed_addr constant [3 x i8] c\"hi\\00\"\n"
+        "\n"
+        "declare i32 @puts(ptr)\n"
         "\n"
         "define i32 @main() {\n"
         "entry:\n"
-        "  %fp.addr = alloca ptr\n"
-        "  store ptr @inc, ptr %fp.addr\n"
-        "  %t0 = load ptr, ptr %fp.addr\n"
-        "  %t1 = call i32 %t0(i32 4)\n"
+        "  %t0 = getelementptr inbounds [3 x i8], ptr @.str0, i32 0, i32 0\n"
+        "  %t1 = call i32 @puts(ptr %t0)\n"
         "  ret i32 %t1\n"
         "}\n";
 

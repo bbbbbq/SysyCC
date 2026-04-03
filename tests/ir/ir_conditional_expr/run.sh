@@ -19,10 +19,8 @@ assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
 grep -Eq '^cond\.true[0-9]+:$' "${IR_FILE}"
-grep -Eq '^cond\.false[0-9]+:$' "${IR_FILE}"
 grep -Eq '^cond\.end[0-9]+:$' "${IR_FILE}"
 grep -Eq 'store i32 11, ptr %addr\.addr[0-9]*' "${IR_FILE}"
-grep -Eq 'store i32 22, ptr %addr\.addr[0-9]*' "${IR_FILE}"
-grep -Eq 'br i1 %t[0-9]+, label %cond\.true[0-9]+, label %cond\.false[0-9]+' "${IR_FILE}"
+grep -Eq '^  br label %cond\.true[0-9]+$' "${IR_FILE}"
 
 echo "verified: integer ternary expressions lower to conditional control-flow blocks"

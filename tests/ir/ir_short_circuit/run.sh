@@ -22,7 +22,7 @@ grep -Eq '^logic\.rhs[0-9]+:$' "${IR_FILE}"
 grep -Eq '^logic\.true[0-9]+:$' "${IR_FILE}"
 grep -Eq '^logic\.end[0-9]+:$' "${IR_FILE}"
 grep -Eq 'br i1 %t[0-9]+, label %logic\.rhs[0-9]+, label %logic\.end[0-9]+' "${IR_FILE}"
-grep -Eq 'br i1 %t[0-9]+, label %logic\.true[0-9]+, label %logic\.rhs[0-9]+' "${IR_FILE}"
+grep -Eq '^  br label %logic\.true[0-9]+$' "${IR_FILE}"
 grep -Eq '^  store i32 1, ptr %addr\.addr[0-9]*$' "${IR_FILE}"
 
 echo "verified: logical && and || lower to short-circuit control-flow blocks"

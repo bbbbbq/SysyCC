@@ -42,6 +42,18 @@ release_build_lock() {
     rmdir "${lock_dir}" 2>/dev/null || true
 }
 
+prune_stale_build_outputs() {
+    local project_root="$1"
+    local build_dir="$2"
+    local stale_ir_object_dir="${build_dir}/CMakeFiles/SysyCC.dir/src/backend/ir/passes"
+
+    # Path-only refactors can leave old object trees behind. Some IR tests link
+    # every compiler object except main.cpp, so stale objects must be removed.
+    if [[ ! -d "${project_root}/src/backend/ir/passes" ]] && [[ -d "${stale_ir_object_dir}" ]]; then
+        rm -rf "${stale_ir_object_dir}"
+    fi
+}
+
 build_project() {
     local project_root="$1"
     local build_dir="$2"
@@ -74,6 +86,8 @@ build_project() {
         elif [[ "${use_ccache}" -eq 1 ]] && ! grep -q '^CMAKE_CXX_COMPILER_LAUNCHER:.*=ccache$' "${cache_file}"; then
             cmake -S "${project_root}" -B "${build_dir}" ${generator_arg} ${launcher_arg}
         fi
+
+        prune_stale_build_outputs "${project_root}" "${build_dir}"
 
         if [[ -n "${SYSYCC_TEST_BUILD_JOBS:-}" ]]; then
             cmake --build "${build_dir}" --parallel "${SYSYCC_TEST_BUILD_JOBS}"

@@ -18,7 +18,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -q '^  %t0 = add i32 1, 2$' "${IR_FILE}"
-grep -q '^  ret i32 %t0$' "${IR_FILE}"
+grep -q '^  ret i32 3$' "${IR_FILE}"
 
 echo "verified: integer binary expression lowers to add"

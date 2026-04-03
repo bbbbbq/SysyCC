@@ -2,7 +2,7 @@
 #include <memory>
 #include <string>
 
-#include "backend/ir/llvm/llvm_ir_backend.hpp"
+#include "backend/ir/lower/legacy/llvm/llvm_ir_backend.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"

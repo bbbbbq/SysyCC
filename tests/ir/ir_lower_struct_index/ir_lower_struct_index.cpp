@@ -1,9 +1,12 @@
 #include <cassert>
-#include <memory>
 #include <string>
 
-#include "backend/ir/ir_result.hpp"
-#include "backend/ir/pipeline/core_ir_pipeline.hpp"
+#include "backend/ir/build/build_core_ir_pass.hpp"
+#include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
+#include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
+#include "backend/ir/dce/core_ir_dce_pass.hpp"
+#include "backend/ir/shared/ir_result.hpp"
+#include "backend/ir/lower/lower_ir_pass.hpp"
 #include "compiler/complier.hpp"
 #include "compiler/complier_option.hpp"
 #include "compiler/pass/pass.hpp"
@@ -53,8 +56,19 @@ int main(int argc, char **argv) {
     assert(frontend_result.ok);
 
     CompilerContext &context = complier.get_context();
-    CoreIrPipeline pipeline(IrKind::LLVM);
-    std::unique_ptr<IRResult> ir_result = pipeline.BuildOptimizeAndLower(context);
+    BuildCoreIrPass build_pass;
+    CoreIrCanonicalizePass canonicalize_pass;
+    CoreIrConstFoldPass const_fold_pass;
+    CoreIrDcePass dce_pass;
+    LowerIrPass lower_pass;
+
+    assert(build_pass.Run(context).ok);
+    assert(canonicalize_pass.Run(context).ok);
+    assert(const_fold_pass.Run(context).ok);
+    assert(dce_pass.Run(context).ok);
+    assert(lower_pass.Run(context).ok);
+
+    const IRResult *ir_result = context.get_ir_result();
     assert(ir_result != nullptr);
     assert(ir_result->get_kind() == IrKind::LLVM);
 
@@ -71,24 +85,32 @@ int main(int argc, char **argv) {
         expected += "\n";
     }
     expected +=
-        "@g = global i32 1\n"
-        "\n"
         "define i32 @main() {\n"
         "entry:\n"
-        "  %value.addr = alloca i32\n"
-        "  %t0 = load i32, ptr @g\n"
-        "  store i32 %t0, ptr %value.addr\n"
-        "  %t1 = load i32, ptr %value.addr\n"
-        "  %t2.raw = icmp slt i32 %t1, 2\n"
-        "  %t2 = zext i1 %t2.raw to i32\n"
-        "  %t3 = icmp ne i32 %t2, 0\n"
-        "  br i1 %t3, label %if.then0, label %if.end0\n"
-        "if.then0:\n"
-        "  %t4 = load i32, ptr %value.addr\n"
-        "  %t5 = add i32 %t4, 3\n"
-        "  ret i32 %t5\n"
-        "if.end0:\n"
-        "  ret i32 0\n"
+        "  %values.addr = alloca [2 x i32]\n"
+        "  %pair.addr = alloca { i32, i32 }\n"
+        "  %index.addr = alloca i32\n"
+        "  store i32 1, ptr %index.addr\n"
+        "  %t0 = getelementptr inbounds [2 x i32], ptr %values.addr, i32 0, i32 0\n"
+        "  store i32 3, ptr %t0\n"
+        "  %t1 = getelementptr inbounds { i32, i32 }, ptr %pair.addr, i32 0, i32 0\n"
+        "  %t2 = getelementptr inbounds [2 x i32], ptr %values.addr, i32 0, i32 0\n"
+        "  %t3 = load i32, ptr %t2\n"
+        "  store i32 %t3, ptr %t1\n"
+        "  %t4 = load i32, ptr %index.addr\n"
+        "  %t5 = getelementptr inbounds [2 x i32], ptr %values.addr, i32 0, i32 %t4\n"
+        "  store i32 5, ptr %t5\n"
+        "  %t6 = getelementptr inbounds { i32, i32 }, ptr %pair.addr, i32 0, i32 1\n"
+        "  %t7 = load i32, ptr %index.addr\n"
+        "  %t8 = getelementptr inbounds [2 x i32], ptr %values.addr, i32 0, i32 %t7\n"
+        "  %t9 = load i32, ptr %t8\n"
+        "  store i32 %t9, ptr %t6\n"
+        "  %t10 = getelementptr inbounds { i32, i32 }, ptr %pair.addr, i32 0, i32 0\n"
+        "  %t11 = load i32, ptr %t10\n"
+        "  %t12 = getelementptr inbounds { i32, i32 }, ptr %pair.addr, i32 0, i32 1\n"
+        "  %t13 = load i32, ptr %t12\n"
+        "  %t14 = add i32 %t11, %t13\n"
+        "  ret i32 %t14\n"
         "}\n";
 
     assert(ir_result->get_text() == expected);

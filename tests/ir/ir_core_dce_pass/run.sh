@@ -6,17 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 TEST_BUILD_DIR="${SCRIPT_DIR}/build"
-TEST_BINARY="${TEST_BUILD_DIR}/ir_core_pass_manager_noop"
-TEST_SOURCE="${SCRIPT_DIR}/ir_core_pass_manager_noop.cpp"
-INPUT_FILE="${SCRIPT_DIR}/ir_core_pass_manager_noop.sy"
+TEST_BINARY="${TEST_BUILD_DIR}/ir_core_dce_pass"
+TEST_SOURCE="${SCRIPT_DIR}/ir_core_dce_pass.cpp"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 mkdir -p "${TEST_BUILD_DIR}"
-
-"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 OBJECT_FILES=()
 while IFS= read -r -d '' object_file; do
@@ -31,4 +28,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: CoreIrPassManager runs placeholder optimization passes"
+echo "verified: CoreIrDcePass removes unused instructions and unreachable blocks"

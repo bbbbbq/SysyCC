@@ -2,7 +2,11 @@
 #include <string>
 #include <vector>
 
-#include "backend/ir/ir_pass.hpp"
+#include "backend/ir/build/build_core_ir_pass.hpp"
+#include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
+#include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
+#include "backend/ir/dce/core_ir_dce_pass.hpp"
+#include "backend/ir/lower/lower_ir_pass.hpp"
 #include "compiler/complier.hpp"
 #include "frontend/ast/ast_pass.hpp"
 #include "frontend/lexer/lexer.hpp"
@@ -44,11 +48,51 @@ const char *SemanticPass::Name() const { return "SemanticPass"; }
 
 PassResult SemanticPass::Run(CompilerContext &) { return PassResult::Success(); }
 
-PassKind IRGenPass::Kind() const { return PassKind::IRGen; }
+PassKind BuildCoreIrPass::Kind() const { return PassKind::BuildCoreIr; }
 
-const char *IRGenPass::Name() const { return "IRGenPass"; }
+const char *BuildCoreIrPass::Name() const { return "BuildCoreIrPass"; }
 
-PassResult IRGenPass::Run(CompilerContext &) { return PassResult::Success(); }
+PassResult BuildCoreIrPass::Run(CompilerContext &) {
+    return PassResult::Success();
+}
+
+PassKind CoreIrCanonicalizePass::Kind() const {
+    return PassKind::CoreIrCanonicalize;
+}
+
+const char *CoreIrCanonicalizePass::Name() const {
+    return "CoreIrCanonicalizePass";
+}
+
+PassResult CoreIrCanonicalizePass::Run(CompilerContext &) {
+    return PassResult::Success();
+}
+
+PassKind CoreIrConstFoldPass::Kind() const {
+    return PassKind::CoreIrConstFold;
+}
+
+const char *CoreIrConstFoldPass::Name() const {
+    return "CoreIrConstFoldPass";
+}
+
+PassResult CoreIrConstFoldPass::Run(CompilerContext &) {
+    return PassResult::Success();
+}
+
+PassKind CoreIrDcePass::Kind() const { return PassKind::CoreIrDce; }
+
+const char *CoreIrDcePass::Name() const { return "CoreIrDcePass"; }
+
+PassResult CoreIrDcePass::Run(CompilerContext &) {
+    return PassResult::Success();
+}
+
+PassKind LowerIrPass::Kind() const { return PassKind::LowerIr; }
+
+const char *LowerIrPass::Name() const { return "LowerIrPass"; }
+
+PassResult LowerIrPass::Run(CompilerContext &) { return PassResult::Success(); }
 
 } // namespace sysycc
 

@@ -1,7 +1,7 @@
 #include <cassert>
 #include <string>
 
-#include "backend/ir/llvm/llvm_ir_backend.hpp"
+#include "backend/ir/lower/legacy/llvm/llvm_ir_backend.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
 
 using namespace sysycc;

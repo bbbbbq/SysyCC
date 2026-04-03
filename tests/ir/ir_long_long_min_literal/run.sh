@@ -19,7 +19,7 @@ assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
 grep -Eq '^  %t[0-9]+ = sub i64 0, 9223372036854775807$' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = sub i64 %t[0-9]+, %t[0-9]+$' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+\.raw = icmp slt i64 %t[0-9]+, %t[0-9]+$' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+ = sub i64 %t[0-9]+, 1$' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+\.raw = icmp slt i64 %t[0-9]+, 0$' "${IR_FILE}"
 
 echo "verified: long long literals keep 64-bit type through IR lowering"

@@ -6,17 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 TEST_BUILD_DIR="${SCRIPT_DIR}/build"
-TEST_BINARY="${TEST_BUILD_DIR}/ir_core_pipeline_function_pointer_call"
-TEST_SOURCE="${SCRIPT_DIR}/ir_core_pipeline_function_pointer_call.cpp"
-INPUT_FILE="${SCRIPT_DIR}/ir_core_pipeline_function_pointer_call.sy"
+TEST_BINARY="${TEST_BUILD_DIR}/ir_build_core_ir_pass_missing_ast"
+TEST_SOURCE="${SCRIPT_DIR}/ir_build_core_ir_pass_missing_ast.cpp"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 mkdir -p "${TEST_BUILD_DIR}"
-
-"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 OBJECT_FILES=()
 while IFS= read -r -d '' object_file; do
@@ -29,6 +26,6 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${OBJECT_FILES[@]}" \
     -o "${TEST_BINARY}"
 
-"${TEST_BINARY}" "${INPUT_FILE}"
+"${TEST_BINARY}"
 
-echo "verified: CoreIrPipeline lowers function-pointer calls through LLVM"
+echo "verified: BuildCoreIrPass fails clearly when AST is missing"

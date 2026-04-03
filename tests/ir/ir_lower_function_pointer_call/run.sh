@@ -6,9 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 TEST_BUILD_DIR="${SCRIPT_DIR}/build"
-TEST_BINARY="${TEST_BUILD_DIR}/ir_core_pipeline_function_declaration"
-TEST_SOURCE="${SCRIPT_DIR}/ir_core_pipeline_function_declaration.cpp"
-INPUT_FILE="${SCRIPT_DIR}/ir_core_pipeline_function_declaration.sy"
+TEST_BINARY="${TEST_BUILD_DIR}/ir_lower_function_pointer_call"
+TEST_SOURCE="${SCRIPT_DIR}/ir_lower_function_pointer_call.cpp"
+INPUT_FILE="${SCRIPT_DIR}/ir_lower_function_pointer_call.sy"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
@@ -31,4 +31,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}" "${INPUT_FILE}"
 
-echo "verified: CoreIrPipeline lowers external function declarations as LLVM declare"
+echo "verified: explicit top-level Core IR passes lower function-pointer calls through LLVM"

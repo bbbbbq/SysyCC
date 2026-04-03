@@ -27,6 +27,6 @@ assert_program_output "${PROGRAM_BINARY}" "${PROGRAM_INPUT}" "${EXPECTED_OUTPUT}
 
 grep -q '\[3 x i32\]' "${IR_FILE}"
 grep -q 'switch.test0.0:' "${IR_FILE}"
-grep -q 'icmp eq i32 4, 4' "${IR_FILE}"
+grep -q 'store i32 4, ptr %t0' "${IR_FILE}"
 
 echo "verified: conditional expressions stay constant through array dimensions enum values and case labels"

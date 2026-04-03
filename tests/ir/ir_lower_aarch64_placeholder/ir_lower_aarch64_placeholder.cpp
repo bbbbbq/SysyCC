@@ -2,8 +2,11 @@
 #include <memory>
 #include <string>
 
-#include "backend/ir/ir_result.hpp"
-#include "backend/ir/pipeline/core_ir_pipeline.hpp"
+#include "backend/ir/build/build_core_ir_pass.hpp"
+#include "backend/ir/shared/core/core_ir_builder.hpp"
+#include "backend/ir/shared/ir_result.hpp"
+#include "backend/ir/lower/lowering/core_ir_target_backend.hpp"
+#include "backend/ir/lower/lowering/core_ir_target_backend_factory.hpp"
 #include "compiler/complier.hpp"
 #include "compiler/complier_option.hpp"
 #include "compiler/pass/pass.hpp"
@@ -21,8 +24,20 @@ int main(int argc, char **argv) {
     assert(frontend_result.ok);
 
     CompilerContext &context = complier.get_context();
-    CoreIrPipeline pipeline(IrKind::AArch64);
-    std::unique_ptr<IRResult> ir_result = pipeline.BuildOptimizeAndLower(context);
+    BuildCoreIrPass build_pass;
+    assert(build_pass.Run(context).ok);
+
+    const CoreIrBuildResult *build_result = context.get_core_ir_build_result();
+    assert(build_result != nullptr);
+    assert(build_result->get_module() != nullptr);
+
+    std::unique_ptr<CoreIrTargetBackend> target_backend =
+        create_core_ir_target_backend(IrKind::AArch64);
+    assert(target_backend != nullptr);
+
+    std::unique_ptr<IRResult> ir_result =
+        target_backend->Lower(*build_result->get_module(),
+                              context.get_diagnostic_engine());
     assert(ir_result == nullptr);
     assert(context.get_diagnostic_engine().has_error());
 
