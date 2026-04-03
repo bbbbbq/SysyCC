@@ -1,118 +1,205 @@
-# Core IR 后端 Pass 重构计划
+# Core IR 目录提升计划
 
 ## 摘要
 
-将当前后端从单一 `IRGenPass -> CoreIrPipeline -> CoreIrPassManager -> Lower` 的黑盒流程，重构为由顶层 `PassManager` 统一管理的显式后端阶段：
+当前 `src/backend/ir` 目录里只剩 `passes/` 一个顶层目录，但用户已经明确要求把
+`passes/` 下的内容整体上提一级，恢复成直接在 `ir/` 下组织阶段目录。
 
-`SemanticPass -> BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass`
+目标结构如下：
 
-本次重构的核心目标是删除 `CoreIrPassManager`，将 `Build`、各个 Core IR 优化、`Lower` 全部提升为顶层编译阶段，并让 `CompilerContext` 显式保存 Core IR 中间产物。
+```text
+src/backend/ir/
+├── build/
+├── canonicalize/
+├── const_fold/
+├── dce/
+├── lower/
+└── shared/
+```
+
+并删除 `src/backend/ir/passes/` 本身。
 
 ## 关键改动
 
-### 1. 顶层 Pass 管线重构
+### 1. 最终目录布局
 
-- 删除 `IRGenPass` 作为单体后端入口。
-- 删除 `CoreIrPassManager`。
-- 删除 `CoreIrPipeline`，不再保留内部 `Build -> Optimize -> Lower` 调度。
-- 在顶层 `PassManager` 中直接注册后端阶段：
-  - `BuildCoreIrPass`
-  - `CoreIrCanonicalizePass`
-  - `CoreIrConstFoldPass`
-  - `CoreIrDcePass`
-  - `LowerIrPass`
-- `PassKind` 扩展为更细粒度的后端阶段，至少包含：
-  - `BuildCoreIr`
-  - `CoreIrCanonicalize`
-  - `CoreIrConstFold`
-  - `CoreIrDce`
-  - `LowerIr`
+目标布局建议固定为：
 
-### 2. CompilerContext 中间产物建模
+```text
+src/backend/ir/
+├── build/
+│   ├── build_core_ir_pass.hpp
+│   └── build_core_ir_pass.cpp
+├── canonicalize/
+│   ├── core_ir_canonicalize_pass.hpp
+│   └── core_ir_canonicalize_pass.cpp
+├── const_fold/
+│   ├── core_ir_const_fold_pass.hpp
+│   └── core_ir_const_fold_pass.cpp
+├── dce/
+│   ├── core_ir_dce_pass.hpp
+│   └── core_ir_dce_pass.cpp
+├── lower/
+│   ├── lower_ir_pass.hpp
+│   ├── lower_ir_pass.cpp
+│   ├── lowering/
+│   │   ├── core_ir_target_backend.hpp
+│   │   ├── core_ir_target_backend_factory.hpp
+│   │   ├── core_ir_target_backend_factory.cpp
+│   │   ├── llvm/
+│   │   └── aarch64/
+│   └── legacy/
+│       ├── ir_backend.hpp
+│       ├── ir_backend_factory.hpp
+│       ├── ir_backend_factory.cpp
+│       ├── ir_builder.hpp
+│       ├── ir_builder.cpp
+│       ├── gnu_function_attribute_lowering_handler.hpp
+│       ├── gnu_function_attribute_lowering_handler.cpp
+│       └── llvm/
+└── shared/
+    ├── core/
+    ├── detail/
+    ├── printer/
+    ├── ir_kind.hpp
+    └── ir_result.hpp
+```
 
-- 在 `CompilerContext` 中新增 Core IR 阶段产物存储：
-  - `std::unique_ptr<CoreIrBuildResult> core_ir_build_result_;`
-- 不只保存 `CoreIrModule*`，必须保存整个 `CoreIrBuildResult`，因为它同时持有：
-  - `CoreIrContext`
-  - `CoreIrModule`
-- 各后端 pass 都通过 `CompilerContext` 读写这份 Core IR 中间结果。
-- 继续保留 `std::unique_ptr<IRResult> ir_result_;` 作为最终 lowering 文本产物。
+### 2. 文件归属规则
 
-### 3. 各后端 Pass 的职责边界
+- `build/`
+  - 只放 `BuildCoreIrPass` 这个阶段封装
+- `canonicalize/`
+  - 只放 `CoreIrCanonicalizePass`
+- `const_fold/`
+  - 只放 `CoreIrConstFoldPass`
+- `dce/`
+  - 只放 `CoreIrDcePass`
+- `lower/`
+  - 放 `LowerIrPass`
+  - 放当前 target backend 工厂与具体 target lowering
+  - 放仍然属于“旧 lowering 路径”的 legacy IR backend 封装
+- `shared/`
+  - 放所有多 pass 共用的 Core IR 模型和工具
+  - 包括：
+    - `core/`
+    - `detail/`
+    - `printer/`
+    - `ir_kind.hpp`
+    - `ir_result.hpp`
 
-- `BuildCoreIrPass`
-  - 输入：AST + `SemanticModel`
-  - 输出：`CoreIrBuildResult`
-  - 不负责优化，不负责 lowering，不负责最终文本落盘
-- `CoreIrCanonicalizePass`
-  - 输入：`CoreIrBuildResult`
-  - 负责轻量标准化整理，确保后续优化面对更稳定的 IR 形态
-- `CoreIrConstFoldPass`
-  - 输入：`CoreIrBuildResult`
-  - 负责局部常量折叠和常量传播的最小闭环
-- `CoreIrDcePass`
-  - 输入：`CoreIrBuildResult`
-  - 负责简单死代码删除和不可达基本块删除
-- `LowerIrPass`
-  - 输入：优化后的 `CoreIrBuildResult`
-  - 调用 `CoreIrTargetBackend`
-  - 输出：`IRResult`
-  - 负责 `--dump-ir` 对应的最终 IR 文本落盘
+### 3. 明确不恢复旧的平铺顶层布局
 
-### 4. CLI / stop-after / dump 语义
+这次只做“上提一层”，不回退到更早的 `src/backend/ir/core`、
+`src/backend/ir/detail`、`src/backend/ir/printer` 这种平铺式顶层布局。
 
-- 第一阶段保持用户可见语义尽量稳定：
-  - `--stop-after=ir` 继续表示“停在后端最终 lowering 完成之后”
-- 内部不立即暴露新的细粒度 `stop-after` 名称，避免一次性扩大 CLI 变化面。
-- `--dump-ir` 仍由 `LowerIrPass` 负责，因为只有该阶段之后才有稳定的最终文本 `IRResult`。
-- 如果后续需要调试 Core IR，再单独新增 Core IR dump 开关，不在本次重构中混入。
+也就是说：
 
-### 5. 文档落点
+- 保留 `shared/core`
+- 保留 `shared/detail`
+- 保留 `shared/printer`
+- 保留 `lower/legacy`
+- 保留 `lower/lowering`
+- 仅删除中间层 `passes/`
 
-- 计划文档默认落在：
-  - `.omx/plans/core-ir-pass-refactor.md`
-- 实现完成后同步更新：
-  - `doc/modules/ir.md`
-  - `doc/modules/compiler.md`
-  - `doc/modules/class-relationships.md`
-  - `doc/README.md`
+### 4. `ir.hpp` 的处理
 
-## 测试计划
+`ir.hpp` 当前仍引用已删除的旧 `ir_pass.hpp`，已经属于过时入口。
 
-- 新增或改造 `tests/ir/` 回归，至少覆盖：
-  - `BuildCoreIrPass` 能单独构建 Core IR
-  - 单个 Core IR 优化 pass 可独立运行
-  - `LowerIrPass` 能在已有 Core IR 上单独执行
-- 新增一条“多后端 pass 串联”回归，验证：
-  - `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass`
-  - 最终输出与当前 LLVM IR 语义一致
-- 保留一条失败路径测试，验证：
-  - Core IR 缺失时优化 pass / lower pass 会明确失败
-  - 诊断通过统一 `DiagnosticEngine` 输出
-- 修改完成后运行非 `fuzz` 回归：
-  - `./tests/run_all.sh`
+这次直接做决策：
+- 如果代码中没有任何真实引用，删除 `src/backend/ir/ir.hpp`
+- 不再保留一个错误或过时的 umbrella header
+- 如果后续确实需要统一入口，再在 `shared/` 下重新定义新的聚合头
 
-## 重要接口与类型变更
+默认按“删除旧 `ir.hpp`”执行。
 
-- `PassKind` 从粗粒度后端阶段扩展为细粒度 Core IR 阶段
-- 删除：
-  - `IRGenPass`
-  - `CoreIrPassManager`
-  - `CoreIrPipeline`
-- 新增：
-  - `BuildCoreIrPass`
-  - `CoreIrCanonicalizePass`
-  - `CoreIrConstFoldPass`
-  - `CoreIrDcePass`
-  - `LowerIrPass`
-- `CompilerContext` 新增：
-  - `core_ir_build_result_`
-  - 对应 getter / setter / clear 接口
+### 5. include 路径与构建系统
 
-## 假设与默认值
+所有源码、测试、文档中的路径统一切到新结构，例如：
 
-- 默认保留现有前端阶段顺序不变，只重构后端阶段。
-- 默认不在本次重构里引入新的用户可见 CLI 选项。
-- 默认 `--stop-after=ir` 仍表示“完成最终 IR lowering”。
-- 默认第一批优化 pass 只做低风险 Core IR 变换，不在本次引入复杂全局数据流优化。
-- 默认这次重构的目标是“阶段显式化与统一调度”，不是同时扩展新的后端能力。
+- `backend/ir/shared/core/...`
+- `backend/ir/shared/detail/...`
+- `backend/ir/shared/printer/...`
+- `backend/ir/shared/ir_kind.hpp`
+- `backend/ir/shared/ir_result.hpp`
+- `backend/ir/lower/lowering/...`
+- `backend/ir/lower/legacy/...`
+- `backend/ir/build/...`
+- `backend/ir/canonicalize/...`
+- `backend/ir/const_fold/...`
+- `backend/ir/dce/...`
+
+`CMakeLists.txt` 同步更新为新路径。  
+不新增新的 target，不拆库；继续保持单一主可执行目标。
+
+## 关键实现决策
+
+### A. 为什么保留 `shared/`
+
+- `core/` 不是 `build` 私有
+- `detail/aggregate_layout` 不是 `lower` 私有
+- `printer/` 也不是某一个 pass 私有
+- 这些都被多个后端阶段共享，所以放到 `shared/` 是最清晰的所有权模型
+
+### B. 为什么把 `ir_builder/ir_backend/llvm legacy` 放到 `lower/legacy/`
+
+- 这套东西本质上是“旧 lowering 路径”
+- 它不属于 `build/canonicalize/const_fold/dce`
+- 放到 `lower/legacy/` 可以明确表示：
+  - 它属于 lower 语义域
+  - 但不是当前主路径的 Core IR target lowering 实现
+
+### C. 不做的事
+
+- 不改变 pass 执行顺序
+- 不修改 `PassKind`
+- 不改 `--stop-after=ir`
+- 不改变 `BuildCoreIrPass/CoreIrConstFoldPass/CoreIrDcePass/LowerIrPass` 的行为
+- 不把共享层硬塞进具体 pass 目录
+
+## 测试与文档同步
+
+### 测试
+
+- 所有 include 路径切到新位置
+- 所有直接编译源文件路径的 `run.sh` 同步改到新位置
+- 现有已整理好的测试目录名保持不再改：
+  - `ir_core_canonicalize_pass`
+  - `ir_top_level_pass_pipeline_llvm`
+  - `ir_lower_function_declaration`
+  - `ir_lower_function_pointer_call`
+  - `ir_lower_struct_index`
+  - `ir_lower_aarch64_placeholder`
+
+### 文档
+
+同步更新：
+
+- `doc/README.md`
+- `doc/modules/compiler.md`
+- `doc/modules/ir.md`
+- `doc/modules/tests.md`
+- `doc/modules/class-relationships.md`
+
+要求：
+- `IR` 模块目录树显示 `build/ canonicalize/ const_fold/ dce/ lower/ shared/`
+- `shared/`、`lowering/`、`legacy/` 的归属关系写清楚
+- 不再出现 `src/backend/ir/passes` 作为真实路径
+- 历史说明可以保留，但只能明确标注为历史
+
+## 验收标准
+
+必须全部满足：
+
+- `find src/backend/ir -maxdepth 1 -mindepth 1` 不再出现 `src/backend/ir/passes`
+- `rg -n 'backend/ir/passes|src/backend/ir/passes' src tests doc CMakeLists.txt` 返回 0
+- `cmake -S . -B build`
+- `cmake --build build --parallel`
+- `./tests/run_all.sh`
+- `build/test_result.md` 为 `Overall: PASS`
+
+## 假设
+
+- 允许 `shared/` 作为共享层。
+- 允许 `lower/legacy/` 作为旧 lowering 路径收纳层。
+- `ir.hpp` 默认删除而不是迁移。

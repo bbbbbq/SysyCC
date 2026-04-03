@@ -133,7 +133,7 @@ includes:
 - frontend-to-Core-IR coverage for `goto` / label control flow and `switch`
   dispatch through explicit staged basic blocks
 - staged Core-IR-to-LLVM coverage for the currently supported subset through
-  one explicit `CoreIrPipeline`
+  the explicit top-level Core IR pass sequence
 - staged Core-IR-to-LLVM coverage for array indexing plus struct-member
   addressing in the same pipeline-level regression
 - staged Core-IR-to-LLVM coverage for pointer arithmetic and pointer

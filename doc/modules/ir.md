@@ -10,65 +10,71 @@ without hard-wiring the pass to LLVM-specific interfaces.
 
 ```text
 src/backend/ir/
-├── core/
-│   ├── core_ir_builder.hpp
-│   ├── core_ir_builder.cpp
-│   ├── ir_basic_block.hpp
-│   ├── ir_constant.hpp
-│   ├── ir_context.hpp
-│   ├── ir_function.hpp
-│   ├── ir_global.hpp
-│   ├── ir_instruction.hpp
-│   ├── ir_module.hpp
-│   ├── ir_stack_slot.hpp
-│   ├── ir_type.hpp
-│   └── ir_value.hpp
-├── lowering/
-│   ├── core_ir_target_backend.hpp
-│   ├── core_ir_target_backend_factory.hpp
-│   ├── core_ir_target_backend_factory.cpp
-│   ├── aarch64/
-│   │   ├── core_ir_aarch64_target_backend.hpp
-│   │   └── core_ir_aarch64_target_backend.cpp
-│   └── llvm/
-│       ├── core_ir_llvm_target_backend.hpp
-│       └── core_ir_llvm_target_backend.cpp
-├── pass/
-│   ├── core_ir_pass.hpp
-│   └── core_ir_pass.cpp
-├── pipeline/
-│   ├── core_ir_pipeline.hpp
-│   └── core_ir_pipeline.cpp
-├── ir.hpp
-├── ir_kind.hpp
-├── ir_result.hpp
-├── ir_backend.hpp
-├── ir_backend_factory.hpp
-├── ir_backend_factory.cpp
-├── gnu_function_attribute_lowering_handler.hpp
-├── gnu_function_attribute_lowering_handler.cpp
-├── ir_pass.hpp
-├── ir_pass.cpp
-├── ir_builder.hpp
-├── ir_builder.cpp
-├── llvm/
-│   ├── llvm_ir_backend.hpp
-│   └── llvm_ir_backend.cpp
-├── printer/
-│   ├── core_ir_raw_printer.hpp
-│   └── core_ir_raw_printer.cpp
-└── detail/
-    ├── aggregate_layout.hpp
-    ├── aggregate_layout.cpp
-    ├── ir_context.hpp
-    ├── ir_context.cpp
-    ├── symbol_value_map.hpp
-    └── symbol_value_map.cpp
+├── build/
+│   ├── build_core_ir_pass.hpp
+│   └── build_core_ir_pass.cpp
+├── canonicalize/
+│   ├── core_ir_canonicalize_pass.hpp
+│   └── core_ir_canonicalize_pass.cpp
+├── const_fold/
+│   ├── core_ir_const_fold_pass.hpp
+│   └── core_ir_const_fold_pass.cpp
+├── dce/
+│   ├── core_ir_dce_pass.hpp
+│   └── core_ir_dce_pass.cpp
+├── lower/
+│   ├── lower_ir_pass.hpp
+│   ├── lower_ir_pass.cpp
+│   ├── legacy/
+│   │   ├── ir_backend.hpp
+│   │   ├── ir_backend_factory.hpp
+│   │   ├── ir_backend_factory.cpp
+│   │   ├── ir_builder.hpp
+│   │   ├── ir_builder.cpp
+│   │   ├── gnu_function_attribute_lowering_handler.hpp
+│   │   ├── gnu_function_attribute_lowering_handler.cpp
+│   │   └── llvm/
+│   └── lowering/
+│       ├── core_ir_target_backend.hpp
+│       ├── core_ir_target_backend_factory.hpp
+│       ├── core_ir_target_backend_factory.cpp
+│       ├── aarch64/
+│       │   ├── core_ir_aarch64_target_backend.hpp
+│       │   └── core_ir_aarch64_target_backend.cpp
+│       └── llvm/
+│           ├── core_ir_llvm_target_backend.hpp
+│           └── core_ir_llvm_target_backend.cpp
+└── shared/
+    ├── core/
+    │   ├── core_ir_builder.hpp
+    │   ├── core_ir_builder.cpp
+    │   ├── ir_basic_block.hpp
+    │   ├── ir_constant.hpp
+    │   ├── ir_context.hpp
+    │   ├── ir_function.hpp
+    │   ├── ir_global.hpp
+    │   ├── ir_instruction.hpp
+    │   ├── ir_module.hpp
+    │   ├── ir_stack_slot.hpp
+    │   ├── ir_type.hpp
+    │   └── ir_value.hpp
+    ├── detail/
+    │   ├── aggregate_layout.hpp
+    │   ├── aggregate_layout.cpp
+    │   ├── ir_context.hpp
+    │   ├── ir_context.cpp
+    │   ├── symbol_value_map.hpp
+    │   └── symbol_value_map.cpp
+    ├── printer/
+    │   ├── core_ir_raw_printer.hpp
+    │   └── core_ir_raw_printer.cpp
+    ├── ir_kind.hpp
+    └── ir_result.hpp
 ```
 
 ## Responsibilities
 
-- expose `IRGenPass` as the public backend pass entry
+- expose explicit top-level backend passes for build, optimize, and lower
 - keep IR-generation orchestration separate from one concrete IR backend
 - store IR results in [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 - prepare a backend interface that currently maps to LLVM IR but can be
@@ -78,27 +84,25 @@ src/backend/ir/
 
 The current IR module is intentionally a skeleton:
 
-- `IRGenPass` is connected to the main pipeline after `SemanticPass`
+- `BuildCoreIrPass`, `CoreIrCanonicalizePass`, `CoreIrConstFoldPass`,
+  `CoreIrDcePass`, and `LowerIrPass` are connected to the main pipeline after
+  `SemanticPass`
 - `IRBuilder` coordinates IR generation through an abstract `IRBackend`
 - `IRBackend` defines backend-independent emission hooks
 - `LlvmIrBackend` is the first concrete backend implementation
-- `core/` now provides a first backend-independent Core IR object model for
+- `shared/core/` now provides a first backend-independent Core IR object model for
   modules, functions, basic blocks, values, instructions, constants, globals,
   stack slots, and types
-- `core/CoreIrBuilder` can now build a first staged Core IR module directly
+- `shared/core/CoreIrBuilder` can now build a first staged Core IR module directly
   from the completed AST plus semantic model, without going through the
   production LLVM-text backend path
-- `pass/CoreIrPassManager` now owns the staged optimization boundary between
-  Core IR construction and target lowering; it currently runs a placeholder
-  no-op pass so the architectural slot exists before real optimization work
-  begins
-- `pipeline/CoreIrPipeline` now composes `CoreIrBuilder`,
-  `CoreIrPassManager`, and one Core-IR target backend into the intended future
-  `build -> optimize -> lower` flow
-- `lowering/CoreIrTargetBackend` now defines the retargetable Core-IR backend
+- the optimization boundary now lives directly in the top-level compiler pass
+  sequence, so Core IR construction, optimization, and target lowering are all
+  visible to the outer `PassManager`
+- `lower/lowering/CoreIrTargetBackend` now defines the retargetable Core-IR backend
   boundary, with one staged LLVM backend plus one explicit AArch64
   placeholder backend
-- `printer/CoreIrRawPrinter` can dump that Core IR into a stable textual
+- `shared/printer/CoreIrRawPrinter` can dump that Core IR into a stable textual
   representation for regression tests and future raw/optimized IR dumps
 - `IRBuilder` now validates that every top-level function/global requiring
   lowering is supported by the active backend before emission starts, and it
@@ -133,8 +137,8 @@ The current IR module is intentionally a skeleton:
 - the shared `common/string_literal` helper now feeds both semantic sizing and
   LLVM byte emission, so string-literal object size and emitted bytes stay in
   sync
-- the new Core IR foundation now owns the executable hot path through
-  `CoreIrPipeline`, while the legacy `IRBuilder -> IRBackend ->
+- the new Core IR foundation now owns the executable hot path through explicit
+  top-level backend passes, while the legacy `IRBuilder -> IRBackend ->
   LlvmIrBackend` path remains in tree as a reference implementation during the
   migration
 
@@ -146,7 +150,7 @@ LLVM IR lowering path:
 - `CompilerContext` can store one `IRResult`
 - `CompilerContext` can store one IR dump file path
 - `CompilerContext` now tracks the `--dump-ir` switch
-- `core/` can already represent:
+- `shared/core/` can already represent:
   - modules
   - globals
   - functions
@@ -177,13 +181,9 @@ LLVM IR lowering path:
   - unconditional jumps
   - conditional branches
   - returns
-- `CoreIrPassManager` now runs ordered Core-IR passes over one built module
-- `CoreIrNoOpPass` now occupies the first optimization slot so the staged
-  pipeline can already exercise `build -> optimize -> lower` without changing
-  semantics
-- `CoreIrPipeline` now exposes:
-  - `BuildAndOptimize(...)`
-  - `BuildOptimizeAndLower(...)`
+- `CompilerContext` now stores one `CoreIrBuildResult` between backend stages
+- `CoreIrCanonicalizePass`, `CoreIrConstFoldPass`, and `CoreIrDcePass` now run
+  as explicit top-level compiler passes over one built Core IR module
 - `CoreIrTargetBackend` now exposes one backend-independent lowering boundary
   from optimized Core IR into an `IRResult`
 - `CoreIrLlvmTargetBackend` now lowers the current staged subset into LLVM IR
@@ -269,7 +269,8 @@ LLVM IR lowering path:
 - `CoreIrBuilder` is strict about unsupported nodes and emits compiler-stage
   diagnostics instead of silently dropping unsupported declarations,
   statements, expressions, or semantic types
-- `IRGenPass` runs after semantic analysis
+- `BuildCoreIrPass` runs after semantic analysis, followed by explicit Core IR
+  optimization passes and then `LowerIrPass`
 - `IRBuilder` currently lowers a focused AST subset:
   - `TranslationUnit`
   - `FunctionDecl` with supported scalar, aggregate, or void return type
@@ -478,7 +479,8 @@ LLVM IR lowering path:
 ## Notes
 
 - The active design goal is “LLVM IR first, but not LLVM-only forever”.
-- `IRGenPass` depends on semantic output and therefore belongs after
+- `BuildCoreIrPass` and later backend stages depend on semantic output and
+  therefore belong after
   [SemanticPass](/Users/caojunze424/code/SysyCC/src/frontend/semantic/semantic_pass.hpp).
 - The current lowering is intentionally conservative: unsupported functions are
   skipped instead of emitting partial or malformed IR.

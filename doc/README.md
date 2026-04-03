@@ -64,7 +64,11 @@ main
       -> ParserPass
       -> AstPass
       -> SemanticPass
-      -> IRGenPass
+      -> BuildCoreIrPass
+      -> CoreIrCanonicalizePass
+      -> CoreIrConstFoldPass
+      -> CoreIrDcePass
+      -> LowerIrPass
 ```
 
 ## Module Map
@@ -137,8 +141,8 @@ main
   preprocess `#warning` through the same formatter path
 - IR results are now stored in memory as an `IRResult` attached to `CompilerContext`.
 - The backend tree now also contains a first standalone Core IR foundation
-  under `src/backend/ir/core/` and a raw textual printer under
-  `src/backend/ir/printer/`. These classes are currently regression-tested
+  under `src/backend/ir/shared/core/` and a raw textual printer under
+  `src/backend/ir/shared/printer/`. These classes are currently regression-tested
   directly and are intended to become the future optimization boundary, while
   the production compiler path still emits LLVM text through `IRBuilder` and
   `IRBackend`.
@@ -157,13 +161,13 @@ main
   struct types now support placeholder construction so recursive semantic
   aggregate types can be represented safely before real optimization work
   begins.
-- The staged backend architecture now also includes `src/backend/ir/pass/`
-  for placeholder optimization passes, `src/backend/ir/pipeline/` for the
-  explicit `CoreIrBuilder -> optimize -> lower` orchestration, and
-  `src/backend/ir/lowering/` for retargetable Core-IR target backends. The
-  staged LLVM backend already lowers the current Core IR subset into LLVM IR,
-  while the staged AArch64 backend is present as an explicit diagnostic-only
-  placeholder until real ARM lowering begins.
+- The staged backend architecture now also includes
+  `src/backend/ir/` for explicit top-level Core IR build, optimization,
+  and lowering stages, with the retargetable target backends nested under
+  `src/backend/ir/lower/lowering/`. The staged LLVM backend already
+  lowers the current Core IR subset into LLVM IR, while the staged AArch64
+  backend is present as an explicit diagnostic-only placeholder until real ARM
+  lowering begins.
 - The parser now accepts a broader C-style subset including `float`, `_Float16`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, ordinary ternary `?:`, both `.` / `->` member access, declaration-only `extern` / `inline` function prototypes, `extern` variable declarations, declaration-side builtin forms such as `signed char`, `short`, `unsigned char`, and `unsigned short`, and GNU-style function attributes in declaration-specifier position.
 - The lexer and ordinary front-end constant handling now also accept standard integer literal suffixes such as `u`, `UL`, and `LL` in decimal, octal, and hexadecimal literals.
 - The AST stage now lowers core declaration, expression, and control-flow nodes such as parameters, declarations, assignments, conditional `?:`, calls, `if`, `while`, `for`, `do ... while`, `switch/case/default`, pointer declarators, `.` / `->` member access, plus parsed `struct`, `enum`, and `typedef` declarations into a compiler-facing tree.
@@ -180,7 +184,15 @@ main
   preserved through AST and semantic type construction, with semantic pointer
   compatibility allowing `char * -> const char *` but rejecting
   `const char * -> char *`.
-- `IRGenPass` now exists as a modular backend stage with an abstract `IRBackend`, an initial `LlvmIrBackend`, `IRResult` storage in `CompilerContext`, and a first LLVM IR lowering path for integer/void functions, integer locals, integer arithmetic and comparisons, short-circuit logical expressions, integer ternary expressions, assignments, direct function calls, and basic `if` / `while` / `for` / `do-while` / `switch` / `break` / `continue` control flow.
+- The backend is now split into explicit top-level passes:
+  `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrConstFoldPass ->
+  CoreIrDcePass -> LowerIrPass`. `CompilerContext` stores both the staged
+  `CoreIrBuildResult` and the final `IRResult`, and the current lowering path
+  still targets LLVM IR for the supported subset of integer/void functions,
+  integer locals, arithmetic and comparisons, short-circuit logical
+  expressions, integer ternary expressions, assignments, direct function
+  calls, and basic `if` / `while` / `for` / `do-while` / `switch` /
+  `break` / `continue` control flow.
 - The current LLVM IR path now also lowers enum storage through `i32`,
   supports local/global character-array initialization from string literals,
   and supports indirect calls through lowered function-pointer values.

@@ -5,6 +5,12 @@
 This document describes the current class relationships in the SysyCC project.
 It focuses on the active main path used by the executable.
 
+The backend was recently refactored from one monolithic `IRGenPass` plus an
+internal `CoreIrPipeline/CoreIrPassManager` into explicit top-level backend
+passes. The top relationship graph below reflects the current model; some
+historical narrative later in this document may still refer to the older
+staged names.
+
 ## Main Relationship Graph
 
 ```mermaid
@@ -109,20 +115,23 @@ classDiagram
     class SemanticPass {
     }
 
-    class IRGenPass {
+    class BuildCoreIrPass {
     }
 
-    class CoreIrPipeline {
-        +BuildAndOptimize(context)
-        +BuildOptimizeAndLower(context)
+    class CoreIrCanonicalizePass {
+    }
+
+    class CoreIrConstFoldPass {
+    }
+
+    class CoreIrDcePass {
+    }
+
+    class LowerIrPass {
     }
 
     class CoreIrBuilder {
         +Build(context)
-    }
-
-    class CoreIrPassManager {
-        +Run(build_result)
     }
 
     class CoreIrTargetBackend {
@@ -1136,7 +1145,11 @@ classDiagram
     Pass <|-- ParserPass
     Pass <|-- AstPass
     Pass <|-- SemanticPass
-    Pass <|-- IRGenPass
+    Pass <|-- BuildCoreIrPass
+    Pass <|-- CoreIrCanonicalizePass
+    Pass <|-- CoreIrConstFoldPass
+    Pass <|-- CoreIrDcePass
+    Pass <|-- LowerIrPass
     LexerPass ..> CompilerContext : writes tokens
     LexerPass *-- LexerState
     ParserPass *-- LexerState
@@ -1177,7 +1190,11 @@ classDiagram
     AstPass ..> CompilerContext : writes ast root
     AstPass ..> AstFeatureValidator
     SemanticPass ..> CompilerContext : writes semantic model
-    IRGenPass ..> CompilerContext : writes ir result
+    BuildCoreIrPass ..> CompilerContext : writes core ir build result
+    CoreIrCanonicalizePass ..> CompilerContext : reads/writes core ir build result
+    CoreIrConstFoldPass ..> CompilerContext : reads/writes core ir build result
+    CoreIrDcePass ..> CompilerContext : reads/writes core ir build result
+    LowerIrPass ..> CompilerContext : writes ir result
     PreprocessPass ..> CompilerContext : writes preprocessed file path
     PreprocessPass ..> DiagnosticEngine : emits diagnostics
     LexerPass ..> DiagnosticEngine : emits diagnostics
@@ -1288,12 +1305,10 @@ classDiagram
     ReturnStmt *-- IntegerLiteralExpr
     MemberExpr *-- IdentifierExpr
     SemanticPass ..> SemanticAnalyzer
-    IRGenPass ..> CoreIrPipeline
-    CoreIrPipeline ..> CoreIrBuilder
-    CoreIrPipeline ..> CoreIrPassManager
-    CoreIrPipeline ..> CoreIrTargetBackend
+    BuildCoreIrPass ..> CoreIrBuilder
+    LowerIrPass ..> CoreIrTargetBackend
     CoreIrTargetBackend <|-- CoreIrLlvmTargetBackend
-    IRGenPass ..> IRBuilder
+    LowerIrPass ..> IRBuilder
     IRBuilder ..> IRBackend
     IRBuilder ..> DialectManager
     IRBuilder ..> IrExtensionLoweringRegistry
@@ -1366,7 +1381,11 @@ main
       -> ParserPass
       -> AstPass
       -> SemanticPass
-      -> IRGenPass
+      -> BuildCoreIrPass
+      -> CoreIrCanonicalizePass
+      -> CoreIrConstFoldPass
+      -> CoreIrDcePass
+      -> LowerIrPass
 ```
 
 ## Class Roles
@@ -1465,7 +1484,11 @@ Current concrete subclasses:
 - `ParserPass`
 - `AstPass`
 - `SemanticPass`
-- `IRGenPass`
+- `BuildCoreIrPass`
+- `CoreIrCanonicalizePass`
+- `CoreIrConstFoldPass`
+- `CoreIrDcePass`
+- `LowerIrPass`
 
 ### `sysycc::PreprocessPass`
 
@@ -1500,7 +1523,11 @@ Current pipeline order:
 - `ParserPass`
 - `AstPass`
 - `SemanticPass`
-- `IRGenPass`
+- `BuildCoreIrPass`
+- `CoreIrCanonicalizePass`
+- `CoreIrConstFoldPass`
+- `CoreIrDcePass`
+- `LowerIrPass`
 
 ### `sysycc::LexerPass` and `sysycc::ParserPass`
 
@@ -1553,21 +1580,27 @@ Role:
 - emit unified stage-tagged diagnostics into the shared diagnostic engine
 - record semantic diagnostics in both the `SemanticModel` and the compiler-wide diagnostic engine
 
-### `sysycc::IRGenPass`, `sysycc::CoreIrPipeline`, and the legacy `sysycc::IRBuilder` stack
+### Explicit Core IR backend passes and the legacy `sysycc::IRBuilder` stack
 
 Defined in:
 
-- [ir_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/ir_pass.hpp)
-- [ir_builder.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/ir_builder.hpp)
-- [ir_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/ir_backend.hpp)
-- [llvm_ir_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/llvm/llvm_ir_backend.hpp)
+- [build_core_ir_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/build/build_core_ir_pass.hpp)
+- [core_ir_canonicalize_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/canonicalize/core_ir_canonicalize_pass.hpp)
+- [core_ir_const_fold_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/const_fold/core_ir_const_fold_pass.hpp)
+- [core_ir_dce_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/dce/core_ir_dce_pass.hpp)
+- [lower_ir_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lower_ir_pass.hpp)
+- [ir_builder.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/legacy/ir_builder.hpp)
+- [ir_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/legacy/ir_backend.hpp)
+- [llvm_ir_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/legacy/llvm/llvm_ir_backend.hpp)
 
 Role:
 
 - prepare the backend stage after semantic analysis
-- keep `IRGenPass` as the only public backend pass entry
-- let `IRGenPass` use `CoreIrPipeline` as the active executable hot path:
-  `CoreIrBuilder -> CoreIrPassManager -> CoreIrTargetBackend`
+- expose explicit top-level backend stages for Core IR build, canonicalization,
+  constant folding, dead-code elimination, and lowering
+- use the active executable hot path:
+  `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrConstFoldPass ->
+  CoreIrDcePass -> LowerIrPass`
 - keep the legacy `IRBuilder -> IRBackend -> LlvmIrBackend` stack in tree as a
   reference implementation while staged Core IR coverage continues to grow
 - route generation through an abstract backend interface instead of exposing
@@ -1576,7 +1609,7 @@ Role:
   future IR backends
 - let `IRBackend` own top-level declaration emission so runtime-style external
   calls and global objects can be emitted without leaking LLVM syntax into
-  `IRGenPass`
+  `LowerIrPass`
 - let top-level `static` declarations flow through the same backend interface
   so LLVM `internal` linkage is selected by the generic IR builder instead of
   being hard-coded inside one concrete backend path
@@ -1922,24 +1955,27 @@ Role:
 
 Defined in:
 
-- [core_ir_builder.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/core_ir_builder.hpp)
-- [core_ir_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/pass/core_ir_pass.hpp)
-- [core_ir_pipeline.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/pipeline/core_ir_pipeline.hpp)
-- [core_ir_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lowering/core_ir_target_backend.hpp)
-- [core_ir_target_backend_factory.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lowering/core_ir_target_backend_factory.hpp)
-- [core_ir_llvm_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lowering/llvm/core_ir_llvm_target_backend.hpp)
-- [core_ir_aarch64_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lowering/aarch64/core_ir_aarch64_target_backend.hpp)
-- [ir_context.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_context.hpp)
-- [ir_module.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_module.hpp)
-- [ir_function.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_function.hpp)
-- [ir_basic_block.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_basic_block.hpp)
-- [ir_instruction.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_instruction.hpp)
-- [ir_value.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_value.hpp)
-- [ir_constant.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_constant.hpp)
-- [ir_global.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_global.hpp)
-- [ir_stack_slot.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_stack_slot.hpp)
-- [ir_type.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_type.hpp)
-- [core_ir_raw_printer.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/printer/core_ir_raw_printer.hpp)
+- [core_ir_builder.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/core_ir_builder.hpp)
+- [build_core_ir_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/build/build_core_ir_pass.hpp)
+- [core_ir_canonicalize_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/canonicalize/core_ir_canonicalize_pass.hpp)
+- [core_ir_const_fold_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/const_fold/core_ir_const_fold_pass.hpp)
+- [core_ir_dce_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/dce/core_ir_dce_pass.hpp)
+- [lower_ir_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lower_ir_pass.hpp)
+- [core_ir_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering/core_ir_target_backend.hpp)
+- [core_ir_target_backend_factory.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering/core_ir_target_backend_factory.hpp)
+- [core_ir_llvm_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering/llvm/core_ir_llvm_target_backend.hpp)
+- [core_ir_aarch64_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering/aarch64/core_ir_aarch64_target_backend.hpp)
+- [ir_context.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_context.hpp)
+- [ir_module.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_module.hpp)
+- [ir_function.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_function.hpp)
+- [ir_basic_block.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_basic_block.hpp)
+- [ir_instruction.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_instruction.hpp)
+- [ir_value.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_value.hpp)
+- [ir_constant.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_constant.hpp)
+- [ir_global.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_global.hpp)
+- [ir_stack_slot.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_stack_slot.hpp)
+- [ir_type.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_type.hpp)
+- [core_ir_raw_printer.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/printer/core_ir_raw_printer.hpp)
 
 Role:
 
@@ -1952,10 +1988,11 @@ Role:
 - `CoreIrNoOpPass`: occupy the current optimization slot without changing
   semantics so the staged pipeline already matches the intended
   `build -> optimize -> lower` architecture
-- `CoreIrPassManager`: own ordered `CoreIrPass` objects and run them against a
-  staged module
-- `CoreIrPipeline`: orchestrate `CoreIrBuilder`, `CoreIrPassManager`, and one
-  `CoreIrTargetBackend`
+- `BuildCoreIrPass`: build staged Core IR into one `CoreIrBuildResult`
+- `CoreIrCanonicalizePass`: normalize staged Core IR without changing semantics
+- `CoreIrConstFoldPass`: fold local constant-valued Core IR expressions
+- `CoreIrDcePass`: remove trivially dead instructions and unreachable blocks
+- `LowerIrPass`: lower one staged Core IR module into a final `IRResult`
 - `CoreIrTargetBackend`: define the retargetable lowering boundary from staged
   Core IR into an `IRResult`
 - `CoreIrLlvmTargetBackend`: lower the current Core IR subset into LLVM IR
@@ -2006,28 +2043,24 @@ classDiagram
         +Build(context)
     }
 
-    class CoreIrPass {
-        <<abstract>>
-        +get_name()
-        +Run(module, diagnostic_engine)
+    class BuildCoreIrPass {
+        +Run(context)
     }
 
-    class CoreIrNoOpPass {
-        +get_name()
-        +Run(module, diagnostic_engine)
+    class CoreIrCanonicalizePass {
+        +Run(context)
     }
 
-    class CoreIrPassManager {
-        -passes_
-        +AddPass(pass)
-        +Run(module, diagnostic_engine)
+    class CoreIrConstFoldPass {
+        +Run(context)
     }
 
-    class CoreIrPipeline {
-        -target_kind_
-        +get_target_kind()
-        +BuildAndOptimize(context)
-        +BuildOptimizeAndLower(context)
+    class CoreIrDcePass {
+        +Run(context)
+    }
+
+    class LowerIrPass {
+        +Run(context)
     }
 
     class CoreIrTargetBackend {
@@ -2108,11 +2141,13 @@ classDiagram
     }
 
     CoreIrBuilder --> CoreIrBuildResult
-    CoreIrPass <|-- CoreIrNoOpPass
-    CoreIrPassManager --> CoreIrPass
-    CoreIrPipeline --> CoreIrBuilder
-    CoreIrPipeline --> CoreIrPassManager
-    CoreIrPipeline --> CoreIrTargetBackend
+    BuildCoreIrPass --> CoreIrBuildResult
+    BuildCoreIrPass --> CoreIrBuilder
+    CoreIrCanonicalizePass --> CoreIrBuildResult
+    CoreIrConstFoldPass --> CoreIrBuildResult
+    CoreIrDcePass --> CoreIrBuildResult
+    LowerIrPass --> CoreIrBuildResult
+    LowerIrPass --> CoreIrTargetBackend
     CoreIrTargetBackend <|-- CoreIrLlvmTargetBackend
     CoreIrTargetBackend <|-- CoreIrAArch64TargetBackend
     CoreIrBuildResult --> CoreIrContext
@@ -2145,8 +2180,9 @@ classDiagram
   semantic analysis, and the first LLVM-IR backend path, while later C
   compatibility work is still extending parser/semantic coverage.
 - The new Core IR foundation under
-  [src/backend/ir/core](/Users/caojunze424/code/SysyCC/src/backend/ir/core)
+  [src/backend/ir/shared/core](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core)
   and
-  [src/backend/ir/printer](/Users/caojunze424/code/SysyCC/src/backend/ir/printer)
+  [src/backend/ir/shared/printer](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/printer)
   is present, regression-tested, and now wired into the executable's hot path
-  through `IRGenPass -> CoreIrPipeline -> CoreIrLlvmTargetBackend`.
+  through `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrConstFoldPass ->
+  CoreIrDcePass -> LowerIrPass`.
