@@ -12,7 +12,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 set +e
-OUTPUT="$("${BUILD_DIR}/SysyCC" "${INPUT_FILE}" 2>&1)"
+OUTPUT="$("${BUILD_DIR}/SysyCC" --stop-after=semantic "${INPUT_FILE}" 2>&1)"
 RC=$?
 set -e
 

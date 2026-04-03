@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "common/integer_literal.hpp"
+#include "common/string_literal.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/type_system/integer_conversion_service.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
@@ -445,6 +446,42 @@ const SemanticType *get_pointer_decay_or_self(const SemanticType *type,
         std::make_unique<PointerSemanticType>(array_type->get_element_type()));
 }
 
+const FunctionSemanticType *get_callable_function_type(const SemanticType *type) {
+    type = strip_qualifiers(type);
+    if (type == nullptr) {
+        return nullptr;
+    }
+    if (type->get_kind() == SemanticTypeKind::Function) {
+        return static_cast<const FunctionSemanticType *>(type);
+    }
+    if (type->get_kind() != SemanticTypeKind::Pointer) {
+        return nullptr;
+    }
+    const SemanticType *pointee_type =
+        strip_qualifiers(static_cast<const PointerSemanticType *>(type)->get_pointee_type());
+    if (pointee_type == nullptr ||
+        pointee_type->get_kind() != SemanticTypeKind::Function) {
+        return nullptr;
+    }
+    return static_cast<const FunctionSemanticType *>(pointee_type);
+}
+
+bool is_addressable_expr(const Expr *expr, const ConversionChecker &conversion_checker,
+                         SemanticModel &semantic_model) {
+    if (expr == nullptr) {
+        return false;
+    }
+    if (conversion_checker.is_assignable_expr(expr) ||
+        expr->get_kind() == AstKind::StringLiteralExpr) {
+        return true;
+    }
+
+    const SemanticType *expr_type = semantic_model.get_node_type(expr);
+    return expr_type != nullptr &&
+           strip_qualifiers(expr_type) != nullptr &&
+           strip_qualifiers(expr_type)->get_kind() == SemanticTypeKind::Function;
+}
+
 const SemanticType *get_member_owner_type(
     const SemanticType *base_type, const std::string &operator_text,
     const ConversionChecker &conversion_checker) {
@@ -784,11 +821,15 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         }
         return;
     case AstKind::StringLiteralExpr: {
+        const auto *string_literal = static_cast<const StringLiteralExpr *>(expr);
         const auto *char_type =
             semantic_model.own_type(std::make_unique<BuiltinSemanticType>("char"));
+        const std::string decoded_text =
+            decode_string_literal_token(string_literal->get_value_text());
         semantic_model.bind_node_type(
-            expr, semantic_model.own_type(
-                      std::make_unique<PointerSemanticType>(char_type)));
+            expr, semantic_model.own_type(std::make_unique<ArraySemanticType>(
+                      char_type,
+                      std::vector<int>{static_cast<int>(decoded_text.size() + 1)})));
         return;
     }
     case AstKind::UnaryExpr: {
@@ -800,7 +841,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             return;
         }
         if (unary_expr->get_operator_text() == "&") {
-            if (!conversion_checker_.is_assignable_expr(unary_expr->get_operand())) {
+            if (!is_addressable_expr(unary_expr->get_operand(), conversion_checker_,
+                                     semantic_model)) {
                 add_error(semantic_context,
                           "operator '&' requires an assignable operand",
                           unary_expr->get_source_span());
@@ -1391,14 +1433,12 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             return;
         }
 
-        if (callee_type->get_kind() != SemanticTypeKind::Function) {
+        const auto *function_type = get_callable_function_type(callee_type);
+        if (function_type == nullptr) {
             add_error(semantic_context, "called object is not a function",
                       call_expr->get_source_span());
             return;
         }
-
-        const auto *function_type = static_cast<const FunctionSemanticType *>(
-            callee_type);
         const std::size_t fixed_parameter_count =
             function_type->get_parameter_types().size();
         const std::size_t argument_count = call_expr->get_arguments().size();

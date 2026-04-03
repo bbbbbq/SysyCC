@@ -1,0 +1,11 @@
+// Test: LLONG_MIN / -1 overflow detection
+// Bug coverage: Integer division overflow not handled in constant evaluator
+// LLONG_MIN = -9223372036854775808, dividing by -1 would overflow
+
+long long divide_by_neg_one(long long x) {
+    return x / -1;
+}
+
+int main(void) {
+    return divide_by_neg_one(-42) != 42;
+}

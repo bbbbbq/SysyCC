@@ -114,6 +114,24 @@ The current implementation has a first batch of real semantic rules:
 - variadic function declarations and definitions now preserve their `...`
   marker in `FunctionSemanticType`, so semantic call checking can enforce the
   fixed parameter prefix while allowing extra arguments after `...`
+- string literals now bind as `ArraySemanticType(char, {N})` instead of
+  stage-local `char *`, so declaration analysis and later IR lowering see the
+  C object type before decay happens in value contexts
+- function designators now decay to `PointerSemanticType(FunctionSemanticType)`
+  in assignment and call-argument compatibility checks, so declarations such
+  as `int (*fp)(int) = inc;` and fixed-parameter calls such as `apply(inc, 4)`
+  are accepted through the same semantic conversion path as array decay
+- call analysis now accepts both direct function designators and
+  pointer-to-function callees, so `fn(value)` is no longer rejected when `fn`
+  is a function pointer parameter or local variable
+- enum-typed variables, parameters, and returns now participate in the same
+  integer-like assignability path as other modeled arithmetic types, so
+  enumerators can initialize enum objects and flow through enum-returning
+  functions without ad hoc special cases
+- integer constant-expression flow for `ConditionalExpr` is now covered
+  through semantic analysis, so array dimensions, `case` labels, and
+  enumerator values can all reuse the selected branch constant once the
+  condition folds
 - declaration analysis accepts `extern` variable declarations
 - file-scope variable analysis now preserves one `VariableSemanticInfo` record
   per bound variable symbol, tracking:
@@ -131,6 +149,9 @@ The current implementation has a first batch of real semantic rules:
   downstream IR lowering can emit internal-linkage functions
 - declaration analysis now rejects non-list variable initializers whose
   expression type is not assignable to the declared type
+- declaration analysis now also accepts one-dimensional character arrays
+  initialized from exact-fit string literals through the same type-compatibly
+  checked initializer path as other supported scalar/object initializers
 - top-level declaration-only function prototypes are accepted without requiring
   a body
 - declaration-only prototypes now include `inline` forms alongside `extern`

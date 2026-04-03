@@ -1,0 +1,13 @@
+float ops(float a, float b) {
+    float value = a + b;
+    value = value - 1.0f;
+    value = value * 2.0f;
+    value = value / 4.0f;
+    return value;
+}
+
+int main(void) {
+    putfloat(ops(3.0f, 5.0f));
+    putch(10);
+    return 0;
+}

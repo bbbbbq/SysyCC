@@ -12,7 +12,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
-"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse
+"${BUILD_DIR}/SysyCC" --stop-after=parse "${INPUT_FILE}" --dump-tokens --dump-parse
 
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 grep -q '^Ellipsis \.\.\. ' \

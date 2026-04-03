@@ -72,6 +72,8 @@ class IRBackend {
     virtual IRValue emit_integer_literal(int value) = 0;
     virtual IRValue emit_floating_literal(const std::string &value_text,
                                           const SemanticType *type) = 0;
+    virtual std::string emit_string_literal_address(
+        const std::string &value_text, const SemanticType *type) = 0;
     virtual IRValue emit_string_literal(const std::string &value_text,
                                         const SemanticType *type) = 0;
     virtual std::string emit_alloca(const std::string &name,

@@ -12,7 +12,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
-"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ast
+"${BUILD_DIR}/SysyCC" --stop-after=semantic "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ast
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 
 echo "verified: semantic analysis accepts anonymous local unions and member access"

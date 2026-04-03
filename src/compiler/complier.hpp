@@ -20,6 +20,7 @@ class Complier {
     bool pipeline_initialized_ = false;
 
     void InitializePasses();
+    void sync_context_from_option();
     PassResult validate_dialect_configuration();
 
   public:

@@ -16,8 +16,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -F '@g_payload = internal global [2 x [1 x { { i32 }, [4 x i8] }]]' "${IR_FILE}"
-grep -F '[1 x { { i32 }, [4 x i8] }] [{ { i32 }, [4 x i8] } { { i32 } { i32 7 }, [4 x i8] zeroinitializer }]' "${IR_FILE}"
-grep -F '[1 x { { i32 }, [4 x i8] }] [{ { i32 }, [4 x i8] } { { i32 } { i32 9 }, [4 x i8] zeroinitializer }]]' "${IR_FILE}"
+grep -F '@g_payload = internal global [2 x [1 x { i64 }]]' "${IR_FILE}"
+grep -F '[1 x { i64 }] [ { i64 } { i64 7 } ]' "${IR_FILE}"
+grep -F '[1 x { i64 }] [ { i64 } { i64 9 } ]' "${IR_FILE}"
 
 echo "verified: ir lowers nested union array globals to their concrete recursive storage layout"

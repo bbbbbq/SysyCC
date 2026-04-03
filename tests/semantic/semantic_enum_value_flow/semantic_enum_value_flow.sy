@@ -1,0 +1,17 @@
+enum Color {
+    RED = 3,
+    BLUE = 7
+};
+
+enum Color get_color(void) {
+    return BLUE;
+}
+
+int delta(enum Color value) {
+    return value - RED;
+}
+
+int main(void) {
+    enum Color value = get_color();
+    return delta(value) != 4;
+}

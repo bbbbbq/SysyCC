@@ -18,8 +18,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^  %t[0-9]+ = icmp ult i32 %t[0-9]+, %t[0-9]+$' "${IR_FILE}"
-if rg -q '^  %t[0-9]+ = icmp slt i32 %t[0-9]+, %t[0-9]+$' "${IR_FILE}"; then
+grep -Eq '^  %t[0-9]+\.raw = icmp ult i32 %t[0-9]+, %t[0-9]+$' "${IR_FILE}"
+if rg -q '^  %t[0-9]+\.raw = icmp slt i32 %t[0-9]+, %t[0-9]+$' "${IR_FILE}"; then
     echo "unexpected signed comparison for mixed signed/unsigned operands" >&2
     exit 1
 fi

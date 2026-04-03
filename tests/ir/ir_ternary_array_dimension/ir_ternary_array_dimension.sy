@@ -1,0 +1,12 @@
+// Test: ternary operator in array dimension constant expression
+// Bug coverage: ConditionalExpr missing from evaluate_integer_expr()
+
+int main(void) {
+    const int a = 5;
+    const int b = 10;
+    const int c = (a > b) ? a : b;
+    int arr[c];
+    arr[0] = 1;
+    arr[c - 1] = 2;
+    return arr[0] + arr[c - 1] != 3;
+}

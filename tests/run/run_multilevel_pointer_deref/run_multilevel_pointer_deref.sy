@@ -1,0 +1,9 @@
+int main(void) {
+    int value = 0;
+    int *pointer_value = &value;
+    int **pointer_to_pointer = &pointer_value;
+    **pointer_to_pointer = 7;
+    putint(value);
+    putch(10);
+    return 0;
+}

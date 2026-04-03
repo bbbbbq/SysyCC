@@ -13,6 +13,7 @@ multiple compilation stages.
 - [source_mapping_view.hpp](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)
 - [source_span.hpp](/Users/caojunze424/code/SysyCC/src/common/source_span.hpp)
 - [integer_literal.hpp](/Users/caojunze424/code/SysyCC/src/common/integer_literal.hpp)
+- [string_literal.hpp](/Users/caojunze424/code/SysyCC/src/common/string_literal.hpp)
 - [diagnostic.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic.hpp)
 - [diagnostic_engine.hpp](/Users/caojunze424/code/SysyCC/src/common/diagnostic/diagnostic_engine.hpp)
 
@@ -26,6 +27,8 @@ multiple compilation stages.
   preprocess remapping state
 - provide one shared downstream view over physical files plus preprocess line remapping
 - provide one shared integer-literal parser for ordinary front-end literal text
+- provide one shared string-literal decoder for semantic sizing and LLVM byte
+  emission
 - provide a reusable span type for lexer, parser, AST, semantic analysis, and diagnostics
 - provide pass-independent diagnostic records and a shared diagnostic collector
 
@@ -139,3 +142,15 @@ It is currently used by:
 - semantic integer-literal constant binding
 - semantic integer constant folding
 - IR integer-literal lowering
+
+### `decode_string_literal_token(...)`
+
+[string_literal.hpp](/Users/caojunze424/code/SysyCC/src/common/string_literal.hpp)
+now provides one shared helper that decodes one tokenized string literal body
+into its byte sequence, including the currently modeled simple escape set.
+
+It is currently used by:
+
+- semantic string-literal type sizing for `char[N]`
+- LLVM string-literal global emission
+- IR array initialization from string literals

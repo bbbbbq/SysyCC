@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "backend/ir/detail/aggregate_layout.hpp"
+#include "common/string_literal.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
 #include "frontend/semantic/type_system/integer_conversion_service.hpp"
 
@@ -124,47 +125,6 @@ std::string normalize_float_literal(const std::string &value_text) {
     }
 }
 
-std::string decode_string_literal_token(std::string token_text) {
-    if (token_text.size() >= 2 && token_text.front() == '"' &&
-        token_text.back() == '"') {
-        token_text = token_text.substr(1, token_text.size() - 2);
-    }
-
-    std::string decoded;
-    decoded.reserve(token_text.size());
-    for (std::size_t index = 0; index < token_text.size(); ++index) {
-        char ch = token_text[index];
-        if (ch == '\\' && index + 1 < token_text.size()) {
-            const char escaped = token_text[++index];
-            switch (escaped) {
-            case '\\':
-            case '"':
-            case '\'':
-                decoded.push_back(escaped);
-                break;
-            case 'n':
-                decoded.push_back('\n');
-                break;
-            case 't':
-                decoded.push_back('\t');
-                break;
-            case 'r':
-                decoded.push_back('\r');
-                break;
-            case '0':
-                decoded.push_back('\0');
-                break;
-            default:
-                decoded.push_back(escaped);
-                break;
-            }
-            continue;
-        }
-        decoded.push_back(ch);
-    }
-    return decoded;
-}
-
 std::string encode_llvm_string_bytes(const std::string &decoded_text) {
     std::ostringstream encoded;
     encoded << std::uppercase << std::hex << std::setfill('0');
@@ -220,6 +180,23 @@ std::ostringstream &LlvmIrBackend::get_instruction_stream() {
         return function_body_;
     }
     return output_;
+}
+
+std::string LlvmIrBackend::get_or_create_string_literal_global_name(
+    const std::string &value_text) {
+    const std::string decoded_text = decode_string_literal_token(value_text);
+    const auto existing = string_literal_globals_.find(decoded_text);
+    if (existing != string_literal_globals_.end()) {
+        return existing->second;
+    }
+
+    const std::string global_name =
+        ".str." + std::to_string(string_literal_globals_.size());
+    string_literal_globals_.emplace(decoded_text, global_name);
+    declarations_ << "@" << global_name << " = private unnamed_addr constant ["
+                  << (decoded_text.size() + 1) << " x i8] c\""
+                  << encode_llvm_string_bytes(decoded_text) << "\"\n";
+    return global_name;
 }
 
 IrKind LlvmIrBackend::get_kind() const noexcept { return IrKind::LLVM; }
@@ -463,23 +440,18 @@ IRValue LlvmIrBackend::emit_floating_literal(const std::string &value_text,
     return {normalize_floating_literal(value_text), type};
 }
 
+std::string LlvmIrBackend::emit_string_literal_address(
+    const std::string &value_text, const SemanticType *type) {
+    if (type == nullptr) {
+        return "";
+    }
+    return "@" + get_or_create_string_literal_global_name(value_text);
+}
+
 IRValue LlvmIrBackend::emit_string_literal(const std::string &value_text,
                                            const SemanticType *type) {
     const std::string decoded_text = decode_string_literal_token(value_text);
-    std::string global_name;
-
-    const auto existing = string_literal_globals_.find(decoded_text);
-    if (existing != string_literal_globals_.end()) {
-        global_name = existing->second;
-    } else {
-        global_name =
-            ".str." + std::to_string(string_literal_globals_.size());
-        string_literal_globals_.emplace(decoded_text, global_name);
-        declarations_ << "@" << global_name
-                      << " = private unnamed_addr constant ["
-                      << (decoded_text.size() + 1) << " x i8] c\""
-                      << encode_llvm_string_bytes(decoded_text) << "\"\n";
-    }
+    const std::string global_name = get_or_create_string_literal_global_name(value_text);
 
     const std::string result = ir_context_.get_temp_name();
     get_instruction_stream() << "  " << result << " = getelementptr inbounds ["

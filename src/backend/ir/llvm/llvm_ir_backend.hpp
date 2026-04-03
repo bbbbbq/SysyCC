@@ -30,6 +30,8 @@ class LlvmIrBackend : public IRBackend {
     bool is_emitting_function_ = false;
 
     std::ostringstream &get_instruction_stream();
+    std::string get_or_create_string_literal_global_name(
+        const std::string &value_text);
 
   public:
     IrKind get_kind() const noexcept override;
@@ -70,6 +72,8 @@ class LlvmIrBackend : public IRBackend {
     IRValue emit_integer_literal(int value) override;
     IRValue emit_floating_literal(const std::string &value_text,
                                   const SemanticType *type) override;
+    std::string emit_string_literal_address(const std::string &value_text,
+                                            const SemanticType *type) override;
     IRValue emit_string_literal(const std::string &value_text,
                                 const SemanticType *type) override;
     std::string emit_alloca(const std::string &name,

@@ -15,6 +15,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -F '@g_ptr = internal global ptr @g_payload' "${IR_FILE}"
+grep -F '@g_ptr = internal global ptr getelementptr inbounds ({ i32 }, ptr @g_payload, i32 0, i32 0)' "${IR_FILE}"
 
 echo "verified: ir lowers union member address initializers without invalid gep indices"

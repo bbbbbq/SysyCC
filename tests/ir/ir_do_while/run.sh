@@ -20,8 +20,8 @@ assert_file_nonempty "${IR_FILE}"
 
 grep -q '^  br label %dowhile.body0$' "${IR_FILE}"
 grep -q '^dowhile.body0:$' "${IR_FILE}"
-grep -q '^dowhile.cond1:$' "${IR_FILE}"
-grep -q '^dowhile.end2:$' "${IR_FILE}"
+grep -Eq '^dowhile\.cond[0-9]+:$' "${IR_FILE}"
+grep -Eq '^dowhile\.end[0-9]+:$' "${IR_FILE}"
 grep -q 'icmp slt i32 ' "${IR_FILE}"
 
 echo "verified: do-while lowers to body-first control flow"

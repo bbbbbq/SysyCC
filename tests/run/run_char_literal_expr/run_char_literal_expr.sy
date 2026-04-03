@@ -1,0 +1,5 @@
+int main(void) {
+    putint('a');
+    putch('\n');
+    return 0;
+}

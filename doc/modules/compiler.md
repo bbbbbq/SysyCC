@@ -24,6 +24,8 @@ The compiler orchestrator. It owns:
 - one [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
 - one [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 - one `PassManager`
+- one shared internal option-to-context synchronization step used by the
+  constructor, `set_option()`, and `Run()` before pass execution
 
 ### `ComplierOption`
 
@@ -105,11 +107,29 @@ PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass -> IRGenPas
   [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   for preprocess include resolution.
 - The backend stage currently emits textual LLVM IR dumps for the supported AST
-  subset, including multi-branch `switch` lowering.
+  subset through the staged `CoreIrPipeline`, including multi-branch `switch`
+  lowering.
+- That hot path now also carries staged pointer arithmetic, pointer
+  differences, top-level constant global-address initializers, union-backed
+  aggregate storage, and variadic default-argument promotions before LLVM text
+  emission.
+- The backend tree now also contains a staged `CoreIrPipeline` under
+  [src/backend/ir/pipeline](/Users/caojunze424/code/SysyCC/src/backend/ir/pipeline),
+  one placeholder `CoreIrPassManager` under
+  [src/backend/ir/pass](/Users/caojunze424/code/SysyCC/src/backend/ir/pass),
+  and retargetable Core-IR backends under
+  [src/backend/ir/lowering](/Users/caojunze424/code/SysyCC/src/backend/ir/lowering).
+  `IRGenPass` now uses this `CoreIrBuilder -> optimize -> lower` path for the
+  executable hot path. The legacy `IRBuilder -> IRBackend -> LlvmIrBackend`
+  stack remains in tree as a reference implementation during the migration.
 - `IRGenPass` now fails fast when the active IR backend cannot lower a required
   function body, function declaration, or global object. Unsupported IR is
   reported through the shared diagnostic engine and stops compilation instead
   of silently emitting a partial `.ll` file.
+- `IRGenPass` now also treats post-validation emission failures as fatal. If a
+  validated function or global later fails during backend emission, the
+  compiler records a compiler-stage diagnostic and aborts IR generation
+  instead of returning a truncated module.
 - [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   now also constructs one shared
   [SourceLocationService](/Users/caojunze424/code/SysyCC/src/common/source_location_service.hpp),

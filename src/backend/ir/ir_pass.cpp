@@ -5,10 +5,8 @@
 #include <memory>
 #include <string>
 
-#include "backend/ir/ir_backend.hpp"
-#include "backend/ir/ir_backend_factory.hpp"
-#include "backend/ir/ir_builder.hpp"
 #include "backend/ir/ir_result.hpp"
+#include "backend/ir/pipeline/core_ir_pipeline.hpp"
 
 namespace sysycc {
 
@@ -20,13 +18,8 @@ PassResult IRGenPass::Run(CompilerContext &context) {
     context.clear_ir_result();
     context.set_ir_dump_file_path("");
 
-    auto backend = create_ir_backend(IrKind::LLVM);
-    if (backend == nullptr) {
-        return PassResult::Failure("failed to create ir backend");
-    }
-
-    IRBuilder builder(*backend);
-    std::unique_ptr<IRResult> ir_result = builder.Build(context);
+    CoreIrPipeline pipeline(IrKind::LLVM);
+    std::unique_ptr<IRResult> ir_result = pipeline.BuildOptimizeAndLower(context);
     if (ir_result == nullptr) {
         return PassResult::Failure("failed to build ir result");
     }
@@ -37,8 +30,19 @@ PassResult IRGenPass::Run(CompilerContext &context) {
         std::filesystem::create_directories(output_dir);
 
         const std::filesystem::path input_path(context.get_input_file());
+        std::string extension = ".ir";
+        switch (context.get_ir_result()->get_kind()) {
+        case IrKind::LLVM:
+            extension = ".ll";
+            break;
+        case IrKind::AArch64:
+            extension = ".s";
+            break;
+        case IrKind::None:
+            break;
+        }
         const std::filesystem::path output_file =
-            output_dir / (input_path.stem().string() + ".ll");
+            output_dir / (input_path.stem().string() + extension);
         std::ofstream ofs(output_file);
         if (!ofs.is_open()) {
             return PassResult::Failure("failed to open ir dump file");

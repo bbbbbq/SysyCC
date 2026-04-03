@@ -16,9 +16,9 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -Eq '^define (internal )?i32 @make_box\(i32 %value\) \{$' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = call i32 @make_box\(i32 7\)$' "${IR_FILE}"
-grep -Eq '^  store i32 %t[0-9]+, ptr %box\.addr[0-9]*$' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = call i32 @read_box\(i32 %t[0-9]+\)$' "${IR_FILE}"
+grep -Eq '^define (internal )?\{ i32 \} @make_box\(i32 %value\) \{$' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+ = call \{ i32 \} @make_box\(i32 7\)$' "${IR_FILE}"
+grep -Eq '^  store \{ i32 \} %t[0-9]+, ptr %box\.addr$' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+ = call i32 @read_box\(\{ i32 \} %t[0-9]+\)$' "${IR_FILE}"
 
 echo "verified: scalar-sized union assignment expressions can flow directly into call arguments"

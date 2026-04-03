@@ -1,0 +1,11 @@
+struct Node {
+    struct Node *next;
+    int value;
+};
+
+int main(void) {
+    struct Node node;
+    node.next = &node;
+    node.value = 7;
+    return node.next->value;
+}

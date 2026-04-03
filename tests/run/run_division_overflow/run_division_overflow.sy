@@ -1,0 +1,33 @@
+// Test: LLONG_MIN / -1 should not overflow at runtime
+// This tests that the IR generation handles signed division correctly
+// LLONG_MIN = -9223372036854775808
+
+long long test_division(void) {
+    long long x = -9223372036854775807LL;  // LLONG_MAX negated
+    return x / -1;  // Should equal LLONG_MAX
+}
+
+long long negative_division(void) {
+    return (-42) / (-1);  // Should equal 42
+}
+
+int main(void) {
+    long long r1 = test_division();
+    long long r2 = negative_division();
+
+    // Check results
+    if (r1 != 9223372036854775807LL) {
+        putint(1);
+        putch(10);
+        return 0;
+    }
+    if (r2 != 42) {
+        putint(2);
+        putch(10);
+        return 0;
+    }
+
+    putint(0);
+    putch(10);
+    return 0;
+}

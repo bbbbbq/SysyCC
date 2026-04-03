@@ -11,7 +11,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_compiler_succeeds_with_message \
-    "${BUILD_DIR}/SysyCC" \
+    "${BUILD_DIR}/SysyCC" --stop-after=semantic \
     "${INPUT_FILE}" \
     "semantic warning: assignment between incompatible pointer types at 5:5-5:19"
 

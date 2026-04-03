@@ -160,19 +160,20 @@ assert_basic_frontend_outputs() {
 
 assert_compiler_fails_with_message() {
     local compiler_binary="$1"
-    local input_file="$2"
-    local expected_message="$3"
+    shift
+    local expected_message="${@: -1}"
+    local compiler_args=("${@:1:$#-1}")
 
     local output
     local exit_code
 
     set +e
-    output="$("${compiler_binary}" "${input_file}" 2>&1)"
+    output="$("${compiler_binary}" "${compiler_args[@]}" 2>&1)"
     exit_code=$?
     set -e
 
     if [[ "${exit_code}" -eq 0 ]]; then
-        echo "error: compiler unexpectedly succeeded for ${input_file}" >&2
+        echo "error: compiler unexpectedly succeeded for ${compiler_args[*]}" >&2
         return 1
     fi
 
@@ -191,19 +192,20 @@ assert_compiler_fails_with_message() {
 
 assert_compiler_succeeds_with_message() {
     local compiler_binary="$1"
-    local input_file="$2"
-    local expected_message="$3"
+    shift
+    local expected_message="${@: -1}"
+    local compiler_args=("${@:1:$#-1}")
 
     local output
     local exit_code
 
     set +e
-    output="$("${compiler_binary}" "${input_file}" 2>&1)"
+    output="$("${compiler_binary}" "${compiler_args[@]}" 2>&1)"
     exit_code=$?
     set -e
 
     if [[ "${exit_code}" -ne 0 ]]; then
-        echo "error: compiler unexpectedly failed for ${input_file}" >&2
+        echo "error: compiler unexpectedly failed for ${compiler_args[*]}" >&2
         echo "${output}" >&2
         return 1
     fi

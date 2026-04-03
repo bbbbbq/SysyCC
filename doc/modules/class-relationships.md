@@ -18,6 +18,7 @@ classDiagram
         -ComplierOption option_
         -CompilerContext context_
         -PassManager pass_manager_
+        -sync_context_from_option()
         +validate_dialect_configuration()
         +Run()
     }
@@ -111,6 +112,27 @@ classDiagram
     class IRGenPass {
     }
 
+    class CoreIrPipeline {
+        +BuildAndOptimize(context)
+        +BuildOptimizeAndLower(context)
+    }
+
+    class CoreIrBuilder {
+        +Build(context)
+    }
+
+    class CoreIrPassManager {
+        +Run(build_result)
+    }
+
+    class CoreIrTargetBackend {
+        <<abstract>>
+        +Lower(build_result, kind, diagnostic_engine)
+    }
+
+    class CoreIrLlvmTargetBackend {
+    }
+
     class Diagnostic {
         -level_
         -stage_
@@ -177,6 +199,7 @@ classDiagram
         +emit_cond_branch(condition, true_label, false_label)
         +emit_integer_literal(value)
         +emit_floating_literal(value_text, type)
+        +emit_string_literal_address(value_text, type)
         +emit_alloca(name, type)
         +emit_store(address, value)
         +emit_load(address, type)
@@ -1265,6 +1288,11 @@ classDiagram
     ReturnStmt *-- IntegerLiteralExpr
     MemberExpr *-- IdentifierExpr
     SemanticPass ..> SemanticAnalyzer
+    IRGenPass ..> CoreIrPipeline
+    CoreIrPipeline ..> CoreIrBuilder
+    CoreIrPipeline ..> CoreIrPassManager
+    CoreIrPipeline ..> CoreIrTargetBackend
+    CoreIrTargetBackend <|-- CoreIrLlvmTargetBackend
     IRGenPass ..> IRBuilder
     IRBuilder ..> IRBackend
     IRBuilder ..> DialectManager
@@ -1525,7 +1553,7 @@ Role:
 - emit unified stage-tagged diagnostics into the shared diagnostic engine
 - record semantic diagnostics in both the `SemanticModel` and the compiler-wide diagnostic engine
 
-### `sysycc::IRGenPass`, `sysycc::IRBuilder`, `sysycc::IRBackend`, and `sysycc::LlvmIrBackend`
+### `sysycc::IRGenPass`, `sysycc::CoreIrPipeline`, and the legacy `sysycc::IRBuilder` stack
 
 Defined in:
 
@@ -1538,6 +1566,10 @@ Role:
 
 - prepare the backend stage after semantic analysis
 - keep `IRGenPass` as the only public backend pass entry
+- let `IRGenPass` use `CoreIrPipeline` as the active executable hot path:
+  `CoreIrBuilder -> CoreIrPassManager -> CoreIrTargetBackend`
+- keep the legacy `IRBuilder -> IRBackend -> LlvmIrBackend` stack in tree as a
+  reference implementation while staged Core IR coverage continues to grow
 - route generation through an abstract backend interface instead of exposing
   LLVM details directly to the pass
 - provide `LlvmIrBackend` as the first concrete target while leaving room for
@@ -1886,6 +1918,218 @@ Role:
 - `SemanticPass`: run strict semantic checks only after AST lowering is marked
   complete, while still attaching a semantic model to the compiler context
 
+### `sysycc::CoreIr*` foundation classes
+
+Defined in:
+
+- [core_ir_builder.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/core_ir_builder.hpp)
+- [core_ir_pass.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/pass/core_ir_pass.hpp)
+- [core_ir_pipeline.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/pipeline/core_ir_pipeline.hpp)
+- [core_ir_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lowering/core_ir_target_backend.hpp)
+- [core_ir_target_backend_factory.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lowering/core_ir_target_backend_factory.hpp)
+- [core_ir_llvm_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lowering/llvm/core_ir_llvm_target_backend.hpp)
+- [core_ir_aarch64_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lowering/aarch64/core_ir_aarch64_target_backend.hpp)
+- [ir_context.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_context.hpp)
+- [ir_module.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_module.hpp)
+- [ir_function.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_function.hpp)
+- [ir_basic_block.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_basic_block.hpp)
+- [ir_instruction.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_instruction.hpp)
+- [ir_value.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_value.hpp)
+- [ir_constant.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_constant.hpp)
+- [ir_global.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_global.hpp)
+- [ir_stack_slot.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_stack_slot.hpp)
+- [ir_type.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/core/ir_type.hpp)
+- [core_ir_raw_printer.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/printer/core_ir_raw_printer.hpp)
+
+Role:
+
+- `CoreIrBuildResult`: own one built Core IR context together with the module
+  entry point returned by staged lowering
+- `CoreIrBuilder`: lower one frontend-complete translation unit into staged
+  Core IR and fail with compiler diagnostics when the requested subset is not
+  supported yet
+- `CoreIrPass`: define one staged optimization pass over a Core IR module
+- `CoreIrNoOpPass`: occupy the current optimization slot without changing
+  semantics so the staged pipeline already matches the intended
+  `build -> optimize -> lower` architecture
+- `CoreIrPassManager`: own ordered `CoreIrPass` objects and run them against a
+  staged module
+- `CoreIrPipeline`: orchestrate `CoreIrBuilder`, `CoreIrPassManager`, and one
+  `CoreIrTargetBackend`
+- `CoreIrTargetBackend`: define the retargetable lowering boundary from staged
+  Core IR into an `IRResult`
+- `CoreIrLlvmTargetBackend`: lower the current Core IR subset into LLVM IR
+  text
+- `CoreIrAArch64TargetBackend`: expose the future ARM backend contract and
+  currently fail with an explicit diagnostic placeholder
+- `CoreIrContext`: own long-lived Core IR types, constants, and modules
+- `CoreIrModule`: own one module's globals and functions
+- `CoreIrFunction`: own parameters, stack slots, and basic blocks
+- `CoreIrBasicBlock`: own ordered instructions and report whether the last
+  instruction is a terminator
+- `CoreIrValue`: provide typed named values plus one use list updated as
+  instructions attach operands
+- `CoreIrInstruction`: provide the first instruction hierarchy for binary
+  operations, unary integer operations, integer comparisons, staged
+  function/global/stack-slot address instructions, element-pointer
+  instructions, stack-slot and address-based loads/stores, direct and indirect
+  calls, jumps, conditional jumps, and returns
+- `CoreIrConstant`: represent integer, null, byte-string, and aggregate
+  constants
+- `CoreIrGlobal`: represent one top-level Core IR global object
+- `CoreIrStackSlot`: represent one future stack-backed object in a function
+- `CoreIrType`: represent Core IR storage and execution types separately from
+  front-end semantic types
+- `CoreIrRawPrinter`: dump Core IR into a stable textual format for dedicated
+  regression tests and future raw/optimized IR dumps
+- `CoreIrBuilder` now already covers staged lowering for local scalar
+  variables, top-level scalar globals, direct and indirect calls, function and
+  stack-slot addresses, string literals, array indexing, scalar struct-member
+  access, and structured `if` / `while` / `do-while` / `for` control flow
+- `CoreIrStructType` now supports placeholder construction followed by
+  `set_element_types(...)`, which lets staged Core IR represent recursive
+  aggregate layouts such as self-referential pointer fields without re-entering
+  semantic type conversion forever
+
+Relationship summary:
+
+```mermaid
+classDiagram
+    class CoreIrBuildResult {
+        -context_
+        -module_
+        +get_context()
+        +get_module()
+    }
+
+    class CoreIrBuilder {
+        +Build(context)
+    }
+
+    class CoreIrPass {
+        <<abstract>>
+        +get_name()
+        +Run(module, diagnostic_engine)
+    }
+
+    class CoreIrNoOpPass {
+        +get_name()
+        +Run(module, diagnostic_engine)
+    }
+
+    class CoreIrPassManager {
+        -passes_
+        +AddPass(pass)
+        +Run(module, diagnostic_engine)
+    }
+
+    class CoreIrPipeline {
+        -target_kind_
+        +get_target_kind()
+        +BuildAndOptimize(context)
+        +BuildOptimizeAndLower(context)
+    }
+
+    class CoreIrTargetBackend {
+        <<abstract>>
+        +get_kind()
+        +Lower(module, diagnostic_engine)
+    }
+
+    class CoreIrLlvmTargetBackend {
+        +get_kind()
+        +Lower(module, diagnostic_engine)
+    }
+
+    class CoreIrAArch64TargetBackend {
+        +get_kind()
+        +Lower(module, diagnostic_engine)
+    }
+
+    class CoreIrContext {
+        -owned_types_
+        -owned_constants_
+        -owned_modules_
+        +create_type()
+        +create_constant()
+        +create_module()
+    }
+
+    class CoreIrModule {
+        -globals_
+        -functions_
+        +create_global()
+        +create_function()
+    }
+
+    class CoreIrFunction {
+        -parameters_
+        -stack_slots_
+        -basic_blocks_
+        +create_parameter()
+        +create_stack_slot()
+        +create_basic_block()
+    }
+
+    class CoreIrBasicBlock {
+        -instructions_
+        +append_instruction()
+        +get_has_terminator()
+    }
+
+    class CoreIrValue {
+        -type_
+        -uses_
+        +get_type()
+        +get_uses()
+        +add_use()
+    }
+
+    class CoreIrInstruction {
+        <<abstract>>
+        -parent_
+        -operands_
+        +get_operands()
+        +get_is_terminator()
+    }
+
+    class CoreIrType {
+        <<abstract>>
+        +get_kind()
+    }
+
+    class CoreIrStructType {
+        +get_element_types()
+        +set_element_types(element_types)
+    }
+
+    class CoreIrRawPrinter {
+        +print_module(module)
+    }
+
+    CoreIrBuilder --> CoreIrBuildResult
+    CoreIrPass <|-- CoreIrNoOpPass
+    CoreIrPassManager --> CoreIrPass
+    CoreIrPipeline --> CoreIrBuilder
+    CoreIrPipeline --> CoreIrPassManager
+    CoreIrPipeline --> CoreIrTargetBackend
+    CoreIrTargetBackend <|-- CoreIrLlvmTargetBackend
+    CoreIrTargetBackend <|-- CoreIrAArch64TargetBackend
+    CoreIrBuildResult --> CoreIrContext
+    CoreIrBuildResult --> CoreIrModule
+    CoreIrContext --> CoreIrType
+    CoreIrStructType --|> CoreIrType
+    CoreIrContext --> CoreIrValue
+    CoreIrContext --> CoreIrModule
+    CoreIrModule --> CoreIrFunction
+    CoreIrFunction --> CoreIrBasicBlock
+    CoreIrFunction --> CoreIrValue
+    CoreIrBasicBlock --> CoreIrInstruction
+    CoreIrInstruction --|> CoreIrValue
+    CoreIrValue --> CoreIrType
+    CoreIrRawPrinter --> CoreIrModule
+```
+
 ## Notes
 
 - The active pass system lives under
@@ -1900,3 +2144,9 @@ Role:
 - The current architecture now spans preprocessing, lexer/parser, AST,
   semantic analysis, and the first LLVM-IR backend path, while later C
   compatibility work is still extending parser/semantic coverage.
+- The new Core IR foundation under
+  [src/backend/ir/core](/Users/caojunze424/code/SysyCC/src/backend/ir/core)
+  and
+  [src/backend/ir/printer](/Users/caojunze424/code/SysyCC/src/backend/ir/printer)
+  is present, regression-tested, and now wired into the executable's hot path
+  through `IRGenPass -> CoreIrPipeline -> CoreIrLlvmTargetBackend`.

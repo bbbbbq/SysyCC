@@ -16,8 +16,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -Eq '^@g_box = (internal )?global \{ i32, \[4 x i8\] \} \{ i32 -1, \[4 x i8\] zeroinitializer \}$' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = bitcast ptr @g_box to ptr$' "${IR_FILE}"
+grep -Eq '^@g_box = (internal )?global \{ i64 \} \{ i64 4294967295 \}$' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+ = getelementptr inbounds \{ i64 \}, ptr @g_box, i32 0, i32 0$' "${IR_FILE}"
 grep -Eq '^  %t[0-9]+ = load i64, ptr %t[0-9]+$' "${IR_FILE}"
 
 echo "verified: global union initializers preserve first-field bytes across padded union storage"

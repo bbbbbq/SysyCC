@@ -36,10 +36,17 @@ add_flex_bison_dependency(SysyLexer SysyParser)
 add_executable(${PROJECT_NAME}
     ${BISON_SysyParser_OUTPUTS}
     ${FLEX_SysyLexer_OUTPUTS}
+    src/backend/ir/core/core_ir_builder.cpp
+    src/backend/ir/lowering/core_ir_target_backend_factory.cpp
+    src/backend/ir/lowering/aarch64/core_ir_aarch64_target_backend.cpp
+    src/backend/ir/lowering/llvm/core_ir_llvm_target_backend.cpp
     src/backend/ir/ir_backend_factory.cpp
     src/backend/ir/gnu_function_attribute_lowering_handler.cpp
     src/backend/ir/ir_builder.cpp
     src/backend/ir/ir_pass.cpp
+    src/backend/ir/pass/core_ir_pass.cpp
+    src/backend/ir/pipeline/core_ir_pipeline.cpp
+    src/backend/ir/printer/core_ir_raw_printer.cpp
     src/backend/ir/llvm/llvm_ir_backend.cpp
     src/backend/ir/detail/aggregate_layout.cpp
     src/backend/ir/detail/ir_context.cpp
@@ -49,6 +56,7 @@ add_executable(${PROJECT_NAME}
     src/common/diagnostic/diagnostic_engine.cpp
     src/common/diagnostic/diagnostic_formatter.cpp
     src/common/integer_literal.cpp
+    src/common/string_literal.cpp
     src/common/source_line_map.cpp
     src/common/source_location_service.cpp
     src/common/source_mapping_view.cpp

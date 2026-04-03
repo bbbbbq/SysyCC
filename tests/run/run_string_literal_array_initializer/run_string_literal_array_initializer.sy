@@ -1,0 +1,6 @@
+int main(void) {
+    char text[4] = "abc";
+    putch(text[1]);
+    putch(10);
+    return 0;
+}

@@ -1,0 +1,13 @@
+int main() {
+    int value = 0;
+    while (value < 5) {
+        value = value + 1;
+        if (value == 2) {
+            continue;
+        }
+        if (value == 4) {
+            break;
+        }
+    }
+    return value;
+}

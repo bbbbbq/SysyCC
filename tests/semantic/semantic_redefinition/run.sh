@@ -11,7 +11,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_compiler_fails_with_message \
-    "${BUILD_DIR}/SysyCC" \
+    "${BUILD_DIR}/SysyCC" --stop-after=semantic \
     "${INPUT_FILE}" \
     "semantic error: redefinition of symbol: value at 3:9-3:13"
 

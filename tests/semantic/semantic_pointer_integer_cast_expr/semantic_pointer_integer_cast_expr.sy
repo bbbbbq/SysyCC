@@ -1,0 +1,7 @@
+int main(void) {
+    void *pointer_value = (void*)0x12345;
+    long long raw_value = (long long)pointer_value;
+    int truncated = (int)3.9;
+    float widened = (float)9223372036854775807LL;
+    return raw_value != 0 && truncated == 3 && widened > 0.0f ? 0 : 1;
+}

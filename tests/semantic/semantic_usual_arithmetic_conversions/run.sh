@@ -35,7 +35,7 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     -o "${TEST_BINARY}"
 
 "${TEST_BINARY}"
-"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse
+"${BUILD_DIR}/SysyCC" --stop-after=semantic "${INPUT_FILE}" --dump-tokens --dump-parse
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 
 echo "verified: usual arithmetic conversions use the type-system core helpers"

@@ -18,7 +18,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^  br label %goto\.done[0-9]+$' "${IR_FILE}"
-grep -Eq '^goto\.done[0-9]+:$' "${IR_FILE}"
+grep -Eq '^  br label %goto\.done([0-9]+)?$' "${IR_FILE}"
+grep -Eq '^goto\.done([0-9]+)?:$' "${IR_FILE}"
 
 echo "verified: fallthrough into labels inserts an explicit branch before the label block"

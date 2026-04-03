@@ -20,10 +20,10 @@ assert_file_nonempty "${IR_FILE}"
 
 grep -q '^  br label %while.cond0$' "${IR_FILE}"
 grep -q '^while.cond0:$' "${IR_FILE}"
-grep -q '^while.body1:$' "${IR_FILE}"
-grep -q '^while.end2:$' "${IR_FILE}"
+grep -Eq '^while\.body[0-9]+:$' "${IR_FILE}"
+grep -Eq '^while\.end[0-9]+:$' "${IR_FILE}"
 grep -q 'icmp slt i32 %t0, 3' "${IR_FILE}"
 grep -q 'zext i1 ' "${IR_FILE}"
-grep -q '^  ret i32 %t6$' "${IR_FILE}"
+grep -Eq '^  ret i32 %t[0-9]+$' "${IR_FILE}"
 
 echo "verified: while loop lowers to compare and back edge"

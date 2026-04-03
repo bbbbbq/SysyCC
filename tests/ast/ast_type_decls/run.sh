@@ -11,7 +11,7 @@ AST_FILE="${BUILD_DIR}/intermediate_results/ast_type_decls.ast.txt"
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
-"${BUILD_DIR}/SysyCC" --dump-tokens --dump-parse --dump-ast "${INPUT_FILE}" >/tmp/sysycc_ast_type_decls.out 2>&1
+"${BUILD_DIR}/SysyCC" --stop-after=ast --dump-tokens --dump-parse --dump-ast "${INPUT_FILE}" >/tmp/sysycc_ast_type_decls.out 2>&1
 
 grep -q "^  StructDecl Pair$" "${AST_FILE}"
 grep -q "^  EnumDecl Flag$" "${AST_FILE}"

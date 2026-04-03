@@ -12,7 +12,7 @@ SYSTEM_DIR="${SCRIPT_DIR}/system_headers"
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
-"${BUILD_DIR}/SysyCC" \
+"${BUILD_DIR}/SysyCC" --stop-after=semantic \
     -isystem "${SYSTEM_DIR}" \
     "${INPUT_FILE}" \
     --dump-tokens \

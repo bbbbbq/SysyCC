@@ -1,0 +1,32 @@
+// Test: Nested switch statement break semantics
+// Bug coverage: Switch frame synchronization edge case in nested switches
+// Break should only exit the innermost switch
+
+int main(void) {
+    int outer = 1;
+    int inner = 2;
+    int result = 0;
+
+    switch (outer) {
+    case 1: {
+        switch (inner) {
+        case 1: {
+            result = 100;
+            break;  // Should break from inner switch only
+        }
+        case 2: {
+            result = 200;
+            break;  // Should break from inner switch only
+        }
+        }
+        // After inner switch breaks, we should still be in outer case 1
+        result = result + 1000;
+        break;  // Now break from outer switch
+    }
+    default: {
+        result = 999;
+    }
+    }
+
+    return result != 1200;
+}

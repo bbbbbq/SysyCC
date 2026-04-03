@@ -23,6 +23,13 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${PROJECT_ROOT}/src/backend/ir/ir_builder.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/ir_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/llvm/llvm_ir_backend.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/core/core_ir_builder.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/lowering/core_ir_target_backend_factory.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/lowering/llvm/core_ir_llvm_target_backend.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/lowering/aarch64/core_ir_aarch64_target_backend.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/pass/core_ir_pass.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/pipeline/core_ir_pipeline.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/printer/core_ir_raw_printer.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/detail/ir_context.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/detail/symbol_value_map.cpp" \
     "${PROJECT_ROOT}/src/cli/cli.cpp" \
@@ -33,6 +40,7 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${PROJECT_ROOT}/src/common/source_location_service.cpp" \
     "${PROJECT_ROOT}/src/common/source_mapping_view.cpp" \
     "${PROJECT_ROOT}/src/common/source_manager.cpp" \
+    "${PROJECT_ROOT}/src/common/string_literal.cpp" \
     "${PROJECT_ROOT}/src/compiler/complier.cpp" \
     "${PROJECT_ROOT}/src/compiler/pass/pass.cpp" \
     "${PROJECT_ROOT}/src/frontend/ast/ast_dump.cpp" \

@@ -1,0 +1,12 @@
+union Value {
+    int as_int;
+    unsigned int as_unsigned;
+};
+
+int main(void) {
+    union Value value;
+    value.as_int = -1;
+    putint(value.as_unsigned == 4294967295U);
+    putch(10);
+    return 0;
+}

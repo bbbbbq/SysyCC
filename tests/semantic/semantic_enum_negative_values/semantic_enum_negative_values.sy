@@ -1,0 +1,8 @@
+enum Value {
+    NEG_ONE = -1,
+    NEG_HUNDRED = -100
+};
+
+int main(void) {
+    return NEG_ONE + NEG_HUNDRED;
+}

@@ -57,9 +57,26 @@ includes:
 - IR/runtime coverage for implicit `ret void` insertion in empty `void`
   functions
 - IR/runtime coverage for string literals lowered through private LLVM globals
+- semantic/IR/runtime coverage for string literal character-array initializers
+- IR/runtime coverage for char literal expressions lowered as ordinary integer
+  constants
+- semantic/IR/runtime coverage for enum-valued variables, parameters, and
+  returns flowing through LLVM IR as ordinary integer storage
+- semantic coverage for empty enums, negative enumerators, duplicate
+  enumerator values, and pointer-based self-referential struct declarations
+- semantic/runtime coverage for pointer/integer casts and float/integer
+  truncation or widening boundaries
+- semantic/runtime coverage for conditional expressions used in integer
+  constant-expression contexts such as array dimensions, `case` labels, and
+  enumerator values
+- semantic/IR/runtime coverage for function-designator decay into local
+  function-pointer variables and indirect function-pointer calls
 - IR/runtime coverage for prefix and postfix increment expressions
 - preprocess/runtime coverage for csmith safe-math headers whose `#if`
   branches depend on standard limit macros and builtin numeric macros
+- preprocess coverage for adjacent-string concatenation after `#`
+  stringization and for variadic macro calls with no trailing variadic
+  arguments
 - semantic/IR/runtime coverage for unary bitwise-not integer promotions,
   including `long long` operands that must keep their widened result type
 - IR/runtime coverage for mixed signed/unsigned integer comparisons whose
@@ -84,6 +101,51 @@ includes:
   fixed-parameter call arguments
 - IR failure coverage for unsupported function bodies, which must now stop
   compilation with a diagnostic instead of being silently skipped
+- IR failure coverage for internal backend emission failures, which must now
+  abort `IRBuilder` with a compiler diagnostic instead of silently producing a
+  partial module
+- Core IR foundation coverage for raw module printing, value-use tracking, and
+  terminator detection before the future optimization pipeline is wired into
+  the production compiler path
+- Core IR pipeline coverage for a placeholder optimization stage that preserves
+  one staged module before lowering
+- frontend-to-Core-IR coverage for staged lowering of minimal function bodies
+  and structured `if/else` control flow before the future optimization
+  pipeline is wired into the production compiler path
+- frontend-to-Core-IR coverage for staged lowering of local scalar variables,
+  simple assignments, direct calls, and integer comparison expressions before
+  the future optimization pipeline is wired into the production compiler path
+- frontend-to-Core-IR coverage for staged lowering of unary integer
+  expressions and loop-shaped control flow with `while`, `break`, and
+  `continue`
+- frontend-to-Core-IR coverage for staged lowering of `for` and `do-while`
+  loops through explicit Core IR basic blocks
+- frontend-to-Core-IR coverage for staged lowering of string literals through
+  private Core IR globals plus derived element pointers
+- frontend-to-Core-IR coverage for staged lowering of top-level scalar globals
+  and explicit global address-based load/store
+- frontend-to-Core-IR coverage for explicit stack-slot addresses, pointer
+  dereference stores, function addresses, and indirect function-pointer calls
+- frontend-to-Core-IR coverage for array indexing through explicit staged
+  `gep`, including value-based indices
+- frontend-to-Core-IR coverage for scalar struct-member load/store through the
+  shared aggregate layout service
+- frontend-to-Core-IR coverage for `goto` / label control flow and `switch`
+  dispatch through explicit staged basic blocks
+- staged Core-IR-to-LLVM coverage for the currently supported subset through
+  one explicit `CoreIrPipeline`
+- staged Core-IR-to-LLVM coverage for array indexing plus struct-member
+  addressing in the same pipeline-level regression
+- staged Core-IR-to-LLVM coverage for pointer arithmetic and pointer
+  differences
+- staged Core-IR-to-LLVM coverage for static internal linkage, top-level
+  constant global-address initializers, and union-backed aggregate storage
+- staged Core-IR-to-LLVM coverage for variadic default-argument promotions at
+  direct call sites
+- IR coverage for float add/sub/mul/div lowering through `fadd`, `fsub`,
+  `fmul`, and `fdiv`
+- staged Core-IR-to-AArch64 placeholder coverage for the current
+  not-yet-implemented ARM backend contract
 
 ## Stage Groups
 
@@ -104,6 +166,8 @@ Lightweight architecture regressions for the shared dialect skeleton, including:
 - strict-C99 dialect configuration
 - optional dialect-pack switch behavior
 - CLI-to-dialect-option mapping
+- compiler option-to-context synchronization across constructor, `set_option`,
+  and `Run()`
 
 Representative paths:
 
@@ -121,6 +185,7 @@ Representative paths:
 - [tests/dialects/strict_c99_dialect_configuration](/Users/caojunze424/code/SysyCC/tests/dialects/strict_c99_dialect_configuration)
 - [tests/dialects/optional_dialect_pack_switches](/Users/caojunze424/code/SysyCC/tests/dialects/optional_dialect_pack_switches)
 - [tests/dialects/cli_dialect_option_mapping](/Users/caojunze424/code/SysyCC/tests/dialects/cli_dialect_option_mapping)
+- [tests/dialects/complier_option_context_sync](/Users/caojunze424/code/SysyCC/tests/dialects/complier_option_context_sync)
 
 ### `tests/preprocess/`
 
@@ -176,6 +241,8 @@ Representative paths:
 - [tests/preprocess/macro_redefinition_equivalent](/Users/caojunze424/code/SysyCC/tests/preprocess/macro_redefinition_equivalent)
 - [tests/preprocess/predefined_host_macros](/Users/caojunze424/code/SysyCC/tests/preprocess/predefined_host_macros)
 - [tests/preprocess/predefined_standard_limit_conditionals](/Users/caojunze424/code/SysyCC/tests/preprocess/predefined_standard_limit_conditionals)
+- [tests/preprocess/stringize_concatenation_combo](/Users/caojunze424/code/SysyCC/tests/preprocess/stringize_concatenation_combo)
+- [tests/preprocess/variadic_macro_empty_args](/Users/caojunze424/code/SysyCC/tests/preprocess/variadic_macro_empty_args)
 - [tests/preprocess/long_include_graph](/Users/caojunze424/code/SysyCC/tests/preprocess/long_include_graph)
 - [tests/preprocess/long_condition_matrix](/Users/caojunze424/code/SysyCC/tests/preprocess/long_condition_matrix)
 - [tests/preprocess/preprocess_error_location](/Users/caojunze424/code/SysyCC/tests/preprocess/preprocess_error_location)
@@ -447,6 +514,9 @@ Representative paths:
 - [tests/semantic/semantic_function_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_function_prototype)
 - [tests/semantic/semantic_gnu_attribute_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_gnu_attribute_prototype)
 - [tests/semantic/semantic_variadic_function_call](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_variadic_function_call)
+- [tests/semantic/semantic_string_literal_array_initializer](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_string_literal_array_initializer)
+- [tests/semantic/semantic_enum_value_flow](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_enum_value_flow)
+- [tests/semantic/semantic_function_pointer_call](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_function_pointer_call)
 - [tests/semantic/semantic_inline_function_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_inline_function_prototype)
 - [tests/semantic/semantic_long_double_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_long_double_type)
 - [tests/semantic/semantic_pointer_return_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_pointer_return_prototype)
@@ -500,6 +570,9 @@ Representative paths:
 - [tests/ir/ir_always_inline_attribute](/Users/caojunze424/code/SysyCC/tests/ir/ir_always_inline_attribute)
 - [tests/ir/ir_implicit_void_return](/Users/caojunze424/code/SysyCC/tests/ir/ir_implicit_void_return)
 - [tests/ir/ir_struct_return_call_expr](/Users/caojunze424/code/SysyCC/tests/ir/ir_struct_return_call_expr)
+- [tests/ir/ir_string_literal_array_initializer](/Users/caojunze424/code/SysyCC/tests/ir/ir_string_literal_array_initializer)
+- [tests/ir/ir_enum_value_flow](/Users/caojunze424/code/SysyCC/tests/ir/ir_enum_value_flow)
+- [tests/ir/ir_function_pointer_call](/Users/caojunze424/code/SysyCC/tests/ir/ir_function_pointer_call)
 - [tests/ir/ir_struct_forward_decl](/Users/caojunze424/code/SysyCC/tests/ir/ir_struct_forward_decl)
 - [tests/ir/ir_const_char_pointer_param](/Users/caojunze424/code/SysyCC/tests/ir/ir_const_char_pointer_param)
 - [tests/ir/ir_pointer_nullability_erasure](/Users/caojunze424/code/SysyCC/tests/ir/ir_pointer_nullability_erasure)
@@ -568,6 +641,9 @@ Representative paths:
 - [tests/run/run_map_lookup](/Users/caojunze424/code/SysyCC/tests/run/run_map_lookup)
 - [tests/run/run_variadic_function_call](/Users/caojunze424/code/SysyCC/tests/run/run_variadic_function_call)
 - [tests/run/run_struct_return_call_expr](/Users/caojunze424/code/SysyCC/tests/run/run_struct_return_call_expr)
+- [tests/run/run_string_literal_array_initializer](/Users/caojunze424/code/SysyCC/tests/run/run_string_literal_array_initializer)
+- [tests/run/run_enum_value_flow](/Users/caojunze424/code/SysyCC/tests/run/run_enum_value_flow)
+- [tests/run/run_function_pointer_call](/Users/caojunze424/code/SysyCC/tests/run/run_function_pointer_call)
 - [tests/run/run_incompatible_pointer_return](/Users/caojunze424/code/SysyCC/tests/run/run_incompatible_pointer_return)
 - [tests/run/run_volatile_struct_member_address_initializer](/Users/caojunze424/code/SysyCC/tests/run/run_volatile_struct_member_address_initializer)
 - [tests/run/run_unsigned_bit_field_integer_promotion](/Users/caojunze424/code/SysyCC/tests/run/run_unsigned_bit_field_integer_promotion)
@@ -675,8 +751,9 @@ behavior:
 - [tests/fuzz/generate_and_build_csmith_cases_incremental](/Users/caojunze424/code/SysyCC/tests/fuzz/generate_and_build_csmith_cases_incremental)
 
 `run_csmith_cases.sh` executes generated fuzz cases as a differential test
-between the host toolchain and `SysyCC`, then archives all intermediate results
-per numbered directory. It runs the requested cases in parallel by default,
+between the host toolchain and `SysyCC`, then archives process logs per
+numbered directory. By default it does not keep `SysyCC` frontend or IR dump
+files in the case directory. It runs the requested cases in parallel by default,
 using the detected logical CPU count unless `RUN_FUZZ_JOBS` overrides it, and
 prints a simple completed-case progress line while workers finish. It supports:
 
@@ -696,7 +773,7 @@ For each requested case, the script:
 1. compiles `fuzz_<id>.c` with `clang`
 2. runs the `clang` binary with the case-local input file if present, or an
    empty input file otherwise
-3. invokes `SysyCC` with `--dump-tokens --dump-parse --dump-ast --dump-ir`
+3. invokes `SysyCC` with `--dump-ir`
 4. if `SysyCC` succeeds, compiles the emitted LLVM IR with `clang`
 5. runs the `SysyCC`-produced executable with the same input
 6. compares stdout, stderr, and exit code
@@ -717,11 +794,6 @@ Each case directory then accumulates files such as:
 - `fuzz_<id>.sysycc.compile.stdout.txt`
 - `fuzz_<id>.sysycc.compile.stderr.txt`
 - `fuzz_<id>.sysycc.compile.exit.txt`
-- `fuzz_<id>.preprocessed.sy`
-- `fuzz_<id>.tokens.txt`
-- `fuzz_<id>.parse.txt`
-- `fuzz_<id>.ast.txt`
-- `fuzz_<id>.ll`
 - `fuzz_<id>.sysycc.link.stdout.txt`
 - `fuzz_<id>.sysycc.link.stderr.txt`
 - `fuzz_<id>.sysycc.link.exit.txt`
@@ -731,14 +803,13 @@ Each case directory then accumulates files such as:
 - `fuzz_<id>.compare.txt`
 
 This makes it possible to inspect both compiler paths and the final output
-comparison for one specific numbered case directory.
+comparison for one specific numbered case directory without retaining compiler
+intermediate dumps by default.
 
 `run_csmith_cases.sh` can also print a per-case terminal summary that lists the
 recorded artifact paths for the host-toolchain logs, `SysyCC` diagnostics, and
-the copied frontend/IR intermediates generated by `SysyCC` itself. The script
-does not echo the full contents of those files by default; instead, it relies
-on the copied `.preprocessed.sy`, `.tokens.txt`, `.parse.txt`, `.ast.txt`, and
-`.ll` artifacts for detailed inspection. The summary mode is controlled by
+any optional copied frontend/IR intermediates. The script does not echo the
+full contents of those files by default. The summary mode is controlled by
 `PRINT_INTERMEDIATE_MODE`:
 
 - `never`: do not print the per-case report
@@ -750,8 +821,12 @@ Additional environment:
 - `RUN_FUZZ_JOBS=<n>`: override automatic logical-CPU parallelism
 - `SYSYCC_FUZZ_RESULT_FILE=<path>`: write the Markdown report to a custom file
 - `SYSYCC_FUZZ_CASE_ROOT=<dir>`: override the fuzz case root directory
+- `SYSYCC_FUZZ_CAPTURE_INTERMEDIATES=none|full`: keep no `SysyCC` dump files by
+  default, or preserve copied `.preprocessed.sy`, `.tokens.txt`, `.parse.txt`,
+  `.ast.txt`, and `.ll` artifacts in the case directory when set to `full`
 
-`never` is the default mode.
+`PRINT_INTERMEDIATE_MODE=never` and
+`SYSYCC_FUZZ_CAPTURE_INTERMEDIATES=none` are the default modes.
 
 Example:
 
@@ -760,11 +835,13 @@ bash tests/fuzz/run_csmith_cases.sh
 bash tests/fuzz/run_csmith_cases.sh 001
 bash tests/fuzz/run_csmith_cases.sh all
 PRINT_INTERMEDIATE_MODE=always bash tests/fuzz/run_csmith_cases.sh 001
+SYSYCC_FUZZ_CAPTURE_INTERMEDIATES=full bash tests/fuzz/run_csmith_cases.sh 001
 ```
 
 Representative script regression:
 
 - [tests/fuzz/run_csmith_cases_multi_width_ids](/Users/caojunze424/code/SysyCC/tests/fuzz/run_csmith_cases_multi_width_ids)
+- [tests/fuzz/run_csmith_cases_capture_mode](/Users/caojunze424/code/SysyCC/tests/fuzz/run_csmith_cases_capture_mode)
 
 ### `tests/ir/`
 
@@ -813,6 +890,7 @@ Representative paths:
 - [tests/ir/ir_switch](/Users/caojunze424/code/SysyCC/tests/ir/ir_switch)
 - [tests/ir/ir_variadic_function_definition](/Users/caojunze424/code/SysyCC/tests/ir/ir_variadic_function_definition)
 - [tests/ir/ir_stdio_printf_variadic_call](/Users/caojunze424/code/SysyCC/tests/ir/ir_stdio_printf_variadic_call)
+- [tests/ir/ir_char_literal_expr](/Users/caojunze424/code/SysyCC/tests/ir/ir_char_literal_expr)
 
 Representative `tests/run/` execution regressions also cover host-linked
 `stdio.h` variadic printing now:
@@ -821,6 +899,7 @@ Representative `tests/run/` execution regressions also cover host-linked
 - [tests/run/run_stdio_printf_int](/Users/caojunze424/code/SysyCC/tests/run/run_stdio_printf_int)
 - [tests/run/run_stdio_printf_string](/Users/caojunze424/code/SysyCC/tests/run/run_stdio_printf_string)
 - [tests/run/run_stdio_printf_string_and_int](/Users/caojunze424/code/SysyCC/tests/run/run_stdio_printf_string_and_int)
+- [tests/run/run_char_literal_expr](/Users/caojunze424/code/SysyCC/tests/run/run_char_literal_expr)
 
 ## Shared Helpers
 

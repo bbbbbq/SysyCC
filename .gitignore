@@ -7,3 +7,4 @@ src/frontend/lexer/lexer_scanner.cpp
 src/frontend/parser/parser_generated.cpp
 src/frontend/parser/parser.tab.h
 .cache/
+.omx/

@@ -17,7 +17,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_file_nonempty "${IR_FILE}"
 grep -q '^@p = \(internal \)\?global ptr @value$' "${IR_FILE}" || \
     grep -q '^@p = internal global ptr @value$' "${IR_FILE}"
-grep -q '^@q = \(internal \)\?global ptr getelementptr inbounds (i32, ptr @items, i32 3)$' "${IR_FILE}" || \
-    grep -q '^@q = internal global ptr getelementptr inbounds (i32, ptr @items, i32 3)$' "${IR_FILE}"
+grep -Eq '^@q = (internal )?global ptr getelementptr inbounds \(\[4 x i32\], ptr @items, i32 0, i32 3\)$' "${IR_FILE}"
 
 echo "verified: ir lowers global address initializers"

@@ -16,8 +16,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -Fq '@.str.0 = private unnamed_addr constant [3 x i8] c"hi\00"' "${IR_FILE}"
-grep -Eq 'getelementptr inbounds \[3 x i8\], ptr @\.str\.0, i32 0, i32 0' "${IR_FILE}"
+grep -Eq '@\.str\.?0 = private unnamed_addr constant \[3 x i8\] c"hi\\00"' "${IR_FILE}"
+grep -Eq 'getelementptr inbounds (\[3 x i8\], ptr @\.str\.?0, i32 0, i32 0|i8, ptr @\.str\.?0, i32 0)' "${IR_FILE}"
 grep -Eq 'call i32 @puts\(ptr %t[0-9]+\)' "${IR_FILE}"
 
 echo "verified: ir lowers string literals to private LLVM globals"

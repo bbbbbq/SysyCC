@@ -11,6 +11,7 @@ std::unique_ptr<IRBackend> create_ir_backend(IrKind kind) {
     switch (kind) {
     case IrKind::LLVM:
         return std::make_unique<LlvmIrBackend>();
+    case IrKind::AArch64:
     case IrKind::None:
         break;
     }

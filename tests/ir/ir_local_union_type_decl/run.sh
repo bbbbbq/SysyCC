@@ -15,8 +15,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -q 'alloca i32' "${IR_FILE}"
-grep -q 'bitcast ptr %bits.addr to ptr' "${IR_FILE}"
-grep -q 'lshr i32' "${IR_FILE}"
+grep -q 'alloca { i32 }' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+ = getelementptr inbounds \{ i32 \}, ptr %bits\.addr, i32 0, i32 0$' "${IR_FILE}"
+grep -q 'ashr i32' "${IR_FILE}"
 
 echo "verified: ir lowers local anonymous union declarations and shift expressions"

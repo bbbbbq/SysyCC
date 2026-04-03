@@ -1,6 +1,7 @@
 #include "backend/ir/ir_builder.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <iomanip>
@@ -19,6 +20,7 @@
 #include "backend/ir/ir_backend.hpp"
 #include "backend/ir/ir_result.hpp"
 #include "common/integer_literal.hpp"
+#include "common/string_literal.hpp"
 #include "common/diagnostic/diagnostic.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
 #include "frontend/ast/ast_node.hpp"
@@ -94,8 +96,34 @@ bool is_builtin_type_named(const SemanticType *type, const char *name) {
     return static_cast<const BuiltinSemanticType *>(type)->get_name() == name;
 }
 
+bool is_enum_type(const SemanticType *type) {
+    type = strip_qualifiers(type);
+    return type != nullptr && type->get_kind() == SemanticTypeKind::Enum;
+}
+
+const FunctionSemanticType *get_callable_function_type(const SemanticType *type) {
+    type = strip_qualifiers(type);
+    if (type == nullptr) {
+        return nullptr;
+    }
+    if (type->get_kind() == SemanticTypeKind::Function) {
+        return static_cast<const FunctionSemanticType *>(type);
+    }
+    if (type->get_kind() != SemanticTypeKind::Pointer) {
+        return nullptr;
+    }
+    const SemanticType *pointee_type =
+        strip_qualifiers(static_cast<const PointerSemanticType *>(type)->get_pointee_type());
+    if (pointee_type == nullptr ||
+        pointee_type->get_kind() != SemanticTypeKind::Function) {
+        return nullptr;
+    }
+    return static_cast<const FunctionSemanticType *>(pointee_type);
+}
+
 bool is_supported_integer_type(const SemanticType *type) {
-    return is_builtin_type_named(type, "int") ||
+    return is_enum_type(type) ||
+           is_builtin_type_named(type, "int") ||
            is_builtin_type_named(type, "ptrdiff_t") ||
            is_builtin_type_named(type, "unsigned int") ||
            is_builtin_type_named(type, "char") ||
@@ -111,7 +139,8 @@ bool is_supported_integer_type(const SemanticType *type) {
 
 bool is_supported_scalar_storage_type(const SemanticType *type) {
     type = strip_qualifiers(type);
-    return is_builtin_type_named(type, "int") ||
+    return is_enum_type(type) ||
+           is_builtin_type_named(type, "int") ||
            is_builtin_type_named(type, "ptrdiff_t") ||
            is_builtin_type_named(type, "unsigned int") ||
            is_builtin_type_named(type, "char") ||
@@ -667,6 +696,11 @@ bool is_supported_lvalue_expr(const Expr *expr) {
            expr->get_kind() == AstKind::UnaryExpr;
 }
 
+bool is_supported_addressable_expr(const Expr *expr) {
+    return is_supported_lvalue_expr(expr) ||
+           (expr != nullptr && expr->get_kind() == AstKind::StringLiteralExpr);
+}
+
 const SemanticType *get_array_decay_pointer_type(const SemanticType *type) {
     type = strip_qualifiers(type);
     if (type == nullptr || type->get_kind() != SemanticTypeKind::Array) {
@@ -685,6 +719,27 @@ const SemanticType *get_array_decay_pointer_type(const SemanticType *type) {
     const auto *array_type = static_cast<const ArraySemanticType *>(type);
     auto owned_pointer_type =
         std::make_unique<PointerSemanticType>(array_type->get_element_type());
+    const SemanticType *pointer_type = owned_pointer_type.get();
+    decay_type_cache.emplace(type, std::move(owned_pointer_type));
+    return pointer_type;
+}
+
+const SemanticType *get_function_decay_pointer_type(const SemanticType *type) {
+    type = strip_qualifiers(type);
+    if (type == nullptr || type->get_kind() != SemanticTypeKind::Function) {
+        return nullptr;
+    }
+
+    static std::unordered_map<const SemanticType *,
+                              std::unique_ptr<PointerSemanticType>>
+        decay_type_cache;
+
+    auto it = decay_type_cache.find(type);
+    if (it != decay_type_cache.end()) {
+        return it->second.get();
+    }
+
+    auto owned_pointer_type = std::make_unique<PointerSemanticType>(type);
     const SemanticType *pointer_type = owned_pointer_type.get();
     decay_type_cache.emplace(type, std::move(owned_pointer_type));
     return pointer_type;
@@ -739,6 +794,58 @@ bool get_member_info(const SemanticType *owner_type,
         }
     }
     return false;
+}
+
+bool is_char_like_type(const SemanticType *type) {
+    return is_builtin_type_named(type, "char") ||
+           is_builtin_type_named(type, "signed char") ||
+           is_builtin_type_named(type, "unsigned char");
+}
+
+std::optional<std::vector<unsigned char>>
+get_string_literal_initializer_bytes(const Expr *initializer,
+                                     const SemanticType *target_type) {
+    target_type = strip_qualifiers(target_type);
+    if (initializer == nullptr || target_type == nullptr ||
+        initializer->get_kind() != AstKind::StringLiteralExpr ||
+        target_type->get_kind() != SemanticTypeKind::Array) {
+        return std::nullopt;
+    }
+
+    const auto *array_type = static_cast<const ArraySemanticType *>(target_type);
+    const auto &dimensions = array_type->get_dimensions();
+    if (dimensions.size() != 1 || dimensions.front() <= 0 ||
+        !is_char_like_type(array_type->get_element_type())) {
+        return std::nullopt;
+    }
+
+    const auto *string_literal = static_cast<const StringLiteralExpr *>(initializer);
+    const std::string decoded_text =
+        decode_string_literal_token(string_literal->get_value_text());
+    const std::size_t element_count =
+        static_cast<std::size_t>(dimensions.front());
+    if (decoded_text.size() + 1 > element_count) {
+        return std::nullopt;
+    }
+
+    std::vector<unsigned char> bytes(element_count, 0);
+    for (std::size_t index = 0; index < decoded_text.size(); ++index) {
+        bytes[index] = static_cast<unsigned char>(decoded_text[index]);
+    }
+    return bytes;
+}
+
+std::string encode_llvm_byte_string(const std::vector<unsigned char> &bytes) {
+    std::ostringstream encoded;
+    encoded << std::uppercase << std::hex << std::setfill('0');
+    for (const unsigned char byte : bytes) {
+        if (std::isprint(byte) != 0 && byte != '\\' && byte != '"') {
+            encoded << static_cast<char>(byte);
+            continue;
+        }
+        encoded << '\\' << std::setw(2) << static_cast<int>(byte);
+    }
+    return encoded.str();
 }
 
 struct LValueAddress {
@@ -1817,6 +1924,16 @@ std::optional<std::string> build_global_initializer_text_for_expr(
         if (is_null_pointer_constant_initializer(context, initializer)) {
             return std::string("null");
         }
+        const auto *initializer_function_type =
+            get_callable_function_type(get_node_type(context, initializer));
+        if (initializer_function_type != nullptr &&
+            initializer->get_kind() == AstKind::IdentifierExpr) {
+            std::optional<std::string> direct_function_address =
+                build_global_lvalue_address_initializer_text(context, initializer);
+            if (direct_function_address.has_value()) {
+                return direct_function_address;
+            }
+        }
         std::optional<std::string> address_initializer =
             build_global_address_initializer_text(context, initializer);
         if (address_initializer.has_value()) {
@@ -1826,6 +1943,11 @@ std::optional<std::string> build_global_initializer_text_for_expr(
     }
 
     if (unqualified_target->get_kind() == SemanticTypeKind::Array) {
+        if (const auto string_bytes =
+                get_string_literal_initializer_bytes(initializer, target_type);
+            string_bytes.has_value()) {
+            return "c\"" + encode_llvm_byte_string(*string_bytes) + "\"";
+        }
         if (initializer->get_kind() != AstKind::InitListExpr) {
             return std::nullopt;
         }
@@ -1849,17 +1971,20 @@ std::optional<std::string> build_global_initializer_text_for_expr(
             context, static_cast<const InitListExpr *>(initializer), target_type);
     }
 
-    if (unqualified_target->get_kind() != SemanticTypeKind::Builtin) {
+    if (unqualified_target->get_kind() != SemanticTypeKind::Builtin &&
+        unqualified_target->get_kind() != SemanticTypeKind::Enum) {
         return std::nullopt;
     }
 
-    const auto &builtin_name =
-        static_cast<const BuiltinSemanticType *>(unqualified_target)->get_name();
     const auto integer_constant = get_integer_constant_value(context, initializer);
     if (integer_constant.has_value()) {
         return std::to_string(*integer_constant);
     }
 
+    const std::string builtin_name =
+        unqualified_target->get_kind() == SemanticTypeKind::Builtin
+            ? static_cast<const BuiltinSemanticType *>(unqualified_target)->get_name()
+            : std::string();
     if (initializer->get_kind() == AstKind::FloatLiteralExpr &&
         (builtin_name == "float" || builtin_name == "double" ||
          builtin_name == "_Float16" || builtin_name == "long double")) {
@@ -1888,6 +2013,9 @@ bool is_supported_initializer_for_type(const CompilerContext &context,
     }
 
     if (unqualified_target->get_kind() == SemanticTypeKind::Array) {
+        if (get_string_literal_initializer_bytes(initializer, target_type).has_value()) {
+            return true;
+        }
         if (initializer->get_kind() != AstKind::InitListExpr) {
             return false;
         }
@@ -1982,6 +2110,12 @@ std::string describe_unsupported_initializer_for_type(
     }
 
     if (unqualified_target->get_kind() == SemanticTypeKind::Array) {
+        if (initializer->get_kind() == AstKind::StringLiteralExpr) {
+            return get_string_literal_initializer_bytes(initializer, target_type)
+                       .has_value()
+                   ? std::string()
+                   : "string literal does not fit target char array";
+        }
         if (initializer->get_kind() != AstKind::InitListExpr) {
             return "array initializer must be an initializer list";
         }
@@ -2244,7 +2378,7 @@ bool is_supported_expr(const CompilerContext &context, const Expr *expr) {
     case AstKind::FloatLiteralExpr:
         return is_supported_scalar_storage_type(get_node_type(context, expr));
     case AstKind::StringLiteralExpr:
-        return is_supported_scalar_storage_type(get_node_type(context, expr));
+        return is_supported_storage_type(get_node_type(context, expr));
     case AstKind::IdentifierExpr: {
         const auto *symbol = get_symbol_binding(context, expr);
         if (symbol == nullptr) {
@@ -2321,7 +2455,7 @@ bool is_supported_expr(const CompilerContext &context, const Expr *expr) {
         const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
         if (unary_expr->get_operator_text() == "&") {
             return unary_expr->get_operand() != nullptr &&
-                   is_supported_lvalue_expr(unary_expr->get_operand());
+                   is_supported_addressable_expr(unary_expr->get_operand());
         }
         if (unary_expr->get_operator_text() == "*") {
             return is_supported_expr(context, unary_expr->get_operand()) &&
@@ -2354,19 +2488,15 @@ bool is_supported_expr(const CompilerContext &context, const Expr *expr) {
     case AstKind::CallExpr: {
         const auto *call_expr = static_cast<const CallExpr *>(expr);
         if (call_expr->get_callee() == nullptr ||
-            call_expr->get_callee()->get_kind() != AstKind::IdentifierExpr) {
-            return false;
-        }
-
-        const SemanticType *callee_type =
-            get_node_type(context, call_expr->get_callee());
-        if (callee_type == nullptr ||
-            callee_type->get_kind() != SemanticTypeKind::Function) {
+            !is_supported_expr(context, call_expr->get_callee())) {
             return false;
         }
 
         const auto *function_type =
-            static_cast<const FunctionSemanticType *>(callee_type);
+            get_callable_function_type(get_node_type(context, call_expr->get_callee()));
+        if (function_type == nullptr) {
+            return false;
+        }
         if (!is_supported_return_type(function_type->get_return_type())) {
             return false;
         }
@@ -2616,7 +2746,7 @@ std::string describe_unsupported_expr(const CompilerContext &context,
                    ? std::string()
                    : "floating literal has unsupported result type";
     case AstKind::StringLiteralExpr:
-        return is_supported_scalar_storage_type(get_node_type(context, expr))
+        return is_supported_storage_type(get_node_type(context, expr))
                    ? std::string()
                    : "string literal has unsupported result type";
     case AstKind::IdentifierExpr: {
@@ -2749,7 +2879,7 @@ std::string describe_unsupported_expr(const CompilerContext &context,
             if (unary_expr->get_operand() == nullptr) {
                 return "address-of without operand";
             }
-            return is_supported_lvalue_expr(unary_expr->get_operand())
+            return is_supported_addressable_expr(unary_expr->get_operand())
                        ? std::string()
                        : "address-of operand kind is unsupported";
         }
@@ -2823,17 +2953,19 @@ std::string describe_unsupported_expr(const CompilerContext &context,
     }
     case AstKind::CallExpr: {
         const auto *call_expr = static_cast<const CallExpr *>(expr);
-        if (call_expr->get_callee() == nullptr ||
-            call_expr->get_callee()->get_kind() != AstKind::IdentifierExpr) {
-            return "call callee kind is unsupported";
+        if (call_expr->get_callee() == nullptr) {
+            return "call without callee";
         }
-        const SemanticType *callee_type = get_node_type(context, call_expr->get_callee());
-        if (callee_type == nullptr ||
-            callee_type->get_kind() != SemanticTypeKind::Function) {
-            return "call callee does not resolve to a function";
+        if (const std::string callee_reason =
+                describe_unsupported_expr(context, call_expr->get_callee());
+            !callee_reason.empty()) {
+            return "call callee: " + callee_reason;
         }
         const auto *function_type =
-            static_cast<const FunctionSemanticType *>(callee_type);
+            get_callable_function_type(get_node_type(context, call_expr->get_callee()));
+        if (function_type == nullptr) {
+            return "call callee does not resolve to a function";
+        }
         if (!is_supported_return_type(function_type->get_return_type())) {
             return "call return type is unsupported";
         }
@@ -2926,6 +3058,20 @@ std::optional<LValueAddress> build_lvalue_address(
     }
 
     switch (expr->get_kind()) {
+    case AstKind::StringLiteralExpr: {
+        const auto *string_literal = static_cast<const StringLiteralExpr *>(expr);
+        const SemanticType *literal_type = get_node_type(context, expr);
+        if (literal_type == nullptr) {
+            return std::nullopt;
+        }
+        const std::string address =
+            backend.emit_string_literal_address(string_literal->get_value_text(),
+                                               literal_type);
+        if (address.empty()) {
+            return std::nullopt;
+        }
+        return LValueAddress{address, literal_type};
+    }
     case AstKind::IdentifierExpr: {
         const auto *symbol = get_symbol_binding(context, expr);
         if (symbol == nullptr || symbol->get_decl_node() == nullptr) {
@@ -3039,7 +3185,7 @@ build_expr(IRBackend &backend, const CompilerContext &context,
 
     const SemanticType *expr_type = strip_qualifiers(get_node_type(context, expr));
     if (expr_type != nullptr && expr_type->get_kind() == SemanticTypeKind::Array &&
-        is_supported_lvalue_expr(expr)) {
+        is_supported_addressable_expr(expr)) {
         std::optional<LValueAddress> array_address =
             build_lvalue_address(backend, context, state, expr);
         if (!array_address.has_value()) {
@@ -3090,8 +3236,22 @@ build_expr(IRBackend &backend, const CompilerContext &context,
             return std::nullopt;
         }
 
+        if (symbol->get_kind() == SymbolKind::Constant ||
+            symbol->get_kind() == SymbolKind::Enumerator) {
+            const auto constant_value = get_integer_constant_value(context, expr);
+            if (!constant_value.has_value()) {
+                return std::nullopt;
+            }
+            return IRValue{std::to_string(*constant_value), symbol->get_type()};
+        }
+
         if (symbol->get_kind() == SymbolKind::Function) {
-            return IRValue{"@" + get_symbol_ir_name(symbol), symbol->get_type()};
+            const SemanticType *pointer_type =
+                get_function_decay_pointer_type(symbol->get_type());
+            if (pointer_type == nullptr) {
+                return std::nullopt;
+            }
+            return IRValue{"@" + get_symbol_ir_name(symbol), pointer_type};
         }
 
         const AstNode *decl_node = symbol->get_decl_node();
@@ -3542,37 +3702,40 @@ build_expr(IRBackend &backend, const CompilerContext &context,
     }
     case AstKind::CallExpr: {
         const auto *call_expr = static_cast<const CallExpr *>(expr);
-        const auto *callee_identifier = static_cast<const IdentifierExpr *>(
-            call_expr->get_callee());
         const SemanticSymbol *callee_symbol =
-            get_symbol_binding(context, callee_identifier);
+            get_symbol_binding(context, call_expr->get_callee());
         std::optional<IRValue> callee =
             build_expr(backend, context, state, call_expr->get_callee());
         const SemanticType *return_type = get_node_type(context, expr);
+        const auto *function_type =
+            get_callable_function_type(get_node_type(context, call_expr->get_callee()));
         if (!callee.has_value() || return_type == nullptr ||
-            callee_symbol == nullptr) {
+            function_type == nullptr) {
             return std::nullopt;
         }
 
-        const auto *function_type =
-            static_cast<const FunctionSemanticType *>(callee_symbol->get_type());
-        const AstNode *callee_decl = callee_symbol->get_decl_node();
-        bool needs_function_declaration = callee_decl == nullptr;
-        if (callee_decl != nullptr &&
-            callee_decl->get_kind() == AstKind::FunctionDecl) {
-            needs_function_declaration =
-                static_cast<const FunctionDecl *>(callee_decl)->get_body() == nullptr;
-        }
-        if (needs_function_declaration && state.defined_function_names != nullptr &&
-            state.defined_function_names->find(get_symbol_ir_name(callee_symbol)) !=
-                state.defined_function_names->end()) {
-            needs_function_declaration = false;
-        }
-        if (needs_function_declaration) {
-            backend.declare_function(get_symbol_ir_name(callee_symbol),
-                                     function_type->get_return_type(),
-                                     function_type->get_parameter_types(),
-                                     function_type->get_is_variadic(), false);
+        const bool is_direct_function_symbol =
+            callee_symbol != nullptr && callee_symbol->get_kind() == SymbolKind::Function;
+        if (is_direct_function_symbol) {
+            const AstNode *callee_decl = callee_symbol->get_decl_node();
+            bool needs_function_declaration = callee_decl == nullptr;
+            if (callee_decl != nullptr &&
+                callee_decl->get_kind() == AstKind::FunctionDecl) {
+                needs_function_declaration =
+                    static_cast<const FunctionDecl *>(callee_decl)->get_body() == nullptr;
+            }
+            if (needs_function_declaration &&
+                state.defined_function_names != nullptr &&
+                state.defined_function_names->find(get_symbol_ir_name(callee_symbol)) !=
+                    state.defined_function_names->end()) {
+                needs_function_declaration = false;
+            }
+            if (needs_function_declaration) {
+                backend.declare_function(get_symbol_ir_name(callee_symbol),
+                                         function_type->get_return_type(),
+                                         function_type->get_parameter_types(),
+                                         function_type->get_is_variadic(), false);
+            }
         }
 
         std::vector<IRValue> arguments;
@@ -3818,6 +3981,35 @@ bool emit_local_initializer_to_lvalue(IRBackend &backend,
     }
 
     if (target_type->get_kind() == SemanticTypeKind::Array) {
+        if (const auto string_bytes =
+                get_string_literal_initializer_bytes(initializer, target_type);
+            string_bytes.has_value()) {
+            std::optional<IRValue> base_pointer =
+                decay_array_lvalue_to_pointer(backend, lvalue);
+            if (!base_pointer.has_value()) {
+                return false;
+            }
+            const auto *array_type = static_cast<const ArraySemanticType *>(target_type);
+            const SemanticType *element_type = array_type->get_element_type();
+            for (std::size_t index = 0; index < string_bytes->size(); ++index) {
+                const std::string element_address = backend.emit_element_address(
+                    base_pointer->text, element_type,
+                    backend.emit_integer_literal(static_cast<int>(index)));
+                if (element_address.empty()) {
+                    return false;
+                }
+                std::optional<IRValue> element_value =
+                    coerce_ir_value(backend,
+                                    backend.emit_integer_literal(
+                                        static_cast<int>((*string_bytes)[index])),
+                                    element_type);
+                if (!element_value.has_value()) {
+                    return false;
+                }
+                backend.emit_store(element_address, *element_value);
+            }
+            return true;
+        }
         if (initializer->get_kind() != AstKind::InitListExpr) {
             return false;
         }
@@ -4680,7 +4872,63 @@ void collect_global_emission_infos(
     }
 }
 
-void emit_global_objects(IRBackend &backend, const CompilerContext &context,
+void report_ir_emission_failure(CompilerContext &context,
+                                const std::string &entity_kind,
+                                const std::string &entity_name,
+                                SourceSpan source_span,
+                                const std::string &detail) {
+    std::string message =
+        "ir generation failed while emitting " + entity_kind + ": " + entity_name;
+    if (!detail.empty()) {
+        message += " (" + detail + ")";
+    }
+    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler, message,
+                                              source_span);
+}
+
+bool should_emit_function_declaration(
+    const CompilerContext &context, const FunctionDecl *function_decl,
+    const std::unordered_set<std::string> &defined_function_names) {
+    if (function_decl == nullptr || function_decl->get_body() != nullptr) {
+        return false;
+    }
+    if (defined_function_names.find(get_function_ir_name(function_decl)) !=
+        defined_function_names.end()) {
+        return false;
+    }
+
+    const SemanticType *return_type =
+        get_function_return_type(context, function_decl);
+    if (!is_supported_return_type(return_type)) {
+        return false;
+    }
+
+    const auto *function_type = dynamic_cast<const FunctionSemanticType *>(
+        strip_qualifiers(get_node_type(context, function_decl)));
+    for (std::size_t index = 0; index < function_decl->get_parameters().size();
+         ++index) {
+        const auto &parameter = function_decl->get_parameters()[index];
+        const SemanticType *parameter_type = get_node_type(context, parameter.get());
+        if (parameter_type == nullptr && function_type != nullptr &&
+            index < function_type->get_parameter_types().size()) {
+            parameter_type = function_type->get_parameter_types()[index];
+        }
+        if (parameter_type == nullptr ||
+            !is_supported_storage_type(parameter_type)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool should_emit_function_definition(const CompilerContext &context,
+                                     const FunctionDecl *function_decl) {
+    return function_decl != nullptr && function_decl->get_body() != nullptr &&
+           is_supported_function(context, function_decl);
+}
+
+bool emit_global_objects(IRBackend &backend, CompilerContext &context,
                          const TranslationUnit *translation_unit) {
     std::vector<GlobalEmissionInfo> infos;
     collect_global_emission_infos(context, translation_unit, infos);
@@ -4700,14 +4948,23 @@ void emit_global_objects(IRBackend &backend, const CompilerContext &context,
             build_global_initializer_text(context, definition_decl, info.type);
         if (!initializer_text.has_value()) {
             if (!uses_global_storage_alias(context, definition_decl, info.type)) {
-                continue;
+                report_ir_emission_failure(
+                    context, "global variable", definition_decl->get_name(),
+                    definition_decl->get_source_span(),
+                    "initializer emission returned failure after validation");
+                return false;
             }
 
             const std::optional<std::string> backing_initializer_text =
                 build_global_backing_initializer_text_for_expr(
                     context, definition_decl->get_initializer(), info.type);
             if (!backing_initializer_text.has_value()) {
-                continue;
+                report_ir_emission_failure(
+                    context, "global variable", definition_decl->get_name(),
+                    definition_decl->get_source_span(),
+                    "backing-storage initializer emission returned failure "
+                    "after validation");
+                return false;
             }
 
             const std::string backing_name =
@@ -4727,6 +4984,7 @@ void emit_global_objects(IRBackend &backend, const CompilerContext &context,
         backend.define_global(info.symbol->get_name(), info.type,
                               *initializer_text, info.is_internal_linkage);
     }
+    return true;
 }
 
 } // namespace
@@ -4744,21 +5002,38 @@ std::unique_ptr<IRResult> IRBuilder::Build(CompilerContext &context) {
             return nullptr;
         }
 
-        emit_global_objects(backend_, context, translation_unit);
+        if (!emit_global_objects(backend_, context, translation_unit)) {
+            return nullptr;
+        }
         for (const auto &decl : translation_unit->get_top_level_decls()) {
             if (decl != nullptr && decl->get_kind() == AstKind::FunctionDecl) {
-                emit_supported_function_declaration(
-                    backend_, context,
-                    static_cast<const FunctionDecl *>(decl.get()),
-                    defined_function_names);
+                const auto *function_decl =
+                    static_cast<const FunctionDecl *>(decl.get());
+                if (should_emit_function_declaration(context, function_decl,
+                                                     defined_function_names) &&
+                    !emit_supported_function_declaration(
+                        backend_, context, function_decl, defined_function_names)) {
+                    report_ir_emission_failure(
+                        context, "function declaration", function_decl->get_name(),
+                        function_decl->get_source_span(),
+                        "backend emission returned failure");
+                    return nullptr;
+                }
             }
         }
         for (const auto &decl : translation_unit->get_top_level_decls()) {
             if (decl != nullptr && decl->get_kind() == AstKind::FunctionDecl) {
-                emit_supported_function(
-                    backend_, context,
-                    static_cast<const FunctionDecl *>(decl.get()),
-                    defined_function_names);
+                const auto *function_decl =
+                    static_cast<const FunctionDecl *>(decl.get());
+                if (should_emit_function_definition(context, function_decl) &&
+                    !emit_supported_function(backend_, context, function_decl,
+                                             defined_function_names)) {
+                    report_ir_emission_failure(
+                        context, "function definition", function_decl->get_name(),
+                        function_decl->get_source_span(),
+                        "backend emission returned failure");
+                    return nullptr;
+                }
             }
         }
     }

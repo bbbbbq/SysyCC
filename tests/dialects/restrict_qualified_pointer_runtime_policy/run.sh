@@ -21,6 +21,7 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${PROJECT_ROOT}/src/backend/ir/llvm/llvm_ir_backend.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/detail/ir_context.cpp" \
     "${PROJECT_ROOT}/src/common/integer_literal.cpp" \
+    "${PROJECT_ROOT}/src/common/string_literal.cpp" \
     "${PROJECT_ROOT}/src/frontend/ast/ast_node.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/registries/semantic_feature_registry.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/registries/builtin_type_semantic_handler_registry.cpp" \

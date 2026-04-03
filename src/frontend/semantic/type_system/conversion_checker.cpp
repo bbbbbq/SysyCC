@@ -270,6 +270,10 @@ bool ConversionChecker::is_assignable_type(const SemanticType *target,
         }
         return false;
     }
+    if (is_integer_like_type(unqualified_target) &&
+        is_integer_like_type(unqualified_value)) {
+        return true;
+    }
     if (unqualified_target == nullptr || unqualified_value == nullptr ||
         unqualified_target->get_kind() != SemanticTypeKind::Builtin ||
         unqualified_value->get_kind() != SemanticTypeKind::Builtin) {
@@ -575,12 +579,18 @@ bool ConversionChecker::is_null_pointer_constant(
 const SemanticType *ConversionChecker::get_decayed_type(
     const SemanticType *type, SemanticModel &semantic_model) const {
     type = strip_qualifiers(type);
-    if (type == nullptr || type->get_kind() != SemanticTypeKind::Array) {
+    if (type == nullptr) {
         return type;
     }
-    const auto *array_type = static_cast<const ArraySemanticType *>(type);
-    return semantic_model.own_type(
-        std::make_unique<PointerSemanticType>(array_type->get_element_type()));
+    if (type->get_kind() == SemanticTypeKind::Array) {
+        const auto *array_type = static_cast<const ArraySemanticType *>(type);
+        return semantic_model.own_type(
+            std::make_unique<PointerSemanticType>(array_type->get_element_type()));
+    }
+    if (type->get_kind() == SemanticTypeKind::Function) {
+        return semantic_model.own_type(std::make_unique<PointerSemanticType>(type));
+    }
+    return type;
 }
 
 // `target` and `value` are intentionally ordered to match assignment semantics.

@@ -14,6 +14,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_compiler_fails_with_message \
     "${BUILD_DIR}/SysyCC" \
     "${INPUT_FILE}" \
-    "ir generation does not support function definition: main"
+    "core ir generation currently requires a constant scalar initializer for top-level globals"
 
 echo "verified: ir generation now fails fast on unsupported function bodies"

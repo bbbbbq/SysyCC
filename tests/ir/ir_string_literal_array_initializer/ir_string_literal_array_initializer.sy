@@ -1,0 +1,5 @@
+char text[4] = "abc";
+
+int main(void) {
+    return text[1];
+}

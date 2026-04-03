@@ -218,6 +218,10 @@ std::string get_llvm_type_name(const SemanticType *type) {
         return "void";
     }
 
+    if (type->get_kind() == SemanticTypeKind::Enum) {
+        return "i32";
+    }
+
     if (type->get_kind() == SemanticTypeKind::Builtin) {
         const auto *builtin_type = static_cast<const BuiltinSemanticType *>(type);
         if (builtin_type->get_name() == "int" ||
@@ -325,6 +329,9 @@ std::size_t get_type_alignment(const SemanticType *type) {
     if (type == nullptr) {
         return 1;
     }
+    if (type->get_kind() == SemanticTypeKind::Enum) {
+        return 4;
+    }
     if (type->get_kind() == SemanticTypeKind::Builtin) {
         const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
         if (name == "char" || name == "signed char" || name == "unsigned char") {
@@ -363,6 +370,9 @@ std::size_t get_type_size(const SemanticType *type) {
     type = strip_qualifiers(type);
     if (type == nullptr) {
         return 0;
+    }
+    if (type->get_kind() == SemanticTypeKind::Enum) {
+        return 4;
     }
     if (type->get_kind() == SemanticTypeKind::Builtin) {
         const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();

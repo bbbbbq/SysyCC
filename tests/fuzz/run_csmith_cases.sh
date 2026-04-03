@@ -12,6 +12,7 @@ RUN_TIMEOUT_SECONDS="${RUN_TIMEOUT_SECONDS:-10}"
 CASE_ROOT="${SYSYCC_FUZZ_CASE_ROOT:-${SCRIPT_DIR}}"
 RESULT_FILE="${SYSYCC_FUZZ_RESULT_FILE:-${CASE_ROOT}/result.md}"
 PRINT_INTERMEDIATE_MODE="${PRINT_INTERMEDIATE_MODE:-never}"
+SYSYCC_FUZZ_CAPTURE_INTERMEDIATES="${SYSYCC_FUZZ_CAPTURE_INTERMEDIATES:-none}"
 RUN_STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
 print_usage() {
@@ -24,6 +25,7 @@ print_usage() {
     echo >&2
     echo "environment:" >&2
     echo "  PRINT_INTERMEDIATE_MODE=never|failure|always  (default: never)" >&2
+    echo "  SYSYCC_FUZZ_CAPTURE_INTERMEDIATES=none|full  (default: none)" >&2
     echo "  RUN_FUZZ_JOBS=<n>  override automatic parallel job detection" >&2
     echo "  SYSYCC_FUZZ_RESULT_FILE=<path>  write markdown report to a custom file" >&2
 }
@@ -198,6 +200,42 @@ copy_sysycc_intermediates() {
         "${case_dir}/${case_name}.ast.txt"
     copy_optional_intermediate_file "${case_name}" "ll" \
         "${case_dir}/${case_name}.ll"
+}
+
+cleanup_build_intermediate_files() {
+    local case_name="$1"
+    local intermediate_dir="${BUILD_DIR}/intermediate_results"
+
+    rm -f \
+        "${intermediate_dir}/${case_name}.preprocessed.sy" \
+        "${intermediate_dir}/${case_name}.tokens.txt" \
+        "${intermediate_dir}/${case_name}.parse.txt" \
+        "${intermediate_dir}/${case_name}.ast.txt" \
+        "${intermediate_dir}/${case_name}.ll"
+}
+
+cleanup_case_intermediate_files() {
+    local case_name="$1"
+    local case_dir="$2"
+
+    rm -f \
+        "${case_dir}/${case_name}.preprocessed.sy" \
+        "${case_dir}/${case_name}.tokens.txt" \
+        "${case_dir}/${case_name}.parse.txt" \
+        "${case_dir}/${case_name}.ast.txt" \
+        "${case_dir}/${case_name}.ll"
+}
+
+get_sysycc_dump_mode() {
+    case "${SYSYCC_FUZZ_CAPTURE_INTERMEDIATES}" in
+    none | full)
+        printf '%s\n' "${SYSYCC_FUZZ_CAPTURE_INTERMEDIATES}"
+        ;;
+    *)
+        echo "invalid SYSYCC_FUZZ_CAPTURE_INTERMEDIATES: ${SYSYCC_FUZZ_CAPTURE_INTERMEDIATES}" >&2
+        exit 1
+        ;;
+    esac
 }
 
 should_print_intermediate_report() {
@@ -380,29 +418,50 @@ compile_with_sysycc() {
     local case_file="$1"
     local case_name="$2"
     local ll_file="$3"
-    local stdout_file="$4"
-    local stderr_file="$5"
-    local status_file="$6"
+    local case_dir="$4"
+    local stdout_file="$5"
+    local stderr_file="$6"
+    local status_file="$7"
 
     local intermediate_dir="${BUILD_DIR}/intermediate_results"
     local generated_ll_file="${intermediate_dir}/${case_name}.ll"
+    local dump_mode=""
+    local -a dump_flags=("--dump-ir")
+
+    dump_mode="$(get_sysycc_dump_mode)"
+    if [[ "${dump_mode}" == "full" ]]; then
+        dump_flags+=(
+            "--dump-tokens"
+            "--dump-parse"
+            "--dump-ast"
+        )
+    fi
 
     if "${SYSYCC_BIN}" \
         -I "${CSMITH_RUNTIME_DIR}" \
         -I "${CSMITH_BUILD_RUNTIME_DIR}" \
         "${case_file}" \
-        --dump-tokens \
-        --dump-parse \
-        --dump-ast \
-        --dump-ir \
+        "${dump_flags[@]}" \
         >"${stdout_file}" 2>"${stderr_file}"; then
         printf '0\n' >"${status_file}"
-        copy_sysycc_intermediates "${case_name}" "$(dirname "${ll_file}")"
+        if [[ -f "${generated_ll_file}" ]]; then
+            cp "${generated_ll_file}" "${ll_file}"
+        fi
+        if [[ "${dump_mode}" == "full" ]]; then
+            copy_sysycc_intermediates "${case_name}" "${case_dir}"
+        fi
+        cleanup_build_intermediate_files "${case_name}"
         return 0
     fi
 
     printf '1\n' >"${status_file}"
-    copy_sysycc_intermediates "${case_name}" "$(dirname "${ll_file}")"
+    if [[ -f "${generated_ll_file}" ]]; then
+        cp "${generated_ll_file}" "${ll_file}"
+    fi
+    if [[ "${dump_mode}" == "full" ]]; then
+        copy_sysycc_intermediates "${case_name}" "${case_dir}"
+    fi
+    cleanup_build_intermediate_files "${case_name}"
     return 1
 }
 
@@ -474,7 +533,9 @@ run_case() {
     local clang_stderr="${case_dir}/${case_name}.clang.stderr.txt"
     local clang_exit="${case_dir}/${case_name}.clang.exit.txt"
 
-    local sysycc_ir="${case_dir}/${case_name}.ll"
+    local worker_root="${SYSYCC_FUZZ_WORKER_ROOT:-${TMPDIR:-/tmp}}"
+    local sysycc_ir=""
+    sysycc_ir="$(mktemp "${worker_root}/${case_name}.XXXXXX.ll")"
     local sysycc_compile_stdout="${case_dir}/${case_name}.sysycc.compile.stdout.txt"
     local sysycc_compile_stderr="${case_dir}/${case_name}.sysycc.compile.stderr.txt"
     local sysycc_compile_exit="${case_dir}/${case_name}.sysycc.compile.exit.txt"
@@ -495,6 +556,7 @@ run_case() {
     if [[ ! -f "${case_file}" ]]; then
         append_result_row "${case_id}" "MISSING" "missing source file"
         print_case_intermediate_report "${case_id}" "MISSING" "missing source file"
+        rm -f "${sysycc_ir}"
         return
     fi
 
@@ -502,31 +564,36 @@ run_case() {
         : >"${stdin_file}"
     fi
 
+    cleanup_case_intermediate_files "${case_name}" "${case_dir}"
     rm -f "${legacy_binary}" "${legacy_stdout}" "${legacy_stderr}" "${legacy_exit}"
 
     if ! compile_with_clang "${case_file}" "${clang_binary}" "${clang_compile_stdout}" "${clang_compile_stderr}" "${clang_compile_exit}"; then
         append_result_row "${case_id}" "CLANG_COMPILE_FAIL" "see ${case_name}.clang.compile.stderr.txt"
         print_case_intermediate_report "${case_id}" "CLANG_COMPILE_FAIL" "see ${case_name}.clang.compile.stderr.txt"
+        rm -f "${sysycc_ir}"
         return
     fi
 
     run_binary_with_timeout "${clang_binary}" "${stdin_file}" "${clang_stdout}" "${clang_stderr}" "${clang_exit}" >/dev/null
 
-    if ! compile_with_sysycc "${case_file}" "${case_name}" "${sysycc_ir}" "${sysycc_compile_stdout}" "${sysycc_compile_stderr}" "${sysycc_compile_exit}"; then
+    if ! compile_with_sysycc "${case_file}" "${case_name}" "${sysycc_ir}" "${case_dir}" "${sysycc_compile_stdout}" "${sysycc_compile_stderr}" "${sysycc_compile_exit}"; then
         append_result_row "${case_id}" "SYSYCC_COMPILE_FAIL" "see ${case_name}.sysycc.compile.stderr.txt"
         print_case_intermediate_report "${case_id}" "SYSYCC_COMPILE_FAIL" "see ${case_name}.sysycc.compile.stderr.txt"
+        rm -f "${sysycc_ir}"
         return
     fi
 
     if [[ ! -f "${sysycc_ir}" ]]; then
         append_result_row "${case_id}" "SYSYCC_IR_MISSING" "expected ${case_name}.ll"
         print_case_intermediate_report "${case_id}" "SYSYCC_IR_MISSING" "expected ${case_name}.ll"
+        rm -f "${sysycc_ir}"
         return
     fi
 
     if ! compile_sysycc_ir_with_clang "${sysycc_ir}" "${sysycc_binary}" "${sysycc_link_stdout}" "${sysycc_link_stderr}" "${sysycc_link_exit}"; then
         append_result_row "${case_id}" "SYSYCC_LINK_FAIL" "see ${case_name}.sysycc.link.stderr.txt"
         print_case_intermediate_report "${case_id}" "SYSYCC_LINK_FAIL" "see ${case_name}.sysycc.link.stderr.txt"
+        rm -f "${sysycc_ir}"
         return
     fi
 
@@ -539,6 +606,8 @@ run_case() {
         append_result_row "${case_id}" "MISMATCH" "see ${case_name}.compare.txt"
         print_case_intermediate_report "${case_id}" "MISMATCH" "see ${case_name}.compare.txt"
     fi
+
+    rm -f "${sysycc_ir}"
 }
 
 launch_case_worker() {
@@ -549,6 +618,7 @@ launch_case_worker() {
     local row_file="${worker_root}/${case_id}.row.txt"
 
     SYSYCC_FUZZ_RESULT_ROW_FILE="${row_file}" \
+        SYSYCC_FUZZ_WORKER_ROOT="${worker_root}" \
         bash "${BASH_SOURCE[0]}" --run-case-internal "${case_id}" \
         >"${report_file}" 2>"${stderr_file}" &
     LAST_LAUNCHED_WORKER_PID="$!"
