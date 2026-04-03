@@ -1,0 +1,15 @@
+unsigned int half(unsigned int value) {
+    return value / 2U;
+}
+
+unsigned int rem(unsigned int value) {
+    return value % 3U;
+}
+
+int main(void) {
+    putint((int)half(0xFFFFFFFEU));
+    putch(10);
+    putint((int)rem(0x80000001U));
+    putch(10);
+    return 0;
+}

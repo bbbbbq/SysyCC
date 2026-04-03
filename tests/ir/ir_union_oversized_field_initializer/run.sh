@@ -5,8 +5,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
-INPUT_FILE="${SCRIPT_DIR}/ir_local_union_type_decl.sy"
-IR_FILE="${BUILD_DIR}/intermediate_results/ir_local_union_type_decl.ll"
+INPUT_FILE="${SCRIPT_DIR}/ir_union_oversized_field_initializer.sy"
+IR_FILE="${BUILD_DIR}/intermediate_results/ir_union_oversized_field_initializer.ll"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
@@ -15,8 +15,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -q 'alloca { i32 }' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = getelementptr inbounds \{ i32 \}, ptr %bits\.addr, i32 0, i32 0$' "${IR_FILE}"
-grep -q 'lshr i32' "${IR_FILE}"
+grep -Eq '^@g_value = (internal )?global \{ i64, \[8 x i8\] \}' "${IR_FILE}"
 
-echo "verified: ir lowers local anonymous union declarations and shift expressions"
+echo "verified: ir lowers union globals whose initialized field exceeds the aligned scalar carrier size"

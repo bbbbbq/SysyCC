@@ -1,0 +1,11 @@
+unsigned int half(unsigned int value) {
+    return value / 2U;
+}
+
+unsigned int rem(unsigned int value) {
+    return value % 3U;
+}
+
+int main(void) {
+    return (int)(half(0xFFFFFFFEU) + rem(0x80000001U));
+}
