@@ -176,10 +176,11 @@ append_result_summary() {
 }
 
 copy_optional_intermediate_file() {
-    local case_name="$1"
-    local suffix="$2"
-    local destination_file="$3"
-    local source_file="${BUILD_DIR}/intermediate_results/${case_name}.${suffix}"
+    local source_dir="$1"
+    local case_name="$2"
+    local suffix="$3"
+    local destination_file="$4"
+    local source_file="${source_dir}/${case_name}.${suffix}"
 
     if [[ -f "${source_file}" ]]; then
         cp "${source_file}" "${destination_file}"
@@ -187,31 +188,20 @@ copy_optional_intermediate_file() {
 }
 
 copy_sysycc_intermediates() {
-    local case_name="$1"
-    local case_dir="$2"
+    local source_dir="$1"
+    local case_name="$2"
+    local case_dir="$3"
 
-    copy_optional_intermediate_file "${case_name}" "preprocessed.sy" \
+    copy_optional_intermediate_file "${source_dir}" "${case_name}" "preprocessed.sy" \
         "${case_dir}/${case_name}.preprocessed.sy"
-    copy_optional_intermediate_file "${case_name}" "tokens.txt" \
+    copy_optional_intermediate_file "${source_dir}" "${case_name}" "tokens.txt" \
         "${case_dir}/${case_name}.tokens.txt"
-    copy_optional_intermediate_file "${case_name}" "parse.txt" \
+    copy_optional_intermediate_file "${source_dir}" "${case_name}" "parse.txt" \
         "${case_dir}/${case_name}.parse.txt"
-    copy_optional_intermediate_file "${case_name}" "ast.txt" \
+    copy_optional_intermediate_file "${source_dir}" "${case_name}" "ast.txt" \
         "${case_dir}/${case_name}.ast.txt"
-    copy_optional_intermediate_file "${case_name}" "ll" \
+    copy_optional_intermediate_file "${source_dir}" "${case_name}" "ll" \
         "${case_dir}/${case_name}.ll"
-}
-
-cleanup_build_intermediate_files() {
-    local case_name="$1"
-    local intermediate_dir="${BUILD_DIR}/intermediate_results"
-
-    rm -f \
-        "${intermediate_dir}/${case_name}.preprocessed.sy" \
-        "${intermediate_dir}/${case_name}.tokens.txt" \
-        "${intermediate_dir}/${case_name}.parse.txt" \
-        "${intermediate_dir}/${case_name}.ast.txt" \
-        "${intermediate_dir}/${case_name}.ll"
 }
 
 cleanup_case_intermediate_files() {
@@ -424,7 +414,10 @@ compile_with_sysycc() {
     local status_file="$7"
 
     local intermediate_dir="${BUILD_DIR}/intermediate_results"
-    local generated_ll_file="${intermediate_dir}/${case_name}.ll"
+    local sysycc_worker_root="${SYSYCC_FUZZ_WORKER_ROOT:-${TMPDIR:-/tmp}}"
+    local invoke_dir=""
+    local generated_intermediate_dir=""
+    local generated_ll_file=""
     local dump_mode=""
     local -a dump_flags=("--dump-ir")
 
@@ -437,20 +430,26 @@ compile_with_sysycc() {
         )
     fi
 
-    if "${SYSYCC_BIN}" \
-        -I "${CSMITH_RUNTIME_DIR}" \
-        -I "${CSMITH_BUILD_RUNTIME_DIR}" \
-        "${case_file}" \
-        "${dump_flags[@]}" \
-        >"${stdout_file}" 2>"${stderr_file}"; then
+    invoke_dir="$(mktemp -d "${sysycc_worker_root}/${case_name}.sysycc.XXXXXX")"
+    generated_intermediate_dir="${invoke_dir}/build/intermediate_results"
+    generated_ll_file="${generated_intermediate_dir}/${case_name}.ll"
+
+    if (
+        cd "${invoke_dir}" &&
+        "${SYSYCC_BIN}" \
+            -I "${CSMITH_RUNTIME_DIR}" \
+            -I "${CSMITH_BUILD_RUNTIME_DIR}" \
+            "${case_file}" \
+            "${dump_flags[@]}"
+    ) >"${stdout_file}" 2>"${stderr_file}"; then
         printf '0\n' >"${status_file}"
         if [[ -f "${generated_ll_file}" ]]; then
             cp "${generated_ll_file}" "${ll_file}"
         fi
         if [[ "${dump_mode}" == "full" ]]; then
-            copy_sysycc_intermediates "${case_name}" "${case_dir}"
+            copy_sysycc_intermediates "${generated_intermediate_dir}" "${case_name}" "${case_dir}"
         fi
-        cleanup_build_intermediate_files "${case_name}"
+        rm -rf "${invoke_dir}"
         return 0
     fi
 
@@ -459,9 +458,9 @@ compile_with_sysycc() {
         cp "${generated_ll_file}" "${ll_file}"
     fi
     if [[ "${dump_mode}" == "full" ]]; then
-        copy_sysycc_intermediates "${case_name}" "${case_dir}"
+        copy_sysycc_intermediates "${generated_intermediate_dir}" "${case_name}" "${case_dir}"
     fi
-    cleanup_build_intermediate_files "${case_name}"
+    rm -rf "${invoke_dir}"
     return 1
 }
 
