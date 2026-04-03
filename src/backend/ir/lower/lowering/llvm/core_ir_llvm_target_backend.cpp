@@ -73,10 +73,14 @@ std::string format_binary_opcode(CoreIrBinaryOpcode opcode) {
         return "sub";
     case CoreIrBinaryOpcode::Mul:
         return "mul";
-    case CoreIrBinaryOpcode::Div:
+    case CoreIrBinaryOpcode::SDiv:
         return "sdiv";
-    case CoreIrBinaryOpcode::Mod:
+    case CoreIrBinaryOpcode::UDiv:
+        return "udiv";
+    case CoreIrBinaryOpcode::SRem:
         return "srem";
+    case CoreIrBinaryOpcode::URem:
+        return "urem";
     case CoreIrBinaryOpcode::And:
         return "and";
     case CoreIrBinaryOpcode::Or:
@@ -85,7 +89,9 @@ std::string format_binary_opcode(CoreIrBinaryOpcode opcode) {
         return "xor";
     case CoreIrBinaryOpcode::Shl:
         return "shl";
-    case CoreIrBinaryOpcode::Shr:
+    case CoreIrBinaryOpcode::LShr:
+        return "lshr";
+    case CoreIrBinaryOpcode::AShr:
         return "ashr";
     }
     return "";
@@ -99,15 +105,18 @@ std::string format_float_binary_opcode(CoreIrBinaryOpcode opcode) {
         return "fsub";
     case CoreIrBinaryOpcode::Mul:
         return "fmul";
-    case CoreIrBinaryOpcode::Div:
+    case CoreIrBinaryOpcode::SDiv:
+    case CoreIrBinaryOpcode::UDiv:
         return "fdiv";
-    case CoreIrBinaryOpcode::Mod:
+    case CoreIrBinaryOpcode::SRem:
+    case CoreIrBinaryOpcode::URem:
         return "frem";
     case CoreIrBinaryOpcode::And:
     case CoreIrBinaryOpcode::Or:
     case CoreIrBinaryOpcode::Xor:
     case CoreIrBinaryOpcode::Shl:
-    case CoreIrBinaryOpcode::Shr:
+    case CoreIrBinaryOpcode::LShr:
+    case CoreIrBinaryOpcode::AShr:
         return "";
     }
     return "";

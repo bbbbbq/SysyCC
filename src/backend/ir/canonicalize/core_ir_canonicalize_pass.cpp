@@ -555,7 +555,8 @@ bool canonicalize_binary_identity(CoreIrBasicBlock &block, CoreIrBinaryInst &bin
             replacement = rhs;
         }
         break;
-    case CoreIrBinaryOpcode::Div:
+    case CoreIrBinaryOpcode::SDiv:
+    case CoreIrBinaryOpcode::UDiv:
         if (is_one_integer_constant(rhs)) {
             replacement = lhs;
         }
@@ -568,10 +569,12 @@ bool canonicalize_binary_identity(CoreIrBasicBlock &block, CoreIrBinaryInst &bin
             replacement = rhs;
         }
         break;
-    case CoreIrBinaryOpcode::Mod:
+    case CoreIrBinaryOpcode::SRem:
+    case CoreIrBinaryOpcode::URem:
     case CoreIrBinaryOpcode::And:
     case CoreIrBinaryOpcode::Shl:
-    case CoreIrBinaryOpcode::Shr:
+    case CoreIrBinaryOpcode::LShr:
+    case CoreIrBinaryOpcode::AShr:
         break;
     }
 

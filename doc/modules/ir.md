@@ -269,7 +269,10 @@ LLVM IR lowering path:
   `addr_of_global` plus address-based `load/store`, while local scalars still
   lower through explicit `addr_of_stackslot` plus address-based `load/store`
 - staged top-level pointer globals can now lower constant address initializers
-  such as `&g`, `&items[1]`, and `&pair.right`
+  such as `&g`, `&items[1]`, `&pair.right`, and null-pointer constants such as
+  `(void*)0`
+- top-level aggregate initializers can now also carry nested pointer constants
+  such as `{&g}` and `{&items[1]}`
 - top-level character arrays can now lower constant string-literal
   initializers into staged Core IR globals
 - local character arrays can now lower string-literal initializers into
@@ -367,6 +370,8 @@ LLVM IR lowering path:
     `call i32 (ptr, ...) @printf(...)`, which are required for ABI-correct
     lowering of variadic arguments on Darwin AArch64
   - integer arithmetic instructions
+    - including signedness-aware right shifts, where signed integers lower
+      through `ashr` and unsigned integers lower through `lshr`
   - unary integer `+`, unary integer `-`, logical-not, and bitwise-not
     lowering over the current promoted integer result type, including
     `long long`-width `~` expressions

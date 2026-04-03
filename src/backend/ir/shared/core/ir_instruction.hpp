@@ -32,13 +32,16 @@ enum class CoreIrBinaryOpcode : unsigned char {
     Add,
     Sub,
     Mul,
-    Div,
-    Mod,
+    SDiv,
+    UDiv,
+    SRem,
+    URem,
     And,
     Or,
     Xor,
     Shl,
-    Shr,
+    LShr,
+    AShr,
 };
 
 enum class CoreIrUnaryOpcode : unsigned char {

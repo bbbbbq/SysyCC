@@ -232,6 +232,7 @@ class CoreIrBuildSession {
     std::unordered_map<const SemanticSymbol *, ValueBinding> local_bindings_;
     std::unordered_map<std::string, CoreIrGlobal *> string_literal_globals_;
     std::unordered_map<std::string, CoreIrBasicBlock *> label_blocks_;
+    std::unordered_map<std::string, std::size_t> local_stack_slot_name_counts_;
     std::vector<LoopFrame> loop_frames_;
     std::vector<CoreIrBasicBlock *> break_blocks_;
     std::size_t next_temp_id_ = 0;
@@ -319,6 +320,16 @@ class CoreIrBuildSession {
 
     std::string next_string_literal_name() {
         return ".str" + std::to_string(next_string_literal_id_++);
+    }
+
+    std::string next_stack_slot_name(const std::string &base_name) {
+        auto [it, inserted] =
+            local_stack_slot_name_counts_.emplace(base_name, 0);
+        const std::size_t suffix = it->second++;
+        if (suffix == 0) {
+            return base_name;
+        }
+        return base_name + std::to_string(suffix);
     }
 
     CoreIrBasicBlock *get_or_create_label_block(const std::string &label_name) {
@@ -1273,7 +1284,7 @@ class CoreIrBuildSession {
         if (lvalue.layout.bit_offset > 0) {
             auto *shift_instruction =
                 current_block_->create_instruction<CoreIrBinaryInst>(
-                    CoreIrBinaryOpcode::Shr, storage_type, next_temp_name(),
+                    CoreIrBinaryOpcode::LShr, storage_type, next_temp_name(),
                     shifted_value,
                     build_integer_constant(storage_type, lvalue.layout.bit_offset,
                                            source_span));
@@ -1310,7 +1321,7 @@ class CoreIrBuildSession {
                 left_shift->set_source_span(source_span);
                 auto *right_shift =
                     current_block_->create_instruction<CoreIrBinaryInst>(
-                        CoreIrBinaryOpcode::Shr, storage_type, next_temp_name(),
+                        CoreIrBinaryOpcode::AShr, storage_type, next_temp_name(),
                         left_shift,
                         build_integer_constant(storage_type, sign_shift,
                                                source_span));
@@ -2036,12 +2047,6 @@ class CoreIrBuildSession {
         if (operator_text == "*") {
             return CoreIrBinaryOpcode::Mul;
         }
-        if (operator_text == "/") {
-            return CoreIrBinaryOpcode::Div;
-        }
-        if (operator_text == "%") {
-            return CoreIrBinaryOpcode::Mod;
-        }
         if (operator_text == "&") {
             return CoreIrBinaryOpcode::And;
         }
@@ -2054,10 +2059,27 @@ class CoreIrBuildSession {
         if (operator_text == "<<") {
             return CoreIrBinaryOpcode::Shl;
         }
-        if (operator_text == ">>") {
-            return CoreIrBinaryOpcode::Shr;
-        }
         return std::nullopt;
+    }
+
+    CoreIrBinaryOpcode get_right_shift_binary_opcode(
+        const SemanticType *shifted_semantic_type) const {
+        return is_unsigned_integer_semantic_type(shifted_semantic_type)
+                   ? CoreIrBinaryOpcode::LShr
+                   : CoreIrBinaryOpcode::AShr;
+    }
+
+    CoreIrBinaryOpcode get_division_binary_opcode(
+        const std::string &operator_text,
+        const SemanticType *compute_semantic_type) const {
+        const bool is_unsigned =
+            is_unsigned_integer_semantic_type(compute_semantic_type);
+        if (operator_text == "/") {
+            return is_unsigned ? CoreIrBinaryOpcode::UDiv
+                               : CoreIrBinaryOpcode::SDiv;
+        }
+        return is_unsigned ? CoreIrBinaryOpcode::URem
+                           : CoreIrBinaryOpcode::SRem;
     }
 
     bool is_supported_compound_assignment_operator(
@@ -2149,7 +2171,8 @@ class CoreIrBuildSession {
         const std::string slot_name =
             logic_suffix == "0" ? "addr.addr" : "addr.addr" + logic_suffix;
         auto *result_slot = current_function_->create_stack_slot<CoreIrStackSlot>(
-            slot_name, result_type, get_default_alignment(result_type));
+            next_stack_slot_name(slot_name), result_type,
+            get_default_alignment(result_type));
         auto *zero_value = core_ir_context_->create_constant<CoreIrConstantInt>(
             result_type, 0);
         zero_value->set_source_span(expr.get_source_span());
@@ -2219,8 +2242,13 @@ class CoreIrBuildSession {
             return build_compare_expr(expr, *compare_predicate);
         }
 
+        const bool is_division_like =
+            expr.get_operator_text() == "/" || expr.get_operator_text() == "%";
+        const bool is_right_shift = expr.get_operator_text() == ">>";
         const std::optional<CoreIrBinaryOpcode> binary_opcode =
-            get_binary_opcode(expr.get_operator_text());
+            (is_right_shift || is_division_like)
+                ? std::optional<CoreIrBinaryOpcode>(CoreIrBinaryOpcode::Add)
+                : get_binary_opcode(expr.get_operator_text());
         if (!binary_opcode.has_value()) {
             add_error("core ir generation does not support binary operator '" +
                           expr.get_operator_text() + "' yet",
@@ -2330,7 +2358,7 @@ class CoreIrBuildSession {
                                        expr.get_source_span());
             auto *element_difference =
                 current_block_->create_instruction<CoreIrBinaryInst>(
-                    CoreIrBinaryOpcode::Div, result_type, next_temp_name(),
+                    CoreIrBinaryOpcode::SDiv, result_type, next_temp_name(),
                     byte_difference, element_size_value);
             element_difference->set_source_span(expr.get_source_span());
             return element_difference;
@@ -2391,8 +2419,15 @@ class CoreIrBuildSession {
             return nullptr;
         }
 
+        const CoreIrBinaryOpcode resolved_binary_opcode =
+            is_right_shift
+                ? get_right_shift_binary_opcode(compute_semantic_type)
+                : (is_division_like
+                       ? get_division_binary_opcode(expr.get_operator_text(),
+                                                    compute_semantic_type)
+                       : *binary_opcode);
         auto *instruction = current_block_->create_instruction<CoreIrBinaryInst>(
-            *binary_opcode, result_type, next_temp_name(), lhs, rhs);
+            resolved_binary_opcode, result_type, next_temp_name(), lhs, rhs);
         instruction->set_source_span(expr.get_source_span());
         return instruction;
     }
@@ -2438,7 +2473,8 @@ class CoreIrBuildSession {
                 conditional_suffix == "0" ? "addr.addr"
                                            : "addr.addr" + conditional_suffix;
             result_slot = current_function_->create_stack_slot<CoreIrStackSlot>(
-                slot_name, result_type, get_default_alignment(result_type));
+                next_stack_slot_name(slot_name), result_type,
+                get_default_alignment(result_type));
         }
 
         current_block_ = true_block;
@@ -2663,8 +2699,13 @@ class CoreIrBuildSession {
                 return nullptr;
             }
 
+            const bool is_division_like =
+                binary_operator == "/" || binary_operator == "%";
+            const bool is_right_shift = binary_operator == ">>";
             const std::optional<CoreIrBinaryOpcode> binary_opcode =
-                get_binary_opcode(binary_operator);
+                (is_right_shift || is_division_like)
+                    ? std::optional<CoreIrBinaryOpcode>(CoreIrBinaryOpcode::Add)
+                    : get_binary_opcode(binary_operator);
             if (!binary_opcode.has_value()) {
                 add_error("core ir generation could not resolve compound "
                           "assignment operator",
@@ -2680,10 +2721,17 @@ class CoreIrBuildSession {
                           expr.get_source_span());
                 return nullptr;
             }
+            const CoreIrBinaryOpcode resolved_binary_opcode =
+                is_right_shift
+                    ? get_right_shift_binary_opcode(compute_semantic_type)
+                    : (is_division_like
+                           ? get_division_binary_opcode(binary_operator,
+                                                        compute_semantic_type)
+                           : *binary_opcode);
             auto *instruction =
                 current_block_->create_instruction<CoreIrBinaryInst>(
-                    *binary_opcode, compute_type, next_temp_name(), lhs_value,
-                    rhs_value);
+                    resolved_binary_opcode, compute_type, next_temp_name(),
+                    lhs_value, rhs_value);
             instruction->set_source_span(expr.get_source_span());
             return store_bit_field_value(*bit_field_lvalue, instruction,
                                          compute_semantic_type,
@@ -2774,8 +2822,13 @@ class CoreIrBuildSession {
                 return nullptr;
             }
 
+            const bool is_division_like =
+                binary_operator == "/" || binary_operator == "%";
+            const bool is_right_shift = binary_operator == ">>";
             const std::optional<CoreIrBinaryOpcode> binary_opcode =
-                get_binary_opcode(binary_operator);
+                (is_right_shift || is_division_like)
+                    ? std::optional<CoreIrBinaryOpcode>(CoreIrBinaryOpcode::Add)
+                    : get_binary_opcode(binary_operator);
             if (!binary_opcode.has_value()) {
                 add_error("core ir generation could not resolve compound "
                           "assignment operator",
@@ -2791,10 +2844,17 @@ class CoreIrBuildSession {
                           expr.get_source_span());
                 return nullptr;
             }
+            const CoreIrBinaryOpcode resolved_binary_opcode =
+                is_right_shift
+                    ? get_right_shift_binary_opcode(compute_semantic_type)
+                    : (is_division_like
+                           ? get_division_binary_opcode(binary_operator,
+                                                        compute_semantic_type)
+                           : *binary_opcode);
             auto *instruction =
                 current_block_->create_instruction<CoreIrBinaryInst>(
-                    *binary_opcode, compute_type, next_temp_name(), lhs_value,
-                    rhs_value);
+                    resolved_binary_opcode, compute_type, next_temp_name(),
+                    lhs_value, rhs_value);
             instruction->set_source_span(expr.get_source_span());
             updated_value = instruction;
         }
@@ -3501,7 +3561,7 @@ class CoreIrBuildSession {
         }
 
         auto *stack_slot = current_function_->create_stack_slot<CoreIrStackSlot>(
-            symbol->get_name() + ".addr", declared_type,
+            next_stack_slot_name(symbol->get_name() + ".addr"), declared_type,
             get_default_alignment(declared_type));
         local_bindings_[symbol] = ValueBinding{nullptr, stack_slot, nullptr};
 
@@ -4046,7 +4106,8 @@ class CoreIrBuildSession {
             parameter->set_source_span(parameter_decl->get_source_span());
             if (parameter_symbol != nullptr) {
                 auto *stack_slot = function.create_stack_slot<CoreIrStackSlot>(
-                    parameter_name + ".addr", parameter_type,
+                    next_stack_slot_name(parameter_name + ".addr"),
+                    parameter_type,
                     get_default_alignment(parameter_type));
                 auto *store = current_block_->create_instruction<CoreIrStoreInst>(
                     void_type_, parameter, stack_slot);
@@ -4513,6 +4574,10 @@ class CoreIrBuildSession {
         if (!constant_value.has_value()) {
             if (declared_type->get_kind() == CoreIrTypeKind::Pointer) {
                 const Expr *initializer = var_decl.get_initializer();
+                if (is_null_pointer_constant_expr(initializer)) {
+                    return core_ir_context_->create_constant<CoreIrConstantNull>(
+                        declared_type);
+                }
                 if (initializer != nullptr &&
                     initializer->get_kind() == AstKind::UnaryExpr &&
                     static_cast<const UnaryExpr *>(initializer)->get_operator_text() ==
@@ -4919,9 +4984,9 @@ class CoreIrBuildSession {
                                            : field_initializer->get_source_span())) {
                 return nullptr;
             }
-            const CoreIrType *carrier_type = union_type->get_element_types().front();
-            const std::size_t carrier_size = get_core_ir_type_size(carrier_type);
-            if (field_bytes.size() > carrier_size) {
+            const std::size_t union_storage_size =
+                get_core_ir_type_size(union_type);
+            if (field_bytes.size() > union_storage_size) {
                 add_error("core ir generation encountered an oversized union "
                           "initializer field payload",
                           field_initializer == nullptr ? source_span
@@ -4929,28 +4994,9 @@ class CoreIrBuildSession {
                                                              ->get_source_span());
                 return nullptr;
             }
-            field_bytes.resize(carrier_size, 0);
-            const CoreIrConstant *carrier_constant =
-                build_constant_from_bytes(carrier_type, field_bytes, source_span);
-            if (carrier_constant == nullptr) {
-                return nullptr;
-            }
-
-            std::vector<const CoreIrConstant *> elements;
-            elements.push_back(carrier_constant);
-            for (std::size_t index = 1; index < union_type->get_element_types().size();
-                 ++index) {
-                const CoreIrConstant *padding_constant =
-                    build_zero_global_constant(nullptr,
-                                               union_type->get_element_types()[index],
-                                               source_span);
-                if (padding_constant == nullptr) {
-                    return nullptr;
-                }
-                elements.push_back(padding_constant);
-            }
-            return core_ir_context_->create_constant<CoreIrConstantAggregate>(
-                union_type, std::move(elements));
+            field_bytes.resize(union_storage_size, 0);
+            return build_constant_from_bytes(union_type, field_bytes,
+                                             source_span);
         }
 
         if (declared_type->get_kind() == CoreIrTypeKind::Float &&
@@ -4972,6 +5018,13 @@ class CoreIrBuildSession {
             is_null_pointer_constant_expr(initializer)) {
             return core_ir_context_->create_constant<CoreIrConstantNull>(
                 declared_type);
+        }
+        if (declared_type->get_kind() == CoreIrTypeKind::Pointer &&
+            initializer->get_kind() == AstKind::UnaryExpr &&
+            static_cast<const UnaryExpr *>(initializer)->get_operator_text() == "&") {
+            return build_global_constant_address(
+                static_cast<const UnaryExpr *>(initializer)->get_operand(),
+                declared_type, initializer->get_source_span());
         }
 
         add_error("core ir generation does not yet support this top-level "
@@ -5105,6 +5158,7 @@ class CoreIrBuildSession {
                 ->get_return_type();
         local_bindings_.clear();
         label_blocks_.clear();
+        local_stack_slot_name_counts_.clear();
         next_temp_id_ = 0;
         current_block_ = function->create_basic_block<CoreIrBasicBlock>("entry");
 
@@ -5144,6 +5198,7 @@ class CoreIrBuildSession {
         current_block_ = nullptr;
         local_bindings_.clear();
         label_blocks_.clear();
+        local_stack_slot_name_counts_.clear();
         return true;
     }
 

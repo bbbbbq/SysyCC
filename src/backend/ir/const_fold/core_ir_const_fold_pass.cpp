@@ -105,13 +105,15 @@ CoreIrValue *try_fold_binary(CoreIrContext &context, const CoreIrBinaryInst &ins
     case CoreIrBinaryOpcode::Mul:
         result = lhs_value * rhs_value;
         break;
-    case CoreIrBinaryOpcode::Div:
+    case CoreIrBinaryOpcode::SDiv:
+    case CoreIrBinaryOpcode::UDiv:
         if (rhs_value == 0) {
             return nullptr;
         }
         result = lhs_value / rhs_value;
         break;
-    case CoreIrBinaryOpcode::Mod:
+    case CoreIrBinaryOpcode::SRem:
+    case CoreIrBinaryOpcode::URem:
         if (rhs_value == 0) {
             return nullptr;
         }
@@ -129,7 +131,8 @@ CoreIrValue *try_fold_binary(CoreIrContext &context, const CoreIrBinaryInst &ins
     case CoreIrBinaryOpcode::Shl:
         result = lhs_value << rhs_value;
         break;
-    case CoreIrBinaryOpcode::Shr:
+    case CoreIrBinaryOpcode::LShr:
+    case CoreIrBinaryOpcode::AShr:
         result = lhs_value >> rhs_value;
         break;
     }
