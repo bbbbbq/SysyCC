@@ -16,7 +16,11 @@ enum class PassKind : uint8_t {
     Parse,
     Ast,
     Semantic,
-    IRGen,
+    BuildCoreIr,
+    CoreIrCanonicalize,
+    CoreIrConstFold,
+    CoreIrDce,
+    LowerIr,
     CodeGen,
 };
 

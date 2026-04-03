@@ -3,7 +3,11 @@
 #include <memory>
 #include <utility>
 
-#include "backend/ir/ir_pass.hpp"
+#include "backend/ir/build/build_core_ir_pass.hpp"
+#include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
+#include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
+#include "backend/ir/dce/core_ir_dce_pass.hpp"
+#include "backend/ir/lower/lower_ir_pass.hpp"
 #include "frontend/ast/ast_pass.hpp"
 #include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser.hpp"
@@ -41,7 +45,11 @@ void Complier::InitializePasses() {
     pass_manager_.AddPass(std::make_unique<ParserPass>());
     pass_manager_.AddPass(std::make_unique<AstPass>());
     pass_manager_.AddPass(std::make_unique<SemanticPass>());
-    pass_manager_.AddPass(std::make_unique<IRGenPass>());
+    pass_manager_.AddPass(std::make_unique<BuildCoreIrPass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrCanonicalizePass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrConstFoldPass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrDcePass>());
+    pass_manager_.AddPass(std::make_unique<LowerIrPass>());
     pipeline_initialized_ = true;
 }
 
@@ -89,6 +97,7 @@ PassResult Complier::validate_dialect_configuration() {
 
 PassResult Complier::Run() {
     context_.clear_diagnostic_engine();
+    context_.clear_core_ir_build_result();
     context_.clear_ir_result();
     context_.set_ir_dump_file_path("");
     sync_context_from_option();

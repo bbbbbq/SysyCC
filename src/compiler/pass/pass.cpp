@@ -21,7 +21,7 @@ bool should_stop_after_pass(const CompilerContext &context, PassKind pass_kind) 
     case StopAfterStage::Semantic:
         return pass_kind == PassKind::Semantic;
     case StopAfterStage::IR:
-        return pass_kind == PassKind::IRGen;
+        return pass_kind == PassKind::LowerIr;
     }
 
     return false;

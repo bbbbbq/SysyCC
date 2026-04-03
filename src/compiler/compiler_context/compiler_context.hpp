@@ -10,7 +10,8 @@
 #include "common/source_location_service.hpp"
 #include "common/source_mapping_view.hpp"
 #include "common/source_manager.hpp"
-#include "backend/ir/ir_result.hpp"
+#include "backend/ir/shared/ir_result.hpp"
+#include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "common/source_span.hpp"
 #include "compiler/complier_option.hpp"
 #include "frontend/ast/ast_node.hpp"
@@ -453,6 +454,7 @@ class CompilerContext {
     std::unique_ptr<ParseTreeNode> parse_tree_root_;
     std::unique_ptr<AstNode> ast_root_;
     std::unique_ptr<SemanticModel> semantic_model_;
+    std::unique_ptr<CoreIrBuildResult> core_ir_build_result_;
     std::unique_ptr<IRResult> ir_result_;
     DiagnosticEngine diagnostic_engine_;
     SourceManager source_manager_;
@@ -635,6 +637,21 @@ class CompilerContext {
     }
 
     void clear_semantic_model() { semantic_model_.reset(); }
+
+    const CoreIrBuildResult *get_core_ir_build_result() const noexcept {
+        return core_ir_build_result_.get();
+    }
+
+    CoreIrBuildResult *get_core_ir_build_result() noexcept {
+        return core_ir_build_result_.get();
+    }
+
+    void set_core_ir_build_result(
+        std::unique_ptr<CoreIrBuildResult> core_ir_build_result) {
+        core_ir_build_result_ = std::move(core_ir_build_result);
+    }
+
+    void clear_core_ir_build_result() { core_ir_build_result_.reset(); }
 
     const IRResult *get_ir_result() const noexcept { return ir_result_.get(); }
 

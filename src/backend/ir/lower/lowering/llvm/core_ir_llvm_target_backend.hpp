@@ -1,0 +1,46 @@
+#pragma once
+
+#include <unordered_map>
+#include <sstream>
+#include <string>
+
+#include "backend/ir/lower/lowering/core_ir_target_backend.hpp"
+
+namespace sysycc {
+
+class CoreIrBasicBlock;
+class CoreIrConstant;
+class CoreIrFunction;
+class CoreIrGlobal;
+class CoreIrInstruction;
+class CoreIrModule;
+class CoreIrType;
+class CoreIrValue;
+
+class CoreIrLlvmTargetBackend final : public CoreIrTargetBackend {
+  private:
+    std::ostringstream output_;
+    std::size_t helper_id_ = 0;
+    std::size_t next_value_id_ = 0;
+    std::unordered_map<const CoreIrValue *, std::string> emitted_value_names_;
+
+    std::string next_helper_name(const std::string &prefix);
+    std::string next_value_name();
+    std::string get_emitted_value_name(const CoreIrValue *value);
+    std::string format_type(const CoreIrType *type) const;
+    std::string format_constant(const CoreIrConstant *constant) const;
+    std::string format_value_ref(const CoreIrValue *value);
+    std::string format_pointer_ref(const CoreIrValue *value);
+    bool append_instruction(std::string &text, const CoreIrInstruction &instruction,
+                            DiagnosticEngine &diagnostic_engine);
+    bool append_function(std::string &text, const CoreIrFunction &function,
+                         DiagnosticEngine &diagnostic_engine);
+    void append_global(std::string &text, const CoreIrGlobal &global) const;
+
+  public:
+    IrKind get_kind() const noexcept override;
+    std::unique_ptr<IRResult>
+    Lower(const CoreIrModule &module, DiagnosticEngine &diagnostic_engine) override;
+};
+
+} // namespace sysycc

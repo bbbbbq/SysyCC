@@ -36,21 +36,23 @@ add_flex_bison_dependency(SysyLexer SysyParser)
 add_executable(${PROJECT_NAME}
     ${BISON_SysyParser_OUTPUTS}
     ${FLEX_SysyLexer_OUTPUTS}
-    src/backend/ir/core/core_ir_builder.cpp
-    src/backend/ir/lowering/core_ir_target_backend_factory.cpp
-    src/backend/ir/lowering/aarch64/core_ir_aarch64_target_backend.cpp
-    src/backend/ir/lowering/llvm/core_ir_llvm_target_backend.cpp
-    src/backend/ir/ir_backend_factory.cpp
-    src/backend/ir/gnu_function_attribute_lowering_handler.cpp
-    src/backend/ir/ir_builder.cpp
-    src/backend/ir/ir_pass.cpp
-    src/backend/ir/pass/core_ir_pass.cpp
-    src/backend/ir/pipeline/core_ir_pipeline.cpp
-    src/backend/ir/printer/core_ir_raw_printer.cpp
-    src/backend/ir/llvm/llvm_ir_backend.cpp
-    src/backend/ir/detail/aggregate_layout.cpp
-    src/backend/ir/detail/ir_context.cpp
-    src/backend/ir/detail/symbol_value_map.cpp
+    src/backend/ir/shared/core/core_ir_builder.cpp
+    src/backend/ir/lower/lowering/core_ir_target_backend_factory.cpp
+    src/backend/ir/lower/lowering/aarch64/core_ir_aarch64_target_backend.cpp
+    src/backend/ir/lower/lowering/llvm/core_ir_llvm_target_backend.cpp
+    src/backend/ir/lower/legacy/ir_backend_factory.cpp
+    src/backend/ir/build/build_core_ir_pass.cpp
+    src/backend/ir/canonicalize/core_ir_canonicalize_pass.cpp
+    src/backend/ir/const_fold/core_ir_const_fold_pass.cpp
+    src/backend/ir/dce/core_ir_dce_pass.cpp
+    src/backend/ir/lower/legacy/gnu_function_attribute_lowering_handler.cpp
+    src/backend/ir/lower/legacy/ir_builder.cpp
+    src/backend/ir/lower/lower_ir_pass.cpp
+    src/backend/ir/shared/printer/core_ir_raw_printer.cpp
+    src/backend/ir/lower/legacy/llvm/llvm_ir_backend.cpp
+    src/backend/ir/shared/detail/aggregate_layout.cpp
+    src/backend/ir/shared/detail/ir_context.cpp
+    src/backend/ir/shared/detail/symbol_value_map.cpp
     src/cli/cli.cpp
     src/common/diagnostic/diagnostic.cpp
     src/common/diagnostic/diagnostic_engine.cpp
