@@ -9,13 +9,6 @@
 
 namespace sysycc {
 
-struct Diagnostic {
-    std::string stage;
-    int line = -1;
-    int column = -1;
-    std::string message;
-};
-
 struct PassStatus {
     bool ok = true;
     std::string message;
