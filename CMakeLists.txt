@@ -28,7 +28,7 @@ flex_target(
     SysyLexer
     ${LEXER_DIR}/lexer.l
     ${LEXER_DIR}/lexer_scanner.cpp
-    OPTIONS --warn
+    COMPILE_FLAGS "--warn"
 )
 
 add_flex_bison_dependency(SysyLexer SysyParser)
