@@ -54,6 +54,20 @@ bool function_decl_has_body(const SemanticSymbol *symbol) {
     return function_decl->get_body() != nullptr;
 }
 
+bool expr_is_obviously_nonzero_constant(const Expr *expr) {
+    if (expr == nullptr) {
+        return false;
+    }
+    switch (expr->get_kind()) {
+    case AstKind::IntegerLiteralExpr:
+        return static_cast<const IntegerLiteralExpr *>(expr)->get_value_text() != "0";
+    case AstKind::CharLiteralExpr:
+        return static_cast<const CharLiteralExpr *>(expr)->get_value_text() != "'\\0'";
+    default:
+        return false;
+    }
+}
+
 } // namespace
 
 void SemanticAnalyzer::Analyze(const TranslationUnit *translation_unit,
@@ -232,6 +246,10 @@ bool SemanticAnalyzer::stmt_guarantees_return(const Stmt *stmt) const {
                if_stmt->get_else_branch() != nullptr &&
                stmt_guarantees_return(if_stmt->get_then_branch()) &&
                stmt_guarantees_return(if_stmt->get_else_branch());
+    }
+    case AstKind::WhileStmt: {
+        const auto *while_stmt = static_cast<const WhileStmt *>(stmt);
+        return expr_is_obviously_nonzero_constant(while_stmt->get_condition());
     }
     case AstKind::LabelStmt: {
         const auto *label_stmt = static_cast<const LabelStmt *>(stmt);
