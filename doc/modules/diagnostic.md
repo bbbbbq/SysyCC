@@ -51,26 +51,23 @@ It provides:
 
 ### `DiagnosticFormatter`
 
-`DiagnosticFormatter` provides the current CLI-oriented formatting policy for
-shared diagnostics. It is intentionally thin:
+`DiagnosticFormatter` now provides one GCC-like default CLI rendering policy
+for shared diagnostics:
 
-- it first resolves one explicit `DiagnosticCliFormatPolicy` for each
-  diagnostic instead of hard-coding stage branches directly inside the print
-  loop
-- that policy is now split into:
-  - one message policy
-  - one span policy
-  so later warning/note rendering can evolve without rewriting the formatter
-  control flow
-- semantic diagnostics with a source span are rendered as
-  `semantic error: ... at <span>`
-- warnings with a source span are rendered as
-  `<stage> warning: ... at <span>`
-- diagnostics that already carry a user-ready message, such as preprocess
-  include-trace notes or lexer invalid-token messages, are passed through as-is
-- the executable entry can print one whole `DiagnosticEngine` through a single
-  formatter entry point instead of keeping per-stage formatting logic in
-  `main.cpp`
+- diagnostics with a source span render as
+  `path:line:col: error|warning|note: message`
+- diagnostics without a source span render as
+  `error|warning|note: message`
+- `Error` and `Warning` diagnostics with a single-line source span also print:
+  - one source excerpt line
+  - one caret / underline line
+- `Note` diagnostics stay header-only by default
+- multi-line spans currently fall back to header-only output
+- tabs in source excerpts are expanded to fixed-width spaces before caret
+  placement
+
+This keeps the formatter stage-agnostic: stage producers now emit raw messages,
+while CLI presentation is centralized in one place.
 
 ## Current Integration
 
@@ -84,12 +81,13 @@ passes now also emit unified diagnostics into the shared diagnostic engine:
 - [SemanticPass](/Users/caojunze424/code/SysyCC/src/frontend/semantic/semantic_pass.cpp)
 
 This means later tooling can inspect one shared diagnostic list without having
-to special-case every compiler stage.
+to special-case every compiler stage, while the CLI now presents a uniform
+GCC/Clang-like surface.
 
 The executable entry in [main.cpp](/Users/caojunze424/code/SysyCC/src/main.cpp)
 now prefers this shared diagnostic list when a compilation fails. That keeps
 existing `PassResult` control flow in place while allowing structured
-preprocess note chains, such as nested `included from ...` context, to reach
-CLI output without packing every stage-specific detail into one flat error
-string. Successful compilations now also print collected non-fatal diagnostics
-such as preprocess `#warning` entries through the same formatter path.
+preprocess note chains, such as nested include traces, to reach CLI output in
+the same GCC-like note form as other diagnostics. Successful compilations now
+also print collected non-fatal diagnostics such as preprocess `#warning`
+entries through the same formatter path.
