@@ -153,7 +153,7 @@ std::string format_float_compare_predicate(CoreIrComparePredicate predicate) {
     case CoreIrComparePredicate::Equal:
         return "oeq";
     case CoreIrComparePredicate::NotEqual:
-        return "one";
+        return "une";
     case CoreIrComparePredicate::SignedLess:
     case CoreIrComparePredicate::UnsignedLess:
         return "olt";
