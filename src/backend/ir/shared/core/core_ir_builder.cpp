@@ -133,6 +133,19 @@ bool stmt_contains_break(const Stmt *stmt) {
         return stmt_contains_break(if_stmt->get_then_branch()) ||
                stmt_contains_break(if_stmt->get_else_branch());
     }
+    case AstKind::WhileStmt:
+    case AstKind::DoWhileStmt:
+    case AstKind::ForStmt:
+    case AstKind::SwitchStmt:
+    case AstKind::DeclStmt:
+    case AstKind::ExprStmt:
+    case AstKind::ReturnStmt:
+    case AstKind::ContinueStmt:
+    case AstKind::GotoStmt:
+    case AstKind::CaseStmt:
+    case AstKind::DefaultStmt:
+    case AstKind::UnknownStmt:
+        return false;
     case AstKind::LabelStmt:
         return stmt_contains_break(static_cast<const LabelStmt *>(stmt)->get_body());
     default:
@@ -3375,8 +3388,8 @@ class CoreIrBuildSession {
                         const ArraySemanticType *current_semantic_type,
                         const CoreIrArrayType *current_array_type,
                         const InitListExpr *current_init_list,
-                        std::size_t &cursor,
-                        SourceSpan current_source_span) -> bool {
+                        std::size_t &cursor, SourceSpan current_source_span)
+                -> bool {
                 const std::size_t current_element_count =
                     current_array_type->get_element_count();
                 const CoreIrType *current_element_type =
@@ -3742,7 +3755,8 @@ class CoreIrBuildSession {
         local_bindings_[symbol] = ValueBinding{nullptr, stack_slot, nullptr};
 
         if (initializer != nullptr) {
-            CoreIrValue *address = build_stack_slot_address(*stack_slot, source_span);
+            CoreIrValue *address =
+                build_stack_slot_address(*stack_slot, source_span);
             if (address == nullptr) {
                 return false;
             }
@@ -3804,6 +3818,9 @@ class CoreIrBuildSession {
     }
 
     bool emit_expr_stmt(const ExprStmt &expr_stmt) {
+        if (expr_stmt.get_expression() == nullptr) {
+            return true;
+        }
         return build_expr(expr_stmt.get_expression()) != nullptr;
     }
 
@@ -4353,11 +4370,13 @@ class CoreIrBuildSession {
         return true;
     }
 
-    bool declare_global_var(const VarDecl &var_decl) {
-        const SemanticSymbol *symbol = get_symbol_binding(&var_decl);
+    bool declare_global_symbol(const SemanticSymbol *symbol,
+                               const std::string &symbol_name,
+                               SourceSpan source_span,
+                               bool is_static) {
         if (symbol == nullptr || symbol->get_type() == nullptr) {
             add_error("core ir generation could not resolve top-level variable type",
-                      var_decl.get_source_span());
+                      source_span);
             return false;
         }
         if (global_bindings_.find(symbol) != global_bindings_.end()) {
@@ -4367,15 +4386,21 @@ class CoreIrBuildSession {
         const CoreIrType *declared_type = get_or_create_type(symbol->get_type());
         if (declared_type == nullptr) {
             add_error("core ir generation does not support this top-level variable type",
-                      var_decl.get_source_span());
+                      source_span);
             return false;
         }
 
         auto *global = module_->create_global<CoreIrGlobal>(
-            symbol->get_name(), declared_type, nullptr, var_decl.get_is_static(),
-            false);
+            symbol_name, declared_type, nullptr, is_static, false);
         global_bindings_[symbol] = ValueBinding{nullptr, nullptr, global};
         return true;
+    }
+
+    bool declare_global_var(const VarDecl &var_decl) {
+        return declare_global_symbol(get_symbol_binding(&var_decl),
+                                     var_decl.get_name(),
+                                     var_decl.get_source_span(),
+                                     var_decl.get_is_static());
     }
 
     bool declare_global_const(const ConstDecl &const_decl) {
@@ -4383,26 +4408,8 @@ class CoreIrBuildSession {
         if (!should_materialize_global_const(symbol)) {
             return true;
         }
-        if (symbol == nullptr || symbol->get_type() == nullptr) {
-            add_error("core ir generation could not resolve top-level constant type",
-                      const_decl.get_source_span());
-            return false;
-        }
-        if (global_bindings_.find(symbol) != global_bindings_.end()) {
-            return true;
-        }
-
-        const CoreIrType *declared_type = get_or_create_type(symbol->get_type());
-        if (declared_type == nullptr) {
-            add_error("core ir generation does not support this top-level constant type",
-                      const_decl.get_source_span());
-            return false;
-        }
-
-        auto *global = module_->create_global<CoreIrGlobal>(
-            const_decl.get_name(), declared_type, nullptr, false, false);
-        global_bindings_[symbol] = ValueBinding{nullptr, nullptr, global};
-        return true;
+        return declare_global_symbol(symbol, const_decl.get_name(),
+                                     const_decl.get_source_span(), false);
     }
 
     bool append_constant_bytes(const CoreIrConstant *constant, const CoreIrType *type,
@@ -5363,8 +5370,11 @@ class CoreIrBuildSession {
                           source_span);
                 return nullptr;
             }
+            VarDecl placeholder_var("", nullptr, {}, nullptr, is_extern, false,
+                                    source_span);
+            (void)placeholder_var;
             return build_global_constant_for_initializer(
-                initializer, array_semantic_type, array_type, source_span);
+                initializer, semantic_type, array_type, source_span);
         }
         if (semantic_type->get_kind() == SemanticTypeKind::Struct) {
             const auto *struct_semantic_type =
@@ -5440,10 +5450,10 @@ class CoreIrBuildSession {
             return false;
         }
         const CoreIrType *declared_type = binding->global->get_type();
-        const CoreIrConstant *initializer =
-            build_global_initializer(const_decl.get_initializer(), symbol->get_type(),
-                                     declared_type, const_decl.get_source_span(),
-                                     false);
+
+        const CoreIrConstant *initializer = build_global_initializer(
+            const_decl.get_initializer(), symbol->get_type(), declared_type,
+            const_decl.get_source_span(), false);
         if (compiler_context_.get_diagnostic_engine().has_error()) {
             return false;
         }
