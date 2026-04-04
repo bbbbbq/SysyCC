@@ -1,5 +1,7 @@
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 
+#include <cstdlib>
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -29,6 +31,19 @@ void ConstantEvaluator::bind_integer_constant_value(
     const AstNode *node, long long value,
     SemanticContext &semantic_context) const {
     semantic_context.get_semantic_model().bind_integer_constant_value(node, value);
+}
+
+std::optional<long long> ConstantEvaluator::get_scalar_constant_value_as_integer(
+    const Expr *expr, const SemanticContext &semantic_context) const {
+    const auto value = evaluate_scalar_numeric_expr(expr, semantic_context);
+    if (!value.has_value()) {
+        return std::nullopt;
+    }
+    if (*value > static_cast<long double>(std::numeric_limits<long long>::max()) ||
+        *value < static_cast<long double>(std::numeric_limits<long long>::min())) {
+        return std::nullopt;
+    }
+    return static_cast<long long>(*value);
 }
 
 bool ConstantEvaluator::is_integer_constant_expr(
@@ -148,6 +163,139 @@ std::optional<long long> ConstantEvaluator::evaluate_integer_expr(
         }
         if (op == "!=") {
             return *lhs != *rhs ? 1LL : 0LL;
+        }
+        return std::nullopt;
+    }
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
+    const Expr *expr, const SemanticContext &semantic_context) const {
+    if (expr == nullptr) {
+        return std::nullopt;
+    }
+
+    switch (expr->get_kind()) {
+    case AstKind::IntegerLiteralExpr: {
+        const auto value = parse_integer_literal(
+            static_cast<const IntegerLiteralExpr *>(expr)->get_value_text());
+        return value.has_value() ? std::optional<long double>(*value) : std::nullopt;
+    }
+    case AstKind::FloatLiteralExpr: {
+        const std::string &text =
+            static_cast<const FloatLiteralExpr *>(expr)->get_value_text();
+        char *end = nullptr;
+        const long double value = std::strtold(text.c_str(), &end);
+        if (end == nullptr || *end != '\0') {
+            return std::nullopt;
+        }
+        return value;
+    }
+    case AstKind::CharLiteralExpr: {
+        const auto value = parse_char_literal(
+            static_cast<const CharLiteralExpr *>(expr)->get_value_text());
+        return value.has_value() ? std::optional<long double>(*value) : std::nullopt;
+    }
+    case AstKind::IdentifierExpr: {
+        const auto value =
+            semantic_context.get_semantic_model().get_integer_constant_value(expr);
+        return value.has_value() ? std::optional<long double>(*value) : std::nullopt;
+    }
+    case AstKind::UnaryExpr: {
+        const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
+        const auto operand =
+            evaluate_scalar_numeric_expr(unary_expr->get_operand(), semantic_context);
+        if (!operand.has_value()) {
+            return std::nullopt;
+        }
+        const auto &op = unary_expr->get_operator_text();
+        if (op == "+") {
+            return *operand;
+        }
+        if (op == "-") {
+            return -(*operand);
+        }
+        if (op == "!") {
+            return *operand == 0 ? 1.0L : 0.0L;
+        }
+        return std::nullopt;
+    }
+    case AstKind::BinaryExpr: {
+        const auto *binary_expr = static_cast<const BinaryExpr *>(expr);
+        const auto lhs =
+            evaluate_scalar_numeric_expr(binary_expr->get_lhs(), semantic_context);
+        const auto rhs =
+            evaluate_scalar_numeric_expr(binary_expr->get_rhs(), semantic_context);
+        if (!lhs.has_value() || !rhs.has_value()) {
+            return std::nullopt;
+        }
+        const auto &op = binary_expr->get_operator_text();
+        if (op == "+") {
+            return *lhs + *rhs;
+        }
+        if (op == "-") {
+            return *lhs - *rhs;
+        }
+        if (op == "*") {
+            return *lhs * *rhs;
+        }
+        if (op == "/") {
+            return *rhs == 0 ? std::nullopt
+                             : std::optional<long double>(*lhs / *rhs);
+        }
+        if (op == "%") {
+            const long long lhs_int = static_cast<long long>(*lhs);
+            const long long rhs_int = static_cast<long long>(*rhs);
+            if (rhs_int == 0) {
+                return std::nullopt;
+            }
+            return static_cast<long double>(lhs_int % rhs_int);
+        }
+        if (op == "<<") {
+            return static_cast<long double>(
+                static_cast<long long>(*lhs) << static_cast<long long>(*rhs));
+        }
+        if (op == ">>") {
+            return static_cast<long double>(
+                static_cast<long long>(*lhs) >> static_cast<long long>(*rhs));
+        }
+        if (op == "&") {
+            return static_cast<long double>(
+                static_cast<long long>(*lhs) & static_cast<long long>(*rhs));
+        }
+        if (op == "|") {
+            return static_cast<long double>(
+                static_cast<long long>(*lhs) | static_cast<long long>(*rhs));
+        }
+        if (op == "^") {
+            return static_cast<long double>(
+                static_cast<long long>(*lhs) ^ static_cast<long long>(*rhs));
+        }
+        if (op == "&&") {
+            return (*lhs != 0 && *rhs != 0) ? 1.0L : 0.0L;
+        }
+        if (op == "||") {
+            return (*lhs != 0 || *rhs != 0) ? 1.0L : 0.0L;
+        }
+        if (op == "<") {
+            return *lhs < *rhs ? 1.0L : 0.0L;
+        }
+        if (op == "<=") {
+            return *lhs <= *rhs ? 1.0L : 0.0L;
+        }
+        if (op == ">") {
+            return *lhs > *rhs ? 1.0L : 0.0L;
+        }
+        if (op == ">=") {
+            return *lhs >= *rhs ? 1.0L : 0.0L;
+        }
+        if (op == "==") {
+            return *lhs == *rhs ? 1.0L : 0.0L;
+        }
+        if (op == "!=") {
+            return *lhs != *rhs ? 1.0L : 0.0L;
         }
         return std::nullopt;
     }

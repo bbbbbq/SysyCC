@@ -74,6 +74,10 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
         std::make_unique<BuiltinSemanticType>("long int"));
     const auto *va_list_type = semantic_model.own_type(
         std::make_unique<PointerSemanticType>(char_type));
+    const auto *int_ptr_type = semantic_model.own_type(
+        std::make_unique<PointerSemanticType>(int_type));
+    const auto *float_ptr_type = semantic_model.own_type(
+        std::make_unique<PointerSemanticType>(float_type));
 
     register_builtin_typedef(semantic_model, scope_stack, "int8_t",
                              signed_char_type);
@@ -108,14 +112,24 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
 
     register_builtin_function(semantic_model, scope_stack, "getint", int_type,
                               {});
+    register_builtin_function(semantic_model, scope_stack, "getch", int_type,
+                              {});
     register_builtin_function(semantic_model, scope_stack, "getfloat",
                               float_type, {});
+    register_builtin_function(semantic_model, scope_stack, "getarray", int_type,
+                              {int_ptr_type});
+    register_builtin_function(semantic_model, scope_stack, "getfarray", int_type,
+                              {float_ptr_type});
     register_builtin_function(semantic_model, scope_stack, "putint", void_type,
                               {int_type});
     register_builtin_function(semantic_model, scope_stack, "putfloat",
                               void_type, {float_type});
     register_builtin_function(semantic_model, scope_stack, "putch", void_type,
                               {int_type});
+    register_builtin_function(semantic_model, scope_stack, "putarray", void_type,
+                              {int_type, int_ptr_type});
+    register_builtin_function(semantic_model, scope_stack, "putfarray", void_type,
+                              {int_type, float_ptr_type});
     register_builtin_function(semantic_model, scope_stack, "starttime",
                               void_type, {});
     register_builtin_function(semantic_model, scope_stack, "stoptime",
