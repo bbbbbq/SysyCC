@@ -1,13 +1,23 @@
 #pragma once
 
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace sysycc {
 
 // Stores one source file path tracked by source locations.
 class SourceFile {
   private:
+    struct SourceTextCache {
+        bool attempted_load = false;
+        std::vector<std::string> lines;
+    };
+
     std::string path_;
+    mutable SourceTextCache source_text_cache_;
+
+    void ensure_source_text_loaded() const;
 
   public:
     SourceFile() = default;
@@ -16,6 +26,8 @@ class SourceFile {
     const std::string &get_path() const noexcept { return path_; }
 
     bool empty() const noexcept { return path_.empty(); }
+
+    std::optional<std::string> get_line_text(int line_number) const;
 };
 
 // Stores one source position as file, line, and column.
