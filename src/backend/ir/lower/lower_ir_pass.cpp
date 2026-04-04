@@ -10,6 +10,7 @@
 #include "backend/ir/shared/ir_result.hpp"
 #include "backend/ir/lower/lowering/core_ir_target_backend.hpp"
 #include "backend/ir/lower/lowering/core_ir_target_backend_factory.hpp"
+#include "backend/asm_gen/backend_kind.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
@@ -31,6 +32,13 @@ PassKind LowerIrPass::Kind() const { return PassKind::LowerIr; }
 const char *LowerIrPass::Name() const { return "LowerIrPass"; }
 
 PassResult LowerIrPass::Run(CompilerContext &context) {
+    if (context.get_backend_options().get_backend_kind() !=
+        BackendKind::LlvmIr) {
+        context.clear_ir_result();
+        context.set_ir_dump_file_path("");
+        return PassResult::Success();
+    }
+
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
     CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
@@ -67,10 +75,8 @@ PassResult LowerIrPass::Run(CompilerContext &context) {
         case IrKind::LLVM:
             extension = ".ll";
             break;
-        case IrKind::AArch64:
-            extension = ".s";
-            break;
         case IrKind::None:
+        case IrKind::AArch64:
             break;
         }
         const std::filesystem::path output_file =

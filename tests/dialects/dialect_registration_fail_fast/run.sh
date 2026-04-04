@@ -17,6 +17,8 @@ mkdir -p "${TEST_BUILD_DIR}"
 
 clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
+    "${PROJECT_ROOT}/src/backend/asm_gen/aarch64/aarch64_asm_backend.cpp" \
+    "${PROJECT_ROOT}/src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/shared/detail/aggregate_layout.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/lower/legacy/ir_backend_factory.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/build/build_core_ir_pass.cpp" \

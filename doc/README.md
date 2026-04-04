@@ -69,6 +69,7 @@ main
       -> CoreIrConstFoldPass
       -> CoreIrDcePass
       -> LowerIrPass
+      -> AArch64AsmGenPass
 ```
 
 ## Module Map
@@ -83,7 +84,7 @@ main
 - [dialects.md](/Users/caojunze424/code/SysyCC/doc/modules/dialects.md): shared front-end dialect manager, dialect packs, and stage feature registries
 - [ast.md](/Users/caojunze424/code/SysyCC/doc/modules/ast.md): AST node hierarchy, AST pass, and parse-tree lowering helpers
 - [diagnostic.md](/Users/caojunze424/code/SysyCC/doc/modules/diagnostic.md): shared diagnostic records and the compiler-wide diagnostic engine
-- [ir.md](/Users/caojunze424/code/SysyCC/doc/modules/ir.md): modular IR-generation skeleton with an abstract backend and an initial LLVM IR target
+- [ir.md](/Users/caojunze424/code/SysyCC/doc/modules/ir.md): modular IR-generation skeleton with shared Core IR, an LLVM IR path, and a first native AArch64 asm backend
 - [lexer.md](/Users/caojunze424/code/SysyCC/doc/modules/lexer.md): lexical analysis pass, flex template, and token output behavior
 - [manual.md](/Users/caojunze424/code/SysyCC/doc/modules/manual.md): external manuals and language references
 - [parser.md](/Users/caojunze424/code/SysyCC/doc/modules/parser.md): syntax analysis pass, bison grammar, and parse runtime

@@ -25,8 +25,33 @@ bool parse_stop_after_stage(const std::string &stage_name,
         stage = sysycc::StopAfterStage::Semantic;
         return true;
     }
+    if (stage_name == "core-ir") {
+        stage = sysycc::StopAfterStage::CoreIr;
+        return true;
+    }
+    if (stage_name == "llvm-ir") {
+        stage = sysycc::StopAfterStage::IR;
+        return true;
+    }
     if (stage_name == "ir") {
         stage = sysycc::StopAfterStage::IR;
+        return true;
+    }
+    if (stage_name == "asm") {
+        stage = sysycc::StopAfterStage::Asm;
+        return true;
+    }
+    return false;
+}
+
+bool parse_backend_kind(const std::string &backend_name,
+                        sysycc::BackendKind &backend_kind) {
+    if (backend_name == "llvm-ir") {
+        backend_kind = sysycc::BackendKind::LlvmIr;
+        return true;
+    }
+    if (backend_name == "aarch64-native") {
+        backend_kind = sysycc::BackendKind::AArch64Native;
         return true;
     }
     return false;
@@ -44,10 +69,14 @@ void Cli::Run(int argc, char *argv[]) {
     dump_parse_ = false;
     dump_ast_ = false;
     dump_ir_ = false;
+    dump_core_ir_ = false;
+    emit_asm_ = false;
     stop_after_stage_ = sysycc::StopAfterStage::None;
     enable_gnu_dialect_ = true;
     enable_clang_dialect_ = true;
     enable_builtin_type_extension_pack_ = true;
+    backend_kind_ = sysycc::BackendKind::LlvmIr;
+    target_triple_.clear();
     is_help_ = false;
     is_version_ = false;
     has_error_ = false;
@@ -90,6 +119,67 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "--dump-ir") {
             dump_ir_ = true;
+            continue;
+        }
+
+        if (arg == "--dump-core-ir") {
+            dump_core_ir_ = true;
+            continue;
+        }
+
+        if (arg == "-S") {
+            emit_asm_ = true;
+            continue;
+        }
+
+        if (arg.rfind("--backend=", 0) == 0) {
+            const std::string backend_name =
+                arg.substr(std::string("--backend=").size());
+            if (!parse_backend_kind(backend_name, backend_kind_)) {
+                has_error_ = true;
+                std::cerr << "error: invalid backend kind: " << backend_name
+                          << '\n';
+                PrintHelp();
+                return;
+            }
+            continue;
+        }
+
+        if (arg == "--backend") {
+            if (i + 1 >= argc) {
+                has_error_ = true;
+                std::cerr << "error: missing backend kind after --backend"
+                          << '\n';
+                PrintHelp();
+                return;
+            }
+
+            const std::string backend_name = argv[++i];
+            if (!parse_backend_kind(backend_name, backend_kind_)) {
+                has_error_ = true;
+                std::cerr << "error: invalid backend kind: " << backend_name
+                          << '\n';
+                PrintHelp();
+                return;
+            }
+            continue;
+        }
+
+        if (arg.rfind("--target=", 0) == 0) {
+            target_triple_ = arg.substr(std::string("--target=").size());
+            continue;
+        }
+
+        if (arg == "--target") {
+            if (i + 1 >= argc) {
+                has_error_ = true;
+                std::cerr << "error: missing target triple after --target"
+                          << '\n';
+                PrintHelp();
+                return;
+            }
+
+            target_triple_ = argv[++i];
             continue;
         }
 

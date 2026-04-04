@@ -901,6 +901,16 @@ Representative `tests/run/` execution regressions also cover host-linked
 - [tests/run/run_stdio_printf_string_and_int](/Users/caojunze424/code/SysyCC/tests/run/run_stdio_printf_string_and_int)
 - [tests/run/run_char_literal_expr](/Users/caojunze424/code/SysyCC/tests/run/run_char_literal_expr)
 
+### `tests/asm/`
+
+Native Linux AArch64 asm regressions, including:
+
+- recursive calls, branches, and integer arithmetic in emitted `.s`
+- `--stop-after=core-ir` behavior when the native backend is selected
+- invalid option combinations such as `--backend=aarch64-native --dump-ir`
+- fail-fast coverage for unsupported native-backend features such as float
+  stack slots
+
 ## Shared Helpers
 
 - [tests/test_helpers.sh](/Users/caojunze424/code/SysyCC/tests/test_helpers.sh)

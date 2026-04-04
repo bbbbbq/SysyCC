@@ -18,7 +18,8 @@ The CLI module converts `argv` into a compiler configuration object.
 - map dialect-selection flags into compiler configuration
 - enable dump switches such as `--dump-tokens` and `--dump-parse`
 - support `--stop-after=<stage>` so tests and tooling can stop after
-  `preprocess`, `lex`, `parse`, `ast`, `semantic`, or `ir`
+  `preprocess`, `lex`, `parse`, `ast`, `semantic`, `core-ir`, `ir`, or `asm`
+- select backend-specific emission modes such as native Linux AArch64 asm
 - print help and version information
 - fill [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
 
@@ -48,6 +49,14 @@ Output:
 - `--stop-after=<stage>` and `--stop-after <stage>` are both accepted.
 - `--stop-after` does not disable dump switches; it only prevents later passes
   from running after the requested stage succeeds.
+- `-S` currently requests final assembly output and is only supported with
+  `--backend=aarch64-native`.
+- `--backend=llvm-ir|aarch64-native` selects between the LLVM IR path and the
+  first native Linux AArch64 asm backend.
+- `--target=aarch64-unknown-linux-gnu` is the only accepted native-backend
+  target triple in the current implementation.
+- `--dump-ir` remains specific to LLVM IR dumps, while `--dump-core-ir` writes
+  the optimized Core IR module before backend-specific emission.
 - `--enable-gnu-dialect` / `--disable-gnu-dialect`,
   `--enable-clang-dialect` / `--disable-clang-dialect`, and
   `--enable-builtin-types` / `--disable-builtin-types` explicitly reconfigure

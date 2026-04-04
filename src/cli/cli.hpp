@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "backend/asm_gen/backend_kind.hpp"
 #include "compiler/complier_option.hpp"
 
 namespace ClI {
@@ -17,10 +18,14 @@ class Cli {
     bool dump_parse_ = false;
     bool dump_ast_ = false;
     bool dump_ir_ = false;
+    bool dump_core_ir_ = false;
+    bool emit_asm_ = false;
     sysycc::StopAfterStage stop_after_stage_ = sysycc::StopAfterStage::None;
     bool enable_gnu_dialect_ = true;
     bool enable_clang_dialect_ = true;
     bool enable_builtin_type_extension_pack_ = true;
+    sysycc::BackendKind backend_kind_ = sysycc::BackendKind::LlvmIr;
+    std::string target_triple_;
     bool is_help_ = false;
     bool is_version_ = false;
     bool has_error_ = false;
@@ -40,11 +45,15 @@ class Cli {
                   << "  -I <dir>           Add include search directory\n"
                   << "  -isystem <dir>     Add system include search directory\n"
                   << "  -o <output_file>   Specify output file\n"
+                  << "  -S                 Emit assembly output\n"
                   << "  --dump-tokens      Dump tokens\n"
                   << "  --dump-parse       Dump parse result\n"
                   << "  --dump-ast         Dump AST\n"
                   << "  --dump-ir          Dump IR\n"
-                  << "  --stop-after=<stage>  Stop after preprocess, lex, parse, ast, semantic, or ir\n"
+                  << "  --dump-core-ir     Dump optimized Core IR\n"
+                  << "  --backend <kind>   Select backend (llvm-ir or aarch64-native)\n"
+                  << "  --target <triple>  Select target triple\n"
+                  << "  --stop-after=<stage>  Stop after preprocess, lex, parse, ast, semantic, core-ir, ir, or asm\n"
                   << "  --strict-c99       Disable GNU/Clang/builtin-type extension packs\n"
                   << "  --enable-gnu-dialect       Enable GNU dialect pack\n"
                   << "  --disable-gnu-dialect      Disable GNU dialect pack\n"
@@ -75,11 +84,18 @@ class Cli {
         option.set_dump_parse(dump_parse_);
         option.set_dump_ast(dump_ast_);
         option.set_dump_ir(dump_ir_);
+        option.set_dump_core_ir(dump_core_ir_);
+        option.set_emit_asm(emit_asm_);
         option.set_stop_after_stage(stop_after_stage_);
         option.set_enable_gnu_dialect(enable_gnu_dialect_);
         option.set_enable_clang_dialect(enable_clang_dialect_);
         option.set_enable_builtin_type_extension_pack(
             enable_builtin_type_extension_pack_);
+        sysycc::BackendOptions backend_options;
+        backend_options.set_backend_kind(backend_kind_);
+        backend_options.set_target_triple(target_triple_);
+        backend_options.set_output_file(output_file_);
+        option.set_backend_options(std::move(backend_options));
     }
 };
 } // namespace ClI

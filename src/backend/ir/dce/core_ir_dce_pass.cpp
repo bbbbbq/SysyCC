@@ -1,6 +1,8 @@
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <unordered_set>
 #include <vector>
 
@@ -9,6 +11,7 @@
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
@@ -134,6 +137,22 @@ PassResult CoreIrDcePass::Run(CompilerContext &context) {
             changed = remove_unreachable_blocks(*function) || changed;
             changed = remove_dead_instructions(*function) || changed;
         }
+    }
+
+    context.set_core_ir_dump_file_path("");
+    if (context.get_dump_core_ir()) {
+        const std::filesystem::path output_dir("build/intermediate_results");
+        std::filesystem::create_directories(output_dir);
+        const std::filesystem::path input_path(context.get_input_file());
+        const std::filesystem::path output_file =
+            output_dir / (input_path.stem().string() + ".core-ir.txt");
+        std::ofstream ofs(output_file);
+        if (!ofs.is_open()) {
+            return PassResult::Failure("failed to open core ir dump file");
+        }
+        CoreIrRawPrinter printer;
+        ofs << printer.print_module(*build_result->get_module());
+        context.set_core_ir_dump_file_path(output_file.string());
     }
     return PassResult::Success();
 }

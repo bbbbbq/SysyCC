@@ -532,6 +532,10 @@ LLVM IR lowering path:
   - top-level `declare` emission for builtin runtime-style calls that do not
     have one user-defined body in the current translation unit
 - `--dump-ir` writes `build/intermediate_results/*.ll`
+- `--dump-core-ir` writes `build/intermediate_results/*.core-ir.txt`
+- `-S --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now emits a
+  native `.s` file directly from optimized `CoreIrModule` without round-tripping
+  through LLVM IR text
 
 ## Notes
 
@@ -539,6 +543,9 @@ LLVM IR lowering path:
 - `BuildCoreIrPass` and later backend stages depend on semantic output and
   therefore belong after
   [SemanticPass](/Users/caojunze424/code/SysyCC/src/frontend/semantic/semantic_pass.hpp).
+- The staged `CoreIrAArch64TargetBackend` placeholder still exists for the old
+  lower-to-IR interface, but the current native asm implementation is a
+  separate `AArch64AsmGenPass` pipeline that consumes `CoreIrModule` directly.
 - The current lowering is intentionally conservative: unsupported functions are
   skipped instead of emitting partial or malformed IR.
   - Arrays, richer aggregate/object lowering, and richer runtime-library IR

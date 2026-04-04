@@ -3,6 +3,8 @@
 #include <memory>
 #include <utility>
 
+#include "backend/asm_gen/aarch64/aarch64_asm_gen_pass.hpp"
+#include "backend/asm_gen/backend_kind.hpp"
 #include "backend/ir/build/build_core_ir_pass.hpp"
 #include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
 #include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
@@ -29,7 +31,10 @@ void Complier::sync_context_from_option() {
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
     context_.set_dump_ir(option_.dump_ir());
+    context_.set_dump_core_ir(option_.dump_core_ir());
+    context_.set_emit_asm(option_.emit_asm());
     context_.set_stop_after_stage(option_.get_stop_after_stage());
+    context_.set_backend_options(option_.get_backend_options());
     context_.configure_dialects(option_.get_enable_gnu_dialect(),
                                 option_.get_enable_clang_dialect(),
                                 option_.get_enable_builtin_type_extension_pack());
@@ -50,6 +55,7 @@ void Complier::InitializePasses() {
     pass_manager_.AddPass(std::make_unique<CoreIrConstFoldPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrDcePass>());
     pass_manager_.AddPass(std::make_unique<LowerIrPass>());
+    pass_manager_.AddPass(std::make_unique<AArch64AsmGenPass>());
     pipeline_initialized_ = true;
 }
 
@@ -95,11 +101,77 @@ PassResult Complier::validate_dialect_configuration() {
     return PassResult::Failure(summary);
 }
 
+PassResult Complier::validate_backend_configuration() {
+    const BackendOptions &backend_options = context_.get_backend_options();
+    const BackendKind backend_kind = backend_options.get_backend_kind();
+    const std::string &target_triple = backend_options.get_target_triple();
+
+    if (backend_kind == BackendKind::AArch64Native) {
+        if (context_.get_dump_ir()) {
+            const std::string message =
+                "--dump-ir is incompatible with --backend=aarch64-native";
+            context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                       message);
+            return PassResult::Failure(message);
+        }
+        if (!context_.get_emit_asm()) {
+            const std::string message =
+                "--backend=aarch64-native currently requires -S";
+            context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                       message);
+            return PassResult::Failure(message);
+        }
+        if (!target_triple.empty() &&
+            target_triple != "aarch64-unknown-linux-gnu") {
+            const std::string message =
+                "unsupported AArch64 native target triple: " + target_triple;
+            context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                       message);
+            return PassResult::Failure(message);
+        }
+        if (context_.get_stop_after_stage() == StopAfterStage::IR) {
+            const std::string message =
+                "--stop-after=ir is incompatible with --backend=aarch64-native";
+            context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                       message);
+            return PassResult::Failure(message);
+        }
+        return PassResult::Success();
+    }
+
+    if (context_.get_emit_asm()) {
+        const std::string message =
+            "-S currently requires --backend=aarch64-native";
+        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                   message);
+        return PassResult::Failure(message);
+    }
+    if (!target_triple.empty()) {
+        const std::string message =
+            "--target is only supported with --backend=aarch64-native";
+        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                   message);
+        return PassResult::Failure(message);
+    }
+    if (context_.get_stop_after_stage() == StopAfterStage::Asm) {
+        const std::string message =
+            "--stop-after=asm requires --backend=aarch64-native and -S";
+        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                   message);
+        return PassResult::Failure(message);
+    }
+
+    return PassResult::Success();
+}
+
 PassResult Complier::Run() {
     context_.clear_diagnostic_engine();
     context_.clear_core_ir_build_result();
     context_.clear_ir_result();
+    context_.clear_asm_result();
+    context_.set_core_ir_dump_file_path("");
     context_.set_ir_dump_file_path("");
+    context_.set_asm_dump_file_path("");
     sync_context_from_option();
     for (auto &dialect : extra_dialects_) {
         context_.get_dialect_manager().register_dialect(std::move(dialect));
@@ -108,6 +180,10 @@ PassResult Complier::Run() {
     PassResult dialect_validation_result = validate_dialect_configuration();
     if (!dialect_validation_result.ok) {
         return dialect_validation_result;
+    }
+    PassResult backend_validation_result = validate_backend_configuration();
+    if (!backend_validation_result.ok) {
+        return backend_validation_result;
     }
     InitializePasses();
     return pass_manager_.Run(context_);

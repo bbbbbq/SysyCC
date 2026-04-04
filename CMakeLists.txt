@@ -36,6 +36,8 @@ add_flex_bison_dependency(SysyLexer SysyParser)
 add_executable(${PROJECT_NAME}
     ${BISON_SysyParser_OUTPUTS}
     ${FLEX_SysyLexer_OUTPUTS}
+    src/backend/asm_gen/aarch64/aarch64_asm_backend.cpp
+    src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp
     src/backend/ir/shared/core/core_ir_builder.cpp
     src/backend/ir/lower/lowering/core_ir_target_backend_factory.cpp
     src/backend/ir/lower/lowering/aarch64/core_ir_aarch64_target_backend.cpp
