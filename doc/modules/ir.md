@@ -206,11 +206,36 @@ LLVM IR lowering path:
   - zero-index `GetElementPtr` cleanup when it is a no-op wrapper
   - safe compare/cast wrappers around boolean branch conditions
   - safe nested `GetElementPtr` flattening for structural address chains
+    - including multidimensional array-style chains such as
+      `gep(gep(base, 0, i), j)` when they can be merged into one structural
+      index path
+    - including recursive array/struct chains such as
+      `gep(gep(gep(base, 0, i), 0, field), 0, j)` when each step remains a
+      structural member/element selection
+    - while still preserving non-structural aggregate pointer arithmetic such
+      as a follow-on `gep(ptr_to_struct, idx)` without a leading zero member
+      selection wrapper
+  - direct stack-slot load/store canonicalization even when the address still
+    carries a trivial zero-index `GEP` wrapper chain
+  - constant-condition branch collapse before later CFG cleanup
   - redundant `condbr x, B, B` collapse and conservative single-predecessor
     linear block merging
+  - non-entry unreachable block cleanup after branch simplification and target
+    rewrites
   - safe integer identity-expression cleanup and compare orientation
     normalization
   - plain stack-slot address load/store canonicalization
+  - conservative commutative constant-to-rhs reordering for integer
+    `add/mul/and/or/xor`
+  - conservative self-op and neutral-element cleanup such as `x - x -> 0`,
+    `x ^ x -> 0`, `x | x -> x`, `x & x -> x`, `x & -1 -> x`, and shift-by-zero
+    elimination
+- post-canonicalization callers may now rely on these invariants:
+  - every `CondJump` condition is an explicit `i1` SSA value
+  - integer, pointer, and floating truthiness tests are materialized before
+    target lowering instead of being deferred to the LLVM backend
+  - compare wrappers around boolean-producing values are collapsed before later
+    optimization stages
 - `CoreIrTargetBackend` now exposes one backend-independent lowering boundary
   from optimized Core IR into an `IRResult`
 - `CoreIrLlvmTargetBackend` now lowers the current staged subset into LLVM IR
