@@ -172,6 +172,76 @@ assert_basic_frontend_outputs() {
     grep -q '^parse_message: parse succeeded$' "${parse_file}"
 }
 
+strip_diagnostic_source_excerpts() {
+    printf '%s' "$1" | sed '/^  /d'
+}
+
+normalize_diagnostic_headers_to_legacy_path_line() {
+    strip_diagnostic_source_excerpts "$1" |
+        sed -E 's#^(.*):([0-9]+):([0-9]+): (error|warning|note): (.*)$#\1:\2: \5#'
+}
+
+normalize_diagnostic_headers_to_line_col() {
+    strip_diagnostic_source_excerpts "$1" |
+        sed -E 's#^.*:([0-9]+):([0-9]+): (error|warning|note): (.*)$#\1:\2: \3: \4#'
+}
+
+legacy_stage_expectation_matches() {
+    local output="$1"
+    local expected_message="$2"
+    local remainder="${expected_message}"
+    local severity=""
+    local message=""
+    local span=""
+    local span_begin=""
+    local stage=""
+
+    for stage in semantic preprocess parser lexer compiler ast; do
+        if [[ "${remainder}" == "${stage} "* ]]; then
+            remainder="${remainder#${stage} }"
+            break
+        fi
+    done
+
+    case "${remainder}" in
+        error:\ *|warning:\ *|note:\ *)
+            severity="${remainder%%:*}"
+            remainder="${remainder#${severity}: }"
+            message="${remainder}"
+            if [[ "${remainder}" == *" at "* ]]; then
+                message="${remainder% at *}"
+                span="${remainder##* at }"
+            fi
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if [[ "${output}" != *"${severity}: ${message}"* ]]; then
+        return 1
+    fi
+
+    if [[ -z "${span}" ]]; then
+        return 0
+    fi
+
+    span_begin="$(printf '%s' "${span}" | sed -E \
+        -e 's#^.*:([0-9]+:[0-9]+)-([0-9]+:[0-9]+)$#\1#' \
+        -e 't done' \
+        -e 's#^([0-9]+:[0-9]+)-([0-9]+:[0-9]+)$#\1#' \
+        -e 't done' \
+        -e 's#^.*:([0-9]+:[0-9]+)$#\1#' \
+        -e 't done' \
+        -e 's#^([0-9]+:[0-9]+)$#\1#' \
+        -e ':done')"
+    if [[ -z "${span_begin}" || "${span_begin}" == "${span}" ]]; then
+        return 1
+    fi
+
+    [[ "${output}" == *"${span_begin}: ${severity}: ${message}"* ]]
+}
+
 assert_compiler_fails_with_message() {
     local compiler_binary="$1"
     shift
@@ -195,9 +265,17 @@ assert_compiler_fails_with_message() {
         return 0
     fi
 
+    local legacy_path_line_output
+    legacy_path_line_output="$(normalize_diagnostic_headers_to_legacy_path_line \
+        "${output}")"
+    if [[ "${legacy_path_line_output}" == *"${expected_message}"* ]]; then
+        return 0
+    fi
+
     local normalized_output
-    normalized_output="$(printf '%s' "${output}" | sed -E 's#[^[:space:]]+:([0-9]+:[0-9]+-[0-9]+:[0-9]+)#\1#g')"
-    if [[ "${normalized_output}" != *"${expected_message}"* ]]; then
+    normalized_output="$(normalize_diagnostic_headers_to_line_col "${output}")"
+    if ! legacy_stage_expectation_matches "${normalized_output}" \
+        "${expected_message}"; then
         echo "error: expected semantic diagnostic not found" >&2
         echo "${output}" >&2
         return 1
@@ -228,9 +306,17 @@ assert_compiler_succeeds_with_message() {
         return 0
     fi
 
+    local legacy_path_line_output
+    legacy_path_line_output="$(normalize_diagnostic_headers_to_legacy_path_line \
+        "${output}")"
+    if [[ "${legacy_path_line_output}" == *"${expected_message}"* ]]; then
+        return 0
+    fi
+
     local normalized_output
-    normalized_output="$(printf '%s' "${output}" | sed -E 's#[^[:space:]]+:([0-9]+:[0-9]+-[0-9]+:[0-9]+)#\1#g')"
-    if [[ "${normalized_output}" != *"${expected_message}"* ]]; then
+    normalized_output="$(normalize_diagnostic_headers_to_line_col "${output}")"
+    if ! legacy_stage_expectation_matches "${normalized_output}" \
+        "${expected_message}"; then
         echo "error: expected compiler diagnostic not found" >&2
         echo "${output}" >&2
         return 1

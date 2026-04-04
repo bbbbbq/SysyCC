@@ -22,7 +22,7 @@ if [[ "${EXIT_CODE}" -eq 0 ]]; then
     exit 1
 fi
 
-if [[ "${OUTPUT}" != *"semantic error: initializer type does not match declared type"* ]]; then
+if [[ "${OUTPUT}" != *"error: initializer type does not match declared type"* ]]; then
     echo "error: expected semantic diagnostic not found" >&2
     echo "${OUTPUT}" >&2
     exit 1
