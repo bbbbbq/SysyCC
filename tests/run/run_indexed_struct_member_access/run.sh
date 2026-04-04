@@ -20,9 +20,10 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
+grep -q 'getelementptr inbounds \[2 x { i32 }\], ptr %pairs.addr, i32 0, i32 1, i32 0' "${IR_FILE}"
 build_and_link_ir_executable "${IR_FILE}" \
     "${PROJECT_ROOT}/tests/run/support/runtime_stub.c" \
     "${PROGRAM_BINARY}"
 assert_program_output "${PROGRAM_BINARY}" "${PROGRAM_INPUT}" "${EXPECTED_OUTPUT}"
 
-echo "verified: runtime execution supports indexed struct member access"
+echo "verified: runtime execution preserves flattened indexed struct member access lowering"
