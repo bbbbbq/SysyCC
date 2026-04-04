@@ -21,8 +21,8 @@ if [[ "${EXIT_CODE}" -eq 0 ]]; then
     exit 1
 fi
 
-grep -Fq "parser error: syntax error" <<<"${OUTPUT}"
-grep -Fq "near '{'" <<<"${OUTPUT}"
-grep -Fq "${INPUT_FILE}:1:11-1:11" <<<"${OUTPUT}"
+grep -Fq "${INPUT_FILE}:1:11: error: syntax error near '{'" <<<"${OUTPUT}"
+grep -Fq "  int main( {" <<<"${OUTPUT}"
+grep -Eq '^[[:space:]]+\^$' <<<"${OUTPUT}"
 
-echo "verified: parser diagnostics include syntax error location and current token text"
+echo "verified: parser diagnostics use GCC-like headers and caret output"

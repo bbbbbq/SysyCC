@@ -36,9 +36,8 @@ void WriteParseTree(std::ostream &os, const ParseTreeNode *node, int depth) {
 }
 
 std::string FormatParserErrorMessage(const ParserErrorInfo &error_info) {
-    std::string message = "parser error: ";
-    message += error_info.get_message().empty() ? "syntax error"
-                                                : error_info.get_message();
+    std::string message = error_info.get_message().empty() ? "syntax error"
+                                                           : error_info.get_message();
 
     const std::string &token_text = error_info.get_token_text();
     if (token_text.empty()) {
@@ -47,23 +46,6 @@ std::string FormatParserErrorMessage(const ParserErrorInfo &error_info) {
         message += " near '";
         message += token_text;
         message += "'";
-    }
-
-    const SourceSpan &source_span = error_info.get_source_span();
-    if (!source_span.empty()) {
-        message += " at ";
-        if (source_span.get_file() != nullptr &&
-            !source_span.get_file()->empty()) {
-            message += source_span.get_file()->get_path();
-            message += ":";
-        }
-        message += std::to_string(source_span.get_line_begin());
-        message += ":";
-        message += std::to_string(source_span.get_col_begin());
-        message += "-";
-        message += std::to_string(source_span.get_line_end());
-        message += ":";
-        message += std::to_string(source_span.get_col_end());
     }
 
     return message;
