@@ -1,4 +1,6 @@
 build/
+build-docker/
+build-docker-host/
 tests/**/build/
 tests/fuzz/[0-9]*/
 tests/fuzz/result.md
@@ -8,3 +10,9 @@ src/frontend/parser/parser_generated.cpp
 src/frontend/parser/parser.tab.h
 .cache/
 .omx/
+tests/compiler2025/*
+!tests/compiler2025/run_functional.sh
+!tests/compiler2025/run_functional_in_docker.sh
+!tests/compiler2025/runtime_builtin_compat.c
+!tests/compiler2025/sylib.c
+!tests/compiler2025/sylib.h
