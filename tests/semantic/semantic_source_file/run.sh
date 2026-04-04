@@ -22,7 +22,7 @@ if [[ ${RC} -eq 0 ]]; then
     exit 1
 fi
 
-if [[ "${OUTPUT}" != *"semantic error: undefined identifier: missing at ${INPUT_FILE}:2:12-2:18"* ]]; then
+if [[ "${OUTPUT}" != *"${INPUT_FILE}:2:12: error: undefined identifier: missing"* ]]; then
     echo "error: semantic diagnostic is missing source file path" >&2
     echo "${OUTPUT}" >&2
     exit 1

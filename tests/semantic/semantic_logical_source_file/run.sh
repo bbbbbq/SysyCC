@@ -21,7 +21,7 @@ if [[ ${RC} -eq 0 ]]; then
     exit 1
 fi
 
-if [[ "${OUTPUT}" != *"semantic error: undefined identifier: missing at virtual_semantic.sy:51:12-51:18"* ]]; then
+if [[ "${OUTPUT}" != *"virtual_semantic.sy:51:12: error: undefined identifier: missing"* ]]; then
     echo "error: semantic diagnostic did not use logical #line location" >&2
     echo "${OUTPUT}" >&2
     exit 1

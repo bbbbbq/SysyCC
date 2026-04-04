@@ -13,6 +13,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_compiler_fails_with_message \
     "${BUILD_DIR}/SysyCC" --stop-after=semantic \
     "${INPUT_FILE}" \
-    "semantic error: undefined identifier: missing at 2:12-2:18"
+    "${INPUT_FILE}:2:12: error: undefined identifier: missing"
 
-echo "verified: semantic analysis rejects undefined identifiers"
+echo "verified: semantic analysis rejects undefined identifiers with GCC-like output"

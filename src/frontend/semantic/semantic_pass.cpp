@@ -24,29 +24,14 @@ bool has_error_diagnostics(const SemanticModel &semantic_model) {
     return false;
 }
 
-std::string format_source_span(const SourceSpan &source_span) {
-    std::string formatted_span;
-    if (source_span.get_file() != nullptr &&
-        !source_span.get_file()->empty()) {
-        formatted_span += source_span.get_file()->get_path();
-        formatted_span += ":";
-    }
-    formatted_span += std::to_string(source_span.get_line_begin()) + ":" +
-                      std::to_string(source_span.get_col_begin()) + "-" +
-                      std::to_string(source_span.get_line_end()) + ":" +
-                      std::to_string(source_span.get_col_end());
-    return formatted_span;
-}
-
-std::string format_first_error_message(const SemanticModel &semantic_model) {
+std::string first_error_message(const SemanticModel &semantic_model) {
     for (const auto &diagnostic : semantic_model.get_diagnostics()) {
         if (diagnostic.get_severity() != DiagnosticSeverity::Error) {
             continue;
         }
-        return "semantic error: " + diagnostic.get_message() + " at " +
-               format_source_span(diagnostic.get_source_span());
+        return diagnostic.get_message();
     }
-    return "semantic error";
+    return "semantic analysis failed";
 }
 
 DiagnosticLevel to_diagnostic_level(DiagnosticSeverity severity) {
@@ -100,7 +85,8 @@ PassResult SemanticPass::Run(CompilerContext &context) {
     }
 
     SemanticModel &semantic_model = semantic_context.get_semantic_model();
-    for (const SemanticDiagnostic &diagnostic : semantic_model.get_diagnostics()) {
+    for (const SemanticDiagnostic &diagnostic :
+         semantic_model.get_diagnostics()) {
         context.get_diagnostic_engine().add_diagnostic(Diagnostic(
             to_diagnostic_level(diagnostic.get_severity()),
             DiagnosticStage::Semantic, diagnostic.get_message(),
@@ -109,10 +95,8 @@ PassResult SemanticPass::Run(CompilerContext &context) {
     const bool success = !has_error_diagnostics(semantic_model);
     semantic_model.set_success(success);
 
-    const std::string error_message = success
-                                          ? ""
-                                          : format_first_error_message(
-                                                semantic_model);
+    const std::string error_message =
+        success ? "" : first_error_message(semantic_model);
     context.set_semantic_model(semantic_context.release_semantic_model());
     if (!success) {
         return PassResult::Failure(error_message);
