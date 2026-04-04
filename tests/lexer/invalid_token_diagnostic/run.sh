@@ -22,10 +22,8 @@ if [[ ${RC} -eq 0 ]]; then
     exit 1
 fi
 
-if [[ "${OUTPUT}" != *"lexer encountered invalid token '@' at ${INPUT_FILE}:2:12-2:12"* ]]; then
-    echo "error: invalid token diagnostic is missing lexeme or source span" >&2
-    echo "${OUTPUT}" >&2
-    exit 1
-fi
+grep -Fq "${INPUT_FILE}:2:12: error: invalid token '@'" <<<"${OUTPUT}"
+grep -Fq "      return @;" <<<"${OUTPUT}"
+grep -Eq '^[[:space:]]+\^$' <<<"${OUTPUT}"
 
-echo "verified: invalid token diagnostics include lexeme, source file, and source span"
+echo "verified: invalid token diagnostics use GCC-like headers and caret output"

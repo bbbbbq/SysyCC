@@ -205,19 +205,11 @@ TokenKind ToTokenKind(int token) {
     }
 }
 
-std::string FormatInvalidTokenMessage(const char *lexeme,
-                                      const SourceSpan &source_span) {
+std::string FormatInvalidTokenMessage(const char *lexeme) {
     std::ostringstream oss;
-    oss << "lexer encountered invalid token '"
+    oss << "invalid token '"
         << (lexeme == nullptr || lexeme[0] == '\0' ? "<unknown>" : lexeme)
-        << "' at ";
-    if (source_span.get_file() != nullptr &&
-        !source_span.get_file()->empty()) {
-        oss << source_span.get_file()->get_path() << ":";
-    }
-    oss << source_span.get_line_begin() << ":"
-        << source_span.get_col_begin() << "-" << source_span.get_line_end()
-        << ":" << source_span.get_col_end();
+        << "'";
     return oss.str();
 }
 
@@ -276,7 +268,7 @@ PassResult LexerPass::Run(CompilerContext &context) {
                 lexer_state.get_token_begin_logical_position(),
                 lexer_state.get_token_end_logical_position());
             const std::string invalid_message =
-                FormatInvalidTokenMessage(lexeme, source_span);
+                FormatInvalidTokenMessage(lexeme);
             context.get_diagnostic_engine().add_error(DiagnosticStage::Lexer,
                                                       invalid_message,
                                                       source_span);

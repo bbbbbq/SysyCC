@@ -21,7 +21,7 @@ if [[ ${RC} -eq 0 ]]; then
     exit 1
 fi
 
-if [[ "${OUTPUT}" != *"lexer encountered invalid token '@' at virtual lexer spaced.sy:41:12-41:12"* ]]; then
+if [[ "${OUTPUT}" != *"virtual lexer spaced.sy:41:12: error: invalid token '@'"* ]]; then
     echo "error: lexer diagnostic did not preserve spaced logical #line file name" >&2
     echo "${OUTPUT}" >&2
     exit 1

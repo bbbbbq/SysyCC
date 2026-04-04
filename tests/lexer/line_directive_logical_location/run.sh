@@ -21,7 +21,7 @@ if [[ ${RC} -eq 0 ]]; then
     exit 1
 fi
 
-if [[ "${OUTPUT}" != *"lexer encountered invalid token '@' at virtual_lexer.sy:41:12-41:12"* ]]; then
+if [[ "${OUTPUT}" != *"virtual_lexer.sy:41:12: error: invalid token '@'"* ]]; then
     echo "error: lexer diagnostic did not use logical #line location" >&2
     echo "${OUTPUT}" >&2
     exit 1
