@@ -1,206 +1,134 @@
-# Core IR Canonicalize 总路线图
+# Core IR Canonicalize 下一阶段测试计划
 
-## 当前状态
+## 背景
 
-本路线图中的 5 个阶段现已全部在 `main` 落地：
+旧的 `PLAN.md` 已经完成了上一轮 `CoreIrCanonicalizePass` 的 5 个实施阶段，
+不再适合作为当前工作入口。
 
-- Plan 1：分支条件第二阶段增强
-- Plan 2：地址表达式 / GEP 第二阶段增强
-- Plan 3：CFG 第二阶段增强
-- Plan 4：整数与布尔表达式第二阶段增强
-- Plan 5：Stack Slot 内存访问规范化
+现在最值得做的不是继续扩规则，而是先把“等价地址形态输出一致”和
+“CFG fixed-point 收敛稳定”用一组线性测试计划锁死。当前测试重点应围绕：
 
-当前这份文件保留为“已实施路线图”，用于说明 Canonicalize 是按什么顺序演进到当前形态的。
+- 更强的 `global` / `stackslot` + structural `GEP` 地址标准形
+- 更深层的 array/struct 混合地址链收敛
+- 防止 unsafe / non-structural 地址链被错误扁平化
+- 地址规范化与 CFG simplify 的阶段联动
+- 最终 LLVM lowering 与运行期回归闭环
 
-## 摘要
+## 总目标
 
-本路线图把 `CoreIrCanonicalizePass` 的后续演进拆成 5 个连续阶段，目标是逐步把
-Core IR 归一到更稳定、更利于 `ConstFold`、`DCE` 和 `Lower` 处理的标准形态。
+在不扩大本轮 rewrite 范围的前提下，优先把当前 canonicalize 规则变成
+“可证明、可回归、可长期稳定演进”的测试闭环。
 
-整体原则：
+## 总验收标准
 
-- 每一步都保持保守、局部、可验证
-- 不一开始引入全局数据流分析或激进重写
-- 每个阶段都形成“实现 + 专项测试 + 集成测试 + 全量回归”的闭环
-- 优先做对现有 IR 管线收益高、风险低、且已有测试基础的规范化
-
-## 总体路线
-
-### Plan 1：分支条件第二阶段增强（已实现）
-
-核心目标：
-
-- 继续增强 `CondJump` 条件规范化
-- 把更多“包了一层 cast / compare-of-compare / 布尔包装”的条件收敛成直接 `i1 compare`
-
-重点能力：
-
-- `condbr zext(compare_i1)`
-- `condbr sext(compare_i1)`
-- `condbr icmp ne (zext/sext compare), 0`
-- `condbr icmp eq (zext/sext compare), 0`
-- `condbr zext(!compare_i1)`
-- `condbr sext(!compare_i1)`
-
-关键约束：
-
-- 只允许 `SignExtend` / `ZeroExtend` 真值透传
-- 明确禁止 `truncate`、浮点条件、指针条件透传
-
-价值：
-
-- 直接放大 `CoreIrConstFoldPass` 和 `CoreIrDcePass` 的效果
-- 风险最低，最适合作为分支规范化的第二层闭环
-
-### Plan 2：地址表达式 / GEP 第二阶段增强（已实现）
-
-核心目标：
-
-- 继续收敛 `GetElementPtr`、数组索引、结构体成员访问和地址包装链
-- 让更多地址计算统一成更稳定的 canonical form
-
-重点能力：
-
-- 继续删除零索引 no-op `GEP`
-- 扁平化简单嵌套 `GEP`
-- 统一数组 decay 形成的浅层地址链
-- 收敛结构体成员访问的浅层地址包装
-
-关键约束：
-
-- 只处理局部、明确安全的嵌套 `GEP`
-- 不做动态复杂索引重排
-- 不跨越 pointer arithmetic 的语义边界
-
-价值：
-
-- 直接降低 LLVM lowering 的复杂度
-- 为后续更强的 load/store 规范化留出更干净输入
-
-### Plan 3：CFG 第二阶段增强（已实现）
-
-核心目标：
-
-- 把当前 CFG 规范化从“trampoline block 删除”推进到更完整的局部 CFG 收敛
-
-重点能力：
-
-- 空跳转块清理
-- 单前驱 / 单后继线性块合并
-- `condbr x, B, B -> jump B`
-- 空终点块进一步压平
-
-关键约束：
-
-- 只做局部 CFG 归一
-- 不引入支配分析
-- 不做 loop rotation / switch 重排 / critical edge splitting
-
-价值：
-
-- 减少 basic block 噪音
-- 让 `DCE`、`Lower` 和后续 IR 断言更加稳定
-
-### Plan 4：整数与布尔表达式第二阶段增强（已实现）
-
-核心目标：
-
-- 统一普通非终结整数/布尔表达式形态
-- 进一步提高 `ConstFold` 命中率
-
-重点能力：
-
-- 安全代数单位元：
-  - `x + 0`
-  - `x - 0`
-  - `x * 1`
-  - `x / 1`
-  - `x | 0`
-  - `x ^ 0`
-- compare 常量换边和方向统一
-- compare-of-compare / 布尔包装进一步归一
-
-关键约束：
-
-- 不做溢出敏感或激进代数变换
-- 不碰浮点、指针表达式
-- 不做跨块 value propagation
-
-价值：
-
-- 让 `ConstFold` 面对更标准的表达式树
-- 为将来的更强 canonicalize 或 peephole 优化打基础
-
-### Plan 5：Stack Slot 内存访问规范化（已实现）
-
-核心目标：
-
-- 把简单 stack slot 内存访问统一成更直接的 load/store 形态
-
-重点能力：
-
-- `load(addr_of_stackslot(slot)) -> direct stack-slot load`
-- `store(value, addr_of_stackslot(slot)) -> direct stack-slot store`
-- 删除因此变成死代码的 `addr_of_stackslot`
-
-关键约束：
-
-- 只处理 plain `addr_of_stackslot`
-- 不处理 `GEP(addr_of_stackslot(...))`
-- 不做 global 地址折叠
-- 不做 store-to-load forwarding / alias analysis / memory SSA
-
-价值：
-
-- 减少同一语义的双重表示
-- 为后续更强局部内存优化打基础
-
-## 推荐执行顺序
-
-推荐严格按以下顺序推进：
-
-1. `plan1` 分支条件第二阶段增强
-2. `plan2` 地址表达式 / GEP 第二阶段增强
-3. `plan3` CFG 第二阶段增强
-4. `plan4` 整数与布尔表达式第二阶段增强
-5. `plan5` stack slot 内存访问规范化
-
-这个顺序的理由是：
-
-- 先统一分支条件
-- 再统一地址表达式
-- 再统一 CFG 结构
-- 然后统一普通表达式
-- 最后统一内存访问表示
-
-这样每一步都在给后一步清理输入形态，而不是反过来放大复杂度。
-
-## 每阶段统一验收标准
-
-每个阶段都必须满足：
-
-- 只扩展当前阶段目标，不顺手扩大到无关子系统
-- 补齐对应专项回归
-- 保留已有关键集成测试
-- 至少跑：
-  - `cmake -S . -B build`
-  - `cmake --build build --parallel`
-  - 该阶段对应的专项测试
+- 等价的结构化地址链在 raw Core IR 输出中收敛成同一种 canonical form
+- 非结构化或语义敏感的地址链不会被错误合并
+- 地址 canonicalize 暴露出来的 CFG 简化机会能稳定收敛
+- LLVM lowering 与运行期行为不因 canonical form 收敛而回退
+- 最终至少通过：
+  - `tests/ir/ir_core_canonicalize_pass/run.sh`
+  - `tests/ir/ir_top_level_pass_pipeline_llvm/run.sh`
+  - 相关新增 `tests/ir/*/run.sh`
+  - 相关新增 `tests/run/*/run.sh`
   - `./tests/run_all.sh`
-- 最终 `build/test_result.md` 为 `Overall: PASS`
 
-## 总风险与控制策略
+## 五步线性测试计划
 
-### 总风险
+### Step 1：锁定“等价结构化地址链输出一致”的 raw Core IR golden
 
-- 规范化规则过于激进，改变语义
-- 不同阶段的 canonical form 互相冲突
-- 测试只覆盖“跑通”，没有覆盖“形态正确”
+这是下一步最值得先做的事情，因为它直接保护当前最核心的目标：
+同一 `base object + canonical indices` 只保留一种输出形态。
 
-### 控制策略
+- 主要落点：
+  - `tests/ir/ir_core_canonicalize_pass/ir_core_canonicalize_pass.cpp`
+- 测试重点：
+  - `global` 基址上的零索引包装链
+  - `stackslot` 基址上的零索引包装链
+  - 同一结构化路径从不同入口形态进入后，最终打印结果一致
+  - `load/store` 使用的地址在 canonicalize 后不再保留多余 wrapper
+- 验收标准：
+  - 同语义地址链的 raw printer 输出完全一致
+  - 相关断言不只检查“能 flatten”，还检查“flatten 成同一种形态”
 
-- 每一步只做一个子系统增强
-- 每新增一种 rewrite，都必须补专项测试
-- 优先写“禁止错误透传”的负例测试
-- 如果某种重写是否安全有一点不确定，默认不做
-- 以保守 canonicalization 为主，不把 canonicalize 变成真正的高收益优化器
+### Step 2：扩展更深层的 array/struct 混合地址链矩阵测试
+
+只有先锁定 Step 1 的“输出一致性”，再扩到更深层混合链，才能知道新增规则
+是在扩大覆盖面，而不是引入第二种等价形态。
+
+- 主要落点：
+  - `tests/ir/ir_core_canonicalize_pass/ir_core_canonicalize_pass.cpp`
+  - `tests/ir/ir_multidim_index_decay_call/run.sh`
+  - `tests/ir/ir_indexed_struct_member_access/run.sh`
+- 测试重点：
+  - `array -> struct -> array`
+  - `struct -> array -> struct`
+  - 多维数组后再取成员
+  - `global` / `stackslot` 两类 base object 上的相同结构化路径
+- 验收标准：
+  - 更深层结构化链都收敛成单一 `base + indices`
+  - 不同构造方式不会再产生分散的等价 GEP 形态
+
+### Step 3：补齐 unsafe / non-structural 地址路径的负例保护
+
+地址标准形越强，越需要尽早补齐“哪些不能动”的保护测试，否则后续扩展很容易
+把 pointer arithmetic、union 风格访问或 reinterpret-like 路径错误折叠。
+
+- 主要落点：
+  - `tests/ir/ir_core_canonicalize_pass/ir_core_canonicalize_pass.cpp`
+- 测试重点：
+  - 缺少 leading zero member wrapper 的 `struct*` 指针算术
+  - array decay 之后继续做非结构化偏移
+  - union / alias-sensitive 地址路径
+  - 动态索引参与的非结构化 follow-on `GEP`
+- 验收标准：
+  - 这些路径在 canonicalize 后仍保持原有语义边界
+  - 新测试明确证明“保持不变”是预期，而不是未覆盖
+
+### Step 4：补地址 canonicalize 与 CFG simplify 的 fixed-point 联动测试
+
+前 3 步锁定地址形态后，下一步最值得验证的是阶段联动，因为地址/真值规范化会暴露
+新的常量分支、冗余跳转和不可达块清理机会。
+
+- 主要落点：
+  - `tests/ir/ir_core_canonicalize_pass/ir_core_canonicalize_pass.cpp`
+  - `tests/ir/ir_top_level_pass_pipeline_llvm/ir_top_level_pass_pipeline_llvm.cpp`
+- 测试重点：
+  - constant-condition branch collapse
+  - `condbr x, B, B -> jump B`
+  - trampoline/jump-threading 后的不可达块清理
+  - rewrite 后 terminator / parent 关系保持正确
+- 验收标准：
+  - canonicalize 一次运行后就达到稳定形态
+  - block 数量、终结指令种类和跳转目标都与预期一致
+
+### Step 5：把新增 canonical form 提升到 top-level pipeline 与运行期回归
+
+前 4 步验证的是 raw Core IR 与局部 pass 行为，最后一步才值得做端到端锁定，
+把这些规范化结果变成长期稳定的用户可见保障。
+
+- 主要落点：
+  - `tests/ir/ir_top_level_pass_pipeline_llvm/*`
+  - `tests/ir/ir_floating_comparison_and_condition/run.sh`
+  - `tests/run/run_indexed_struct_member_access/*`
+  - `tests/run/run_multidim_index_decay_call/*`
+  - `tests/run/run_floating_comparison_and_condition/*`
+- 测试重点：
+  - canonical address form 在 LLVM lowering 后仍保持正确寻址语义
+  - pointer / float truthiness 路径与 CFG 收敛后的 lowering 一致
+  - 把已最小化的 fuzz 复现输入提升为确定性 IR / run 回归
+- 验收标准：
+  - top-level pipeline、专项 IR、专项 run 与 `./tests/run_all.sh` 全部通过
+  - 新增 regression 能覆盖本轮 canonicalize 最关键的等价地址与 CFG 联动风险
+
+## 执行顺序要求
+
+这 5 步必须严格线性推进：
+
+1. 先锁定“等价输出一致”
+2. 再扩大深层结构化链覆盖
+3. 再补负例边界，防止过度规范化
+4. 再验证 CFG fixed-point 联动
+5. 最后做 top-level pipeline 与运行期闭环
+
+如果某一步发现新的 rewrite 空间，先把该步测试补完整，再决定是否进入实现，
+不要在同一步里一边扩规则、一边扩验证面，避免混淆回归来源。
