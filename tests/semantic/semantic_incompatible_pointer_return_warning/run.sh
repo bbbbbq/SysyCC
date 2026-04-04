@@ -23,8 +23,7 @@ if [[ ${RC} -ne 0 ]]; then
     exit 1
 fi
 
-NORMALIZED_OUTPUT="$(printf '%s' "${OUTPUT}" | sed -E 's#[^[:space:]]+:([0-9]+:[0-9]+-[0-9]+:[0-9]+)#\1#g')"
-grep -Fq "semantic warning: return between incompatible pointer types at 5:5-5:17" \
-    <<<"${NORMALIZED_OUTPUT}"
+grep -Fq ":5:5: warning: return between incompatible pointer types" \
+    <<<"${OUTPUT}"
 
 echo "verified: incompatible pointer returns warn without failing semantic analysis"

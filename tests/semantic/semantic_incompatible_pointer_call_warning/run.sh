@@ -23,8 +23,7 @@ if [[ ${RC} -ne 0 ]]; then
     exit 1
 fi
 
-NORMALIZED_OUTPUT="$(printf '%s' "${OUTPUT}" | sed -E 's#[^[:space:]]+:([0-9]+:[0-9]+-[0-9]+:[0-9]+)#\1#g')"
-grep -Fq "semantic warning: function call argument uses incompatible pointer type at 8:27-8:29" \
-    <<<"${NORMALIZED_OUTPUT}"
+grep -Fq ":8:27: warning: function call argument uses incompatible pointer type" \
+    <<<"${OUTPUT}"
 
 echo "verified: incompatible pointer call arguments warn without failing semantic analysis"

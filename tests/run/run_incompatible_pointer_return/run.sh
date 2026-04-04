@@ -28,7 +28,7 @@ if [[ ${RC} -ne 0 ]]; then
     exit 1
 fi
 
-grep -Fq "semantic warning: return between incompatible pointer types" <<<"${OUTPUT}"
+grep -Fq "warning: return between incompatible pointer types" <<<"${OUTPUT}"
 assert_file_nonempty "${IR_FILE}"
 build_and_link_ir_executable "${IR_FILE}" \
     "${PROJECT_ROOT}/tests/run/support/runtime_stub.c" \
