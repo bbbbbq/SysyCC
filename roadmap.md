@@ -2,473 +2,311 @@
 
 ## Purpose
 
-This file records the current language support status of the SysyCC front-end.
-It focuses on what syntax is already implemented and what is still missing.
+This file records the current implemented state of `SysyCC` and the next
+stage-by-stage milestones. It should stay aligned with the real codebase and
+regression coverage rather than an aspirational architecture.
 
 ## Project Direction
 
 - `SysyCC` is intended to support both `SysY22` and `C` language workflows.
 - Near-term implementation choices should prefer shared infrastructure that can
-  serve both targets, instead of hard-coding the project around only one
-  language subset.
-- Subsequent feature work should follow test-driven development by adding or
-  updating focused tests before implementation and regression verification.
+  serve both targets instead of hard-coding the project around one narrow
+  subset.
+- Feature work should continue to be driven by focused regression tests before
+  implementation and verification.
 
 ## Current Pipeline
 
 ```text
 source file
--> preprocess
--> lexer
--> parser
--> ast
--> semantic
--> ir
+-> PreprocessPass
+-> LexerPass
+-> ParserPass
+-> AstPass
+-> SemanticPass
+-> BuildCoreIrPass
+-> CoreIrCanonicalizePass
+-> CoreIrConstFoldPass
+-> CoreIrDcePass
+-> LowerIrPass
 ```
 
-## IR
+## Current Implemented State
 
-### Implemented
+### Compiler core and tooling
 
-- modular IR generation stage after semantic analysis
-- backend-independent `IRBackend` interface
-- initial LLVM IR backend
-- textual LLVM IR dump output to `build/intermediate_results/*.ll`
-- top-level LLVM `declare` emission for builtin runtime-style external calls
-- lowering for
-  - integer and void functions
-  - integer parameters and integer local variables
-  - integer literals, identifiers, assignments, arithmetic, comparisons, and
-    short-circuit logical expressions
-  - direct function calls
-  - `if`
-  - `while`
-  - `for`
-  - `do-while`
-  - `switch/case/default`
-  - `break`
-  - `continue`
-  - pointer-aware lowering for member access, address-of, dereference, index
-    expressions, and pointer arithmetic in the current supported subset
-  - floating scalar lowering for `float`, `double`, `_Float16`, and
-    `long double` in the current supported subset
+- CMake builds one `SysyCC` executable and generates the lexer/parser with
+  Flex/Bison.
+- The compiler core owns one shared `CompilerContext` carrying diagnostics,
+  source mapping, dialect configuration, semantic results, Core IR build
+  results, and final IR output.
+- A shared `DialectManager` now centralizes keyword, feature, and handler
+  ownership, and the compiler fails fast when dialect registration leaves the
+  frontend in an invalid conflict state.
+- CLI/compiler options already support include-path configuration, dump flags,
+  stop-after-stage execution, and dialect-pack toggles.
+- The project has stage-grouped regression suites, runtime cases, dialect
+  architecture regressions, static-check entry points, and a differential fuzz
+  workspace.
 
-### Not Implemented
+### Preprocess
 
-- array lowering
-- runtime-library call lowering coverage beyond the current direct-call subset
-- `.ll -> .s` / object-file / linker driver pipeline
+- Comment stripping works for both `//` and `/* ... */` while preserving string
+  and character literal contents.
+- Supported directives include `#define`, `#undef`, `#include`,
+  `#include_next`, `#error`, `#line`, `#pragma once`, ordinary `#pragma`, and
+  the `#if/#elif/#elifdef/#elifndef/#ifdef/#ifndef/#else/#endif` family.
+- Object-like and function-like macros already support variadics,
+  backslash-continued definitions, nested expansion, stringification, and token
+  pasting.
+- Conditional-expression evaluation already covers identifiers, `defined(...)`,
+  arithmetic, bitwise, shifts, logical operators, the comma operator, ternary
+  `?:`, and builtin probes such as `__has_include(...)` and common clang-style
+  feature probes.
+- Include resolution already uses current-directory, `-I`, `-isystem`, default
+  system search paths, and preprocess-local source remapping through a shared
+  `SourceLineMap`.
+- The preprocess stage now seeds a minimal predefined macro set for better
+  system-header compatibility, including common integer-limit spellings.
 
-## Not Fully End-to-End Yet
+### Lexer and dialect classification
 
-This section tracks syntax that is already accepted somewhere in the
-front-end, but is still not fully implemented from preprocess through IR.
+- The lexer already handles identifiers, decimal/octal/hex integer literals
+  with standard suffixes, floating literals, character literals, string
+  literals, and the current C-style operator/punctuator set.
+- Token kinds and source spans are preserved for downstream passes and dump
+  output.
+- Keyword and feature classification now flows through the shared dialect
+  manager instead of being rediscovered independently inside each stage.
 
-### Front-End Supported, IR Not Fully Supported
+### Parser
 
-- richer integer-type lowering outside the current tested subset
-  - `long int`
-  - `long long int`
-  - `unsigned int`
-  - `unsigned long long`
+- The parser accepts mixed translation units containing declarations and
+  function definitions.
+- Supported declaration forms now cover scalars, arrays, pointer declarators,
+  initializer lists, `struct`, `union`, `enum`, `typedef`, declaration-only
+  `extern` / `inline` prototypes, variadic signatures, grouped function-pointer
+  declarators, `extern` variables, and several builtin type spellings used by
+  real headers.
+- Supported statements and expressions include `if`, `while`, `for`,
+  `do ... while`, `switch/case/default`, `break`, `continue`, `return`, calls,
+  indexing, comma expressions, `.` / `->` member access, prefix/postfix `++ --`,
+  shifts, bitwise operators, C-style casts, and ordinary ternary `?:`.
+- The current C-compatible grammar also accepts GNU-style attributes, GNU
+  asm-labeled prototypes, qualifier-rich pointer declarators, and parser-seeded
+  bootstrap typedef names such as `size_t` and `va_list`.
+- Parse trees can be dumped to `build/intermediate_results/*.parse.txt`.
 
-### Compatibility-Accepted, Semantics Still Incomplete
+### AST
 
-- non-`once` `#pragma`
-  - recognized and ignored
-  - not fully implemented semantically
-- `#line`
-  - logical file/line remapping exists
-  - full industrial-strength source mapping is still incomplete
-- GNU attributes beyond the current supported subset
-  - only a small subset is semantically meaningful today
-  - the rest are preserved or rejected for compatibility
-- full qualifier system
-  - `const char *`-style cases have real support
-  - complete C qualifier semantics are still incomplete
-- extension builtin types
-  - `_Float16` now has front-end, semantic, IR cast/arithmetic/comparison
-    coverage, and hexadecimal floating-literal lowering in the current
-    supported scalar subset
-  - fuller standard-library integration and wider backend coverage are still
-    incomplete
-- richer floating/runtime integration
-  - `long double` and `_Float16` now have cast, arithmetic, comparison,
-    branch-truthiness, and hexadecimal floating-literal lowering in the
-    current IR subset
-  - fuller target-specific runtime and ABI coverage are still incomplete
-- internal `ptrdiff_t` modeling
-  - pointer difference now uses an internal `ptrdiff_t`-style semantic result
-  - parser-level spelling and fuller standard-library integration are still
-    incomplete
+- The AST pass lowers core declaration, expression, and control-flow nodes into
+  a compiler-facing tree, including parameters, declarations, initializer
+  lists, assignments, calls, conditional `?:`, loops, `switch/case/default`,
+  pointer declarators, and `struct` / `union` / `enum` / `typedef`
+  declarations.
+- Source spans are propagated from parse nodes into AST nodes.
+- `AstPass` records AST completeness in `CompilerContext` and rejects explicit
+  `--dump-ast` requests when the lowered AST is incomplete.
+- AST dumps are written to `build/intermediate_results/*.ast.txt`.
 
-### Highest-Value Next Steps
+### Semantic
 
-1. richer integer-type lowering
-   - `long int`
-   - `long long int`
-   - `unsigned int`
-   - `unsigned long long`
-2. richer aggregate/object lowering
-   - arrays
-   - more complete global object coverage
-3. fuller floating/runtime coverage beyond the current scalar cast/arithmetic subset
+- `SemanticPass` installs builtin runtime-library symbols, creates a
+  `SemanticModel`, and records symbol/type bindings plus foldable integer
+  constant-expression values.
+- The semantic layer already diagnoses undefined identifiers, redefinitions,
+  invalid call targets, arity/type mismatches, invalid assignments, invalid
+  returns, bad unary/binary/index/member operands, invalid ternary branches,
+  invalid `break` / `continue` / `case` / `default` placement, duplicate switch
+  labels, missing returns, non-constant array dimensions and case labels,
+  pointer-arithmetic misuse, and null-pointer assignment mistakes.
+- Implemented semantic behavior already includes string literals as `char[N]`,
+  array-to-pointer and function-designator decay, enum/union-aware type
+  modeling, file-scope linkage tracking, pointer-compatibility warnings for
+  mismatched pointee types, qualifier/nullability preservation on pointer
+  types, and end-to-end unary bitwise-not integer promotions.
+- Semantic diagnostics now flow through the shared compiler diagnostic engine.
 
-## Preprocess
+### Core IR and lowering
 
-### Implemented
+- The production backend hot path is now the explicit pass sequence
+  `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrConstFoldPass ->
+  CoreIrDcePass -> LowerIrPass`.
+- `src/backend/ir/shared/core/` provides a staged Core IR object model for
+  modules, globals, functions, blocks, stack slots, types, constants, and
+  instructions, plus a stable raw printer for regression tests.
+- `CoreIrBuilder` already lowers a meaningful staged subset including top-level
+  scalar and pointer globals, local scalar/array/struct/union declarations,
+  character arrays, direct and indirect calls, pointer arithmetic and pointer
+  differences, array indexing, scalar struct/union member access,
+  `goto`/labels, `switch`, compound assignments, and the current supported
+  control-flow forms.
+- The canonicalization, constant-fold, and DCE passes are now real explicit
+  stages rather than placeholders, with conservative cleanup over branch
+  conditions, cast chains, GEP chains, CFG structure, and stack-slot address
+  forms.
+- The staged LLVM backend already lowers the supported Core IR subset into LLVM
+  IR text, including direct/indirect calls, variadic-call signatures and
+  default-argument promotions, pointer-difference lowering, string literals,
+  enum storage, union-backed aggregate storage, and top-level constant address
+  initializers.
+- Unsupported IR is handled fail-fast: validation or later emission errors now
+  surface as compiler diagnostics instead of silently producing partial
+  modules.
+- The AArch64 target backend exists as an explicit placeholder that reports a
+  diagnostic rather than silently pretending lowering is implemented.
+- IR dumps are written to `build/intermediate_results/*.ll` when `--dump-ir` is
+  enabled.
 
-- supported directive syntax
-  - `#define NAME value`
-  - `#define ADD(a, b) ((a) + (b))`
-  - `#define LOG(...) __VA_ARGS__`
-  - `#error message`
-  - `#line 123`
-  - `#line 123 "file.h"`
-  - `#pragma once`
-  - `#pragma anything-else`
-  - `#undef NAME`
-  - `#include "file.h"`
-  - `#include <file.h>`
-  - `#include_next <file.h>`
-  - `#ifdef NAME`
-  - `#ifndef NAME`
-  - `#if expr`
-  - `#elif expr`
-  - `#elifdef NAME`
-  - `#elifndef NAME`
-  - `#else`
-  - `#endif`
-- object-like macros
-  - `#define NAME value`
-  - `#undef NAME`
-- function-like macros
-  - `#define ADD(a, b) ((a) + (b))`
-  - `#define LOG(...) __VA_ARGS__`
-  - multi-line macro definitions using trailing `\`
-  - fixed-arity parameter substitution
-  - variadic parameter substitution through `...` and `__VA_ARGS__`
-  - nested macro invocation expansion
-  - stringification operator `#`
-  - token pasting operator `##`
-- comment stripping
-  - `// ...`
-  - `/* ... */`
-  - preserves string and character literal contents while removing comments
-- local include
-  - `#include "file.h"`
-  - search current file directory first
-  - search CLI `-I` include directories next
-- system include
-  - `#include <file.h>`
-  - search default system include directories
-  - quoted includes fall back to system include directories after local and
-    user-provided include directories
-  - `#include_next <file.h>` continues from the next matching system include
-    directory after the current header
-- macro expansion syntax
-  - ordinary object-like replacement
-  - fixed-arity function-like replacement
-  - nested expansion in ordinary source lines
-  - `#param` stringification
-  - `lhs ## rhs` token pasting
-- conditional compilation
-  - `#ifdef`
-  - `#ifndef`
-  - `#if`
-  - `#elif`
-  - `#elifdef`
-  - `#elifndef`
-  - `#else`
-  - `#endif`
-- simple constant expressions in `#if` and `#elif`
-  - integer literals
-  - macro identifiers
-  - `defined(NAME)`
-  - unary operators: `!`, `~`, unary `+`, unary `-`
-  - arithmetic and shift operators: `*`, `/`, `%`, `+`, `-`, `<<`, `>>`
-  - bitwise operators: `&`, `^`, `|`
-  - relational operators: `<`, `<=`, `>`, `>=`
-  - equality operators: `==`, `!=`
-  - logical operators: `&&`, `||`
-  - ternary `?:`
-  - comma operator
-  - parenthesized expressions
-  - `__has_include(...)`
-  - `__has_include_next(...)`
+### Testing and verification
 
-### Not Implemented
+- Tests are grouped by stage under `tests/preprocess`, `tests/lexer`,
+  `tests/parser`, `tests/ast`, `tests/semantic`, `tests/ir`, `tests/run`,
+  `tests/dialects`, and `tests/fuzz`.
+- Runtime tests compile emitted LLVM IR together with runtime support and verify
+  stdin/stdout behavior.
+- Dialect-focused regressions cover registration, feature gating, handler
+  ownership, and CLI-to-dialect option mapping.
+- The top-level `tests/run_all.sh` entry builds once, runs discovered cases in
+  parallel, verifies expected artifacts, and writes `build/test_result.md`.
+- The fuzz workspace supports differential execution against host `clang` and
+  archives per-case artifacts and summaries.
 
-- unsupported directive syntax
-- complete C preprocessor compatibility
-- macro continuation syntax
-  - variadic continuation macros with trailing `\`
-- unsupported condition syntax in `#if/#elif`
-  - full `defined` / builtin probing compatibility beyond the current minimal
-    support
-- full downstream source-location remapping for accepted `#line` directives
-- pragma-specific semantics beyond `#pragma once`
-- comment-preserving location mapping across preprocess and lexer stages
+## Known Gaps
 
-### Recommended Implementation Order
+- Full C preprocessor compatibility is still incomplete, especially around full
+  builtin-probe parity, pragma semantics beyond `#pragma once`, and industrial
+  strength downstream logical-location remapping.
+- Some accepted front-end syntax is still not uniformly end-to-end through AST,
+  semantic analysis, Core IR, and final lowering.
+- Richer qualifier semantics, declaration compatibility, conversion rules,
+  aggregate initialization rules, and overflow-sensitive constant evaluation are
+  still incomplete.
+- Broader integer-width/signedness coverage, fuller array/aggregate/object
+  lowering, and fuller floating/runtime integration are still incomplete.
+- The compiler still stops at LLVM IR text emission; a real assembly/object/link
+  driver pipeline is not yet in place.
+- The staged AArch64 backend remains diagnostic-only.
 
-For the next preprocess-compatibility stage, the recommended implementation
-order is:
+## Stage-by-Stage Milestones
 
-1. full `defined` / builtin probing compatibility beyond the current minimal support
-2. ternary conditional operator in `#if`
-   - `?:`
-3. comma operator in `#if`
+### Milestone 1 — Preprocess compatibility hardening
 
-This order prioritizes features that most often block real system-header and
-`csmith` preprocessing before lower-frequency or more specialized preprocessor
-syntax.
+Goal: unblock more real headers and generated C inputs.
 
-## Lexer
+Concrete work items:
 
-### Implemented
+- Expand predefined macro coverage and builtin-probe behavior used by current
+  Darwin/libc headers, especially `__has_*`-style queries and compiler/target
+  compatibility spellings.
+- Turn each newly discovered header-compatibility failure into a dedicated
+  regression under `tests/preprocess` or a minimized reproducer under
+  `tests/fuzz`.
+- Finish logical source-location propagation from `#line` and nested include
+  stacks so later lexer/parser/semantic diagnostics consistently report logical
+  file and line information.
+- Make pragma behavior explicit: implement the pragmas we want to honor, and
+  diagnose-or-ignore the rest consistently instead of leaving them as ad hoc
+  compatibility cases.
+- Add targeted header-smoke regressions around representative real-header
+  snippets so compatibility improvements do not silently regress.
 
-- keywords
-  - `const`
-  - `int`
-  - `void`
-  - `float`
-  - `if`
-  - `else`
-  - `while`
-  - `for`
-  - `do`
-  - `switch`
-  - `case`
-  - `default`
-  - `break`
-  - `continue`
-  - `return`
-  - `struct`
-  - `enum`
-  - `typedef`
-- identifiers
-- integer literals
-  - decimal
-  - octal
-  - hexadecimal
-- floating-point literals
-- character literals
-- string literals
-- operators
-  - `+ - * / %`
-  - `++ --`
-  - `& | ^ ~`
-  - `<< >>`
-  - `. ->`
-  - `= == != < <= > >=`
-  - `! && ||`
-- punctuators
-  - `; , : ( ) [ ] { }`
-- invalid token detection for
-  - malformed integer forms
-  - unknown characters
-- token source span tracking
-- exact token kind storage for downstream passes and token dumps
+### Milestone 2 — Front-end completeness
 
-## AST
+Goal: make parser-accepted syntax consistently lower through the front-end.
 
-- initial AST lowering pass
-- parser tree to AST translation rooted at `TranslationUnit`
-- currently lowered nodes:
-  - `FunctionDecl`
-  - `ParamDecl`
-  - `VarDecl`
-  - `ConstDecl`
-  - `FieldDecl`
-  - `StructDecl`
-  - `EnumDecl`
-  - `EnumeratorDecl`
-  - `TypedefDecl`
-  - `BlockStmt`
-  - `DeclStmt`
-  - `ExprStmt`
-  - `IfStmt`
-  - `WhileStmt`
-  - `ForStmt`
-  - `DoWhileStmt`
-  - `SwitchStmt`
-  - `CaseStmt`
-  - `DefaultStmt`
-  - `BreakStmt`
-  - `ContinueStmt`
-  - `ReturnStmt`
-  - `IntegerLiteralExpr`
-  - `FloatLiteralExpr`
-  - `CharLiteralExpr`
-  - `StringLiteralExpr`
-  - `IdentifierExpr`
-  - `UnaryExpr`
-  - `PrefixExpr`
-  - `PostfixExpr`
-  - `BinaryExpr`
-  - `AssignExpr`
-  - `CallExpr`
-  - `IndexExpr`
-  - `MemberExpr`
-  - `InitListExpr`
-  - `BuiltinTypeNode`
-  - `PointerTypeNode`
-  - `StructTypeNode`
-  - `EnumTypeNode`
-- AST source span propagation from parse tree
-- AST completeness tracking in `CompilerContext`
-- AST dump output to `build/intermediate_results/*.ast.txt`
+Concrete work items:
 
-### Not Implemented
+- Use `UnknownDecl`, `UnknownStmt`, `UnknownExpr`, and `UnknownTypeNode` cases as
+  the queue for AST-completeness work, and retire them case by case.
+- Close remaining parser-to-AST gaps around declarators, type names, casts,
+  qualifiers, grouped function declarators, and pointer-heavy declaration
+  shapes already accepted by the grammar.
+- For every construct that moves from parser-only to lowered support, add
+  matching regressions in both `tests/parser` and `tests/ast`.
+- Keep dialect registries aligned with implementation: newly supported
+  extensions should also gain explicit parser/AST/semantic ownership and a
+  gating regression under `tests/dialects`.
+- Update support documentation when a construct becomes front-end complete so
+  roadmap and module docs stay synchronized.
 
-- dedicated lexer tests for newly recognized C-style tokens beyond the current parser grammar
-- fully complete AST lowering for all parser-accepted constructs
-- comma operator expressions
-- ternary operator
-  - `?:`
-- pointer-to-member combinations beyond basic `->`
-- richer declarator/type lowering beyond the current pointer and array forms
+### Milestone 3 — Semantic correctness
 
-## Semantic
+Goal: make the front-end trustworthy for richer real-world C programs.
 
-### Implemented
+Concrete work items:
 
-- semantic pass integrated after AST lowering
-- builtin runtime-library symbol installation
-- lexical scope stack and symbol registration for
-  - functions
-  - parameters
-  - variables
-  - constants
-  - typedef names
-  - struct names
-  - enum names
-  - enumerators
-- AST-node-to-type and AST-node-to-symbol bindings
-- first integer constant-expression value tracking in `SemanticModel`
-- semantic diagnostics for
-  - undefined identifiers
-  - same-scope redefinitions
-  - function-call arity mismatches
-  - function-call argument type mismatches
-  - calls to non-function objects
-  - assignment type mismatches
-  - assignments to non-assignable targets
-  - `return` type mismatches
-  - invalid arithmetic, bitwise, shift, logical, relational, and equality operands
-  - non-scalar condition expressions
-  - non-pointer / non-array index bases
-  - non-integer array subscripts
-  - non-constant array dimensions
-  - invalid operands for unary `&`, `*`, `+`, `-`, `!`, `~`
-  - invalid operands for prefix/postfix `++`
-  - invalid `break` / `continue` placement
-  - invalid `case` / `default` placement
-  - duplicate `case` labels within one `switch`
-  - multiple `default` labels within one `switch`
-  - non-constant `case` labels
-  - non-constant integer `const` initializers
-  - non-constant enumerator values
-  - integer-zero null pointer constants assigned or passed to pointer targets
-  - array-to-pointer decay for pointer-compatible call and assignment checks
-  - pointer arithmetic for `pointer +/- integer` and `pointer - pointer`
-  - invalid `.` / `->` base types
-  - missing struct members accessed through `.` / `->`
-  - non-void functions that may exit without returning a value
-  - recursive integer constant-expression evaluation for character literals and unary/binary operator trees
+- Extend `ConversionChecker`, `TypeResolver`, `IntegerConversionService`, and
+  `ConstantEvaluator` for the remaining implicit-conversion and
+  usual-arithmetic-conversion edge cases.
+- Tighten function/global redeclaration compatibility and qualifier-aware
+  assignment, return, and call checking.
+- Expand constant-expression coverage for array dimensions, enumerators,
+  initializers, and `switch` labels, including range- and overflow-sensitive
+  diagnostics.
+- Broaden aggregate initializer analysis for arrays, structs, and unions,
+  including element-count, shape, and type-compatibility checks.
+- Keep warning-vs-error policy explicit with regression coverage for pointer
+  compatibility, qualifier dropping, and other intentional C-compatibility
+  diagnostics.
 
-### Not Implemented
+### Milestone 4 — Core IR coverage expansion
 
-- more complete implicit conversion and usual arithmetic conversion rules
-- floating-point constant folding
-- full pointer arithmetic rules
-- full argument passing rules for arrays and pointer decay
-- full lvalue / modifiable-lvalue rules
-- function declaration compatibility and redeclaration checks
-- unreachable-code and control-flow diagnostics
-- enum value auto-increment rules
-- complete constant-expression evaluation for all semantic contexts
-- constant-expression range / overflow diagnostics
-- struct initialization semantic checks
-- array initializer shape and bounds checks
-- builtin runtime-library signature coverage beyond the current set
-- semantic output dumping for inspection
+Goal: move more ordinary C code onto the staged Core IR path.
 
-## Parser
+Concrete work items:
 
-### Implemented
+- Extend `CoreIrBuilder` and staged lowering for the remaining integer-width and
+  signedness paths that are already semantically accepted but not yet emitted
+  end to end.
+- Implement fuller array and aggregate lowering, especially nested initializers,
+  aggregate assignment flow, and richer global-object emission.
+- Expand floating lowering and runtime coverage for `_Float16`, `float`,
+  `double`, and `long double` through both `tests/ir` and `tests/run`.
+- Keep each newly supported construct covered at three levels: semantic
+  acceptance, staged/raw IR regression, and executable runtime behavior where
+  applicable.
+- Preserve fail-fast diagnostics for unsupported nodes so partial lowering never
+  looks like successful compilation.
 
-- compilation unit with mixed declarations and function definitions
-- declarations
-  - `const int`
-  - `int`
-  - `float`
-  - `typedef`
-  - `struct` declarations and definitions
-  - `enum` declarations and definitions
-- variable and constant definitions
-  - scalar definitions
-  - array definitions
-  - pointer declarators
-  - initializer lists
-- function definitions
-  - `int` return type
-  - `void` return type
-  - `float` return type
-  - empty parameter list
-  - normal parameters
-  - array parameters
-  - pointer parameters
-- blocks and block items
-- statements
-  - assignment
-  - expression statement
-  - empty statement
-  - nested block
-  - `if`
-  - `if ... else`
-  - `while`
-  - `for`
-  - `do ... while`
-  - `switch`
-  - `case`
-  - `default`
-  - `break`
-  - `continue`
-  - `return;`
-  - `return expr;`
-- expressions
-  - identifier primary expressions
-  - integer primary expressions
-  - float / char / string primary expressions
-  - function calls
-  - postfix `[]`, `()`, `.`, `->`, `++`, `--`
-  - unary `+ - ! ~ & *`
-  - prefix `++ --`
-  - multiplicative `* / %`
-  - additive `+ -`
-  - shift `<< >>`
-  - bitwise `& ^ |`
-  - relational `< <= > >=`
-  - equality `== !=`
-  - logical `&& ||`
-- parse tree generation and dump output
+### Milestone 5 — Backend and driver maturity
 
-### Not Implemented
+Goal: turn LLVM IR emission into a more complete compilation flow.
 
-- comma operator expressions
-- ternary operator
-  - `?:`
-- declarations based on user-defined types
-- user-defined type names in later declarations after `typedef`
-- pointer-to-member combinations beyond basic `->`
-- struct / union grammar beyond current `struct` support
+Concrete work items:
 
-## Near-Term Priorities
+- Add explicit compile / emit / assemble / link driver steps around the current
+  LLVM IR emission path instead of stopping at `.ll` output.
+- Decide how temporary artifacts, stop-after stages, and dump outputs should
+  behave once assembly/object generation exists.
+- Broaden runtime-library and ABI handling for external declarations,
+  aggregates, floating arguments/results, and variadic calls.
+- Add end-to-end binary-production tests in addition to current `.ll` and
+  runtime-from-LLVM coverage.
+- Keep the backend boundary centered on `CoreIrTargetBackend` so new driver work
+  does not re-entangle frontend code with one concrete emitter.
 
-1. Consume `-I` paths for more include forms, especially `#include <...>`.
-2. Improve preprocess diagnostics with clearer file and line reporting.
-3. Expand AST lowering coverage for the remaining parser-accepted constructs.
-4. Deepen semantic analysis around control flow, conversions, and constant evaluation.
-5. Start preparing the post-semantic pipeline for IR generation.
+### Milestone 6 — Optimization and retargetability
+
+Goal: make Core IR the durable optimization boundary.
+
+Concrete work items:
+
+- Grow canonicalization, constant folding, and DCE one transform family at a
+  time, each backed by stable raw-Core-IR golden tests.
+- Define the expected post-pass invariants for Core IR so optimization work has
+  a clear contract.
+- Add optimization regressions covering CFG cleanup, address simplification,
+  constant propagation, dead-branch removal, and redundant memory traffic.
+- Start replacing the AArch64 placeholder with real lowering for function
+  skeletons, integer operations, branches, and calls.
+- Retire the legacy reference-only lowering stack once the staged Core IR path
+  covers the same supported surface and the regression suite no longer depends
+  on the legacy path.
+
+## Working Rules
+
+- Update this roadmap whenever implemented status or milestone ordering changes.
+- Prefer test-backed milestone increments over large speculative rewrites.
+- If a feature is parser-only, compatibility-only, or not yet end-to-end, call
+  that out explicitly until the gap is closed.
