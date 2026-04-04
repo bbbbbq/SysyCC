@@ -35,5 +35,6 @@ grep -Eq 'fcmp olt float ' "${IR_FILE}"
 grep -Eq 'fcmp oeq double ' "${IR_FILE}"
 grep -Eq 'fcmp une float ' "${IR_FILE}"
 grep -Eq 'fcmp une double ' "${IR_FILE}"
+grep -Eq 'br i1 %t[0-9]+(\.raw)?, label %' "${IR_FILE}"
 
 echo "verified: floating comparison and conditional runtime lowering produces the expected result"
