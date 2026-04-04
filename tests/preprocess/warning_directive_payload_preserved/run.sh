@@ -25,6 +25,6 @@ fi
 
 assert_file_nonempty "${PREPROCESSED_FILE}"
 grep -q '^int warning_directive_payload_preserved_value = 13;$' "${PREPROCESSED_FILE}"
-grep -Fq "preprocess warning: #warning: \"sdk check\" requires foo + bar at ${INPUT_FILE}:1:1-1:1" <<<"${OUTPUT}"
+grep -Fq "${INPUT_FILE}:1:1: warning: #warning: \"sdk check\" requires foo + bar" <<<"${OUTPUT}"
 
 echo "verified: #warning preserves the full trimmed payload text"

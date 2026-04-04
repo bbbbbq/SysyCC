@@ -21,8 +21,9 @@ if [[ "${EXIT_CODE}" -eq 0 ]]; then
     exit 1
 fi
 
-grep -Fq "${SCRIPT_DIR}/level2.h:1: failed to resolve included file: missing.h" <<<"${OUTPUT}"
-grep -Fq "included from ${SCRIPT_DIR}/level1.h:1" <<<"${OUTPUT}"
-grep -Fq "included from ${SCRIPT_DIR}/include_error_trace.sy:1" <<<"${OUTPUT}"
+grep -Fq "${SCRIPT_DIR}/level2.h:1:1: error: failed to resolve included file: missing.h" <<<"${OUTPUT}"
+grep -Fq "  #include \"missing.h\"" <<<"${OUTPUT}"
+grep -Fq "${SCRIPT_DIR}/level1.h:1:1: note: included from here" <<<"${OUTPUT}"
+grep -Fq "${SCRIPT_DIR}/include_error_trace.sy:1:1: note: included from here" <<<"${OUTPUT}"
 
-echo "verified: preprocess include errors carry nested include trace"
+echo "verified: preprocess include errors carry GCC-like headers and nested include notes"

@@ -25,6 +25,8 @@ fi
 
 assert_file_nonempty "${PREPROCESSED_FILE}"
 grep -q '^int warning_directive_value = 7;$' "${PREPROCESSED_FILE}"
-grep -Fq "preprocess warning: #warning: preprocess warning support smoke test at ${INPUT_FILE}:1:1-1:1" <<<"${OUTPUT}"
+grep -Fq "${INPUT_FILE}:1:1: warning: #warning: preprocess warning support smoke test" <<<"${OUTPUT}"
+grep -Fq "  #warning preprocess warning support smoke test" <<<"${OUTPUT}"
+grep -Eq '^[[:space:]]+\^$' <<<"${OUTPUT}"
 
-echo "verified: #warning directives emit CLI warnings without failing preprocessing"
+echo "verified: #warning directives emit GCC-like CLI warnings without failing preprocessing"

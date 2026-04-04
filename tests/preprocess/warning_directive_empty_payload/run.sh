@@ -25,6 +25,6 @@ fi
 
 assert_file_nonempty "${PREPROCESSED_FILE}"
 grep -q '^int warning_directive_empty_payload_value = 11;$' "${PREPROCESSED_FILE}"
-grep -Fq "preprocess warning: #warning directive triggered at ${INPUT_FILE}:1:1-1:1" <<<"${OUTPUT}"
+grep -Fq "${INPUT_FILE}:1:1: warning: #warning directive triggered" <<<"${OUTPUT}"
 
 echo "verified: empty #warning directives use the default warning message"
