@@ -5,13 +5,15 @@
 #include <utility>
 #include <vector>
 
+#include "backend/asm_gen/asm_result.hpp"
+#include "backend/asm_gen/backend_options.hpp"
+#include "backend/ir/shared/core/core_ir_builder.hpp"
+#include "backend/ir/shared/ir_result.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 #include "common/source_line_map.hpp"
 #include "common/source_location_service.hpp"
 #include "common/source_mapping_view.hpp"
 #include "common/source_manager.hpp"
-#include "backend/ir/shared/ir_result.hpp"
-#include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "common/source_span.hpp"
 #include "compiler/complier_option.hpp"
 #include "frontend/ast/ast_node.hpp"
@@ -445,17 +447,23 @@ class CompilerContext {
     bool dump_parse_ = false;
     bool dump_ast_ = false;
     bool dump_ir_ = false;
+    bool dump_core_ir_ = false;
+    bool emit_asm_ = false;
     StopAfterStage stop_after_stage_ = StopAfterStage::None;
     bool ast_complete_ = false;
+    BackendOptions backend_options_;
     std::string token_dump_file_path_;
     std::string parse_dump_file_path_;
     std::string ast_dump_file_path_;
+    std::string core_ir_dump_file_path_;
     std::string ir_dump_file_path_;
+    std::string asm_dump_file_path_;
     std::unique_ptr<ParseTreeNode> parse_tree_root_;
     std::unique_ptr<AstNode> ast_root_;
     std::unique_ptr<SemanticModel> semantic_model_;
     std::unique_ptr<CoreIrBuildResult> core_ir_build_result_;
     std::unique_ptr<IRResult> ir_result_;
+    std::unique_ptr<AsmResult> asm_result_;
     DiagnosticEngine diagnostic_engine_;
     SourceManager source_manager_;
     SourceLocationService source_location_service_;
@@ -557,6 +565,16 @@ class CompilerContext {
 
     void set_dump_ir(bool dump_ir) noexcept { dump_ir_ = dump_ir; }
 
+    bool get_dump_core_ir() const noexcept { return dump_core_ir_; }
+
+    void set_dump_core_ir(bool dump_core_ir) noexcept {
+        dump_core_ir_ = dump_core_ir;
+    }
+
+    bool get_emit_asm() const noexcept { return emit_asm_; }
+
+    void set_emit_asm(bool emit_asm) noexcept { emit_asm_ = emit_asm; }
+
     StopAfterStage get_stop_after_stage() const noexcept {
         return stop_after_stage_;
     }
@@ -607,12 +625,28 @@ class CompilerContext {
         ast_dump_file_path_ = std::move(ast_dump_file_path);
     }
 
+    const std::string &get_core_ir_dump_file_path() const noexcept {
+        return core_ir_dump_file_path_;
+    }
+
+    void set_core_ir_dump_file_path(std::string core_ir_dump_file_path) {
+        core_ir_dump_file_path_ = std::move(core_ir_dump_file_path);
+    }
+
     const std::string &get_ir_dump_file_path() const noexcept {
         return ir_dump_file_path_;
     }
 
     void set_ir_dump_file_path(std::string ir_dump_file_path) {
         ir_dump_file_path_ = std::move(ir_dump_file_path);
+    }
+
+    const std::string &get_asm_dump_file_path() const noexcept {
+        return asm_dump_file_path_;
+    }
+
+    void set_asm_dump_file_path(std::string asm_dump_file_path) {
+        asm_dump_file_path_ = std::move(asm_dump_file_path);
     }
 
     const AstNode *get_ast_root() const noexcept { return ast_root_.get(); }
@@ -662,6 +696,26 @@ class CompilerContext {
     }
 
     void clear_ir_result() { ir_result_.reset(); }
+
+    const AsmResult *get_asm_result() const noexcept { return asm_result_.get(); }
+
+    AsmResult *get_asm_result() noexcept { return asm_result_.get(); }
+
+    void set_asm_result(std::unique_ptr<AsmResult> asm_result) {
+        asm_result_ = std::move(asm_result);
+    }
+
+    void clear_asm_result() { asm_result_.reset(); }
+
+    const BackendOptions &get_backend_options() const noexcept {
+        return backend_options_;
+    }
+
+    BackendOptions &get_backend_options() noexcept { return backend_options_; }
+
+    void set_backend_options(BackendOptions backend_options) {
+        backend_options_ = std::move(backend_options);
+    }
 
     const DiagnosticEngine &get_diagnostic_engine() const noexcept {
         return diagnostic_engine_;

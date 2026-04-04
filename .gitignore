@@ -1,6 +1,8 @@
 build/
 build-docker/
 build-docker-host/
+!src/backend/ir/build/
+!src/backend/ir/build/**
 tests/**/build/
 tests/fuzz/[0-9]*/
 tests/fuzz/result.md

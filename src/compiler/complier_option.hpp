@@ -6,6 +6,8 @@
 #include <utility>
 #include <vector>
 
+#include "backend/asm_gen/backend_options.hpp"
+
 namespace sysycc {
 
 namespace detail {
@@ -65,7 +67,9 @@ enum class StopAfterStage : uint8_t {
     Parse,
     Ast,
     Semantic,
+    CoreIr,
     IR,
+    Asm,
 };
 
 // Stores the configuration for one compiler invocation.
@@ -80,10 +84,13 @@ class ComplierOption {
     bool dump_parse_ = false;
     bool dump_ast_ = false;
     bool dump_ir_ = false;
+    bool dump_core_ir_ = false;
+    bool emit_asm_ = false;
     StopAfterStage stop_after_stage_ = StopAfterStage::None;
     bool enable_gnu_dialect_ = true;
     bool enable_clang_dialect_ = true;
     bool enable_builtin_type_extension_pack_ = true;
+    BackendOptions backend_options_;
 
   public:
     ComplierOption() = default;
@@ -147,6 +154,16 @@ class ComplierOption {
 
     void set_dump_ir(bool dump_ir) noexcept { dump_ir_ = dump_ir; }
 
+    bool dump_core_ir() const noexcept { return dump_core_ir_; }
+
+    void set_dump_core_ir(bool dump_core_ir) noexcept {
+        dump_core_ir_ = dump_core_ir;
+    }
+
+    bool emit_asm() const noexcept { return emit_asm_; }
+
+    void set_emit_asm(bool emit_asm) noexcept { emit_asm_ = emit_asm; }
+
     StopAfterStage get_stop_after_stage() const noexcept {
         return stop_after_stage_;
     }
@@ -179,6 +196,16 @@ class ComplierOption {
         bool enable_builtin_type_extension_pack) noexcept {
         enable_builtin_type_extension_pack_ =
             enable_builtin_type_extension_pack;
+    }
+
+    const BackendOptions &get_backend_options() const noexcept {
+        return backend_options_;
+    }
+
+    BackendOptions &get_backend_options() noexcept { return backend_options_; }
+
+    void set_backend_options(BackendOptions backend_options) {
+        backend_options_ = std::move(backend_options);
     }
 };
 

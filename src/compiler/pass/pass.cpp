@@ -20,8 +20,12 @@ bool should_stop_after_pass(const CompilerContext &context, PassKind pass_kind) 
         return pass_kind == PassKind::Ast;
     case StopAfterStage::Semantic:
         return pass_kind == PassKind::Semantic;
+    case StopAfterStage::CoreIr:
+        return pass_kind == PassKind::CoreIrDce;
     case StopAfterStage::IR:
         return pass_kind == PassKind::LowerIr;
+    case StopAfterStage::Asm:
+        return pass_kind == PassKind::CodeGen;
     }
 
     return false;

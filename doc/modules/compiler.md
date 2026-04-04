@@ -108,17 +108,19 @@ CoreIrDcePass -> LowerIrPass
   ahead of the default system include directories and then copied into
   [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   for preprocess include resolution.
-- The backend stage currently emits textual LLVM IR dumps for the supported AST
-  subset through explicit top-level Core IR passes, including multi-branch
-  `switch` lowering.
+- The backend stage now branches after optimized Core IR: the default path still
+  emits textual LLVM IR for the supported subset, while
+  `-S --backend=aarch64-native` runs a first native Linux AArch64 asm backend
+  over the same `CoreIrModule`.
 - That hot path now also carries staged pointer arithmetic, pointer
   differences, top-level constant global-address initializers, union-backed
   aggregate storage, and variadic default-argument promotions before LLVM text
   emission.
 - The executable hot path is now `BuildCoreIrPass -> CoreIrCanonicalizePass ->
-  CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass`, while retargetable
-  Core-IR backends now live under
-  [src/backend/ir/lower/lowering](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering).
+  CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass -> AArch64AsmGenPass`.
+  `LowerIrPass` is now LLVM-specific and no-ops for the native backend, while
+  the native AArch64 path lives under
+  [src/backend/asm_gen/aarch64](/Users/caojunze424/code/SysyCC/src/backend/asm_gen/aarch64).
   The legacy `IRBuilder -> IRBackend -> LlvmIrBackend` stack remains in tree as
   a reference implementation during the migration.
 - `CoreIrCanonicalizePass` now performs a first conservative normalization pass
@@ -138,6 +140,11 @@ CoreIrDcePass -> LowerIrPass
   a validated function or global later fails during backend emission, the
   compiler records a compiler-stage diagnostic and aborts IR generation
   instead of returning a truncated module.
+- `ComplierOption` and
+  [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+  now also carry backend-selection state, native-asm emission intent, one
+  optional target triple, and one optimized-Core-IR dump switch in addition to
+  the older LLVM IR dump flag.
 - [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   now also constructs one shared
   [SourceLocationService](/Users/caojunze424/code/SysyCC/src/common/source_location_service.hpp),
