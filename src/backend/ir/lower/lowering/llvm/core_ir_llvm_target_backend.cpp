@@ -227,13 +227,6 @@ std::string normalize_float_literal_text(const std::string &value_text,
     }
 
     try {
-        if (!is_hex_float_literal(stripped)) {
-            if (stripped.find('e') == std::string::npos &&
-                stripped.find('E') == std::string::npos) {
-                return normalize_decimal_floating_literal(stripped);
-            }
-        }
-
         const long double parsed = std::stold(stripped);
         switch (float_kind) {
         case CoreIrFloatKind::Float16:
@@ -278,6 +271,26 @@ CoreIrLlvmTargetBackend::get_emitted_value_name(const CoreIrValue *value) {
     }
     std::string name = next_value_name();
     emitted_value_names_.emplace(value, name);
+    return name;
+}
+
+std::string
+CoreIrLlvmTargetBackend::get_emitted_stack_slot_name(
+    const CoreIrStackSlot *stack_slot) {
+    if (stack_slot == nullptr) {
+        return "<null-stack-slot>";
+    }
+    const auto it = emitted_stack_slot_names_.find(stack_slot);
+    if (it != emitted_stack_slot_names_.end()) {
+        return it->second;
+    }
+    std::string name = stack_slot->get_name();
+    if (name.empty() || name.size() > 255 ||
+        used_stack_slot_names_.find(name) != used_stack_slot_names_.end()) {
+        name = next_value_name();
+    }
+    emitted_stack_slot_names_.emplace(stack_slot, name);
+    used_stack_slot_names_.insert(name);
     return name;
 }
 
@@ -445,7 +458,7 @@ std::string CoreIrLlvmTargetBackend::format_value_ref(const CoreIrValue *value) 
     if (const auto *address_of_stack_slot =
             dynamic_cast<const CoreIrAddressOfStackSlotInst *>(value);
         address_of_stack_slot != nullptr) {
-        return "%" + address_of_stack_slot->get_stack_slot()->get_name();
+        return "%" + get_emitted_stack_slot_name(address_of_stack_slot->get_stack_slot());
     }
     if (dynamic_cast<const CoreIrInstruction *>(value) != nullptr) {
         if (const auto *compare_instruction =
@@ -510,7 +523,7 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         text += format_type(load_instruction.get_type());
         text += ", ptr ";
         if (load_instruction.get_stack_slot() != nullptr) {
-            text += "%" + load_instruction.get_stack_slot()->get_name();
+            text += "%" + get_emitted_stack_slot_name(load_instruction.get_stack_slot());
         } else {
             text += format_pointer_ref(load_instruction.get_address());
         }
@@ -526,7 +539,7 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         text += format_value_ref(store_instruction.get_value());
         text += ", ptr ";
         if (store_instruction.get_stack_slot() != nullptr) {
-            text += "%" + store_instruction.get_stack_slot()->get_name();
+            text += "%" + get_emitted_stack_slot_name(store_instruction.get_stack_slot());
         } else {
             text += format_pointer_ref(store_instruction.get_address());
         }
@@ -879,6 +892,8 @@ bool CoreIrLlvmTargetBackend::append_function(std::string &text,
     }
     text += " {\n";
     emitted_value_names_.clear();
+    emitted_stack_slot_names_.clear();
+    used_stack_slot_names_.clear();
     next_value_id_ = 0;
     helper_id_ = 0;
 
@@ -891,7 +906,7 @@ bool CoreIrLlvmTargetBackend::append_function(std::string &text,
         if (basic_block.get() == entry_block) {
             for (const auto &stack_slot : function.get_stack_slots()) {
                 text += "  %";
-                text += stack_slot->get_name();
+                text += get_emitted_stack_slot_name(stack_slot.get());
                 text += " = alloca ";
                 text += format_type(stack_slot->get_allocated_type());
                 text += "\n";
