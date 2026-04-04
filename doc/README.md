@@ -74,7 +74,7 @@ main
 ## Module Map
 
 - [attribute.md](/Users/caojunze424/code/SysyCC/doc/modules/attribute.md): GNU-style attribute parsing and structured attribute records
-- [roadmap.md](/Users/caojunze424/code/SysyCC/roadmap.md): current syntax support matrix and near-term implementation priorities
+- [roadmap.md](/Users/caojunze424/code/SysyCC/roadmap.md): current implemented state and staged delivery milestones
 - [class-relationships.md](/Users/caojunze424/code/SysyCC/doc/modules/class-relationships.md): current class ownership and collaboration graph
 - [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md): command line parsing and option mapping
 - [common.md](/Users/caojunze424/code/SysyCC/doc/modules/common.md): shared lightweight value types
