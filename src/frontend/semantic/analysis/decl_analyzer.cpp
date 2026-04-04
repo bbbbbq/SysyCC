@@ -335,16 +335,29 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                 const_decl->get_initializer(), semantic_context,
                 conversion_checker_) &&
             conversion_checker_.is_integer_like_type(declared_type)) {
-            add_error(semantic_context,
-                      "const initializer must be an integer constant expression",
-                      const_decl->get_initializer()->get_source_span());
+            const auto converted_constant =
+                constant_evaluator_.get_scalar_constant_value_as_integer(
+                    const_decl->get_initializer(), semantic_context);
+            if (converted_constant.has_value()) {
+                constant_evaluator_.bind_integer_constant_value(
+                    const_decl, *converted_constant, semantic_context);
+                constant_evaluator_.bind_integer_constant_value(
+                    const_decl->get_initializer(), *converted_constant,
+                    semantic_context);
+            } else {
+                add_error(semantic_context,
+                          "const initializer must be an integer constant expression",
+                          const_decl->get_initializer()->get_source_span());
+            }
         }
-        const auto integer_constant_value =
-            constant_evaluator_.get_integer_constant_value(
-                const_decl->get_initializer(), semantic_context);
-        if (integer_constant_value.has_value()) {
-            constant_evaluator_.bind_integer_constant_value(
-                const_decl, *integer_constant_value, semantic_context);
+        if (conversion_checker_.is_integer_like_type(declared_type)) {
+            const auto integer_constant_value =
+                constant_evaluator_.get_integer_constant_value(
+                    const_decl->get_initializer(), semantic_context);
+            if (integer_constant_value.has_value()) {
+                constant_evaluator_.bind_integer_constant_value(
+                    const_decl, *integer_constant_value, semantic_context);
+            }
         }
         return;
     }
