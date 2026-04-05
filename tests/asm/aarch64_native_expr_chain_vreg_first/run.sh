@@ -27,11 +27,13 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-grep -Eq '^  sturb w[0-9]+, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
-grep -Eq '^  ldurh w[0-9]+, \[x29, #-4\]$' "${ASM_FILE}"
-grep -Eq '^  sdiv w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  mul w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sub w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sxth w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*mov w[0-9]+, w0$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*mov w[0-9]+, w1$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*mov w[0-9]+, w2$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*add w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*eor w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*sub w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+test "$(grep -Ec '^[[:space:]]*stur w[0-9]+, \[x29, #-[0-9]+\]$' "${ASM_FILE}")" -le 3
+test "$(grep -Ec '^[[:space:]]*ldur w[0-9]+, \[x29, #-[0-9]+\]$' "${ASM_FILE}")" -le 3
 
-echo "verified: native AArch64 asm legalizes narrow integers and lowers remainder"
+echo "verified: native AArch64 asm keeps a simple expression chain mostly in virtual-register flow"

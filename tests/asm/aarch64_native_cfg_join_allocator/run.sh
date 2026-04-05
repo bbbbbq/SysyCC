@@ -27,11 +27,12 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-grep -Eq '^  sturb w[0-9]+, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
-grep -Eq '^  ldurh w[0-9]+, \[x29, #-4\]$' "${ASM_FILE}"
-grep -Eq '^  sdiv w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  mul w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sub w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sxth w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*cbnz w[0-9]+, \.Lchoose_mix_if_then0$' "${ASM_FILE}"
+grep -q '^\.Lchoose_mix_if_end0:$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*add w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then
+    echo "unexpected virtual register token leaked into final asm" >&2
+    exit 1
+fi
 
-echo "verified: native AArch64 asm legalizes narrow integers and lowers remainder"
+echo "verified: CFG join asm stays allocatable and final output contains only physical registers"
