@@ -25,7 +25,7 @@ if [[ ${VERBOSE_RC} -ne 0 ]]; then
     exit 1
 fi
 
-grep -Fq "sysycc version 0.1.0" <<<"${VERBOSE_OUTPUT}"
+grep -Eq "sysycc(\\.real)? version 0\\.1\\.0" <<<"${VERBOSE_OUTPUT}"
 grep -Fq "driver action: syntax-only" <<<"${VERBOSE_OUTPUT}"
 grep -Fq "language mode: sysy" <<<"${VERBOSE_OUTPUT}"
 

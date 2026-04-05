@@ -12,6 +12,8 @@
 #include "backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.hpp"
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
 #include "backend/ir/gvn/core_ir_gvn_pass.hpp"
+#include "backend/ir/instcombine/core_ir_instcombine_pass.hpp"
+#include "backend/ir/licm/core_ir_licm_pass.hpp"
 #include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
 #include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
@@ -214,6 +216,26 @@ PassKind CoreIrSccpPass::Kind() const { return PassKind::CoreIrSccp; }
 const char *CoreIrSccpPass::Name() const { return "CoreIrSccpPass"; }
 
 PassResult CoreIrSccpPass::Run(CompilerContext &) {
+    return no_op_core_ir_transform_result();
+}
+
+PassKind CoreIrInstCombinePass::Kind() const {
+    return PassKind::CoreIrInstCombine;
+}
+
+const char *CoreIrInstCombinePass::Name() const {
+    return "CoreIrInstCombinePass";
+}
+
+PassResult CoreIrInstCombinePass::Run(CompilerContext &) {
+    return no_op_core_ir_transform_result();
+}
+
+PassKind CoreIrLicmPass::Kind() const { return PassKind::CoreIrLicm; }
+
+const char *CoreIrLicmPass::Name() const { return "CoreIrLicmPass"; }
+
+PassResult CoreIrLicmPass::Run(CompilerContext &) {
     return no_op_core_ir_transform_result();
 }
 
