@@ -86,6 +86,7 @@ class AArch64FunctionFrameInfo {
   private:
     std::unordered_map<const CoreIrStackSlot *, std::size_t> stack_slot_offsets_;
     std::unordered_map<const CoreIrValue *, std::size_t> value_offsets_;
+    std::unordered_map<std::size_t, std::size_t> virtual_reg_spill_offsets_;
     std::size_t local_size_ = 0;
     std::size_t frame_size_ = 0;
 
@@ -102,6 +103,16 @@ class AArch64FunctionFrameInfo {
     std::size_t get_stack_slot_offset(const CoreIrStackSlot *stack_slot) const;
     std::size_t get_value_offset(const CoreIrValue *value) const;
     bool has_value_offset(const CoreIrValue *value) const;
+    void set_virtual_reg_spill_offset(std::size_t id, std::size_t offset) {
+        virtual_reg_spill_offsets_[id] = offset;
+    }
+    std::optional<std::size_t> get_virtual_reg_spill_offset(std::size_t id) const {
+        const auto it = virtual_reg_spill_offsets_.find(id);
+        if (it == virtual_reg_spill_offsets_.end()) {
+            return std::nullopt;
+        }
+        return it->second;
+    }
 
     void set_local_size(std::size_t local_size) noexcept { local_size_ = local_size; }
     std::size_t get_local_size() const noexcept { return local_size_; }

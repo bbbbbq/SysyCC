@@ -28,6 +28,7 @@ namespace {
 
 constexpr const char *kDefaultTargetTriple = "aarch64-unknown-linux-gnu";
 constexpr unsigned kAllocatablePhysicalRegs[] = {9, 10, 11, 12, 13, 14, 15, 17};
+constexpr unsigned kSpillScratchPhysicalRegs[] = {27, 28, 25, 26};
 
 std::size_t align_to(std::size_t value, std::size_t alignment) {
     if (alignment == 0) {
@@ -619,6 +620,184 @@ void rename_temporary_registers_to_virtuals(AArch64MachineFunction &function) {
     }
 }
 
+std::string load_mnemonic_for_width(bool use_64bit, std::size_t size) {
+    if (use_64bit || size == 8) {
+        return "ldr";
+    }
+    if (size == 2) {
+        return "ldrh";
+    }
+    if (size == 1) {
+        return "ldrb";
+    }
+    return "ldr";
+}
+
+std::string store_mnemonic_for_width(bool use_64bit, std::size_t size) {
+    if (use_64bit || size == 8) {
+        return "str";
+    }
+    if (size == 2) {
+        return "strh";
+    }
+    if (size == 1) {
+        return "strb";
+    }
+    return "str";
+}
+
+std::vector<ParsedVirtualRegRef>
+collect_spilled_virtual_refs(const AArch64MachineOperand &operand,
+                             const AArch64MachineFunction &function) {
+    std::vector<ParsedVirtualRegRef> spilled;
+    for (const ParsedVirtualRegRef &ref : parse_virtual_reg_refs(operand.get_text())) {
+        if (function.get_physical_reg_for_virtual(ref.id).has_value()) {
+            continue;
+        }
+        if (!function.get_frame_info().get_virtual_reg_spill_offset(ref.id).has_value()) {
+            continue;
+        }
+        spilled.push_back(ref);
+    }
+    return spilled;
+}
+
+void append_spill_load(std::vector<AArch64MachineInstr> &instructions,
+                       const ParsedVirtualRegRef &ref, std::size_t offset,
+                       unsigned physical_reg) {
+    const std::string reg = render_physical_register(physical_reg, ref.use_64bit);
+    const std::size_t size = ref.use_64bit ? 8 : 4;
+    if (offset <= 255) {
+        instructions.emplace_back(load_mnemonic_for_width(ref.use_64bit, size) + " " +
+                                  reg + ", [x29, #-" + std::to_string(offset) + "]");
+        return;
+    }
+    instructions.emplace_back("sub x23, x29, #" + std::to_string(offset));
+    instructions.emplace_back(load_mnemonic_for_width(ref.use_64bit, size) + " " +
+                              reg + ", [x23]");
+}
+
+void append_spill_store(std::vector<AArch64MachineInstr> &instructions,
+                        const ParsedVirtualRegRef &ref, std::size_t offset,
+                        unsigned physical_reg) {
+    const std::string reg = render_physical_register(physical_reg, ref.use_64bit);
+    const std::size_t size = ref.use_64bit ? 8 : 4;
+    if (offset <= 255) {
+        instructions.emplace_back(store_mnemonic_for_width(ref.use_64bit, size) + " " +
+                                  reg + ", [x29, #-" + std::to_string(offset) + "]");
+        return;
+    }
+    instructions.emplace_back("sub x23, x29, #" + std::to_string(offset));
+    instructions.emplace_back(store_mnemonic_for_width(ref.use_64bit, size) + " " +
+                              reg + ", [x23]");
+}
+
+std::string substitute_spilled_virtuals(const std::string &text,
+                                        const std::unordered_map<std::size_t, unsigned> &mapping,
+                                        const AArch64MachineFunction &function) {
+    std::string rendered = text;
+    const std::vector<ParsedVirtualRegRef> refs = parse_virtual_reg_refs(text);
+    std::size_t delta = 0;
+    for (const ParsedVirtualRegRef &ref : refs) {
+        if (function.get_physical_reg_for_virtual(ref.id).has_value()) {
+            continue;
+        }
+        const auto it = mapping.find(ref.id);
+        if (it == mapping.end()) {
+            continue;
+        }
+        const std::string reg_name =
+            render_physical_register(it->second, ref.use_64bit);
+        rendered.replace(ref.offset + delta, ref.length, reg_name);
+        delta += reg_name.size() - ref.length;
+    }
+    return rendered;
+}
+
+void rewrite_spilled_virtual_registers(AArch64MachineFunction &function) {
+    for (AArch64MachineBlock &block : function.get_blocks()) {
+        std::vector<AArch64MachineInstr> rewritten;
+        for (AArch64MachineInstr &instruction : block.get_instructions()) {
+            std::unordered_map<std::size_t, unsigned> spill_mapping;
+            std::size_t next_scratch = 0;
+            for (const AArch64MachineOperand &operand : instruction.get_operands()) {
+                for (const ParsedVirtualRegRef &ref :
+                     collect_spilled_virtual_refs(operand, function)) {
+                    if (spill_mapping.find(ref.id) != spill_mapping.end()) {
+                        continue;
+                    }
+                    if (next_scratch >= std::size(kSpillScratchPhysicalRegs)) {
+                        continue;
+                    }
+                    spill_mapping.emplace(ref.id,
+                                          kSpillScratchPhysicalRegs[next_scratch++]);
+                }
+            }
+
+            for (const auto &[id, physical_reg] : spill_mapping) {
+                const auto maybe_offset =
+                    function.get_frame_info().get_virtual_reg_spill_offset(id);
+                if (!maybe_offset.has_value()) {
+                    continue;
+                }
+                for (const AArch64MachineOperand &operand : instruction.get_operands()) {
+                    for (const ParsedVirtualRegRef &ref :
+                         parse_virtual_reg_refs(operand.get_text())) {
+                        if (ref.id != id || ref.is_def) {
+                            continue;
+                        }
+                        append_spill_load(rewritten, ref, *maybe_offset, physical_reg);
+                    }
+                }
+            }
+
+            std::vector<AArch64MachineOperand> operands;
+            operands.reserve(instruction.get_operands().size());
+            for (const AArch64MachineOperand &operand : instruction.get_operands()) {
+                operands.emplace_back(
+                    substitute_spilled_virtuals(operand.get_text(), spill_mapping, function));
+            }
+            rewritten.emplace_back(instruction.get_mnemonic(), std::move(operands));
+
+            for (const auto &[id, physical_reg] : spill_mapping) {
+                const auto maybe_offset =
+                    function.get_frame_info().get_virtual_reg_spill_offset(id);
+                if (!maybe_offset.has_value()) {
+                    continue;
+                }
+                for (const AArch64MachineOperand &operand : instruction.get_operands()) {
+                    for (const ParsedVirtualRegRef &ref :
+                         parse_virtual_reg_refs(operand.get_text())) {
+                        if (ref.id != id || !ref.is_def) {
+                            continue;
+                        }
+                        append_spill_store(rewritten, ref, *maybe_offset, physical_reg);
+                    }
+                }
+            }
+        }
+        block.get_instructions() = std::move(rewritten);
+    }
+}
+
+void refresh_frame_size_instructions(AArch64MachineFunction &function) {
+    if (function.get_blocks().empty()) {
+        return;
+    }
+    if (function.get_frame_info().get_frame_size() > 0 &&
+        function.get_blocks().front().get_instructions().size() >= 3) {
+        function.get_blocks().front().get_instructions()[2] = AArch64MachineInstr(
+            "sub sp, sp, #" + std::to_string(function.get_frame_info().get_frame_size()));
+    }
+    if (!function.get_blocks().empty()) {
+        auto &epilogue = function.get_blocks().back().get_instructions();
+        if (function.get_frame_info().get_frame_size() > 0 && !epilogue.empty()) {
+            epilogue.front() = AArch64MachineInstr(
+                "add sp, sp, #" + std::to_string(function.get_frame_info().get_frame_size()));
+        }
+    }
+}
+
 bool allocate_virtual_registers(AArch64MachineFunction &function,
                                 DiagnosticEngine &diagnostic_engine) {
     const AArch64LivenessInfo liveness = build_liveness_info(function);
@@ -644,10 +823,16 @@ bool allocate_virtual_registers(AArch64MachineFunction &function,
             active.end());
 
         if (available.empty()) {
-            diagnostic_engine.add_error(
-                DiagnosticStage::Compiler,
-                "AArch64 register allocator ran out of temporary registers");
-            return false;
+            const std::size_t spill_size = interval.use_64bit ? 8 : 4;
+            const std::size_t spill_alignment = spill_size;
+            std::size_t local_size = function.get_frame_info().get_local_size();
+            local_size = align_to(local_size, spill_alignment);
+            local_size += spill_size;
+            function.get_frame_info().set_virtual_reg_spill_offset(
+                interval.virtual_reg_id, local_size);
+            function.get_frame_info().set_local_size(local_size);
+            function.get_frame_info().set_frame_size(align_to(local_size, 16));
+            continue;
         }
 
         const unsigned physical_reg = *available.begin();
@@ -660,6 +845,8 @@ bool allocate_virtual_registers(AArch64MachineFunction &function,
                   });
     }
 
+    rewrite_spilled_virtual_registers(function);
+    refresh_frame_size_instructions(function);
     return true;
 }
 
