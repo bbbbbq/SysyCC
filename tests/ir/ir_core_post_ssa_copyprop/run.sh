@@ -29,4 +29,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: post-SSA copy propagation removes trivial phi nodes"
+echo "verified: post-SSA copy cleanup removes trivial phi nodes after copy propagation"

@@ -3,6 +3,7 @@
 #include <string>
 
 #include "backend/ir/copy_propagation/core_ir_copy_propagation_pass.hpp"
+#include "backend/ir/instcombine/core_ir_instcombine_pass.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -43,6 +44,8 @@ int main() {
 
     CoreIrCopyPropagationPass pass;
     assert(pass.Run(compiler_context).ok);
+    CoreIrInstCombinePass instcombine_pass;
+    assert(instcombine_pass.Run(compiler_context).ok);
 
     CoreIrRawPrinter printer;
     const std::string text = printer.print_module(*module);
