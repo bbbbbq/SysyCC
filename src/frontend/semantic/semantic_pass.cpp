@@ -90,7 +90,7 @@ PassResult SemanticPass::Run(CompilerContext &context) {
         context.get_diagnostic_engine().add_diagnostic(Diagnostic(
             to_diagnostic_level(diagnostic.get_severity()),
             DiagnosticStage::Semantic, diagnostic.get_message(),
-            diagnostic.get_source_span()));
+            diagnostic.get_source_span(), diagnostic.get_warning_option()));
     }
     const bool success = !has_error_diagnostics(semantic_model);
     semantic_model.set_success(success);

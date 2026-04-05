@@ -11,7 +11,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_compiler_succeeds_with_message \
-    "${BUILD_DIR}/SysyCC" --stop-after=semantic \
+    "${BUILD_DIR}/SysyCC" -Wall --stop-after=semantic \
     "${INPUT_FILE}" \
     "semantic warning: statement has no effect"
 

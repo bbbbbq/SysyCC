@@ -86,6 +86,20 @@ std::string DiagnosticFormatter::format_diagnostic_header(
     rendered_message += get_diagnostic_level_name(diagnostic.get_level());
     rendered_message += ": ";
     rendered_message += diagnostic.get_message();
+    if (diagnostic.has_warning_option()) {
+        rendered_message += " [";
+        if (diagnostic.get_level() == DiagnosticLevel::Warning) {
+            rendered_message += "-W";
+            rendered_message += diagnostic.get_warning_option();
+        } else if (diagnostic.is_promoted_from_warning()) {
+            rendered_message += "-Werror=";
+            rendered_message += diagnostic.get_warning_option();
+        } else {
+            rendered_message += "-W";
+            rendered_message += diagnostic.get_warning_option();
+        }
+        rendered_message += "]";
+    }
     return rendered_message;
 }
 

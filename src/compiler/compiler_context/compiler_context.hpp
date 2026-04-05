@@ -441,6 +441,9 @@ class CompilerContext {
     std::string preprocessed_file_path_;
     std::vector<std::string> include_directories_;
     std::vector<std::string> system_include_directories_;
+    std::vector<CommandLineMacroOption> command_line_macro_options_;
+    std::vector<std::string> forced_include_files_;
+    bool no_stdinc_ = false;
     std::vector<Token> tokens_;
     SourceLineMap preprocessed_line_map_;
     bool dump_tokens_ = false;
@@ -530,6 +533,28 @@ class CompilerContext {
         std::vector<std::string> system_include_directories) {
         system_include_directories_ = std::move(system_include_directories);
     }
+
+    const std::vector<CommandLineMacroOption> &
+    get_command_line_macro_options() const noexcept {
+        return command_line_macro_options_;
+    }
+
+    void set_command_line_macro_options(
+        std::vector<CommandLineMacroOption> command_line_macro_options) {
+        command_line_macro_options_ = std::move(command_line_macro_options);
+    }
+
+    const std::vector<std::string> &get_forced_include_files() const noexcept {
+        return forced_include_files_;
+    }
+
+    void set_forced_include_files(std::vector<std::string> forced_include_files) {
+        forced_include_files_ = std::move(forced_include_files);
+    }
+
+    bool get_no_stdinc() const noexcept { return no_stdinc_; }
+
+    void set_no_stdinc(bool no_stdinc) noexcept { no_stdinc_ = no_stdinc; }
 
     const std::vector<Token> &tokens() const { return tokens_; }
 

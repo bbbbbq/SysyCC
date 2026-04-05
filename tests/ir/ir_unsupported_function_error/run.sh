@@ -13,6 +13,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_compiler_fails_with_message \
     "${BUILD_DIR}/SysyCC" \
+    -S \
+    -emit-llvm \
     "${INPUT_FILE}" \
     "core ir generation currently requires a constant scalar initializer for top-level globals"
 

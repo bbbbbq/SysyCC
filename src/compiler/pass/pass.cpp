@@ -6,6 +6,15 @@ namespace sysycc {
 
 namespace {
 
+std::string first_error_message(const DiagnosticEngine &diagnostic_engine) {
+    for (const Diagnostic &diagnostic : diagnostic_engine.get_diagnostics()) {
+        if (diagnostic.get_level() == DiagnosticLevel::Error) {
+            return diagnostic.get_message();
+        }
+    }
+    return "compilation failed";
+}
+
 bool should_stop_after_pass(const CompilerContext &context, PassKind pass_kind) {
     switch (context.get_stop_after_stage()) {
     case StopAfterStage::None:
@@ -65,6 +74,10 @@ PassResult PassManager::Run(CompilerContext &context) {
         PassResult result = pass->Run(context);
         if (!result.ok) {
             return result;
+        }
+        if (context.get_diagnostic_engine().has_error()) {
+            return PassResult::Failure(
+                first_error_message(context.get_diagnostic_engine()));
         }
         if (should_stop_after_pass(context, pass->Kind())) {
             return PassResult::Success();

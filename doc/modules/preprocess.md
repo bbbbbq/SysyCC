@@ -60,6 +60,11 @@ src/frontend/preprocess/
 - strip `//` and `/* ... */` comments before lexical analysis without
   corrupting string or character literals
 - write preprocessed intermediate source files before lexical analysis
+- apply command-line macro definitions and undefinitions before the main input
+- preprocess command-line forced-include files before the main input
+- accept those CLI-driven preprocess inputs both from the public GCC-like
+  surface (`-D`, `-U`, `-include`, `-nostdinc`) and from internal pipeline
+  invocations
 - run the preprocessing pass before lexer analysis
 - resolve `#include "..."` against the including file's current directory and
   `-I` include search paths
@@ -70,6 +75,8 @@ src/frontend/preprocess/
   search chain after the header that was already selected
 - fall back from quoted includes to system include directories after exhausting
   local and user-provided include search paths
+- respect `-nostdinc` by dropping the default system include roots while still
+  honoring explicit `-isystem` directories
 - support conditional directives (`#ifdef`, `#ifndef`, `#elif`, `#else`,
   `#endif`)
 - support simple `#if/#elif` constant expressions including identifiers,

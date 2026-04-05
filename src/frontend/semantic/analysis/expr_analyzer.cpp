@@ -6,6 +6,7 @@
 
 #include "common/integer_literal.hpp"
 #include "common/string_literal.hpp"
+#include "common/diagnostic/warning_options.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/type_system/integer_conversion_service.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
@@ -750,13 +751,14 @@ void ExprAnalyzer::add_error(SemanticContext &semantic_context,
 
 void ExprAnalyzer::add_warning(SemanticContext &semantic_context,
                                std::string message,
-                               const SourceSpan &source_span) const {
+                               const SourceSpan &source_span,
+                               std::string warning_option) const {
     if (semantic_context.is_system_header_span(source_span)) {
         return;
     }
     semantic_context.get_semantic_model().add_diagnostic(
         SemanticDiagnostic(DiagnosticSeverity::Warning, std::move(message),
-                           source_span));
+                           source_span, std::move(warning_option)));
 }
 
 void ExprAnalyzer::analyze_expr(const Expr *expr,
@@ -1202,7 +1204,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                     lhs_type, rhs_type, semantic_model)) {
                 add_warning(semantic_context,
                             "comparison of integers of different signs",
-                            binary_expr->get_source_span());
+                            binary_expr->get_source_span(),
+                            warning_options::kSignCompare);
             }
             semantic_model.bind_node_type(binary_expr,
                                           get_int_semantic_type(semantic_model));
@@ -1242,7 +1245,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                         lhs_type, rhs_type, semantic_model)) {
                     add_warning(semantic_context,
                                 "comparison of integers of different signs",
-                                binary_expr->get_source_span());
+                                binary_expr->get_source_span(),
+                                warning_options::kSignCompare);
                 }
             } else if (!conversion_checker_.is_compatible_equality_type(
                            lhs_type, rhs_type, binary_expr->get_lhs(),
@@ -1401,7 +1405,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                         add_warning(
                             semantic_context,
                             "assignment between incompatible pointer types",
-                            assign_expr->get_source_span());
+                            assign_expr->get_source_span(),
+                            warning_options::kIncompatiblePointerTypes);
                     } else {
                         add_error(
                             semantic_context,
@@ -1415,7 +1420,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                                    assign_expr->get_value(), semantic_context))) {
                     add_warning(semantic_context,
                                 "implicit integer conversion may change value",
-                                assign_expr->get_source_span());
+                                assign_expr->get_source_span(),
+                                warning_options::kConversion);
                 }
             } else if (is_compound_assignment_operator(
                            assign_expr->get_operator_text())) {
@@ -1507,7 +1513,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                         add_warning(
                             semantic_context,
                             "function call argument uses incompatible pointer type",
-                            call_expr->get_arguments()[index]->get_source_span());
+                            call_expr->get_arguments()[index]->get_source_span(),
+                            warning_options::kIncompatiblePointerTypes);
                     } else {
                         add_error(
                             semantic_context,
@@ -1527,7 +1534,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                     add_warning(
                         semantic_context,
                         "implicit integer conversion may change value",
-                        call_expr->get_arguments()[index]->get_source_span());
+                        call_expr->get_arguments()[index]->get_source_span(),
+                        warning_options::kConversion);
                 }
             }
         }

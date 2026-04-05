@@ -70,6 +70,16 @@ PreprocessContext::get_system_include_directories() const noexcept {
     return compiler_context_.get_system_include_directories();
 }
 
+const std::vector<CommandLineMacroOption> &
+PreprocessContext::get_command_line_macro_options() const noexcept {
+    return compiler_context_.get_command_line_macro_options();
+}
+
+const std::vector<std::string> &
+PreprocessContext::get_forced_include_files() const noexcept {
+    return compiler_context_.get_forced_include_files();
+}
+
 const std::string &PreprocessContext::get_input_file() const noexcept {
     return compiler_context_.get_input_file();
 }

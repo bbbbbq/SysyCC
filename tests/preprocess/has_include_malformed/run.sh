@@ -13,6 +13,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_compiler_fails_with_message \
     "${BUILD_DIR}/SysyCC" \
+    -E \
     "${INPUT_FILE}" \
     "missing header name in __has_include expression"
 

@@ -127,7 +127,8 @@ should_require_nonempty_artifacts() {
     local stage_name="$1"
     local test_name="$2"
 
-    if [[ "${stage_name}" == "run" || "${stage_name}" == "fuzz" ]]; then
+    if [[ "${stage_name}" == "run" || "${stage_name}" == "fuzz" ||
+          "${stage_name}" == "cli" ]]; then
         return 1
     fi
 

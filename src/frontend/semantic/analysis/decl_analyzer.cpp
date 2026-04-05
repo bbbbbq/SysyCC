@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/diagnostic/warning_options.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
@@ -311,7 +312,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                     SemanticDiagnostic(
                         DiagnosticSeverity::Warning,
                         "implicit integer conversion may change value",
-                        var_decl->get_initializer()->get_source_span()));
+                        var_decl->get_initializer()->get_source_span(),
+                        warning_options::kConversion));
             }
         }
         return;
