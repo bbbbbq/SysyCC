@@ -27,10 +27,12 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-grep -Eq '^  uxtb w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sdiv w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  mul w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sub w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sxth w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+grep -q '^  bl inc$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*str x19, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*str x20, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
+if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then
+    echo "unexpected virtual register token leaked into final asm" >&2
+    exit 1
+fi
 
-echo "verified: native AArch64 asm legalizes narrow integers and lowers remainder"
+echo "verified: spill-heavy direct-call lowering still produces concrete AArch64 asm"

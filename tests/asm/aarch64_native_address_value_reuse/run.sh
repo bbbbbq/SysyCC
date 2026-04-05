@@ -27,10 +27,9 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-grep -Eq '^  uxtb w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sdiv w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  mul w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sub w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^  sxth w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+test "$(grep -Ec '^[[:space:]]*add x[0-9]+, x[0-9]+, w[0-9]+, lsl #2$' "${ASM_FILE}")" -eq 1
+test "$(grep -Ec '^[[:space:]]*ldr w[0-9]+, \[x[0-9]+\]$' "${ASM_FILE}")" -eq 2
+test "$(grep -Ec '^[[:space:]]*stur x[0-9]+, \[x29, #-[0-9]+\]$' "${ASM_FILE}")" -eq 0
+test "$(grep -Ec '^[[:space:]]*ldur x[0-9]+, \[x29, #-[0-9]+\]$' "${ASM_FILE}")" -eq 0
 
-echo "verified: native AArch64 asm legalizes narrow integers and lowers remainder"
+echo "verified: native AArch64 asm reuses one computed address value instead of rematerializing or parking it in frame memory"

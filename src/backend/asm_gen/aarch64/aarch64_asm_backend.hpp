@@ -177,7 +177,6 @@ class AArch64MachineBlock {
 class AArch64FunctionFrameInfo {
   private:
     std::unordered_map<const CoreIrStackSlot *, std::size_t> stack_slot_offsets_;
-    std::unordered_map<const CoreIrValue *, std::size_t> value_offsets_;
     std::unordered_map<std::size_t, std::size_t> virtual_reg_spill_offsets_;
     std::unordered_map<unsigned, std::size_t> saved_physical_reg_offsets_;
     std::set<unsigned> saved_physical_regs_;
@@ -190,13 +189,7 @@ class AArch64FunctionFrameInfo {
         stack_slot_offsets_[stack_slot] = offset;
     }
 
-    void set_value_offset(const CoreIrValue *value, std::size_t offset) {
-        value_offsets_[value] = offset;
-    }
-
     std::size_t get_stack_slot_offset(const CoreIrStackSlot *stack_slot) const;
-    std::size_t get_value_offset(const CoreIrValue *value) const;
-    bool has_value_offset(const CoreIrValue *value) const;
     void set_virtual_reg_spill_offset(std::size_t id, std::size_t offset) {
         virtual_reg_spill_offsets_[id] = offset;
     }
