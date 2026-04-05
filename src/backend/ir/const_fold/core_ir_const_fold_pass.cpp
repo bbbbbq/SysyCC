@@ -245,6 +245,28 @@ CoreIrValue *try_fold_cast(CoreIrContext &context, const CoreIrCastInst &inst) {
     return nullptr;
 }
 
+CoreIrValue *try_fold_phi(const CoreIrPhiInst &inst) {
+    if (inst.get_incoming_count() == 0) {
+        return nullptr;
+    }
+
+    CoreIrValue *replacement = nullptr;
+    for (std::size_t index = 0; index < inst.get_incoming_count(); ++index) {
+        CoreIrValue *incoming_value = inst.get_incoming_value(index);
+        if (incoming_value == nullptr) {
+            return nullptr;
+        }
+        if (replacement == nullptr) {
+            replacement = incoming_value;
+            continue;
+        }
+        if (replacement != incoming_value) {
+            return nullptr;
+        }
+    }
+    return replacement;
+}
+
 bool simplify_constant_conditional_branch(CoreIrBasicBlock &block,
                                           const CoreIrType *void_type) {
     auto &instructions = block.get_instructions();
@@ -299,7 +321,11 @@ PassResult CoreIrConstFoldPass::Run(CompilerContext &context) {
         for (const auto &block : function->get_basic_blocks()) {
             for (const auto &instruction : block->get_instructions()) {
                 CoreIrValue *replacement = nullptr;
-                if (const auto *binary =
+                if (const auto *phi =
+                        dynamic_cast<CoreIrPhiInst *>(instruction.get());
+                    phi != nullptr) {
+                    replacement = try_fold_phi(*phi);
+                } else if (const auto *binary =
                         dynamic_cast<CoreIrBinaryInst *>(instruction.get());
                     binary != nullptr) {
                     replacement = try_fold_binary(*core_ir_context, *binary);
