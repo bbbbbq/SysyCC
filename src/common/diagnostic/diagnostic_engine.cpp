@@ -23,7 +23,28 @@ bool DiagnosticEngine::has_error() const noexcept {
     return false;
 }
 
+const WarningPolicy &DiagnosticEngine::get_warning_policy() const noexcept {
+    return warning_policy_;
+}
+
+void DiagnosticEngine::set_warning_policy(WarningPolicy warning_policy) {
+    warning_policy_ = std::move(warning_policy);
+}
+
 void DiagnosticEngine::add_diagnostic(Diagnostic diagnostic) {
+    if (diagnostic.get_level() == DiagnosticLevel::Warning) {
+        if (!warning_policy_.should_emit_warning(diagnostic.get_warning_option())) {
+            return;
+        }
+        if (warning_policy_.should_treat_warning_as_error(
+                diagnostic.get_warning_option())) {
+            diagnostic = Diagnostic(DiagnosticLevel::Error,
+                                    diagnostic.get_stage(),
+                                    diagnostic.get_message(),
+                                    diagnostic.get_source_span(),
+                                    diagnostic.get_warning_option(), true);
+        }
+    }
     diagnostics_.push_back(std::move(diagnostic));
 }
 
@@ -34,9 +55,11 @@ void DiagnosticEngine::add_error(DiagnosticStage stage, std::string message,
 }
 
 void DiagnosticEngine::add_warning(DiagnosticStage stage, std::string message,
-                                   SourceSpan source_span) {
+                                   SourceSpan source_span,
+                                   std::string warning_option) {
     add_diagnostic(Diagnostic(DiagnosticLevel::Warning, stage,
-                              std::move(message), source_span));
+                              std::move(message), source_span,
+                              std::move(warning_option)));
 }
 
 void DiagnosticEngine::add_note(DiagnosticStage stage, std::string message,
