@@ -9,6 +9,7 @@
 #include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
 #include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
+#include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
 #include "frontend/ast/ast_pass.hpp"
 #include "frontend/lexer/lexer.hpp"
@@ -52,6 +53,7 @@ void Complier::InitializePasses() {
     pass_manager_.AddPass(std::make_unique<SemanticPass>());
     pass_manager_.AddPass(std::make_unique<BuildCoreIrPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrCanonicalizePass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrConstFoldPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrDcePass>());
     pass_manager_.AddPass(std::make_unique<LowerIrPass>());

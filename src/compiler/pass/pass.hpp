@@ -18,6 +18,7 @@ enum class PassKind : uint8_t {
     Semantic,
     BuildCoreIr,
     CoreIrCanonicalize,
+    CoreIrSimplifyCfg,
     CoreIrConstFold,
     CoreIrDce,
     LowerIr,
