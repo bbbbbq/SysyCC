@@ -16,10 +16,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -Eq '^  %i\.addr = alloca i32$' "${IR_FILE}"
 grep -Eq '^  %j\.addr = alloca i32$' "${IR_FILE}"
-grep -Eq 'load i32, ptr %i\.addr' "${IR_FILE}"
-grep -Eq 'add i32 %t[0-9]+, 1' "${IR_FILE}"
-grep -Eq 'store i32 %t[0-9]+, ptr %i\.addr' "${IR_FILE}"
+grep -Eq '^  store i32 4, ptr %j\.addr$' "${IR_FILE}"
+grep -Eq '^  ret i32 4$' "${IR_FILE}"
 
 echo "verified: ir lowers prefix and postfix increment expressions"

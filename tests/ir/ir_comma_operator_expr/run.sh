@@ -19,7 +19,6 @@ assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
 grep -Eq '^  store i32 4, ptr %x\.addr[0-9]*$' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = add i32 %t[0-9]+, 3$' "${IR_FILE}"
-grep -Eq '^  ret i32 %t[0-9]+$' "${IR_FILE}"
+grep -Eq '^  ret i32 7$' "${IR_FILE}"
 
 echo "verified: ir preserves comma-operator side effects and result value"

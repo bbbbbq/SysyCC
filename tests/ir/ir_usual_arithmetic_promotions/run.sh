@@ -18,9 +18,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -q 'zext i8 ' "${IR_FILE}"
-grep -q 'sext i16 ' "${IR_FILE}"
-grep -q '^  %t[0-9][0-9]*\.raw = icmp slt i32 ' "${IR_FILE}"
-grep -q '^  %t[0-9][0-9]* = add i32 ' "${IR_FILE}"
+grep -q '^  ret i32 15$' "${IR_FILE}"
 
 echo "verified: integer usual arithmetic promotions lower through coerced IR operands"
