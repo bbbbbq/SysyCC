@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "backend/asm_gen/backend_options.hpp"
+#include "common/diagnostic/warning_policy.hpp"
 
 namespace sysycc {
 
@@ -72,6 +73,55 @@ enum class StopAfterStage : uint8_t {
     Asm,
 };
 
+enum class DriverAction : uint8_t {
+    InternalPipeline,
+    FullCompile,
+    CompileOnlyUnsupported,
+    PreprocessOnly,
+    SyntaxOnly,
+    EmitAssembly,
+    EmitLlvmIr,
+};
+
+enum class LanguageMode : uint8_t {
+    Sysy,
+    C99,
+    Gnu99,
+};
+
+enum class CommandLineMacroActionKind : uint8_t {
+    Define,
+    Undefine,
+};
+
+class CommandLineMacroOption {
+  private:
+    CommandLineMacroActionKind action_kind_ = CommandLineMacroActionKind::Define;
+    std::string name_;
+    std::string replacement_;
+    bool has_replacement_ = false;
+
+  public:
+    CommandLineMacroOption() = default;
+
+    CommandLineMacroOption(CommandLineMacroActionKind action_kind,
+                           std::string name, std::string replacement = {},
+                           bool has_replacement = false)
+        : action_kind_(action_kind), name_(std::move(name)),
+          replacement_(std::move(replacement)),
+          has_replacement_(has_replacement) {}
+
+    CommandLineMacroActionKind get_action_kind() const noexcept {
+        return action_kind_;
+    }
+
+    const std::string &get_name() const noexcept { return name_; }
+
+    const std::string &get_replacement() const noexcept { return replacement_; }
+
+    bool has_replacement() const noexcept { return has_replacement_; }
+};
+
 // Stores the configuration for one compiler invocation.
 class ComplierOption {
   private:
@@ -80,6 +130,9 @@ class ComplierOption {
     std::vector<std::string> include_directories_;
     std::vector<std::string> system_include_directories_ =
         detail::get_default_system_include_directories();
+    std::vector<CommandLineMacroOption> command_line_macro_options_;
+    std::vector<std::string> forced_include_files_;
+    bool no_stdinc_ = false;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
     bool dump_ast_ = false;
@@ -87,9 +140,13 @@ class ComplierOption {
     bool dump_core_ir_ = false;
     bool emit_asm_ = false;
     StopAfterStage stop_after_stage_ = StopAfterStage::None;
+    DriverAction driver_action_ = DriverAction::InternalPipeline;
+    LanguageMode language_mode_ = LanguageMode::Sysy;
     bool enable_gnu_dialect_ = true;
     bool enable_clang_dialect_ = true;
     bool enable_builtin_type_extension_pack_ = true;
+    bool verbose_ = false;
+    WarningPolicy warning_policy_;
     BackendOptions backend_options_;
 
   public:
@@ -136,6 +193,28 @@ class ComplierOption {
         system_include_directories_ = std::move(system_include_directories);
     }
 
+    const std::vector<CommandLineMacroOption> &
+    get_command_line_macro_options() const noexcept {
+        return command_line_macro_options_;
+    }
+
+    void set_command_line_macro_options(
+        std::vector<CommandLineMacroOption> command_line_macro_options) {
+        command_line_macro_options_ = std::move(command_line_macro_options);
+    }
+
+    const std::vector<std::string> &get_forced_include_files() const noexcept {
+        return forced_include_files_;
+    }
+
+    void set_forced_include_files(std::vector<std::string> forced_include_files) {
+        forced_include_files_ = std::move(forced_include_files);
+    }
+
+    bool get_no_stdinc() const noexcept { return no_stdinc_; }
+
+    void set_no_stdinc(bool no_stdinc) noexcept { no_stdinc_ = no_stdinc; }
+
     bool dump_tokens() const noexcept { return dump_tokens_; }
 
     void set_dump_tokens(bool dump_tokens) noexcept {
@@ -172,6 +251,18 @@ class ComplierOption {
         stop_after_stage_ = stop_after_stage;
     }
 
+    DriverAction get_driver_action() const noexcept { return driver_action_; }
+
+    void set_driver_action(DriverAction driver_action) noexcept {
+        driver_action_ = driver_action;
+    }
+
+    LanguageMode get_language_mode() const noexcept { return language_mode_; }
+
+    void set_language_mode(LanguageMode language_mode) noexcept {
+        language_mode_ = language_mode;
+    }
+
     bool get_enable_gnu_dialect() const noexcept {
         return enable_gnu_dialect_;
     }
@@ -196,6 +287,20 @@ class ComplierOption {
         bool enable_builtin_type_extension_pack) noexcept {
         enable_builtin_type_extension_pack_ =
             enable_builtin_type_extension_pack;
+    }
+
+    bool get_verbose() const noexcept { return verbose_; }
+
+    void set_verbose(bool verbose) noexcept { verbose_ = verbose; }
+
+    const WarningPolicy &get_warning_policy() const noexcept {
+        return warning_policy_;
+    }
+
+    WarningPolicy &get_warning_policy() noexcept { return warning_policy_; }
+
+    void set_warning_policy(WarningPolicy warning_policy) {
+        warning_policy_ = std::move(warning_policy);
     }
 
     const BackendOptions &get_backend_options() const noexcept {

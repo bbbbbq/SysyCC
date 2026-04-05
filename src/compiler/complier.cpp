@@ -27,6 +27,10 @@ void Complier::sync_context_from_option() {
     context_.set_include_directories(option_.get_include_directories());
     context_.set_system_include_directories(
         option_.get_system_include_directories());
+    context_.set_command_line_macro_options(
+        option_.get_command_line_macro_options());
+    context_.set_forced_include_files(option_.get_forced_include_files());
+    context_.set_no_stdinc(option_.get_no_stdinc());
     context_.set_dump_tokens(option_.dump_tokens());
     context_.set_dump_parse(option_.dump_parse());
     context_.set_dump_ast(option_.dump_ast());
@@ -35,6 +39,8 @@ void Complier::sync_context_from_option() {
     context_.set_emit_asm(option_.emit_asm());
     context_.set_stop_after_stage(option_.get_stop_after_stage());
     context_.set_backend_options(option_.get_backend_options());
+    context_.get_diagnostic_engine().set_warning_policy(
+        option_.get_warning_policy());
     context_.configure_dialects(option_.get_enable_gnu_dialect(),
                                 option_.get_enable_clang_dialect(),
                                 option_.get_enable_builtin_type_extension_pack());
@@ -164,6 +170,34 @@ PassResult Complier::validate_backend_configuration() {
     return PassResult::Success();
 }
 
+PassResult Complier::validate_driver_configuration() {
+    switch (option_.get_driver_action()) {
+    case DriverAction::InternalPipeline:
+        return PassResult::Success();
+    case DriverAction::FullCompile: {
+        const std::string message =
+            "linking is not supported yet; use -E, -fsyntax-only, -S, or -S -emit-llvm";
+        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                   message);
+        return PassResult::Failure(message);
+    }
+    case DriverAction::CompileOnlyUnsupported: {
+        const std::string message =
+            "object emission is not supported yet; use -E, -fsyntax-only, -S, or -S -emit-llvm";
+        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                   message);
+        return PassResult::Failure(message);
+    }
+    case DriverAction::PreprocessOnly:
+    case DriverAction::SyntaxOnly:
+    case DriverAction::EmitAssembly:
+    case DriverAction::EmitLlvmIr:
+        return PassResult::Success();
+    }
+
+    return PassResult::Success();
+}
+
 PassResult Complier::Run() {
     context_.clear_diagnostic_engine();
     context_.clear_core_ir_build_result();
@@ -177,6 +211,10 @@ PassResult Complier::Run() {
         context_.get_dialect_manager().register_dialect(std::move(dialect));
     }
     extra_dialects_.clear();
+    PassResult driver_validation_result = validate_driver_configuration();
+    if (!driver_validation_result.ok) {
+        return driver_validation_result;
+    }
     PassResult dialect_validation_result = validate_dialect_configuration();
     if (!dialect_validation_result.ok) {
         return dialect_validation_result;

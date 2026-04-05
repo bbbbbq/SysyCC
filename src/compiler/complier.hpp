@@ -21,6 +21,7 @@ class Complier {
 
     void InitializePasses();
     void sync_context_from_option();
+    PassResult validate_driver_configuration();
     PassResult validate_dialect_configuration();
     PassResult validate_backend_configuration();
 
