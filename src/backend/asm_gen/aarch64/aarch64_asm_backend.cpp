@@ -406,8 +406,20 @@ std::vector<ParsedVirtualRegRef> parse_virtual_reg_refs(const std::string &text)
 struct AArch64LivenessInterval {
     std::size_t virtual_reg_id = 0;
     bool use_64bit = false;
+    bool initialized = false;
     std::size_t start = 0;
     std::size_t end = 0;
+};
+
+struct AArch64BlockLiveness {
+    std::unordered_set<std::size_t> defs;
+    std::unordered_set<std::size_t> uses;
+    std::unordered_set<std::size_t> live_in;
+    std::unordered_set<std::size_t> live_out;
+    std::vector<std::size_t> successors;
+    std::size_t start_index = 0;
+    std::size_t end_index = 0;
+    bool has_instruction = false;
 };
 
 class AArch64LivenessInfo {
@@ -423,11 +435,169 @@ class AArch64LivenessInfo {
     }
 };
 
+void collect_instruction_defs_uses(
+    const AArch64MachineInstr &instruction, std::unordered_set<std::size_t> &defs,
+    std::unordered_set<std::size_t> &uses) {
+    for (const AArch64MachineOperand &operand : instruction.get_operands()) {
+        for (const ParsedVirtualRegRef &ref : parse_virtual_reg_refs(operand.get_text())) {
+            if (ref.is_def) {
+                defs.insert(ref.id);
+                continue;
+            }
+            if (defs.find(ref.id) == defs.end()) {
+                uses.insert(ref.id);
+            }
+        }
+    }
+}
+
+std::vector<std::size_t> collect_block_successors(
+    const AArch64MachineFunction &function,
+    const std::unordered_map<std::string, std::size_t> &label_to_index,
+    std::size_t block_index) {
+    const auto &blocks = function.get_blocks();
+    std::vector<std::size_t> successors;
+    if (block_index >= blocks.size()) {
+        return successors;
+    }
+
+    const auto &instructions = blocks[block_index].get_instructions();
+    if (instructions.empty()) {
+        if (block_index + 1 < blocks.size()) {
+            successors.push_back(block_index + 1);
+        }
+        return successors;
+    }
+
+    const AArch64MachineInstr &last = instructions.back();
+    if (last.get_mnemonic() == "ret") {
+        return successors;
+    }
+
+    if (instructions.size() >= 2) {
+        const AArch64MachineInstr &second_last = instructions[instructions.size() - 2];
+        if (second_last.get_mnemonic() == "cbnz" && last.get_mnemonic() == "b") {
+            if (second_last.get_operands().size() >= 2) {
+                const auto it =
+                    label_to_index.find(second_last.get_operands()[1].get_text());
+                if (it != label_to_index.end()) {
+                    successors.push_back(it->second);
+                }
+            }
+            if (!last.get_operands().empty()) {
+                const auto it = label_to_index.find(last.get_operands()[0].get_text());
+                if (it != label_to_index.end()) {
+                    successors.push_back(it->second);
+                }
+            }
+            return successors;
+        }
+    }
+
+    if (last.get_mnemonic() == "cbnz") {
+        if (last.get_operands().size() >= 2) {
+            const auto it = label_to_index.find(last.get_operands()[1].get_text());
+            if (it != label_to_index.end()) {
+                successors.push_back(it->second);
+            }
+        }
+        if (block_index + 1 < blocks.size()) {
+            successors.push_back(block_index + 1);
+        }
+        return successors;
+    }
+
+    if (last.get_mnemonic() == "b") {
+        if (!last.get_operands().empty()) {
+            const auto it = label_to_index.find(last.get_operands()[0].get_text());
+            if (it != label_to_index.end()) {
+                successors.push_back(it->second);
+            }
+        }
+        return successors;
+    }
+
+    if (block_index + 1 < blocks.size()) {
+        successors.push_back(block_index + 1);
+    }
+    return successors;
+}
+
 AArch64LivenessInfo build_liveness_info(const AArch64MachineFunction &function) {
-    std::unordered_map<std::size_t, AArch64LivenessInterval> intervals;
-    std::unordered_set<std::size_t> initialized;
+    std::unordered_map<std::string, std::size_t> label_to_index;
+    std::vector<AArch64BlockLiveness> block_info(function.get_blocks().size());
     std::size_t instruction_index = 0;
-    for (const AArch64MachineBlock &block : function.get_blocks()) {
+    for (std::size_t block_index = 0; block_index < function.get_blocks().size();
+         ++block_index) {
+        label_to_index.emplace(function.get_blocks()[block_index].get_label(),
+                               block_index);
+    }
+
+    for (std::size_t block_index = 0; block_index < function.get_blocks().size();
+         ++block_index) {
+        const AArch64MachineBlock &block = function.get_blocks()[block_index];
+        AArch64BlockLiveness &info = block_info[block_index];
+        info.start_index = instruction_index;
+        info.has_instruction = !block.get_instructions().empty();
+        for (const AArch64MachineInstr &instruction : block.get_instructions()) {
+            collect_instruction_defs_uses(instruction, info.defs, info.uses);
+            ++instruction_index;
+        }
+        info.end_index = info.has_instruction ? instruction_index - 1 : instruction_index;
+        info.successors = collect_block_successors(function, label_to_index, block_index);
+    }
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (std::size_t reverse_index = block_info.size(); reverse_index > 0;
+             --reverse_index) {
+            AArch64BlockLiveness &info = block_info[reverse_index - 1];
+            std::unordered_set<std::size_t> new_live_out;
+            for (std::size_t successor : info.successors) {
+                const AArch64BlockLiveness &successor_info = block_info[successor];
+                new_live_out.insert(successor_info.live_in.begin(),
+                                    successor_info.live_in.end());
+            }
+            std::unordered_set<std::size_t> new_live_in = info.uses;
+            for (std::size_t vreg : new_live_out) {
+                if (info.defs.find(vreg) == info.defs.end()) {
+                    new_live_in.insert(vreg);
+                }
+            }
+            if (new_live_in != info.live_in || new_live_out != info.live_out) {
+                info.live_in = std::move(new_live_in);
+                info.live_out = std::move(new_live_out);
+                changed = true;
+            }
+        }
+    }
+
+    std::unordered_map<std::size_t, AArch64LivenessInterval> intervals;
+    for (std::size_t block_index = 0; block_index < function.get_blocks().size();
+         ++block_index) {
+        const AArch64MachineBlock &block = function.get_blocks()[block_index];
+        const AArch64BlockLiveness &info = block_info[block_index];
+
+        for (std::size_t live_in : info.live_in) {
+            auto &interval = intervals[live_in];
+            interval.virtual_reg_id = live_in;
+            interval.initialized = true;
+            if (!info.has_instruction) {
+                continue;
+            }
+            if (interval.start == 0 && interval.end == 0 &&
+                interval.virtual_reg_id == live_in && live_in != 0 &&
+                interval.end == interval.start) {
+                interval.start = info.start_index;
+                interval.end = info.end_index;
+            } else {
+                interval.start = std::min(interval.start, info.start_index);
+                interval.end = std::max(interval.end, info.end_index);
+            }
+        }
+
+        std::size_t local_instruction_index = info.start_index;
         for (const AArch64MachineInstr &instruction : block.get_instructions()) {
             for (const AArch64MachineOperand &operand : instruction.get_operands()) {
                 for (const ParsedVirtualRegRef &ref :
@@ -435,15 +605,26 @@ AArch64LivenessInfo build_liveness_info(const AArch64MachineFunction &function) 
                     auto &interval = intervals[ref.id];
                     interval.virtual_reg_id = ref.id;
                     interval.use_64bit = ref.use_64bit;
-                    if (initialized.insert(ref.id).second) {
-                        interval.start = instruction_index;
-                        interval.end = instruction_index;
+                    if (!interval.initialized) {
+                        interval.initialized = true;
+                        interval.start = local_instruction_index;
+                        interval.end = local_instruction_index;
                         continue;
                     }
-                    interval.end = std::max(interval.end, instruction_index);
+                    interval.start = std::min(interval.start, local_instruction_index);
+                    interval.end = std::max(interval.end, local_instruction_index);
                 }
             }
-            ++instruction_index;
+            ++local_instruction_index;
+        }
+
+        for (std::size_t live_out : info.live_out) {
+            auto &interval = intervals[live_out];
+            interval.virtual_reg_id = live_out;
+            if (!info.has_instruction) {
+                continue;
+            }
+            interval.end = std::max(interval.end, info.end_index);
         }
     }
 
