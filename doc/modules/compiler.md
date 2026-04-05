@@ -83,8 +83,8 @@ At the current stage, the initialized pipeline is:
 
 ```text
 PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass ->
-BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrConstFoldPass ->
-CoreIrDcePass -> LowerIrPass
+BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrSimplifyCfgPass ->
+CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass
 ```
 
 ## Notes
@@ -117,21 +117,24 @@ CoreIrDcePass -> LowerIrPass
   aggregate storage, and variadic default-argument promotions before LLVM text
   emission.
 - The executable hot path is now `BuildCoreIrPass -> CoreIrCanonicalizePass ->
-  CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass -> AArch64AsmGenPass`.
+  CoreIrSimplifyCfgPass -> CoreIrConstFoldPass -> CoreIrDcePass ->
+  LowerIrPass -> AArch64AsmGenPass`.
   `LowerIrPass` is now LLVM-specific and no-ops for the native backend, while
   the native AArch64 path lives under
   [src/backend/asm_gen/aarch64](/Users/caojunze424/code/SysyCC/src/backend/asm_gen/aarch64).
   The legacy `IRBuilder -> IRBackend -> LlvmIrBackend` stack remains in tree as
   a reference implementation during the migration.
 - `CoreIrCanonicalizePass` now performs a first conservative normalization pass
-  over built Core IR before constant folding and DCE, including branch
-  condition cleanup, local integer cast-chain simplification, jump trampoline
-  removal, and zero-index no-op GEP cleanup.
-- That canonicalization stage now also performs second-stage cleanup over
-  compare-wrapped branch conditions, safe nested GEP chains, conservative CFG
-  simplification, safe integer identity expressions / compare orientation, and
-  plain stack-slot address load/store normalization before later backend
-  stages run.
+  over built Core IR before CFG cleanup, constant folding, and DCE, including
+  branch condition cleanup, local integer cast-chain simplification,
+  compare/GEP normalization, and stack-slot access normalization.
+- `CoreIrSimplifyCfgPass` now owns the conservative CFG cleanup portion of the
+  staged Core IR pipeline, including constant / redundant branch collapse,
+  jump trampoline removal, unreachable-block cleanup, and conservative linear
+  block merging.
+- `CoreIrBuildResult` now also carries a staged Core IR analysis manager for
+  function-level CFG and dominator queries, with transform passes invalidating
+  cached analyses conservatively after IR mutation.
 - `LowerIrPass` now fails fast when the active IR backend cannot lower a
   required function body, function declaration, or global object. Unsupported
   IR is reported through the shared diagnostic engine and stops compilation

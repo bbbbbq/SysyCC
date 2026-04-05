@@ -67,6 +67,7 @@ main
       -> SemanticPass
       -> BuildCoreIrPass
       -> CoreIrCanonicalizePass
+      -> CoreIrSimplifyCfgPass
       -> CoreIrConstFoldPass
       -> CoreIrDcePass
       -> LowerIrPass
@@ -187,13 +188,15 @@ main
   compatibility allowing `char * -> const char *` but rejecting
   `const char * -> char *`.
 - The backend is now split into explicit top-level passes:
-  `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrConstFoldPass ->
-  CoreIrDcePass -> LowerIrPass`. `CompilerContext` stores both the staged
-  `CoreIrBuildResult` and the final `IRResult`, and the current lowering path
-  still targets LLVM IR for the supported subset of integer/void functions,
-  integer locals, arithmetic and comparisons, short-circuit logical
-  expressions, integer ternary expressions, assignments, direct function
-  calls, and basic `if` / `while` / `for` / `do-while` / `switch` /
+  `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrSimplifyCfgPass ->
+  CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass`. `CompilerContext`
+  stores both the staged `CoreIrBuildResult` and the final `IRResult`, while
+  the staged `CoreIrBuildResult` now also owns function-level CFG and
+  dominator analysis caches for the current Core IR module. The current
+  lowering path still targets LLVM IR for the supported subset of integer/void
+  functions, integer locals, arithmetic and comparisons, short-circuit
+  logical expressions, integer ternary expressions, assignments, direct
+  function calls, and basic `if` / `while` / `for` / `do-while` / `switch` /
   `break` / `continue` control flow.
 - The current LLVM IR path now also lowers enum storage through `i32`,
   supports local/global character-array initialization from string literals,

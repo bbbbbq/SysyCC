@@ -10,6 +10,14 @@ without hard-wiring the pass to LLVM-specific interfaces.
 
 ```text
 src/backend/ir/
+├── analysis/
+│   ├── analysis_manager.hpp
+│   ├── analysis_manager.cpp
+│   ├── cfg_analysis.hpp
+│   ├── cfg_analysis.cpp
+│   ├── core_ir_analysis_kind.hpp
+│   ├── dominator_tree_analysis.hpp
+│   └── dominator_tree_analysis.cpp
 ├── build/
 │   ├── build_core_ir_pass.hpp
 │   └── build_core_ir_pass.cpp
@@ -22,6 +30,9 @@ src/backend/ir/
 ├── dce/
 │   ├── core_ir_dce_pass.hpp
 │   └── core_ir_dce_pass.cpp
+├── simplify_cfg/
+│   ├── core_ir_simplify_cfg_pass.hpp
+│   └── core_ir_simplify_cfg_pass.cpp
 ├── lower/
 │   ├── lower_ir_pass.hpp
 │   ├── lower_ir_pass.cpp
@@ -84,23 +95,33 @@ src/backend/ir/
 
 The current IR module is intentionally a skeleton:
 
-- `BuildCoreIrPass`, `CoreIrCanonicalizePass`, `CoreIrConstFoldPass`,
-  `CoreIrDcePass`, and `LowerIrPass` are connected to the main pipeline after
-  `SemanticPass`
+- `BuildCoreIrPass`, `CoreIrCanonicalizePass`, `CoreIrSimplifyCfgPass`,
+  `CoreIrConstFoldPass`, `CoreIrDcePass`, and `LowerIrPass` are connected to
+  the main pipeline after `SemanticPass`
+- `analysis/CoreIrAnalysisManager` now owns function-level Core IR analysis
+  caches for the current staged analyses and invalidates them conservatively
+  when transform passes mutate IR
+- `analysis/CoreIrCfgAnalysis` now centralizes predecessor/successor and
+  reachability facts for one `CoreIrFunction`
+- `analysis/CoreIrDominatorTreeAnalysis` now computes a first function-local
+  dominator view over the current reachable CFG
 - `CoreIrCanonicalizePass` is no longer a placeholder check; its first
   implementation now normalizes branch conditions into compare-driven forms,
-  simplifies local integer cast chains, removes non-entry trampoline blocks,
-  and erases zero-index no-op GEP wrappers before later optimization/lowering
+  simplifies local integer cast chains, and erases zero-index no-op GEP
+  wrappers before later optimization/lowering
 - `CoreIrCanonicalizePass` has since been extended to:
   - collapse safe cast-/compare-wrapped branch conditions into direct `i1`
     compare branches
   - flatten only structurally-safe nested GEP chains while preserving unsafe
     union/reinterpretation-style address paths
-  - reduce redundant conditional jumps and merge conservative linear blocks
   - simplify safe integer identity expressions and normalize compare operand
     orientation
   - rewrite plain `addr_of_stackslot`-based loads and stores into direct
     stack-slot forms
+- `CoreIrSimplifyCfgPass` now owns conservative CFG cleanup after shape
+  canonicalization, including constant / redundant branch collapse, trampoline
+  removal, unreachable-block cleanup, and single-predecessor linear block
+  merging
 - zero-initialized local/global aggregate objects now collapse through one
   canonical `zeroinitializer` constant/store path instead of eagerly
   expanding every element into repeated zero payloads
@@ -199,13 +220,15 @@ LLVM IR lowering path:
   - conditional branches
   - returns
 - `CompilerContext` now stores one `CoreIrBuildResult` between backend stages
-- `CoreIrCanonicalizePass`, `CoreIrConstFoldPass`, and `CoreIrDcePass` now run
-  as explicit top-level compiler passes over one built Core IR module
+- `CoreIrBuildResult` now also owns one `CoreIrAnalysisManager` alongside the
+  staged module/context so function analyses stay tied to one Core IR build
+- `CoreIrCanonicalizePass`, `CoreIrSimplifyCfgPass`,
+  `CoreIrConstFoldPass`, and `CoreIrDcePass` now run as explicit top-level
+  compiler passes over one built Core IR module
 - `CoreIrCanonicalizePass` currently handles:
   - branch condition normalization for compare-like and integer-valued
     `CondJump` conditions
   - local integer `SignExtend` / `ZeroExtend` / `Truncate` chain cleanup
-  - non-entry unconditional jump trampoline elimination
   - zero-index `GetElementPtr` cleanup when it is a no-op wrapper
   - safe compare/cast wrappers around boolean branch conditions
   - safe nested `GetElementPtr` flattening for structural address chains
@@ -220,11 +243,6 @@ LLVM IR lowering path:
       selection wrapper
   - direct stack-slot load/store canonicalization even when the address still
     carries a trivial zero-index `GEP` wrapper chain
-  - constant-condition branch collapse before later CFG cleanup
-  - redundant `condbr x, B, B` collapse and conservative single-predecessor
-    linear block merging
-  - non-entry unreachable block cleanup after branch simplification and target
-    rewrites
   - safe integer identity-expression cleanup and compare orientation
     normalization
   - plain stack-slot address load/store canonicalization
@@ -239,6 +257,20 @@ LLVM IR lowering path:
     target lowering instead of being deferred to the LLVM backend
   - compare wrappers around boolean-producing values are collapsed before later
     optimization stages
+- `CoreIrSimplifyCfgPass` currently handles:
+  - constant-condition branch collapse before later CFG cleanup
+  - redundant `condbr x, B, B` collapse
+  - non-entry unconditional jump trampoline elimination
+  - non-entry unreachable block cleanup after branch simplification and target
+    rewrites
+  - conservative single-predecessor linear block merging
+- `CoreIrCfgAnalysis` currently reports:
+  - one entry block per function
+  - per-block predecessor and successor lists
+  - per-block reachability from the entry block
+- `CoreIrDominatorTreeAnalysis` currently reports:
+  - `dominates(a, b)` over reachable blocks
+  - one immediate dominator per reachable non-entry block
 - `CoreIrTargetBackend` now exposes one backend-independent lowering boundary
   from optimized Core IR into an `IRResult`
 - `CoreIrLlvmTargetBackend` now lowers the current staged subset into LLVM IR
