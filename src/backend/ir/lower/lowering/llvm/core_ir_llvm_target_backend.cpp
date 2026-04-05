@@ -487,6 +487,35 @@ bool CoreIrLlvmTargetBackend::append_instruction(
     std::string &text, const CoreIrInstruction &instruction,
     DiagnosticEngine &diagnostic_engine) {
     switch (instruction.get_opcode()) {
+    case CoreIrOpcode::Phi: {
+        const auto &phi_instruction =
+            static_cast<const CoreIrPhiInst &>(instruction);
+        text += "  %" + get_emitted_value_name(&phi_instruction) + " = phi ";
+        text += format_type(phi_instruction.get_type());
+        bool first_incoming = true;
+        for (std::size_t index = 0; index < phi_instruction.get_incoming_count();
+             ++index) {
+            CoreIrBasicBlock *incoming_block =
+                phi_instruction.get_incoming_block(index);
+            CoreIrValue *incoming_value = phi_instruction.get_incoming_value(index);
+            if (incoming_block == nullptr || incoming_value == nullptr) {
+                continue;
+            }
+            if (!first_incoming) {
+                text += ", ";
+            } else {
+                text += " ";
+                first_incoming = false;
+            }
+            text += "[ ";
+            text += format_value_ref(incoming_value);
+            text += ", %";
+            text += incoming_block->get_name();
+            text += " ]";
+        }
+        text += "\n";
+        return true;
+    }
     case CoreIrOpcode::AddressOfFunction:
     case CoreIrOpcode::AddressOfGlobal:
     case CoreIrOpcode::AddressOfStackSlot:
@@ -916,6 +945,17 @@ bool CoreIrLlvmTargetBackend::append_function(std::string &text,
             }
         }
         for (const auto &instruction : basic_block->get_instructions()) {
+            if (instruction->get_opcode() != CoreIrOpcode::Phi) {
+                continue;
+            }
+            if (!append_instruction(text, *instruction, diagnostic_engine)) {
+                return false;
+            }
+        }
+        for (const auto &instruction : basic_block->get_instructions()) {
+            if (instruction->get_opcode() == CoreIrOpcode::Phi) {
+                continue;
+            }
             if (!append_instruction(text, *instruction, diagnostic_engine)) {
                 return false;
             }

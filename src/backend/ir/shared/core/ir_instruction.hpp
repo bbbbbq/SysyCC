@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,6 +13,7 @@ namespace sysycc {
 class CoreIrBasicBlock;
 
 enum class CoreIrOpcode : unsigned char {
+    Phi,
     Binary,
     Unary,
     Compare,
@@ -95,6 +97,23 @@ class CoreIrInstruction : public CoreIrValue {
         operands_.push_back(operand);
     }
 
+    void erase_operand(std::size_t index) {
+        if (index >= operands_.size()) {
+            return;
+        }
+        if (operands_[index] != nullptr) {
+            operands_[index]->remove_use(this, index);
+        }
+        for (std::size_t shifted = index + 1; shifted < operands_.size();
+             ++shifted) {
+            if (operands_[shifted] != nullptr) {
+                operands_[shifted]->remove_use(this, shifted);
+                operands_[shifted]->add_use(this, shifted - 1);
+            }
+        }
+        operands_.erase(operands_.begin() + static_cast<std::ptrdiff_t>(index));
+    }
+
   public:
     CoreIrInstruction(CoreIrOpcode opcode, const CoreIrType *type,
                       std::string name = {})
@@ -143,6 +162,65 @@ class CoreIrInstruction : public CoreIrValue {
 
     virtual bool get_has_side_effect() const noexcept = 0;
     virtual bool get_is_terminator() const noexcept = 0;
+};
+
+class CoreIrPhiInst final : public CoreIrInstruction {
+  private:
+    std::vector<CoreIrBasicBlock *> incoming_blocks_;
+
+  public:
+    CoreIrPhiInst(const CoreIrType *type, std::string name = {})
+        : CoreIrInstruction(CoreIrOpcode::Phi, type, std::move(name)) {}
+
+    std::size_t get_incoming_count() const noexcept {
+        return incoming_blocks_.size();
+    }
+
+    CoreIrBasicBlock *get_incoming_block(std::size_t index) const noexcept {
+        if (index >= incoming_blocks_.size()) {
+            return nullptr;
+        }
+        return incoming_blocks_[index];
+    }
+
+    CoreIrValue *get_incoming_value(std::size_t index) const noexcept {
+        if (index >= get_operands().size()) {
+            return nullptr;
+        }
+        return get_operands()[index];
+    }
+
+    void add_incoming(CoreIrBasicBlock *block, CoreIrValue *value) {
+        incoming_blocks_.push_back(block);
+        append_operand(value);
+    }
+
+    void set_incoming_value(std::size_t index, CoreIrValue *value) {
+        set_operand(index, value);
+    }
+
+    void set_incoming_block(std::size_t index, CoreIrBasicBlock *block) {
+        if (index >= incoming_blocks_.size()) {
+            return;
+        }
+        incoming_blocks_[index] = block;
+    }
+
+    void remove_incoming_block(CoreIrBasicBlock *block) {
+        for (std::size_t index = 0; index < incoming_blocks_.size();) {
+            if (incoming_blocks_[index] != block) {
+                ++index;
+                continue;
+            }
+            incoming_blocks_.erase(
+                incoming_blocks_.begin() + static_cast<std::ptrdiff_t>(index));
+            erase_operand(index);
+        }
+    }
+
+    bool get_has_side_effect() const noexcept override { return false; }
+
+    bool get_is_terminator() const noexcept override { return false; }
 };
 
 class CoreIrBinaryInst final : public CoreIrInstruction {

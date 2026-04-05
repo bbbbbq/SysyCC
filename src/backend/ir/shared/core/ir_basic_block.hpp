@@ -46,6 +46,34 @@ class CoreIrBasicBlock {
         return instruction_ptr;
     }
 
+    CoreIrInstruction *prepend_instruction(
+        std::unique_ptr<CoreIrInstruction> instruction) {
+        if (instruction == nullptr) {
+            return nullptr;
+        }
+        instruction->set_parent(this);
+        CoreIrInstruction *instruction_ptr = instruction.get();
+        instructions_.insert(instructions_.begin(), std::move(instruction));
+        return instruction_ptr;
+    }
+
+    CoreIrInstruction *insert_instruction_before_first_non_phi(
+        std::unique_ptr<CoreIrInstruction> instruction) {
+        if (instruction == nullptr) {
+            return nullptr;
+        }
+        instruction->set_parent(this);
+        CoreIrInstruction *instruction_ptr = instruction.get();
+        auto insert_it = instructions_.begin();
+        while (insert_it != instructions_.end() &&
+               (*insert_it) != nullptr &&
+               (*insert_it)->get_opcode() == CoreIrOpcode::Phi) {
+            ++insert_it;
+        }
+        instructions_.insert(insert_it, std::move(instruction));
+        return instruction_ptr;
+    }
+
     template <typename T, typename... Args>
     T *create_instruction(Args &&...args) {
         auto instruction =
