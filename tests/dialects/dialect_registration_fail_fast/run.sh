@@ -20,12 +20,16 @@ clang++ -std=c++17 -I"${GENERATED_DIR}" -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
     "${PROJECT_ROOT}/src/backend/asm_gen/aarch64/aarch64_asm_backend.cpp" \
     "${PROJECT_ROOT}/src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/analysis/analysis_manager.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/analysis/cfg_analysis.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/analysis/dominator_tree_analysis.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/shared/detail/aggregate_layout.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/lower/legacy/ir_backend_factory.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/build/build_core_ir_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/canonicalize/core_ir_canonicalize_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/const_fold/core_ir_const_fold_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/dce/core_ir_dce_pass.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/lower/legacy/gnu_function_attribute_lowering_handler.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/lower/legacy/ir_builder.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/lower/lower_ir_pass.cpp" \

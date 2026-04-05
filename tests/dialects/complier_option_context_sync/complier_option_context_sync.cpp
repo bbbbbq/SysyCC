@@ -8,6 +8,7 @@
 #include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
+#include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "compiler/complier.hpp"
 #include "frontend/ast/ast_pass.hpp"
 #include "frontend/lexer/lexer.hpp"
@@ -86,6 +87,18 @@ PassKind CoreIrDcePass::Kind() const { return PassKind::CoreIrDce; }
 const char *CoreIrDcePass::Name() const { return "CoreIrDcePass"; }
 
 PassResult CoreIrDcePass::Run(CompilerContext &) {
+    return PassResult::Success();
+}
+
+PassKind CoreIrSimplifyCfgPass::Kind() const {
+    return PassKind::CoreIrSimplifyCfg;
+}
+
+const char *CoreIrSimplifyCfgPass::Name() const {
+    return "CoreIrSimplifyCfgPass";
+}
+
+PassResult CoreIrSimplifyCfgPass::Run(CompilerContext &) {
     return PassResult::Success();
 }
 
