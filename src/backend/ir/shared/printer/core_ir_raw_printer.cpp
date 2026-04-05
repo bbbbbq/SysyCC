@@ -263,6 +263,27 @@ std::string CoreIrRawPrinter::format_value(const CoreIrValue *value) const {
 std::string
 CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const {
     switch (instruction.get_opcode()) {
+    case CoreIrOpcode::Phi: {
+        const auto &phi_instruction = static_cast<const CoreIrPhiInst &>(instruction);
+        std::string text = format_value(&phi_instruction) + " = phi " +
+                           format_type(phi_instruction.get_type());
+        for (std::size_t index = 0; index < phi_instruction.get_incoming_count();
+             ++index) {
+            CoreIrBasicBlock *incoming_block =
+                phi_instruction.get_incoming_block(index);
+            CoreIrValue *incoming_value = phi_instruction.get_incoming_value(index);
+            if (incoming_block == nullptr || incoming_value == nullptr) {
+                continue;
+            }
+            text += index == 0 ? " " : ", ";
+            text += "[ ";
+            text += format_value(incoming_value);
+            text += ", %";
+            text += incoming_block->get_name();
+            text += " ]";
+        }
+        return text;
+    }
     case CoreIrOpcode::Binary: {
         const auto &binary_instruction =
             static_cast<const CoreIrBinaryInst &>(instruction);

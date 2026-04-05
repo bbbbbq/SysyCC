@@ -23,6 +23,6 @@ if grep -Eq '^declare i32 @helper\(i32\)$' "${IR_FILE}"; then
     exit 1
 fi
 grep -Eq '^define i32 @helper\(i32 %value\) \{$' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = call i32 @helper\(i32 %t[0-9]+\)$' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+ = call i32 @helper\(i32 (%input|%t[0-9]+)\)$' "${IR_FILE}"
 
 echo "verified: call-site fallback does not redeclare functions defined later in the translation unit"

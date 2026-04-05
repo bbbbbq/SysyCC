@@ -18,9 +18,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -q '^  store i32 1, ptr %x.addr$' "${IR_FILE}"
 grep -q '^  store i32 2, ptr %x.addr$' "${IR_FILE}"
-grep -q '^  %t0 = load i32, ptr %x.addr$' "${IR_FILE}"
-grep -q '^  ret i32 %t0$' "${IR_FILE}"
+grep -q '^  ret i32 2$' "${IR_FILE}"
 
 echo "verified: assignment expression lowers to store"

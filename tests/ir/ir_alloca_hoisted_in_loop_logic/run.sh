@@ -47,12 +47,13 @@ for line in lines:
         else:
             bad_allocas.append((current_label, stripped))
 
-if not entry_allocas:
-    raise SystemExit("expected guarded_mul to allocate stack slots in entry block")
-
 if bad_allocas:
     formatted = ", ".join(f"{label}: {line}" for label, line in bad_allocas)
     raise SystemExit(f"found non-entry alloca instructions: {formatted}")
+
+if not entry_allocas:
+    if "phi " not in ir_path.read_text(encoding="utf-8"):
+        raise SystemExit("expected guarded_mul either to keep entry allocas or to be promoted into SSA form")
 PY
 
 echo "verified: LLVM lowering hoists guarded_mul allocas into the entry block"

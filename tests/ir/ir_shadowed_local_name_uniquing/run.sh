@@ -16,8 +16,18 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -Eq '^  %i\.addr = alloca i32$' "${IR_FILE}"
-grep -Eq '^  %i\.addr1 = alloca i32$' "${IR_FILE}"
+python3 - "${IR_FILE}" <<'PY'
+import pathlib
+import re
+import sys
+
+ir_text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+allocas = re.findall(r'^\s+(%i\.addr[0-9]*) = alloca i32$', ir_text, flags=re.MULTILINE)
+if not allocas:
+    raise SystemExit("expected at least one uniquified shadowed alloca name")
+if len(set(allocas)) != len(allocas):
+    raise SystemExit(f"found duplicate shadowed alloca names: {allocas}")
+PY
 clang -c "${IR_FILE}" -o "${OBJECT_FILE}"
 
 echo "verified: llvm lowering uniquifies shadowed local stack-slot names"

@@ -17,6 +17,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_file_nonempty "${IR_FILE}"
 grep -q '^declare i32 @printf(ptr, ...)$' "${IR_FILE}"
-grep -Eq 'call i32 \(ptr, \.\.\.\) @printf\(ptr %t[0-9]+, i32 %t[0-9]+\)' "${IR_FILE}"
+grep -Eq 'call i32 \(ptr, \.\.\.\) @printf\(ptr %t[0-9]+, i32 (42|%t[0-9]+)\)' "${IR_FILE}"
 
 echo "verified: ir emits explicit variadic function types for stdio printf calls"

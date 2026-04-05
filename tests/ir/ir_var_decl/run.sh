@@ -20,7 +20,6 @@ assert_file_nonempty "${IR_FILE}"
 
 grep -q '^  %x.addr = alloca i32$' "${IR_FILE}"
 grep -q '^  store i32 1, ptr %x.addr$' "${IR_FILE}"
-grep -q '^  %t0 = load i32, ptr %x.addr$' "${IR_FILE}"
-grep -q '^  ret i32 %t0$' "${IR_FILE}"
+grep -q '^  ret i32 1$' "${IR_FILE}"
 
 echo "verified: local variable declaration lowers to alloca/store/load"

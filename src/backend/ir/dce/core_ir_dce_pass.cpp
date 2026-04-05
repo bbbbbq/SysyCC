@@ -71,11 +71,55 @@ void detach_block(CoreIrBasicBlock &block) {
     }
 }
 
+bool erase_instruction(CoreIrBasicBlock &block, CoreIrInstruction *instruction) {
+    auto &instructions = block.get_instructions();
+    auto it = std::find_if(
+        instructions.begin(), instructions.end(),
+        [instruction](const std::unique_ptr<CoreIrInstruction> &candidate) {
+            return candidate.get() == instruction;
+        });
+    if (it == instructions.end()) {
+        return false;
+    }
+    (*it)->detach_operands();
+    instructions.erase(it);
+    return true;
+}
+
 bool remove_unreachable_blocks(CoreIrFunction &function) {
     auto &blocks = function.get_basic_blocks();
     const std::unordered_set<CoreIrBasicBlock *> reachable =
         collect_reachable_blocks(function);
     const std::size_t old_size = blocks.size();
+
+    std::vector<CoreIrBasicBlock *> unreachable_blocks;
+    unreachable_blocks.reserve(blocks.size());
+    for (const auto &block : blocks) {
+        if (block == nullptr || reachable.find(block.get()) != reachable.end()) {
+            continue;
+        }
+        unreachable_blocks.push_back(block.get());
+    }
+
+    if (!unreachable_blocks.empty()) {
+        for (const auto &block : blocks) {
+            if (block == nullptr || reachable.find(block.get()) == reachable.end()) {
+                continue;
+            }
+            auto &instructions = block->get_instructions();
+            std::size_t index = 0;
+            while (index < instructions.size()) {
+                auto *phi = dynamic_cast<CoreIrPhiInst *>(instructions[index].get());
+                if (phi == nullptr) {
+                    break;
+                }
+                for (CoreIrBasicBlock *unreachable_block : unreachable_blocks) {
+                    phi->remove_incoming_block(unreachable_block);
+                }
+                ++index;
+            }
+        }
+    }
 
     blocks.erase(
         std::remove_if(blocks.begin(), blocks.end(),
@@ -92,6 +136,53 @@ bool remove_unreachable_blocks(CoreIrFunction &function) {
         blocks.end());
 
     return blocks.size() != old_size;
+}
+
+bool simplify_trivial_phis(CoreIrFunction &function) {
+    bool changed = false;
+    for (const auto &block : function.get_basic_blocks()) {
+        auto &instructions = block->get_instructions();
+        for (std::size_t index = 0; index < instructions.size();) {
+            auto *phi = dynamic_cast<CoreIrPhiInst *>(instructions[index].get());
+            if (phi == nullptr) {
+                break;
+            }
+
+            CoreIrValue *replacement = nullptr;
+            bool all_same = phi->get_incoming_count() > 0;
+            for (std::size_t incoming = 0; incoming < phi->get_incoming_count();
+                 ++incoming) {
+                CoreIrValue *incoming_value = phi->get_incoming_value(incoming);
+                if (incoming_value == nullptr) {
+                    all_same = false;
+                    break;
+                }
+                if (replacement == nullptr) {
+                    replacement = incoming_value;
+                    continue;
+                }
+                if (replacement != incoming_value) {
+                    all_same = false;
+                    break;
+                }
+            }
+
+            if (phi->get_incoming_count() == 1 && replacement != nullptr) {
+                phi->replace_all_uses_with(replacement);
+                erase_instruction(*block, phi);
+                changed = true;
+                continue;
+            }
+            if (all_same && replacement != nullptr) {
+                phi->replace_all_uses_with(replacement);
+                erase_instruction(*block, phi);
+                changed = true;
+                continue;
+            }
+            ++index;
+        }
+    }
+    return changed;
 }
 
 bool remove_dead_instructions(CoreIrFunction &function) {
@@ -134,8 +225,14 @@ PassResult CoreIrDcePass::Run(CompilerContext &context) {
     while (changed) {
         changed = false;
         for (const auto &function : build_result->get_module()->get_functions()) {
-            changed = remove_unreachable_blocks(*function) || changed;
-            changed = remove_dead_instructions(*function) || changed;
+            bool function_changed = false;
+            function_changed = simplify_trivial_phis(*function) || function_changed;
+            function_changed = remove_unreachable_blocks(*function) || function_changed;
+            function_changed = remove_dead_instructions(*function) || function_changed;
+            if (function_changed) {
+                build_result->invalidate_core_ir_analyses(*function);
+            }
+            changed = function_changed || changed;
         }
     }
 

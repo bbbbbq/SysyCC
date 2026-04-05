@@ -31,9 +31,7 @@ assert_file_nonempty "${IR_FILE}"
 build_and_link_ir_executable "${IR_FILE}" "${RUNTIME_SOURCE}" "${PROGRAM_FILE}"
 assert_program_output "${PROGRAM_FILE}" "${PROGRAM_INPUT}" "${EXPECTED_OUTPUT}"
 
-grep -q 'zext i8 ' "${IR_FILE}"
-grep -q 'sext i16 ' "${IR_FILE}"
-grep -q 'icmp slt i32 ' "${IR_FILE}"
-grep -q 'add i32 ' "${IR_FILE}"
+grep -Eq 'putint\(i32 (15|%t[0-9]+)\)' "${IR_FILE}"
+grep -q 'ret i32 0' "${IR_FILE}"
 
 echo "verified: runtime integer usual arithmetic promotions produce the expected value"

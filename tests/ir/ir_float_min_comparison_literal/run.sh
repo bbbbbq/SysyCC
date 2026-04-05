@@ -18,6 +18,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^  %t[0-9]+\.raw = fcmp oge float %t[0-9]+, 1\.17549435082228751e-38$' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+\.raw = fcmp oge float (1\.00000000000000000e\+00|%t[0-9]+), 1\.17549435082228751e-38$' "${IR_FILE}"
 
 echo "verified: float comparisons lower through LLVM-accepted exact literal text"

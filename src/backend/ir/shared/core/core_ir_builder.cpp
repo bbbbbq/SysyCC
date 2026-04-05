@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "backend/ir/analysis/analysis_manager.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_context.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -5652,7 +5653,8 @@ class CoreIrBuildSession {
 
 CoreIrBuildResult::CoreIrBuildResult(std::unique_ptr<CoreIrContext> context,
                                      CoreIrModule *module) noexcept
-    : context_(std::move(context)), module_(module) {}
+    : context_(std::move(context)), module_(module),
+      analysis_manager_(std::make_unique<CoreIrAnalysisManager>()) {}
 
 const CoreIrContext *CoreIrBuildResult::get_context() const noexcept {
     return context_.get();
@@ -5667,6 +5669,27 @@ const CoreIrModule *CoreIrBuildResult::get_module() const noexcept {
 }
 
 CoreIrModule *CoreIrBuildResult::get_module() noexcept { return module_; }
+
+const CoreIrAnalysisManager *CoreIrBuildResult::get_analysis_manager() const noexcept {
+    return analysis_manager_.get();
+}
+
+CoreIrAnalysisManager *CoreIrBuildResult::get_analysis_manager() noexcept {
+    return analysis_manager_.get();
+}
+
+void CoreIrBuildResult::invalidate_all_core_ir_analyses() noexcept {
+    if (analysis_manager_ != nullptr) {
+        analysis_manager_->invalidate_all();
+    }
+}
+
+void CoreIrBuildResult::invalidate_core_ir_analyses(
+    CoreIrFunction &function) noexcept {
+    if (analysis_manager_ != nullptr) {
+        analysis_manager_->invalidate(function);
+    }
+}
 
 std::unique_ptr<CoreIrBuildResult> CoreIrBuilder::Build(CompilerContext &context) {
     if (context.get_ast_root() == nullptr) {

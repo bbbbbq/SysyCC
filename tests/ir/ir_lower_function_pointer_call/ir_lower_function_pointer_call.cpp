@@ -3,8 +3,16 @@
 
 #include "backend/ir/build/build_core_ir_pass.hpp"
 #include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
+#include "backend/ir/copy_propagation/core_ir_copy_propagation_pass.hpp"
 #include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
+#include "backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.hpp"
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
+#include "backend/ir/gvn/core_ir_gvn_pass.hpp"
+#include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
+#include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
+#include "backend/ir/sccp/core_ir_sccp_pass.hpp"
+#include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
+#include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
 #include "backend/ir/shared/ir_result.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
 #include "compiler/complier.hpp"
@@ -58,12 +66,28 @@ int main(int argc, char **argv) {
     CompilerContext &context = complier.get_context();
     BuildCoreIrPass build_pass;
     CoreIrCanonicalizePass canonicalize_pass;
+    CoreIrSimplifyCfgPass simplify_cfg_pass;
+    CoreIrStackSlotForwardPass stack_slot_forward_pass;
+    CoreIrCopyPropagationPass copy_propagation_pass;
+    CoreIrSccpPass sccp_pass;
+    CoreIrLocalCsePass local_cse_pass;
+    CoreIrGvnPass gvn_pass;
+    CoreIrDeadStoreEliminationPass dead_store_elimination_pass;
+    CoreIrMem2RegPass mem2reg_pass;
     CoreIrConstFoldPass const_fold_pass;
     CoreIrDcePass dce_pass;
     LowerIrPass lower_pass;
 
     assert(build_pass.Run(context).ok);
     assert(canonicalize_pass.Run(context).ok);
+    assert(simplify_cfg_pass.Run(context).ok);
+    assert(stack_slot_forward_pass.Run(context).ok);
+    assert(dead_store_elimination_pass.Run(context).ok);
+    assert(mem2reg_pass.Run(context).ok);
+    assert(copy_propagation_pass.Run(context).ok);
+    assert(sccp_pass.Run(context).ok);
+    assert(local_cse_pass.Run(context).ok);
+    assert(gvn_pass.Run(context).ok);
     assert(const_fold_pass.Run(context).ok);
     assert(dce_pass.Run(context).ok);
     assert(lower_pass.Run(context).ok);
@@ -87,20 +111,16 @@ int main(int argc, char **argv) {
     expected +=
         "define i32 @inc(i32 %x) {\n"
         "entry:\n"
-        "  %x.addr = alloca i32\n"
-        "  store i32 %x, ptr %x.addr\n"
-        "  %t0 = load i32, ptr %x.addr\n"
-        "  %t1 = add i32 %t0, 1\n"
-        "  ret i32 %t1\n"
+        "  %t0 = add i32 %x, 1\n"
+        "  ret i32 %t0\n"
         "}\n"
         "\n"
         "define i32 @main() {\n"
         "entry:\n"
         "  %fp.addr = alloca ptr\n"
         "  store ptr @inc, ptr %fp.addr\n"
-        "  %t0 = load ptr, ptr %fp.addr\n"
-        "  %t1 = call i32 %t0(i32 4)\n"
-        "  ret i32 %t1\n"
+        "  %t0 = call i32 @inc(i32 4)\n"
+        "  ret i32 %t0\n"
         "}\n";
 
     assert(ir_result->get_text() == expected);

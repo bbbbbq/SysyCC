@@ -7,8 +7,16 @@
 #include "backend/asm_gen/backend_kind.hpp"
 #include "backend/ir/build/build_core_ir_pass.hpp"
 #include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
+#include "backend/ir/copy_propagation/core_ir_copy_propagation_pass.hpp"
 #include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
+#include "backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.hpp"
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
+#include "backend/ir/gvn/core_ir_gvn_pass.hpp"
+#include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
+#include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
+#include "backend/ir/sccp/core_ir_sccp_pass.hpp"
+#include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
+#include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
 #include "frontend/ast/ast_pass.hpp"
 #include "frontend/lexer/lexer.hpp"
@@ -52,6 +60,14 @@ void Complier::InitializePasses() {
     pass_manager_.AddPass(std::make_unique<SemanticPass>());
     pass_manager_.AddPass(std::make_unique<BuildCoreIrPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrCanonicalizePass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrStackSlotForwardPass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrDeadStoreEliminationPass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrMem2RegPass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrCopyPropagationPass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrSccpPass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrLocalCsePass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrGvnPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrConstFoldPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrDcePass>());
     pass_manager_.AddPass(std::make_unique<LowerIrPass>());

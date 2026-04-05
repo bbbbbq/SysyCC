@@ -18,6 +18,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^  %t[0-9]+ = getelementptr inbounds i32, ptr %t[0-9]+, i64 %t[0-9]+$' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+ = getelementptr inbounds i32, ptr (%base|%t[0-9]+), i64 (%index|%t[0-9]+)$' "${IR_FILE}"
 
 echo "verified: gep lowering preserves 64-bit index operand types"
