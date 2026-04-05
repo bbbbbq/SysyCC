@@ -45,10 +45,16 @@ add_executable(${PROJECT_NAME}
     src/backend/asm_gen/aarch64/aarch64_asm_backend.cpp
     src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp
     src/backend/ir/analysis/analysis_manager.cpp
+    src/backend/ir/analysis/alias_analysis.cpp
     src/backend/ir/analysis/cfg_analysis.cpp
     src/backend/ir/analysis/dominance_frontier_analysis.cpp
     src/backend/ir/analysis/dominator_tree_analysis.cpp
+    src/backend/ir/analysis/function_effect_summary_analysis.cpp
+    src/backend/ir/analysis/loop_info_analysis.cpp
+    src/backend/ir/analysis/memory_ssa_analysis.cpp
     src/backend/ir/analysis/promotable_stack_slot_analysis.cpp
+    src/backend/ir/effect/core_ir_effect.cpp
+    src/backend/ir/effect/core_ir_memory_location.cpp
     src/backend/ir/shared/core/core_ir_builder.cpp
     src/backend/ir/lower/lowering/core_ir_target_backend_factory.cpp
     src/backend/ir/lower/lowering/aarch64/core_ir_aarch64_target_backend.cpp
@@ -62,6 +68,7 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/dce/core_ir_dce_pass.cpp
     src/backend/ir/gvn/core_ir_gvn_pass.cpp
     src/backend/ir/local_cse/core_ir_local_cse_pass.cpp
+    src/backend/ir/loop_simplify/core_ir_loop_simplify_pass.cpp
     src/backend/ir/mem2reg/core_ir_mem2reg_pass.cpp
     src/backend/ir/sccp/core_ir_sccp_pass.cpp
     src/backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.cpp
