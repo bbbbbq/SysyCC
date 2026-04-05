@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "backend/ir/effect/core_ir_effect.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -196,7 +197,7 @@ bool remove_dead_instructions(CoreIrFunction &function) {
                 changed = true;
                 continue;
             }
-            if (!instruction->get_has_side_effect() &&
+            if (get_core_ir_instruction_effect(*instruction).is_pure_value &&
                 instruction->get_uses().empty()) {
                 instruction->detach_operands();
                 it = instructions.erase(it);
@@ -221,6 +222,7 @@ PassResult CoreIrDcePass::Run(CompilerContext &context) {
         return fail_missing_core_ir(context, Name());
     }
 
+    CoreIrPassEffects effects;
     bool changed = true;
     while (changed) {
         changed = false;
@@ -230,7 +232,8 @@ PassResult CoreIrDcePass::Run(CompilerContext &context) {
             function_changed = remove_unreachable_blocks(*function) || function_changed;
             function_changed = remove_dead_instructions(*function) || function_changed;
             if (function_changed) {
-                build_result->invalidate_core_ir_analyses(*function);
+                effects.changed_functions.insert(function.get());
+                effects.cfg_changed_functions.insert(function.get());
             }
             changed = function_changed || changed;
         }
@@ -251,7 +254,12 @@ PassResult CoreIrDcePass::Run(CompilerContext &context) {
         ofs << printer.print_module(*build_result->get_module());
         context.set_core_ir_dump_file_path(output_file.string());
     }
-    return PassResult::Success();
+    if (!effects.has_changes()) {
+        effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_all();
+        return PassResult::Success(std::move(effects));
+    }
+    effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_none();
+    return PassResult::Success(std::move(effects));
 }
 
 } // namespace sysycc

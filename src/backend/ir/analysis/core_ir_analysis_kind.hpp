@@ -9,6 +9,10 @@ enum class CoreIrAnalysisKind : uint8_t {
     DominatorTree,
     DominanceFrontier,
     PromotableStackSlot,
+    LoopInfo,
+    AliasAnalysis,
+    MemorySSA,
+    FunctionEffectSummary,
 };
 
 } // namespace sysycc

@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <memory>
-#include <unordered_map>
 
+#include "backend/ir/analysis/alias_analysis.hpp"
+#include "backend/ir/analysis/analysis_manager.hpp"
+#include "backend/ir/analysis/memory_ssa_analysis.hpp"
+#include "backend/ir/effect/core_ir_effect.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -39,9 +42,10 @@ bool erase_instruction(CoreIrBasicBlock &block, CoreIrInstruction *instruction) 
     return true;
 }
 
-bool forward_stack_slot_values(CoreIrBasicBlock &block) {
+bool forward_stack_slot_values(CoreIrBasicBlock &block,
+                               const CoreIrAliasAnalysisResult &alias_analysis,
+                               const CoreIrMemorySSAAnalysisResult &memory_ssa) {
     bool changed = false;
-    std::unordered_map<CoreIrStackSlot *, CoreIrValue *> known_slot_values;
     auto &instructions = block.get_instructions();
 
     std::size_t index = 0;
@@ -53,34 +57,29 @@ bool forward_stack_slot_values(CoreIrBasicBlock &block) {
             continue;
         }
 
-        if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction); store != nullptr) {
-            if (store->get_stack_slot() != nullptr) {
-                known_slot_values[store->get_stack_slot()] = store->get_value();
-            } else {
-                known_slot_values.clear();
-            }
-            ++index;
-            continue;
-        }
-
         if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction); load != nullptr) {
-            if (load->get_stack_slot() != nullptr) {
-                auto it = known_slot_values.find(load->get_stack_slot());
-                if (it != known_slot_values.end() && it->second != nullptr) {
-                    load->replace_all_uses_with(it->second);
-                    erase_instruction(block, load);
-                    changed = true;
-                    continue;
-                }
+            const CoreIrEffectInfo load_effect =
+                get_core_ir_instruction_effect(*load);
+            if (!memory_behavior_reads(load_effect.memory_behavior)) {
+                ++index;
+                continue;
             }
-            ++index;
-            continue;
-        }
 
-        if (dynamic_cast<CoreIrCallInst *>(instruction) != nullptr) {
-            known_slot_values.clear();
-            ++index;
-            continue;
+            CoreIrMemoryAccess *clobber = memory_ssa.get_clobbering_access(load);
+            auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(clobber);
+            const auto *store =
+                def == nullptr ? nullptr
+                               : dynamic_cast<const CoreIrStoreInst *>(
+                                     def->get_instruction());
+            if (store != nullptr && store->get_parent() == &block &&
+                alias_analysis.alias_instructions(load, store) ==
+                    CoreIrAliasKind::MustAlias &&
+                store->get_value() != nullptr) {
+                load->replace_all_uses_with(store->get_value());
+                erase_instruction(block, load);
+                changed = true;
+                continue;
+            }
         }
 
         ++index;
@@ -105,18 +104,36 @@ PassResult CoreIrStackSlotForwardPass::Run(CompilerContext &context) {
     if (module == nullptr) {
         return fail_missing_core_ir(context, Name());
     }
+    CoreIrAnalysisManager *analysis_manager = build_result->get_analysis_manager();
+    if (analysis_manager == nullptr) {
+        return PassResult::Failure("missing core ir analysis manager");
+    }
 
+    CoreIrPassEffects effects;
     for (const auto &function : module->get_functions()) {
+        const CoreIrAliasAnalysisResult &alias_analysis =
+            analysis_manager->get_or_compute<CoreIrAliasAnalysis>(*function);
+        const CoreIrMemorySSAAnalysisResult &memory_ssa =
+            analysis_manager->get_or_compute<CoreIrMemorySSAAnalysis>(*function);
         bool function_changed = false;
         for (const auto &block : function->get_basic_blocks()) {
-            function_changed = forward_stack_slot_values(*block) || function_changed;
+            function_changed =
+                forward_stack_slot_values(*block, alias_analysis, memory_ssa) ||
+                function_changed;
         }
         if (function_changed) {
-            build_result->invalidate_core_ir_analyses(*function);
+            effects.changed_functions.insert(function.get());
         }
     }
 
-    return PassResult::Success();
+    if (!effects.has_changes()) {
+        effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_all();
+        return PassResult::Success(std::move(effects));
+    }
+    effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_none();
+    effects.preserved_analyses.preserve_cfg_family();
+    effects.preserved_analyses.preserve_loop_family();
+    return PassResult::Success(std::move(effects));
 }
 
 } // namespace sysycc

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "backend/ir/analysis/analysis_manager.hpp"
+#include "backend/ir/effect/core_ir_effect.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -45,7 +46,8 @@ bool erase_instruction(CoreIrBasicBlock &block, CoreIrInstruction *instruction) 
 
 void erase_dead_address_chain(CoreIrBasicBlock &block, CoreIrValue *value) {
     CoreIrInstruction *instruction = dynamic_cast<CoreIrInstruction *>(value);
-    while (instruction != nullptr && !instruction->get_has_side_effect() &&
+    while (instruction != nullptr &&
+           get_core_ir_instruction_effect(*instruction).is_pure_value &&
            instruction->get_uses().empty()) {
         CoreIrValue *next = nullptr;
         if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(instruction);
@@ -306,6 +308,7 @@ PassResult CoreIrMem2RegPass::Run(CompilerContext &context) {
         return PassResult::Failure("missing core ir analysis manager");
     }
 
+    CoreIrPassEffects effects;
     for (const auto &function : module->get_functions()) {
         const CoreIrPromotableStackSlotAnalysisResult &promotable_units =
             analysis_manager->get_or_compute<CoreIrPromotableStackSlotAnalysis>(
@@ -334,11 +337,18 @@ PassResult CoreIrMem2RegPass::Run(CompilerContext &context) {
 
         if (function_changed) {
             remove_fully_promoted_stack_slots(*function);
-            build_result->invalidate_core_ir_analyses(*function);
+            effects.changed_functions.insert(function.get());
         }
     }
 
-    return PassResult::Success();
+    if (!effects.has_changes()) {
+        effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_all();
+        return PassResult::Success(std::move(effects));
+    }
+    effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_none();
+    effects.preserved_analyses.preserve_cfg_family();
+    effects.preserved_analyses.preserve_loop_family();
+    return PassResult::Success(std::move(effects));
 }
 
 } // namespace sysycc

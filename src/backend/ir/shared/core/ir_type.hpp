@@ -5,6 +5,8 @@
 
 namespace sysycc {
 
+class CoreIrContext;
+
 enum class CoreIrTypeKind : unsigned char {
     Void,
     Integer,
@@ -23,9 +25,18 @@ enum class CoreIrFloatKind : unsigned char {
 };
 
 class CoreIrType {
+  private:
+    CoreIrContext *parent_context_ = nullptr;
+
   public:
     virtual ~CoreIrType() = default;
     virtual CoreIrTypeKind get_kind() const noexcept = 0;
+
+    CoreIrContext *get_parent_context() const noexcept { return parent_context_; }
+
+    void set_parent_context(CoreIrContext *parent_context) noexcept {
+        parent_context_ = parent_context;
+    }
 };
 
 class CoreIrVoidType final : public CoreIrType {

@@ -227,17 +227,25 @@ PassResult CoreIrCopyPropagationPass::Run(CompilerContext &context) {
         return fail_missing_core_ir(context, Name());
     }
 
+    CoreIrPassEffects effects;
     for (const auto &function : module->get_functions()) {
         bool function_changed = false;
         for (const auto &block : function->get_basic_blocks()) {
             function_changed = propagate_load_copies(*block) || function_changed;
         }
         if (function_changed) {
-            build_result->invalidate_core_ir_analyses(*function);
+            effects.changed_functions.insert(function.get());
         }
     }
 
-    return PassResult::Success();
+    if (!effects.has_changes()) {
+        effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_all();
+        return PassResult::Success(std::move(effects));
+    }
+    effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_none();
+    effects.preserved_analyses.preserve_cfg_family();
+    effects.preserved_analyses.preserve_loop_family();
+    return PassResult::Success(std::move(effects));
 }
 
 } // namespace sysycc

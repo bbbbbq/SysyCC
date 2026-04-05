@@ -5,6 +5,7 @@
 namespace sysycc {
 
 class CoreIrConstant;
+class CoreIrModule;
 class CoreIrType;
 
 class CoreIrGlobal {
@@ -14,6 +15,7 @@ class CoreIrGlobal {
     const CoreIrConstant *initializer_ = nullptr;
     bool is_internal_linkage_ = false;
     bool is_constant_ = false;
+    CoreIrModule *parent_ = nullptr;
 
   public:
     CoreIrGlobal(std::string name, const CoreIrType *type,
@@ -26,6 +28,10 @@ class CoreIrGlobal {
           is_constant_(is_constant) {}
 
     const std::string &get_name() const noexcept { return name_; }
+
+    CoreIrModule *get_parent() const noexcept { return parent_; }
+
+    void set_parent(CoreIrModule *parent) noexcept { parent_ = parent; }
 
     const CoreIrType *get_type() const noexcept { return type_; }
 

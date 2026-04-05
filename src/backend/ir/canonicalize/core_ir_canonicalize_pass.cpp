@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "backend/ir/effect/core_ir_effect.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -266,7 +267,8 @@ CoreIrInstruction *replace_instruction(CoreIrBasicBlock &block,
 
 bool erase_instruction_if_dead(CoreIrBasicBlock &block,
                                CoreIrInstruction *instruction) {
-    if (instruction == nullptr || instruction->get_has_side_effect() ||
+    if (instruction == nullptr ||
+        !get_core_ir_instruction_effect(*instruction).is_pure_value ||
         !instruction->get_uses().empty()) {
         return false;
     }
@@ -625,7 +627,8 @@ bool canonicalize_integer_cast(CoreIrBasicBlock &block, CoreIrCastInst &cast) {
 
 void erase_dead_address_chain(CoreIrBasicBlock &block, CoreIrValue *value) {
     CoreIrInstruction *instruction = dynamic_cast<CoreIrInstruction *>(value);
-    while (instruction != nullptr && !instruction->get_has_side_effect() &&
+    while (instruction != nullptr &&
+           get_core_ir_instruction_effect(*instruction).is_pure_value &&
            instruction->get_uses().empty()) {
         CoreIrValue *next = nullptr;
         if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(instruction);
@@ -1026,6 +1029,7 @@ PassResult CoreIrCanonicalizePass::Run(CompilerContext &context) {
         return fail_missing_core_ir(context, Name());
     }
 
+    CoreIrPassEffects effects;
     bool changed = true;
     while (changed) {
         changed = false;
@@ -1040,12 +1044,19 @@ PassResult CoreIrCanonicalizePass::Run(CompilerContext &context) {
                     function_changed;
             }
             if (function_changed) {
-                build_result->invalidate_core_ir_analyses(*function);
+                effects.changed_functions.insert(function.get());
             }
             changed = function_changed || changed;
         }
     }
-    return PassResult::Success();
+    if (!effects.has_changes()) {
+        effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_all();
+        return PassResult::Success(std::move(effects));
+    }
+    effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_none();
+    effects.preserved_analyses.preserve_cfg_family();
+    effects.preserved_analyses.preserve_loop_family();
+    return PassResult::Success(std::move(effects));
 }
 
 } // namespace sysycc

@@ -6,6 +6,18 @@
 
 namespace sysycc {
 
+namespace {
+
+void bump_compute_count(
+    std::unordered_map<CoreIrFunction *,
+                       std::unordered_map<CoreIrAnalysisKind, std::size_t>>
+        &compute_counts,
+    CoreIrFunction &function, CoreIrAnalysisKind kind) {
+    ++compute_counts[&function][kind];
+}
+
+} // namespace
+
 CoreIrAnalysisManager::CachedFunctionAnalyses &
 CoreIrAnalysisManager::get_or_create_cache_entry(CoreIrFunction &function) {
     return function_cache_[&function];
@@ -20,6 +32,9 @@ CoreIrAnalysisManager::get_or_compute_cfg(CoreIrFunction &function) {
             std::make_unique<CoreIrCfgAnalysisResult>(analysis.Run(function));
         cache_entry.dominator_tree_analysis.reset();
         cache_entry.dominance_frontier_analysis.reset();
+        cache_entry.loop_info_analysis.reset();
+        cache_entry.memory_ssa_analysis.reset();
+        bump_compute_count(compute_counts_, function, CoreIrAnalysisKind::Cfg);
     }
     return *cache_entry.cfg_analysis;
 }
@@ -34,6 +49,10 @@ CoreIrAnalysisManager::get_or_compute_dominator_tree(CoreIrFunction &function) {
             std::make_unique<CoreIrDominatorTreeAnalysisResult>(
                 analysis.Run(function, cfg_analysis));
         cache_entry.dominance_frontier_analysis.reset();
+        cache_entry.loop_info_analysis.reset();
+        cache_entry.memory_ssa_analysis.reset();
+        bump_compute_count(compute_counts_, function,
+                           CoreIrAnalysisKind::DominatorTree);
     }
     return *cache_entry.dominator_tree_analysis;
 }
@@ -50,6 +69,8 @@ CoreIrAnalysisManager::get_or_compute_dominance_frontier(
         cache_entry.dominance_frontier_analysis =
             std::make_unique<CoreIrDominanceFrontierAnalysisResult>(
                 analysis.Run(function, cfg_analysis, dominator_tree));
+        bump_compute_count(compute_counts_, function,
+                           CoreIrAnalysisKind::DominanceFrontier);
     }
     return *cache_entry.dominance_frontier_analysis;
 }
@@ -63,11 +84,83 @@ CoreIrAnalysisManager::get_or_compute_promotable_stack_slots(
         cache_entry.promotable_stack_slot_analysis =
             std::make_unique<CoreIrPromotableStackSlotAnalysisResult>(
                 analysis.Run(function));
+        bump_compute_count(compute_counts_, function,
+                           CoreIrAnalysisKind::PromotableStackSlot);
     }
     return *cache_entry.promotable_stack_slot_analysis;
 }
 
-void CoreIrAnalysisManager::invalidate_all() noexcept { function_cache_.clear(); }
+const CoreIrLoopInfoAnalysisResult &
+CoreIrAnalysisManager::get_or_compute_loop_info(CoreIrFunction &function) {
+    CachedFunctionAnalyses &cache_entry = get_or_create_cache_entry(function);
+    if (cache_entry.loop_info_analysis == nullptr) {
+        const CoreIrCfgAnalysisResult &cfg_analysis = get_or_compute_cfg(function);
+        const CoreIrDominatorTreeAnalysisResult &dominator_tree =
+            get_or_compute_dominator_tree(function);
+        CoreIrLoopInfoAnalysis analysis;
+        cache_entry.loop_info_analysis =
+            std::make_unique<CoreIrLoopInfoAnalysisResult>(
+                analysis.Run(function, cfg_analysis, dominator_tree));
+        bump_compute_count(compute_counts_, function, CoreIrAnalysisKind::LoopInfo);
+    }
+    return *cache_entry.loop_info_analysis;
+}
+
+const CoreIrFunctionEffectSummaryAnalysisResult &
+CoreIrAnalysisManager::get_or_compute_function_effect_summary(
+    CoreIrFunction &function) {
+    CachedFunctionAnalyses &cache_entry = get_or_create_cache_entry(function);
+    if (cache_entry.function_effect_summary == nullptr) {
+        CoreIrFunctionEffectSummaryAnalysis analysis;
+        cache_entry.function_effect_summary =
+            std::make_unique<CoreIrFunctionEffectSummaryAnalysisResult>(
+                analysis.Run(function));
+        bump_compute_count(compute_counts_, function,
+                           CoreIrAnalysisKind::FunctionEffectSummary);
+    }
+    return *cache_entry.function_effect_summary;
+}
+
+const CoreIrAliasAnalysisResult &
+CoreIrAnalysisManager::get_or_compute_alias_analysis(CoreIrFunction &function) {
+    CachedFunctionAnalyses &cache_entry = get_or_create_cache_entry(function);
+    if (cache_entry.alias_analysis == nullptr) {
+        CoreIrAliasAnalysis analysis;
+        cache_entry.alias_analysis =
+            std::make_unique<CoreIrAliasAnalysisResult>(analysis.Run(function));
+        cache_entry.memory_ssa_analysis.reset();
+        bump_compute_count(compute_counts_, function, CoreIrAnalysisKind::AliasAnalysis);
+    }
+    return *cache_entry.alias_analysis;
+}
+
+const CoreIrMemorySSAAnalysisResult &
+CoreIrAnalysisManager::get_or_compute_memory_ssa(CoreIrFunction &function) {
+    CachedFunctionAnalyses &cache_entry = get_or_create_cache_entry(function);
+    if (cache_entry.memory_ssa_analysis == nullptr) {
+        const CoreIrCfgAnalysisResult &cfg_analysis = get_or_compute_cfg(function);
+        const CoreIrDominatorTreeAnalysisResult &dominator_tree =
+            get_or_compute_dominator_tree(function);
+        const CoreIrDominanceFrontierAnalysisResult &dominance_frontier =
+            get_or_compute_dominance_frontier(function);
+        const CoreIrAliasAnalysisResult &alias_analysis =
+            get_or_compute_alias_analysis(function);
+        const CoreIrFunctionEffectSummaryAnalysisResult &effect_summary =
+            get_or_compute_function_effect_summary(function);
+        CoreIrMemorySSAAnalysis analysis;
+        cache_entry.memory_ssa_analysis =
+            std::make_unique<CoreIrMemorySSAAnalysisResult>(
+                analysis.Run(function, cfg_analysis, dominator_tree,
+                             dominance_frontier, effect_summary, alias_analysis));
+        bump_compute_count(compute_counts_, function, CoreIrAnalysisKind::MemorySSA);
+    }
+    return *cache_entry.memory_ssa_analysis;
+}
+
+void CoreIrAnalysisManager::invalidate_all() noexcept {
+    function_cache_.clear();
+    compute_counts_.clear();
+}
 
 void CoreIrAnalysisManager::invalidate(CoreIrFunction &function) noexcept {
     function_cache_.erase(&function);
@@ -81,10 +174,14 @@ void CoreIrAnalysisManager::invalidate(CoreIrAnalysisKind kind) noexcept {
             it->second.dominator_tree_analysis.reset();
             it->second.dominance_frontier_analysis.reset();
             it->second.promotable_stack_slot_analysis.reset();
+            it->second.loop_info_analysis.reset();
+            it->second.memory_ssa_analysis.reset();
             break;
         case CoreIrAnalysisKind::DominatorTree:
             it->second.dominator_tree_analysis.reset();
             it->second.dominance_frontier_analysis.reset();
+            it->second.loop_info_analysis.reset();
+            it->second.memory_ssa_analysis.reset();
             break;
         case CoreIrAnalysisKind::DominanceFrontier:
             it->second.dominance_frontier_analysis.reset();
@@ -92,12 +189,31 @@ void CoreIrAnalysisManager::invalidate(CoreIrAnalysisKind kind) noexcept {
         case CoreIrAnalysisKind::PromotableStackSlot:
             it->second.promotable_stack_slot_analysis.reset();
             break;
+        case CoreIrAnalysisKind::LoopInfo:
+            it->second.loop_info_analysis.reset();
+            break;
+        case CoreIrAnalysisKind::AliasAnalysis:
+            it->second.alias_analysis.reset();
+            it->second.memory_ssa_analysis.reset();
+            break;
+        case CoreIrAnalysisKind::MemorySSA:
+            it->second.memory_ssa_analysis.reset();
+            break;
+        case CoreIrAnalysisKind::FunctionEffectSummary:
+            it->second.function_effect_summary.reset();
+            it->second.alias_analysis.reset();
+            it->second.memory_ssa_analysis.reset();
+            break;
         }
 
         if (it->second.cfg_analysis == nullptr &&
             it->second.dominator_tree_analysis == nullptr &&
             it->second.dominance_frontier_analysis == nullptr &&
-            it->second.promotable_stack_slot_analysis == nullptr) {
+            it->second.promotable_stack_slot_analysis == nullptr &&
+            it->second.loop_info_analysis == nullptr &&
+            it->second.alias_analysis == nullptr &&
+            it->second.memory_ssa_analysis == nullptr &&
+            it->second.function_effect_summary == nullptr) {
             it = function_cache_.erase(it);
             continue;
         }
@@ -118,10 +234,14 @@ void CoreIrAnalysisManager::invalidate(CoreIrFunction &function,
         it->second.dominator_tree_analysis.reset();
         it->second.dominance_frontier_analysis.reset();
         it->second.promotable_stack_slot_analysis.reset();
+        it->second.loop_info_analysis.reset();
+        it->second.memory_ssa_analysis.reset();
         break;
     case CoreIrAnalysisKind::DominatorTree:
         it->second.dominator_tree_analysis.reset();
         it->second.dominance_frontier_analysis.reset();
+        it->second.loop_info_analysis.reset();
+        it->second.memory_ssa_analysis.reset();
         break;
     case CoreIrAnalysisKind::DominanceFrontier:
         it->second.dominance_frontier_analysis.reset();
@@ -129,14 +249,44 @@ void CoreIrAnalysisManager::invalidate(CoreIrFunction &function,
     case CoreIrAnalysisKind::PromotableStackSlot:
         it->second.promotable_stack_slot_analysis.reset();
         break;
+    case CoreIrAnalysisKind::LoopInfo:
+        it->second.loop_info_analysis.reset();
+        break;
+    case CoreIrAnalysisKind::AliasAnalysis:
+        it->second.alias_analysis.reset();
+        it->second.memory_ssa_analysis.reset();
+        break;
+    case CoreIrAnalysisKind::MemorySSA:
+        it->second.memory_ssa_analysis.reset();
+        break;
+    case CoreIrAnalysisKind::FunctionEffectSummary:
+        it->second.function_effect_summary.reset();
+        it->second.alias_analysis.reset();
+        it->second.memory_ssa_analysis.reset();
+        break;
     }
 
     if (it->second.cfg_analysis == nullptr &&
         it->second.dominator_tree_analysis == nullptr &&
         it->second.dominance_frontier_analysis == nullptr &&
-        it->second.promotable_stack_slot_analysis == nullptr) {
+        it->second.promotable_stack_slot_analysis == nullptr &&
+        it->second.loop_info_analysis == nullptr &&
+        it->second.alias_analysis == nullptr &&
+        it->second.memory_ssa_analysis == nullptr &&
+        it->second.function_effect_summary == nullptr) {
         function_cache_.erase(it);
     }
+}
+
+std::size_t CoreIrAnalysisManager::get_compute_count(
+    CoreIrFunction &function, CoreIrAnalysisKind kind) const noexcept {
+    auto function_it = compute_counts_.find(&function);
+    if (function_it == compute_counts_.end()) {
+        return 0;
+    }
+    auto count_it = function_it->second.find(kind);
+    return count_it == function_it->second.end() ? 0
+                                                                : count_it->second;
 }
 
 } // namespace sysycc

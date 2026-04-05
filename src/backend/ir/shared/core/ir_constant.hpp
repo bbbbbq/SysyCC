@@ -9,10 +9,20 @@
 namespace sysycc {
 
 class CoreIrGlobal;
+class CoreIrContext;
 
 class CoreIrConstant : public CoreIrValue {
+  private:
+    CoreIrContext *parent_context_ = nullptr;
+
   public:
     using CoreIrValue::CoreIrValue;
+
+    CoreIrContext *get_parent_context() const noexcept { return parent_context_; }
+
+    void set_parent_context(CoreIrContext *parent_context) noexcept {
+        parent_context_ = parent_context;
+    }
 };
 
 class CoreIrConstantInt final : public CoreIrConstant {
