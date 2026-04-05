@@ -947,7 +947,10 @@ bool canonicalize_stackslot_store(CoreIrBasicBlock &block,
 
 bool canonicalize_nonterminator_instructions(CoreIrContext &context,
                                              CoreIrBasicBlock &block) {
-    // 逐条扫非终结指令，必要时会删掉当前节点或替换成更规范的形状。
+    (void)context;
+    // 这里只保留 pre-SSA 必需的硬结构规整：
+    // - stack-slot 直接 load/store 形状
+    // 其他值级 fold / wrapper cleanup 交给 InstCombine。
     bool changed = false;
     auto &instructions = block.get_instructions();
     std::size_t index = 0;
@@ -964,30 +967,7 @@ bool canonicalize_nonterminator_instructions(CoreIrContext &context,
         }
 
         const std::size_t old_size = instructions.size();
-        if (auto *binary = dynamic_cast<CoreIrBinaryInst *>(instruction);
-            binary != nullptr) {
-            if (canonicalize_commutative_binary(block, *binary) ||
-                canonicalize_binary_identity(context, block, *binary)) {
-                changed = true;
-            }
-        } else if (auto *cast = dynamic_cast<CoreIrCastInst *>(instruction);
-            cast != nullptr) {
-            if (canonicalize_integer_cast(block, *cast)) {
-                changed = true;
-            }
-        } else if (auto *compare = dynamic_cast<CoreIrCompareInst *>(instruction);
-                   compare != nullptr) {
-            if (canonicalize_compare_boolean_wrapper(block, *compare) ||
-                canonicalize_compare_orientation(block, *compare)) {
-                changed = true;
-            }
-        } else if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(instruction);
-                   gep != nullptr) {
-            if (canonicalize_gep(block, *gep) ||
-                canonicalize_nested_gep(block, *gep)) {
-                changed = true;
-            }
-        } else if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
+        if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
                    load != nullptr) {
             if (canonicalize_stackslot_load(block, *load)) {
                 changed = true;
