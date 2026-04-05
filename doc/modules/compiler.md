@@ -71,7 +71,7 @@ The shared data container for passes. It stores:
 The scheduler and owner of pass objects. It is responsible for:
 
 - adding passes
-- rejecting duplicate `PassKind`
+- grouping Core IR passes into ordinary steps or fixed-point regions
 - running passes in order
 - stopping cleanly after the configured pass stage when
   [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
@@ -84,10 +84,13 @@ At the current stage, the initialized pipeline is:
 ```text
 PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass ->
 BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrSimplifyCfgPass ->
+CoreIrLoopSimplifyPass -> CoreIrInstCombinePass ->
 CoreIrStackSlotForwardPass -> CoreIrDeadStoreEliminationPass ->
-CoreIrMem2RegPass -> CoreIrCopyPropagationPass -> CoreIrSccpPass ->
-CoreIrLocalCsePass -> CoreIrGvnPass -> CoreIrConstFoldPass ->
-CoreIrDcePass -> LowerIrPass
+CoreIrInstCombinePass -> CoreIrMem2RegPass ->
+[ CoreIrCopyPropagationPass -> CoreIrInstCombinePass -> CoreIrSccpPass ->
+  CoreIrSimplifyCfgPass -> CoreIrLicmPass -> CoreIrLocalCsePass ->
+  CoreIrGvnPass -> CoreIrInstCombinePass -> CoreIrConstFoldPass ->
+  CoreIrDcePass -> CoreIrSimplifyCfgPass ] x<=4 -> LowerIrPass
 ```
 
 ## Notes
@@ -120,37 +123,50 @@ CoreIrDcePass -> LowerIrPass
   aggregate storage, and variadic default-argument promotions before LLVM text
   emission.
 - The executable hot path is now `BuildCoreIrPass -> CoreIrCanonicalizePass ->
-  CoreIrSimplifyCfgPass -> CoreIrStackSlotForwardPass ->
-  CoreIrDeadStoreEliminationPass -> CoreIrMem2RegPass ->
-  CoreIrCopyPropagationPass -> CoreIrSccpPass -> CoreIrLocalCsePass ->
-  CoreIrGvnPass -> CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass ->
+  CoreIrSimplifyCfgPass -> CoreIrLoopSimplifyPass ->
+  CoreIrInstCombinePass -> CoreIrStackSlotForwardPass ->
+  CoreIrDeadStoreEliminationPass -> CoreIrInstCombinePass ->
+  CoreIrMem2RegPass -> post-SSA fixed-point group -> LowerIrPass ->
   AArch64AsmGenPass`.
+  That fixed-point group is
+  `CopyPropagation -> InstCombine -> Sccp -> SimplifyCfg -> Licm ->
+  LocalCse -> Gvn -> InstCombine -> ConstFold -> Dce -> SimplifyCfg`,
+  iterated up to four rounds until one full round makes no Core IR changes.
   `LowerIrPass` is now LLVM-specific and no-ops for the native backend, while
   the native AArch64 path lives under
   [src/backend/asm_gen/aarch64](/Users/caojunze424/code/SysyCC/src/backend/asm_gen/aarch64).
   The legacy `IRBuilder -> IRBackend -> LlvmIrBackend` stack remains in tree as
   a reference implementation during the migration.
-- `CoreIrCanonicalizePass` now performs a first conservative normalization pass
-  over built Core IR before CFG cleanup, constant folding, and DCE, including
-  branch condition cleanup, local integer cast-chain simplification,
-  compare/GEP normalization, and stack-slot access normalization.
+- `CoreIrCanonicalizePass` now only keeps the pre-SSA hard-structure
+  normalization that later memory / CFG passes depend on, mainly explicit `i1`
+  branch conditions plus direct stack-slot load/store address forms.
 - `CoreIrSimplifyCfgPass` now owns the conservative CFG cleanup portion of the
   staged Core IR pipeline, including constant / redundant branch collapse,
   jump trampoline removal, unreachable-block cleanup, and conservative linear
-  block merging.
+  block merging, and it is now `phi`-aware so it can safely repeat after SSA
+  passes inside the fixed-point lane.
 - The staged optimization lane now also includes:
+  - `CoreIrLoopSimplifyPass` for pre-SSA loop preheader / latch / dedicated
+    exit normalization
+  - `CoreIrInstCombinePass` for repeated value-level cleanup, local
+    fold/combine, trivial-phi elimination, compare/cast cleanup, boolean
+    wrapper cleanup, and stack-slot access-shape normalization
   - `CoreIrStackSlotForwardPass` for conservative direct stack-slot
     store-to-load forwarding
   - `CoreIrDeadStoreEliminationPass` for conservative overwritten direct
     stack-slot store cleanup
   - `CoreIrMem2RegPass` for SSA promotion plus block-head phi insertion
-  - `CoreIrCopyPropagationPass` for post-SSA trivial-phi, single-incoming-phi,
-    identity-cast, and duplicate-value cleanup
+  - `CoreIrCopyPropagationPass` for copy-like duplicate-value reuse only,
+    leaving trivial phi / identity-cast cleanup to `CoreIrInstCombinePass`
   - `CoreIrSccpPass` for SSA sparse conditional constant propagation without
     direct CFG rewrites
+  - `CoreIrLicmPass` for hoist-only loop-invariant code motion over simplified
+    SSA loops, including conservative invariant-load hoisting
   - `CoreIrLocalCsePass` for cheap block-local pure-value cleanup ahead of GVN
   - `CoreIrGvnPass` for dominator-based global reuse of pure SSA
     computations
+  - `CoreIrConstFoldPass` for CFG-facing constant branch folding only, leaving
+    pure value folding to `CoreIrInstCombinePass`
 - `CoreIrBuildResult` now also carries a staged Core IR analysis manager for
   function-level CFG, dominator, dominance-frontier, and promotable-stack-slot
   queries, with transform passes invalidating cached analyses conservatively
