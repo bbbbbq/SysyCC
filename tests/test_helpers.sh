@@ -2,6 +2,225 @@
 
 set -euo pipefail
 
+detect_cpu_count() {
+    if command -v sysctl >/dev/null 2>&1; then
+        local jobs
+        jobs="$(sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || true)"
+        if [[ -n "${jobs}" ]]; then
+            printf '%s\n' "${jobs}"
+            return 0
+        fi
+    fi
+
+    if command -v getconf >/dev/null 2>&1; then
+        local jobs
+        jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
+        if [[ -n "${jobs}" ]]; then
+            printf '%s\n' "${jobs}"
+            return 0
+        fi
+    fi
+
+    printf '4\n'
+}
+
+detect_total_memory_mib() {
+    if command -v sysctl >/dev/null 2>&1; then
+        local mem_bytes
+        mem_bytes="$(sysctl -n hw.memsize 2>/dev/null || true)"
+        if [[ "${mem_bytes}" =~ ^[0-9]+$ ]] && [[ "${mem_bytes}" -gt 0 ]]; then
+            printf '%s\n' "$((mem_bytes / 1024 / 1024))"
+            return 0
+        fi
+    fi
+
+    if [[ -r /proc/meminfo ]]; then
+        local mem_kib
+        mem_kib="$(awk '/^MemTotal:/ { print $2; exit }' /proc/meminfo 2>/dev/null || true)"
+        if [[ "${mem_kib}" =~ ^[0-9]+$ ]] && [[ "${mem_kib}" -gt 0 ]]; then
+            printf '%s\n' "$((mem_kib / 1024))"
+            return 0
+        fi
+    fi
+
+    printf '0\n'
+}
+
+detect_default_build_jobs() {
+    local cpu_count
+    local memory_mib
+
+    cpu_count="$(detect_cpu_count)"
+    memory_mib="$(detect_total_memory_mib)"
+
+    if [[ "${memory_mib}" -le 0 ]]; then
+        if [[ "${cpu_count}" -le 2 ]]; then
+            printf '%s\n' "${cpu_count}"
+        else
+            printf '4\n'
+        fi
+        return 0
+    fi
+
+    if [[ "${memory_mib}" -le 8192 ]]; then
+        printf '1\n'
+        return 0
+    fi
+
+    if [[ "${memory_mib}" -le 16384 ]]; then
+        if [[ "${cpu_count}" -le 2 ]]; then
+            printf '%s\n' "${cpu_count}"
+        else
+            printf '2\n'
+        fi
+        return 0
+    fi
+
+    if [[ "${memory_mib}" -le 32768 ]]; then
+        if [[ "${cpu_count}" -le 4 ]]; then
+            printf '%s\n' "${cpu_count}"
+        else
+            printf '4\n'
+        fi
+        return 0
+    fi
+
+    if [[ "${cpu_count}" -le 6 ]]; then
+        printf '%s\n' "${cpu_count}"
+        return 0
+    fi
+
+    printf '6\n'
+}
+
+detect_default_heavy_tool_jobs() {
+    local cpu_count
+    local memory_mib
+
+    cpu_count="$(detect_cpu_count)"
+    memory_mib="$(detect_total_memory_mib)"
+
+    if [[ "${memory_mib}" -le 0 ]]; then
+        if [[ "${cpu_count}" -le 2 ]]; then
+            printf '1\n'
+        else
+            printf '2\n'
+        fi
+        return 0
+    fi
+
+    if [[ "${memory_mib}" -le 8192 ]]; then
+        printf '1\n'
+        return 0
+    fi
+
+    if [[ "${memory_mib}" -le 16384 ]]; then
+        printf '2\n'
+        return 0
+    fi
+
+    if [[ "${memory_mib}" -le 32768 ]]; then
+        printf '3\n'
+        return 0
+    fi
+
+    if [[ "${cpu_count}" -le 4 ]]; then
+        printf '2\n'
+        return 0
+    fi
+
+    printf '4\n'
+}
+
+setup_test_host_tool_wrappers() {
+    if [[ "${SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS:-0}" == "1" ]]; then
+        return 0
+    fi
+
+    if [[ -z "${PROJECT_ROOT:-}" ]]; then
+        return 0
+    fi
+
+    if [[ "${SYSYCC_TEST_TOOL_WRAPPERS_READY:-0}" == "1" ]]; then
+        return 0
+    fi
+
+    mkdir -p "${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin"
+
+    if [[ -z "${SYSYCC_TEST_REAL_CLANG:-}" ]]; then
+        SYSYCC_TEST_REAL_CLANG="$(command -v clang)"
+        export SYSYCC_TEST_REAL_CLANG
+    fi
+
+    if [[ -z "${SYSYCC_TEST_REAL_CLANGXX:-}" ]]; then
+        SYSYCC_TEST_REAL_CLANGXX="$(command -v clang++)"
+        export SYSYCC_TEST_REAL_CLANGXX
+    fi
+
+    export SYSYCC_TEST_ACTIVE=1
+    export SYSYCC_TEST_HEAVY_TOOL_JOBS="${SYSYCC_TEST_HEAVY_TOOL_JOBS:-$(detect_default_heavy_tool_jobs)}"
+    export SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT="${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT:-${PROJECT_ROOT}/build/.sysycc_test_heavy_tool_slots}"
+
+    cat >"${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin/clang" <<EOF
+#!/usr/bin/env bash
+# SYSYCC test wrapper
+export SYSYCC_TEST_WRAPPED_TOOL_NAME="clang"
+exec "${PROJECT_ROOT}/scripts/test_heavy_tool_wrapper.sh" "${SYSYCC_TEST_REAL_CLANG}" "\$@"
+EOF
+
+    cat >"${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin/clang++" <<EOF
+#!/usr/bin/env bash
+# SYSYCC test wrapper
+export SYSYCC_TEST_WRAPPED_TOOL_NAME="clang++"
+exec "${PROJECT_ROOT}/scripts/test_heavy_tool_wrapper.sh" "${SYSYCC_TEST_REAL_CLANGXX}" "\$@"
+EOF
+
+    chmod +x "${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin/clang" \
+        "${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin/clang++"
+
+    case ":${PATH}:" in
+        *":${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin:"*)
+            ;;
+        *)
+            export PATH="${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin:${PATH}"
+            ;;
+    esac
+
+    export SYSYCC_TEST_TOOL_WRAPPERS_READY=1
+}
+
+install_sysycc_test_binary_wrapper() {
+    local build_dir="$1"
+    local wrapper_dir="${build_dir}/.sysycc_test_wrappers"
+    local wrapper_path="${build_dir}/SysyCC"
+    local real_binary_path="${wrapper_dir}/SysyCC.real"
+
+    if [[ "${SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS:-0}" == "1" ]]; then
+        return 0
+    fi
+
+    if [[ ! -e "${wrapper_path}" ]]; then
+        return 0
+    fi
+
+    mkdir -p "${wrapper_dir}"
+
+    if LC_ALL=C grep -a -q 'SYSYCC test wrapper' "${wrapper_path}" 2>/dev/null; then
+        return 0
+    fi
+
+    mv "${wrapper_path}" "${real_binary_path}"
+
+    cat >"${wrapper_path}" <<EOF
+#!/usr/bin/env bash
+# SYSYCC test wrapper
+export SYSYCC_TEST_WRAPPED_TOOL_NAME="SysyCC"
+exec "${PROJECT_ROOT}/scripts/test_heavy_tool_wrapper.sh" "${real_binary_path}" "\$@"
+EOF
+
+    chmod +x "${wrapper_path}"
+}
+
 acquire_build_lock() {
     local build_dir="$1"
     local lock_dir="${build_dir}/.sysycc_test_build.lock"
@@ -70,12 +289,16 @@ build_project() {
     local project_root="$1"
     local build_dir="$2"
     local cache_file="${build_dir}/CMakeCache.txt"
+    local build_jobs="${SYSYCC_TEST_BUILD_JOBS:-$(detect_default_build_jobs)}"
     local use_ccache=0
     local launcher_arg=""
     local generator_arg=""
     local lock_dir=""
 
+    setup_test_host_tool_wrappers
+
     if [[ "${SYSYCC_TEST_SKIP_BUILD:-0}" == "1" ]]; then
+        install_sysycc_test_binary_wrapper "${build_dir}"
         return 0
     fi
 
@@ -101,11 +324,8 @@ build_project() {
 
         prune_stale_build_outputs "${project_root}" "${build_dir}"
 
-        if [[ -n "${SYSYCC_TEST_BUILD_JOBS:-}" ]]; then
-            cmake --build "${build_dir}" --parallel "${SYSYCC_TEST_BUILD_JOBS}"
-        else
-            cmake --build "${build_dir}" --parallel
-        fi
+        cmake --build "${build_dir}" --parallel "${build_jobs}"
+        install_sysycc_test_binary_wrapper "${build_dir}"
     )
 }
 

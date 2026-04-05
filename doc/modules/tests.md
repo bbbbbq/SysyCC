@@ -40,6 +40,15 @@ Each concrete case lives under `tests/<stage>/<case>/` and contains:
 - an executable `run.sh`
 - any stage-specific helper files such as local headers
 
+The shared [tests/test_helpers.sh](/Users/caojunze424/code/SysyCC/tests/test_helpers.sh)
+now also does three important pieces of resource coordination for local runs:
+
+- serializes the main `cmake --build` step per `build/` directory
+- chooses more memory-conservative default parallelism for build/test workers
+- wraps heavy host-side tools such as `SysyCC`, `clang`, and `clang++`
+  behind one shared slot controller so several manually started single-case
+  scripts do not all spawn peak-memory compile/link work at once
+
 Recent end-to-end coverage that now matters for the shared SysY22/C goal
 includes:
 
