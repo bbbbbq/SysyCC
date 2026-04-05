@@ -84,25 +84,7 @@ write_summary_table() {
 }
 
 detect_default_jobs() {
-    if command -v sysctl >/dev/null 2>&1; then
-        local jobs
-        jobs="$(sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || true)"
-        if [[ -n "${jobs}" ]]; then
-            printf '%s\n' "${jobs}"
-            return 0
-        fi
-    fi
-
-    if command -v getconf >/dev/null 2>&1; then
-        local jobs
-        jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)"
-        if [[ -n "${jobs}" ]]; then
-            printf '%s\n' "${jobs}"
-            return 0
-        fi
-    fi
-
-    printf '4\n'
+    detect_default_heavy_tool_jobs
 }
 
 ensure_positive_integer() {
