@@ -101,6 +101,9 @@ The current IR module is intentionally a skeleton:
     orientation
   - rewrite plain `addr_of_stackslot`-based loads and stores into direct
     stack-slot forms
+- zero-initialized local/global aggregate objects now collapse through one
+  canonical `zeroinitializer` constant/store path instead of eagerly
+  expanding every element into repeated zero payloads
 - `IRBuilder` coordinates IR generation through an abstract `IRBackend`
 - `IRBackend` defines backend-independent emission hooks
 - `LlvmIrBackend` is the first concrete backend implementation

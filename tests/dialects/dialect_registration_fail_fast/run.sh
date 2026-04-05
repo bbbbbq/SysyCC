@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
+GENERATED_DIR="${BUILD_DIR}/generated"
 TEST_BUILD_DIR="${SCRIPT_DIR}/build"
 TEST_BINARY="${TEST_BUILD_DIR}/dialect_registration_fail_fast"
 TEST_SOURCE="${SCRIPT_DIR}/dialect_registration_fail_fast.cpp"
@@ -15,7 +16,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 mkdir -p "${TEST_BUILD_DIR}"
 
-clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
+clang++ -std=c++17 -I"${GENERATED_DIR}" -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
     "${PROJECT_ROOT}/src/backend/asm_gen/aarch64/aarch64_asm_backend.cpp" \
     "${PROJECT_ROOT}/src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp" \
@@ -74,9 +75,9 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${PROJECT_ROOT}/src/frontend/dialects/packs/clang/clang_dialect.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/packs/gnu/gnu_dialect.cpp" \
     "${PROJECT_ROOT}/src/frontend/lexer/lexer.cpp" \
-    "${PROJECT_ROOT}/src/frontend/lexer/lexer_scanner.cpp" \
+    "${GENERATED_DIR}/frontend/lexer/lexer_scanner.cpp" \
     "${PROJECT_ROOT}/src/frontend/parser/parser.cpp" \
-    "${PROJECT_ROOT}/src/frontend/parser/parser_generated.cpp" \
+    "${GENERATED_DIR}/frontend/parser/parser_generated.cpp" \
     "${PROJECT_ROOT}/src/frontend/parser/parser_feature_validator.cpp" \
     "${PROJECT_ROOT}/src/frontend/parser/parser_runtime.cpp" \
     "${PROJECT_ROOT}/src/frontend/preprocess/preprocess.cpp" \

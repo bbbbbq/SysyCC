@@ -11,7 +11,13 @@ and the generated scanner source used by the active pipeline.
 src/frontend/lexer/
 ├── lexer.hpp
 ├── lexer.cpp
-├── lexer.l
+└── lexer.l
+```
+
+Generated lexer outputs live under the active build tree:
+
+```text
+<build-dir>/generated/frontend/lexer/
 └── lexer_scanner.cpp
 ```
 
@@ -42,7 +48,6 @@ src/frontend/lexer/
 - [lexer.hpp](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp)
 - [lexer.cpp](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.cpp)
 - [lexer.l](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.l)
-- [lexer_scanner.cpp](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer_scanner.cpp)
 
 ## Output Artifacts
 
@@ -52,6 +57,8 @@ src/frontend/lexer/
 ## Notes
 
 - The lexer now uses a reentrant flex scanner with one [LexerState](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp) instance per scanner session.
+- The generated flex scanner now lives under the active build tree, for
+  example `build/generated/frontend/lexer/lexer_scanner.cpp`.
 - [LexerState](/Users/caojunze424/code/SysyCC/src/frontend/lexer/lexer.hpp)
   now consumes one shared
   [SourceMappingView](/Users/caojunze424/code/SysyCC/src/common/source_mapping_view.hpp)

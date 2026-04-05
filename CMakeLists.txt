@@ -16,18 +16,24 @@ find_package(FLEX REQUIRED)
 
 set(LEXER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend/lexer)
 set(PARSER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend/parser)
+set(GENERATED_FRONTEND_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/frontend)
+set(GENERATED_LEXER_DIR ${GENERATED_FRONTEND_DIR}/lexer)
+set(GENERATED_PARSER_DIR ${GENERATED_FRONTEND_DIR}/parser)
+
+file(MAKE_DIRECTORY ${GENERATED_LEXER_DIR})
+file(MAKE_DIRECTORY ${GENERATED_PARSER_DIR})
 
 bison_target(
     SysyParser
     ${PARSER_DIR}/parser.y
-    ${PARSER_DIR}/parser_generated.cpp
-    DEFINES_FILE ${PARSER_DIR}/parser.tab.h
+    ${GENERATED_PARSER_DIR}/parser_generated.cpp
+    DEFINES_FILE ${GENERATED_PARSER_DIR}/parser.tab.h
 )
 
 flex_target(
     SysyLexer
     ${LEXER_DIR}/lexer.l
-    ${LEXER_DIR}/lexer_scanner.cpp
+    ${GENERATED_LEXER_DIR}/lexer_scanner.cpp
     COMPILE_FLAGS "--warn"
 )
 
@@ -138,5 +144,6 @@ add_executable(${PROJECT_NAME}
 
 target_include_directories(${PROJECT_NAME}
     PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )

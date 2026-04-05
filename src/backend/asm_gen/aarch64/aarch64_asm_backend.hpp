@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -17,14 +18,46 @@ class CoreIrStackSlot;
 class CoreIrValue;
 class DiagnosticEngine;
 
-class AArch64MachineInstr {
+class AArch64VirtualReg {
+  private:
+    std::size_t id_ = 0;
+    bool use_64bit_ = false;
+
+  public:
+    AArch64VirtualReg() = default;
+    AArch64VirtualReg(std::size_t id, bool use_64bit)
+        : id_(id), use_64bit_(use_64bit) {}
+
+    std::size_t get_id() const noexcept { return id_; }
+    bool get_use_64bit() const noexcept { return use_64bit_; }
+    bool is_valid() const noexcept { return id_ != 0; }
+};
+
+class AArch64MachineOperand {
   private:
     std::string text_;
 
   public:
-    explicit AArch64MachineInstr(std::string text) : text_(std::move(text)) {}
+    explicit AArch64MachineOperand(std::string text) : text_(std::move(text)) {}
 
     const std::string &get_text() const noexcept { return text_; }
+};
+
+class AArch64MachineInstr {
+  private:
+    std::string mnemonic_;
+    std::vector<AArch64MachineOperand> operands_;
+
+  public:
+    explicit AArch64MachineInstr(std::string text);
+    AArch64MachineInstr(std::string mnemonic,
+                        std::vector<AArch64MachineOperand> operands);
+
+    const std::string &get_mnemonic() const noexcept { return mnemonic_; }
+    const std::vector<AArch64MachineOperand> &get_operands() const noexcept {
+        return operands_;
+    }
+    std::vector<AArch64MachineOperand> &get_operands() noexcept { return operands_; }
 };
 
 class AArch64MachineBlock {
@@ -38,6 +71,9 @@ class AArch64MachineBlock {
     const std::string &get_label() const noexcept { return label_; }
 
     const std::vector<AArch64MachineInstr> &get_instructions() const noexcept {
+        return instructions_;
+    }
+    std::vector<AArch64MachineInstr> &get_instructions() noexcept {
         return instructions_;
     }
 
@@ -84,6 +120,9 @@ class AArch64MachineFunction {
     std::string epilogue_label_;
     AArch64FunctionFrameInfo frame_info_;
     std::vector<AArch64MachineBlock> blocks_;
+    std::size_t next_virtual_reg_id_ = 1;
+    std::unordered_map<std::size_t, bool> virtual_reg_widths_;
+    std::unordered_map<std::size_t, unsigned> virtual_reg_allocation_;
 
   public:
     AArch64MachineFunction(std::string name, bool is_global_symbol,
@@ -109,6 +148,39 @@ class AArch64MachineFunction {
     AArch64MachineBlock &append_block(std::string label) {
         blocks_.emplace_back(std::move(label));
         return blocks_.back();
+    }
+
+    AArch64VirtualReg create_virtual_reg(bool use_64bit) {
+        const std::size_t id = next_virtual_reg_id_++;
+        virtual_reg_widths_[id] = use_64bit;
+        return AArch64VirtualReg(id, use_64bit);
+    }
+
+    bool get_virtual_reg_use_64bit(std::size_t id) const noexcept {
+        const auto it = virtual_reg_widths_.find(id);
+        return it != virtual_reg_widths_.end() ? it->second : false;
+    }
+
+    const std::unordered_map<std::size_t, bool> &
+    get_virtual_reg_widths() const noexcept {
+        return virtual_reg_widths_;
+    }
+
+    void set_virtual_reg_allocation(std::size_t id, unsigned physical_reg) {
+        virtual_reg_allocation_[id] = physical_reg;
+    }
+
+    const std::unordered_map<std::size_t, unsigned> &
+    get_virtual_reg_allocation() const noexcept {
+        return virtual_reg_allocation_;
+    }
+
+    std::optional<unsigned> get_physical_reg_for_virtual(std::size_t id) const {
+        const auto it = virtual_reg_allocation_.find(id);
+        if (it == virtual_reg_allocation_.end()) {
+            return std::nullopt;
+        }
+        return it->second;
     }
 };
 

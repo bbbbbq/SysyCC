@@ -1,0 +1,6 @@
+int main() {
+    signed char a = -7;
+    signed char b = 3;
+    short c = a % b;
+    return c;
+}

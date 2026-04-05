@@ -44,6 +44,12 @@ class CoreIrConstantNull final : public CoreIrConstant {
     explicit CoreIrConstantNull(const CoreIrType *type) : CoreIrConstant(type) {}
 };
 
+class CoreIrConstantZeroInitializer final : public CoreIrConstant {
+  public:
+    explicit CoreIrConstantZeroInitializer(const CoreIrType *type)
+        : CoreIrConstant(type) {}
+};
+
 class CoreIrConstantByteString final : public CoreIrConstant {
   private:
     std::vector<std::uint8_t> bytes_;

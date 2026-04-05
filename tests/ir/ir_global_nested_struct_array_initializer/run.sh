@@ -17,7 +17,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_file_nonempty "${IR_FILE}"
 grep -Eq '^@g_outer = (internal )?global \[2 x \{ \{ i32, i16, \[2 x i8\] \} \}\]' "${IR_FILE}"
-grep -Eq '\{ \{ i32, i16, \[2 x i8\] \} \} \{ \{ i32, i16, \[2 x i8\] \} \{ i32 1, i16 2, \[2 x i8\] \[ i8 0, i8 0 \] \} \}' "${IR_FILE}"
-grep -Eq '\{ \{ i32, i16, \[2 x i8\] \} \} \{ \{ i32, i16, \[2 x i8\] \} \{ i32 3, i16 4, \[2 x i8\] \[ i8 0, i8 0 \] \} \}' "${IR_FILE}"
+grep -Eq '\{ \{ i32, i16, \[2 x i8\] \} \} \{ \{ i32, i16, \[2 x i8\] \} \{ i32 1, i16 2, \[2 x i8\] zeroinitializer \} \}' "${IR_FILE}"
+grep -Eq '\{ \{ i32, i16, \[2 x i8\] \} \} \{ \{ i32, i16, \[2 x i8\] \} \{ i32 3, i16 4, \[2 x i8\] zeroinitializer \} \}' "${IR_FILE}"
 
 echo "verified: ir lowers nested struct array global initializers"

@@ -263,9 +263,12 @@ common -> 尽量不反向依赖上层
 
 对应生成文件包括：
 
-- `src/frontend/parser/parser_generated.cpp`
-- `src/frontend/parser/parser.tab.h`
-- `src/frontend/lexer/lexer_scanner.cpp`
+- `build/generated/frontend/parser/parser_generated.cpp`
+- `build/generated/frontend/parser/parser.tab.h`
+- `build/generated/frontend/lexer/lexer_scanner.cpp`
+- `build-ninja/generated/frontend/parser/parser_generated.cpp`
+- `build-ninja/generated/frontend/parser/parser.tab.h`
+- `build-ninja/generated/frontend/lexer/lexer_scanner.cpp`
 
 如果生成文件与源规则不一致，应通过构建系统重新生成。
 
@@ -411,8 +414,8 @@ tests/
 优先遵循仓库已有入口：
 
 ```bash
-cmake -S . -B build
-cmake --build build
+cmake -S . -B build-ninja -G Ninja
+cmake --build build-ninja
 ```
 
 也可以用顶层 `Makefile`：
@@ -426,7 +429,8 @@ make check
 
 说明：
 
-- `build/` 是生成目录，不要把它当源码目录改。
+- 顶层 `make build` / `make run` 现在走 `build-ninja/` 这套 Ninja 开发构建目录。
+- `build/` 仍然会被测试脚本和中间产物使用，不要把它当源码目录改。
 - `clang-format` 应只用于目标文件，不要无差别扫全仓库。
 
 ## 8. 代理工作规则
