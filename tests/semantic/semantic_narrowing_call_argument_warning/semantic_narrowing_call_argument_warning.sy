@@ -1,0 +1,7 @@
+int take_byte(unsigned char value) {
+    return value;
+}
+
+int main() {
+    return take_byte(300);
+}
