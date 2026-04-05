@@ -21,10 +21,16 @@ clang++ -std=c++17 -I"${GENERATED_DIR}" -I"${PROJECT_ROOT}/src" \
     "${PROJECT_ROOT}/src/backend/asm_gen/aarch64/aarch64_asm_backend.cpp" \
     "${PROJECT_ROOT}/src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/analysis/analysis_manager.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/analysis/alias_analysis.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/analysis/cfg_analysis.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/analysis/dominance_frontier_analysis.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/analysis/dominator_tree_analysis.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/analysis/function_effect_summary_analysis.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/analysis/loop_info_analysis.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/analysis/memory_ssa_analysis.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/analysis/promotable_stack_slot_analysis.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/effect/core_ir_effect.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/effect/core_ir_memory_location.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/shared/detail/aggregate_layout.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/lower/legacy/ir_backend_factory.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/build/build_core_ir_pass.cpp" \
@@ -35,6 +41,7 @@ clang++ -std=c++17 -I"${GENERATED_DIR}" -I"${PROJECT_ROOT}/src" \
     "${PROJECT_ROOT}/src/backend/ir/dce/core_ir_dce_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/gvn/core_ir_gvn_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/local_cse/core_ir_local_cse_pass.cpp" \
+    "${PROJECT_ROOT}/src/backend/ir/loop_simplify/core_ir_loop_simplify_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/mem2reg/core_ir_mem2reg_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/sccp/core_ir_sccp_pass.cpp" \
     "${PROJECT_ROOT}/src/backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.cpp" \

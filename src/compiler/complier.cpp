@@ -13,6 +13,7 @@
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
 #include "backend/ir/gvn/core_ir_gvn_pass.hpp"
 #include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
+#include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
 #include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
 #include "backend/ir/sccp/core_ir_sccp_pass.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
@@ -61,6 +62,7 @@ void Complier::InitializePasses() {
     pass_manager_.AddPass(std::make_unique<BuildCoreIrPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrCanonicalizePass>());
     pass_manager_.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
+    pass_manager_.AddPass(std::make_unique<CoreIrLoopSimplifyPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrStackSlotForwardPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrDeadStoreEliminationPass>());
     pass_manager_.AddPass(std::make_unique<CoreIrMem2RegPass>());

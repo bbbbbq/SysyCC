@@ -2,6 +2,8 @@
 #include <string>
 #include <vector>
 
+#include "backend/ir/analysis/analysis_manager.hpp"
+#include "backend/ir/analysis/cfg_analysis.hpp"
 #include "backend/ir/build/build_core_ir_pass.hpp"
 #include "backend/asm_gen/aarch64/aarch64_asm_gen_pass.hpp"
 #include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
@@ -12,6 +14,7 @@
 #include "backend/ir/gvn/core_ir_gvn_pass.hpp"
 #include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
+#include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
 #include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
 #include "backend/ir/sccp/core_ir_sccp_pass.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
@@ -26,6 +29,16 @@
 using namespace sysycc;
 
 namespace sysycc {
+
+namespace {
+
+PassResult no_op_core_ir_transform_result() {
+    CoreIrPassEffects effects;
+    effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_all();
+    return PassResult::Success(std::move(effects));
+}
+
+} // namespace
 
 PassKind PreprocessPass::Kind() const { return PassKind::Preprocess; }
 
@@ -61,8 +74,59 @@ PassKind BuildCoreIrPass::Kind() const { return PassKind::BuildCoreIr; }
 
 const char *BuildCoreIrPass::Name() const { return "BuildCoreIrPass"; }
 
-PassResult BuildCoreIrPass::Run(CompilerContext &) {
+CoreIrPassMetadata BuildCoreIrPass::Metadata() const noexcept {
+    return CoreIrPassMetadata::core_ir_build();
+}
+
+PassResult BuildCoreIrPass::Run(CompilerContext &context) {
+    auto ir_context = std::make_unique<CoreIrContext>();
+    auto *module = ir_context->create_module<CoreIrModule>("stub");
+    context.set_core_ir_build_result(
+        std::make_unique<CoreIrBuildResult>(std::move(ir_context), module));
     return PassResult::Success();
+}
+
+CoreIrBuildResult::CoreIrBuildResult(std::unique_ptr<CoreIrContext> context,
+                                     CoreIrModule *module) noexcept
+    : context_(std::move(context)), module_(module),
+      analysis_manager_(std::make_unique<CoreIrAnalysisManager>()) {}
+
+const CoreIrContext *CoreIrBuildResult::get_context() const noexcept {
+    return context_.get();
+}
+
+CoreIrContext *CoreIrBuildResult::get_context() noexcept {
+    return context_.get();
+}
+
+const CoreIrModule *CoreIrBuildResult::get_module() const noexcept { return module_; }
+
+CoreIrModule *CoreIrBuildResult::get_module() noexcept { return module_; }
+
+const CoreIrAnalysisManager *
+CoreIrBuildResult::get_analysis_manager() const noexcept {
+    return analysis_manager_.get();
+}
+
+CoreIrAnalysisManager *CoreIrBuildResult::get_analysis_manager() noexcept {
+    return analysis_manager_.get();
+}
+
+void CoreIrBuildResult::invalidate_core_ir_analyses(CoreIrFunction &) noexcept {}
+
+void CoreIrBuildResult::invalidate_all_core_ir_analyses() noexcept {}
+
+void CoreIrAnalysisManager::invalidate(CoreIrFunction &,
+                                       CoreIrAnalysisKind) noexcept {}
+
+CoreIrCfgAnalysisResult CoreIrCfgAnalysis::Run(const CoreIrFunction &) const {
+    return {};
+}
+
+const std::vector<CoreIrBasicBlock *> &
+CoreIrCfgAnalysisResult::get_predecessors(const CoreIrBasicBlock *) const {
+    static const std::vector<CoreIrBasicBlock *> empty;
+    return empty;
 }
 
 PassKind CoreIrCanonicalizePass::Kind() const {
@@ -74,7 +138,7 @@ const char *CoreIrCanonicalizePass::Name() const {
 }
 
 PassResult CoreIrCanonicalizePass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrConstFoldPass::Kind() const {
@@ -86,7 +150,7 @@ const char *CoreIrConstFoldPass::Name() const {
 }
 
 PassResult CoreIrConstFoldPass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrDcePass::Kind() const { return PassKind::CoreIrDce; }
@@ -94,7 +158,7 @@ PassKind CoreIrDcePass::Kind() const { return PassKind::CoreIrDce; }
 const char *CoreIrDcePass::Name() const { return "CoreIrDcePass"; }
 
 PassResult CoreIrDcePass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrSimplifyCfgPass::Kind() const {
@@ -106,7 +170,19 @@ const char *CoreIrSimplifyCfgPass::Name() const {
 }
 
 PassResult CoreIrSimplifyCfgPass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
+}
+
+PassKind CoreIrLoopSimplifyPass::Kind() const {
+    return PassKind::CoreIrLoopSimplify;
+}
+
+const char *CoreIrLoopSimplifyPass::Name() const {
+    return "CoreIrLoopSimplifyPass";
+}
+
+PassResult CoreIrLoopSimplifyPass::Run(CompilerContext &) {
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrStackSlotForwardPass::Kind() const {
@@ -118,7 +194,7 @@ const char *CoreIrStackSlotForwardPass::Name() const {
 }
 
 PassResult CoreIrStackSlotForwardPass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrCopyPropagationPass::Kind() const {
@@ -130,7 +206,7 @@ const char *CoreIrCopyPropagationPass::Name() const {
 }
 
 PassResult CoreIrCopyPropagationPass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrSccpPass::Kind() const { return PassKind::CoreIrSccp; }
@@ -138,7 +214,7 @@ PassKind CoreIrSccpPass::Kind() const { return PassKind::CoreIrSccp; }
 const char *CoreIrSccpPass::Name() const { return "CoreIrSccpPass"; }
 
 PassResult CoreIrSccpPass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrLocalCsePass::Kind() const {
@@ -150,7 +226,7 @@ const char *CoreIrLocalCsePass::Name() const {
 }
 
 PassResult CoreIrLocalCsePass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrGvnPass::Kind() const { return PassKind::CoreIrGvn; }
@@ -158,7 +234,7 @@ PassKind CoreIrGvnPass::Kind() const { return PassKind::CoreIrGvn; }
 const char *CoreIrGvnPass::Name() const { return "CoreIrGvnPass"; }
 
 PassResult CoreIrGvnPass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrDeadStoreEliminationPass::Kind() const {
@@ -170,7 +246,7 @@ const char *CoreIrDeadStoreEliminationPass::Name() const {
 }
 
 PassResult CoreIrDeadStoreEliminationPass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind CoreIrMem2RegPass::Kind() const { return PassKind::CoreIrMem2Reg; }
@@ -178,7 +254,7 @@ PassKind CoreIrMem2RegPass::Kind() const { return PassKind::CoreIrMem2Reg; }
 const char *CoreIrMem2RegPass::Name() const { return "CoreIrMem2RegPass"; }
 
 PassResult CoreIrMem2RegPass::Run(CompilerContext &) {
-    return PassResult::Success();
+    return no_op_core_ir_transform_result();
 }
 
 PassKind LowerIrPass::Kind() const { return PassKind::LowerIr; }

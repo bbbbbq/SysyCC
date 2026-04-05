@@ -9,6 +9,7 @@
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
 #include "backend/ir/gvn/core_ir_gvn_pass.hpp"
 #include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
+#include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
 #include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
 #include "backend/ir/sccp/core_ir_sccp_pass.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
@@ -67,6 +68,7 @@ int main(int argc, char **argv) {
     BuildCoreIrPass build_pass;
     CoreIrCanonicalizePass canonicalize_pass;
     CoreIrSimplifyCfgPass simplify_cfg_pass;
+    CoreIrLoopSimplifyPass loop_simplify_pass;
     CoreIrStackSlotForwardPass stack_slot_forward_pass;
     CoreIrCopyPropagationPass copy_propagation_pass;
     CoreIrSccpPass sccp_pass;
@@ -81,6 +83,7 @@ int main(int argc, char **argv) {
     assert(build_pass.Run(context).ok);
     assert(canonicalize_pass.Run(context).ok);
     assert(simplify_cfg_pass.Run(context).ok);
+    assert(loop_simplify_pass.Run(context).ok);
     assert(stack_slot_forward_pass.Run(context).ok);
     assert(dead_store_elimination_pass.Run(context).ok);
     assert(mem2reg_pass.Run(context).ok);
