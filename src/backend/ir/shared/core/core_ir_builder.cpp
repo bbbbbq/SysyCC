@@ -5617,7 +5617,8 @@ class CoreIrBuildSession {
             add_error(
                 "core ir generation currently supports only function "
                 "declarations/definitions, type declarations, and scalar "
-                "top-level variable declarations",
+                "top-level variable declarations (decl kind=" +
+                    std::to_string(static_cast<int>(decl->get_kind())) + ")",
                 decl->get_source_span());
             return nullptr;
         }
