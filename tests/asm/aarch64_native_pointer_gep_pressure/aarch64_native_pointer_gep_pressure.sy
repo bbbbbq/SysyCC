@@ -1,0 +1,8 @@
+int consume(int *base, int i, int j, int k, int m, int n) {
+    int *p0 = base + i;
+    int *p1 = base + j;
+    int *p2 = base + k;
+    int *p3 = base + m;
+    int *p4 = base + n;
+    return *p0 + *p1 + *p2 + *p3 + *p4;
+}
