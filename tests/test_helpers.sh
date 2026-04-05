@@ -165,6 +165,7 @@ setup_test_host_tool_wrappers() {
 #!/usr/bin/env bash
 # SYSYCC test wrapper
 export SYSYCC_TEST_WRAPPED_TOOL_NAME="clang"
+export SYSYCC_TEST_WRAPPED_ARGV0="clang"
 exec "${PROJECT_ROOT}/scripts/test_heavy_tool_wrapper.sh" "${SYSYCC_TEST_REAL_CLANG}" "\$@"
 EOF
 
@@ -172,6 +173,7 @@ EOF
 #!/usr/bin/env bash
 # SYSYCC test wrapper
 export SYSYCC_TEST_WRAPPED_TOOL_NAME="clang++"
+export SYSYCC_TEST_WRAPPED_ARGV0="clang++"
 exec "${PROJECT_ROOT}/scripts/test_heavy_tool_wrapper.sh" "${SYSYCC_TEST_REAL_CLANGXX}" "\$@"
 EOF
 
@@ -189,36 +191,100 @@ EOF
     export SYSYCC_TEST_TOOL_WRAPPERS_READY=1
 }
 
-install_sysycc_test_binary_wrapper() {
+is_sysycc_test_wrapper_file() {
+    local file_path="$1"
+    LC_ALL=C grep -a -q 'SYSYCC test wrapper' "${file_path}" 2>/dev/null
+}
+
+reset_sysycc_test_binary_wrapper_state() {
     local build_dir="$1"
     local wrapper_dir="${build_dir}/.sysycc_test_wrappers"
     local wrapper_path="${build_dir}/SysyCC"
     local real_binary_path="${wrapper_dir}/SysyCC.real"
 
+    if is_sysycc_test_wrapper_file "${real_binary_path}"; then
+        rm -f "${real_binary_path}"
+    fi
+
+    if is_sysycc_test_wrapper_file "${wrapper_path}" && [[ ! -e "${real_binary_path}" ]]; then
+        rm -f "${wrapper_path}"
+    fi
+}
+
+install_sysycc_test_binary_wrapper() {
+    local build_dir="$1"
+    local wrapper_dir="${build_dir}/.sysycc_test_wrappers"
+    local wrapper_path="${build_dir}/SysyCC"
+    local real_binary_path="${wrapper_dir}/SysyCC.real"
+    local install_lock_dir="${wrapper_dir}/.install.lock"
+
     if [[ "${SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS:-0}" == "1" ]]; then
         return 0
     fi
 
-    if [[ ! -e "${wrapper_path}" ]]; then
-        return 0
-    fi
-
     mkdir -p "${wrapper_dir}"
+    acquire_named_lock "${install_lock_dir}"
 
-    if LC_ALL=C grep -a -q 'SYSYCC test wrapper' "${wrapper_path}" 2>/dev/null; then
-        return 0
-    fi
+    (
+        trap 'release_named_lock "${install_lock_dir}"' EXIT
 
-    mv "${wrapper_path}" "${real_binary_path}"
+        if [[ ! -e "${wrapper_path}" && ! -e "${real_binary_path}" ]]; then
+            return 0
+        fi
 
-    cat >"${wrapper_path}" <<EOF
+        if is_sysycc_test_wrapper_file "${real_binary_path}"; then
+            rm -f "${real_binary_path}"
+        fi
+
+        if [[ -e "${wrapper_path}" ]] &&
+           ! is_sysycc_test_wrapper_file "${wrapper_path}" &&
+           [[ ! -e "${real_binary_path}" ]]; then
+            mv "${wrapper_path}" "${real_binary_path}"
+        fi
+
+        if [[ ! -e "${real_binary_path}" ]]; then
+            return 0
+        fi
+
+        cat >"${wrapper_path}" <<EOF
 #!/usr/bin/env bash
 # SYSYCC test wrapper
 export SYSYCC_TEST_WRAPPED_TOOL_NAME="SysyCC"
+export SYSYCC_TEST_WRAPPED_ARGV0="SysyCC"
 exec "${PROJECT_ROOT}/scripts/test_heavy_tool_wrapper.sh" "${real_binary_path}" "\$@"
 EOF
 
-    chmod +x "${wrapper_path}"
+        chmod +x "${wrapper_path}"
+    )
+}
+
+acquire_named_lock() {
+    local lock_dir="$1"
+    local pid_file="${lock_dir}/pid"
+
+    mkdir -p "$(dirname "${lock_dir}")"
+
+    while ! mkdir "${lock_dir}" 2>/dev/null; do
+        local owner_pid=""
+
+        owner_pid="$(cat "${pid_file}" 2>/dev/null || true)"
+        if [[ -n "${owner_pid}" ]] && ! kill -0 "${owner_pid}" 2>/dev/null; then
+            rm -rf "${lock_dir}"
+            continue
+        fi
+
+        sleep 0.1
+    done
+
+    printf '%s\n' "${BASHPID:-$$}" >"${pid_file}"
+}
+
+release_named_lock() {
+    local lock_dir="$1"
+    local pid_file="${lock_dir}/pid"
+
+    rm -f "${pid_file}"
+    rmdir "${lock_dir}" 2>/dev/null || true
 }
 
 acquire_build_lock() {
@@ -315,6 +381,8 @@ build_project() {
 
     (
         trap 'release_build_lock "${lock_dir}"' EXIT
+
+        reset_sysycc_test_binary_wrapper_state "${build_dir}"
 
         if [[ ! -f "${cache_file}" || "${SYSYCC_TEST_FORCE_CONFIGURE:-0}" == "1" ]]; then
             cmake -S "${project_root}" -B "${build_dir}" ${generator_arg} ${launcher_arg}

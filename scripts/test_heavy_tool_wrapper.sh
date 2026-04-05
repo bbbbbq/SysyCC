@@ -15,6 +15,7 @@ if [[ ! "${max_jobs}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 tool_name="${SYSYCC_TEST_WRAPPED_TOOL_NAME:-$(basename "${tool_path}")}"
+argv0_name="${SYSYCC_TEST_WRAPPED_ARGV0:-}"
 lock_root="${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT:-${TMPDIR:-/tmp}/sysycc-heavy-tool-slots}"
 wait_announced=0
 slot_dir=""
@@ -27,9 +28,31 @@ cleanup() {
     fi
 }
 
+prune_stale_slots() {
+    local candidate_dir
+
+    for candidate_dir in "${lock_root}"/slot.*; do
+        if [[ ! -d "${candidate_dir}" ]]; then
+            continue
+        fi
+
+        owner_pid="$(cat "${candidate_dir}/pid" 2>/dev/null || true)"
+        if [[ -z "${owner_pid}" ]]; then
+            rm -rf "${candidate_dir}"
+            continue
+        fi
+
+        if ! kill -0 "${owner_pid}" 2>/dev/null; then
+            rm -rf "${candidate_dir}"
+        fi
+    done
+}
+
 trap cleanup EXIT
 
 while [[ -z "${slot_dir}" ]]; do
+    prune_stale_slots
+
     for slot in $(seq 1 "${max_jobs}"); do
         local_dir="${lock_root}/slot.${slot}"
         if mkdir "${local_dir}" 2>/dev/null; then
@@ -38,10 +61,13 @@ while [[ -z "${slot_dir}" ]]; do
             break
         fi
 
-        if owner_pid="$(<"${local_dir}/pid" 2>/dev/null)"; then
-            if [[ -n "${owner_pid}" ]] && ! kill -0 "${owner_pid}" 2>/dev/null; then
-                rm -rf "${local_dir}"
-            fi
+        owner_pid="$(cat "${local_dir}/pid" 2>/dev/null || true)"
+        if [[ -z "${owner_pid}" ]]; then
+            rm -rf "${local_dir}"
+            continue
+        fi
+        if ! kill -0 "${owner_pid}" 2>/dev/null; then
+            rm -rf "${local_dir}"
         fi
     done
 
@@ -55,5 +81,10 @@ while [[ -z "${slot_dir}" ]]; do
     fi
     sleep 0.1
 done
+
+if [[ -n "${argv0_name}" ]]; then
+    bash -c 'exec -a "$1" "$2" "${@:3}"' _ "${argv0_name}" "${tool_path}" "$@"
+    exit $?
+fi
 
 "${tool_path}" "$@"
