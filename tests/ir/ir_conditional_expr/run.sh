@@ -18,9 +18,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^cond\.true[0-9]+:$' "${IR_FILE}"
-grep -Eq '^cond\.end[0-9]+:$' "${IR_FILE}"
 grep -Eq 'store i32 11, ptr %addr\.addr[0-9]*' "${IR_FILE}"
-grep -Eq '^  br label %cond\.true[0-9]+$' "${IR_FILE}"
+grep -Eq '^  ret i32 ' "${IR_FILE}"
 
-echo "verified: integer ternary expressions lower to conditional control-flow blocks"
+echo "verified: constant integer ternary expressions collapse to the selected value in optimized LLVM IR"

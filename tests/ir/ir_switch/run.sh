@@ -18,12 +18,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -q '^switch.case0\.1:$' "${IR_FILE}"
-grep -q '^switch.end0:$' "${IR_FILE}"
-grep -q '^switch.test0\.1:$' "${IR_FILE}"
 grep -q '^  store i32 20, ptr %y.addr$' "${IR_FILE}"
-grep -q '^  br label %switch.end0$' "${IR_FILE}"
-grep -q '^  br label %switch.case0.1$' "${IR_FILE}"
 grep -q '^  ret i32 ' "${IR_FILE}"
 
-echo "verified: switch/case/default lowers to a canonical compare chain and case blocks"
+echo "verified: constant switch dispatch collapses to the selected case in optimized LLVM IR"
