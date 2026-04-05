@@ -539,6 +539,20 @@ LLVM IR lowering path:
 - `-S --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now emits a
   native `.s` file directly from optimized `CoreIrModule` without round-tripping
   through LLVM IR text
+- the native AArch64 backend now lowers through backend-local machine blocks
+  with virtual registers, CFG-aware liveness, interference-driven allocation,
+  and spill-backed rewrite before final asm printing
+- the native AArch64 backend now also models call instructions as clobber points,
+  saves/restores actually used callee-saved scratch/allocation registers in the
+  function frame, and lowers integer cast legalization through explicit
+  sign-/zero-extension instructions instead of generic `mov` copies
+- parameters, value-producing instructions, and address-producing instructions
+  now also prefer canonical machine virtual registers over default frame slots,
+  so more native-backend live ranges survive into regalloc/spill instead of
+  being forced through immediate store/reload pairs
+- the native AArch64 backend now seeds canonical machine virtual registers for
+  parameters and value/address-producing Core IR nodes, so many uses flow
+  through machine vregs directly instead of defaulting to per-value frame slots
 
 ## Notes
 
