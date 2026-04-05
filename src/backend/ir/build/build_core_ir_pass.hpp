@@ -8,6 +8,7 @@ class BuildCoreIrPass : public Pass {
   public:
     PassKind Kind() const override;
     const char *Name() const override;
+    CoreIrPassMetadata Metadata() const noexcept override;
     PassResult Run(CompilerContext &context) override;
 };
 

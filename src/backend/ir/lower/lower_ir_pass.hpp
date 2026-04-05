@@ -8,6 +8,9 @@ class LowerIrPass : public Pass {
   public:
     PassKind Kind() const override;
     const char *Name() const override;
+    CoreIrPassMetadata Metadata() const noexcept override {
+        return CoreIrPassMetadata::core_ir_reader();
+    }
     PassResult Run(CompilerContext &context) override;
 };
 
