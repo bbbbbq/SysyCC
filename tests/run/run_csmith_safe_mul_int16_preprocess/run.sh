@@ -28,4 +28,4 @@ build_and_link_ir_executable "${IR_FILE}" \
     "${PROGRAM_BINARY}"
 assert_program_output "${PROGRAM_BINARY}" "${PROGRAM_INPUT}" "${EXPECTED_OUTPUT}"
 
-echo "verified: csmith safe_math helper selection matches host preprocessing"
+echo "verified: the local csmith regression stub keeps the safe_mul path compilable and runnable"
