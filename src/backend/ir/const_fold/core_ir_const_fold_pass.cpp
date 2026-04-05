@@ -295,6 +295,7 @@ PassResult CoreIrConstFoldPass::Run(CompilerContext &context) {
 
     const auto *void_type = core_ir_context->create_type<CoreIrVoidType>();
     for (const auto &function : module->get_functions()) {
+        bool function_changed = false;
         for (const auto &block : function->get_basic_blocks()) {
             for (const auto &instruction : block->get_instructions()) {
                 CoreIrValue *replacement = nullptr;
@@ -318,9 +319,15 @@ PassResult CoreIrConstFoldPass::Run(CompilerContext &context) {
 
                 if (replacement != nullptr) {
                     instruction->replace_all_uses_with(replacement);
+                    function_changed = true;
                 }
             }
-            simplify_constant_conditional_branch(*block, void_type);
+            function_changed =
+                simplify_constant_conditional_branch(*block, void_type) ||
+                function_changed;
+        }
+        if (function_changed) {
+            build_result->invalidate_core_ir_analyses(*function);
         }
     }
 

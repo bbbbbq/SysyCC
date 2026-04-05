@@ -134,8 +134,13 @@ PassResult CoreIrDcePass::Run(CompilerContext &context) {
     while (changed) {
         changed = false;
         for (const auto &function : build_result->get_module()->get_functions()) {
-            changed = remove_unreachable_blocks(*function) || changed;
-            changed = remove_dead_instructions(*function) || changed;
+            bool function_changed = false;
+            function_changed = remove_unreachable_blocks(*function) || function_changed;
+            function_changed = remove_dead_instructions(*function) || function_changed;
+            if (function_changed) {
+                build_result->invalidate_core_ir_analyses(*function);
+            }
+            changed = function_changed || changed;
         }
     }
 
