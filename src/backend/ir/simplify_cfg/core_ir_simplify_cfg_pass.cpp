@@ -274,6 +274,7 @@ PassResult CoreIrSimplifyCfgPass::Run(CompilerContext &context) {
         return PassResult::Failure("missing core ir analysis manager");
     }
 
+    CoreIrPassEffects effects;
     bool changed = true;
     while (changed) {
         changed = false;
@@ -281,31 +282,35 @@ PassResult CoreIrSimplifyCfgPass::Run(CompilerContext &context) {
             bool function_changed = false;
 
             if (simplify_constant_cond_jumps(*function)) {
-                build_result->invalidate_core_ir_analyses(*function);
                 function_changed = true;
             }
             if (simplify_redundant_cond_jumps(*function)) {
-                build_result->invalidate_core_ir_analyses(*function);
                 function_changed = true;
             }
             if (remove_trampoline_blocks(*function)) {
-                build_result->invalidate_core_ir_analyses(*function);
                 function_changed = true;
             }
             if (remove_unreachable_blocks(*analysis_manager, *function)) {
-                build_result->invalidate_core_ir_analyses(*function);
                 function_changed = true;
             }
             if (merge_linear_blocks(*analysis_manager, *function)) {
-                build_result->invalidate_core_ir_analyses(*function);
                 function_changed = true;
+            }
+            if (function_changed) {
+                effects.changed_functions.insert(function.get());
+                effects.cfg_changed_functions.insert(function.get());
             }
 
             changed = function_changed || changed;
         }
     }
 
-    return PassResult::Success();
+    if (!effects.has_changes()) {
+        effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_all();
+        return PassResult::Success(std::move(effects));
+    }
+    effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_none();
+    return PassResult::Success(std::move(effects));
 }
 
 } // namespace sysycc

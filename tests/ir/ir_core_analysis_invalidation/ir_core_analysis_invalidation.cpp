@@ -12,6 +12,7 @@
 #include "backend/ir/shared/core/ir_type.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
+#include "compiler/pass/pass.hpp"
 
 using namespace sysycc;
 
@@ -46,8 +47,9 @@ int main() {
     assert(before.get_successors(entry).size() == 1);
     assert(before.get_successors(entry).front() == middle);
 
-    CoreIrSimplifyCfgPass simplify_cfg_pass;
-    assert(simplify_cfg_pass.Run(compiler_context).ok);
+    PassManager pass_manager;
+    pass_manager.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
+    assert(pass_manager.Run(compiler_context).ok);
     assert(function->get_basic_blocks().size() == 1);
 
     const CoreIrCfgAnalysisResult &after =

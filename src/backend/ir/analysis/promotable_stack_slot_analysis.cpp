@@ -8,6 +8,8 @@
 #include <utility>
 
 #include "backend/ir/analysis/cfg_analysis.hpp"
+#include "backend/ir/analysis/dominance_frontier_analysis.hpp"
+#include "backend/ir/analysis/dominator_tree_analysis.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -304,6 +306,40 @@ bool unit_is_definitely_defined_on_all_paths(
         const BlockSummary &summary = block_summaries[block.get()];
         if (summary.has_use_before_def && !in_defined[block.get()]) {
             return false;
+        }
+    }
+
+    CoreIrDominatorTreeAnalysis dominator_tree_runner;
+    const CoreIrDominatorTreeAnalysisResult dominator_tree =
+        dominator_tree_runner.Run(function, cfg_analysis);
+    CoreIrDominanceFrontierAnalysis dominance_frontier_runner;
+    const CoreIrDominanceFrontierAnalysisResult dominance_frontier =
+        dominance_frontier_runner.Run(function, cfg_analysis, dominator_tree);
+
+    std::vector<CoreIrBasicBlock *> worklist(unit_info.def_blocks.begin(),
+                                             unit_info.def_blocks.end());
+    std::unordered_set<CoreIrBasicBlock *> visited(unit_info.def_blocks.begin(),
+                                                   unit_info.def_blocks.end());
+    while (!worklist.empty()) {
+        CoreIrBasicBlock *block = worklist.back();
+        worklist.pop_back();
+        if (block == nullptr) {
+            continue;
+        }
+        for (CoreIrBasicBlock *frontier_block :
+             dominance_frontier.get_frontier(block)) {
+            if (frontier_block == nullptr) {
+                continue;
+            }
+            for (CoreIrBasicBlock *predecessor :
+                 cfg_analysis.get_predecessors(frontier_block)) {
+                if (predecessor != nullptr && !out_defined[predecessor]) {
+                    return false;
+                }
+            }
+            if (visited.insert(frontier_block).second) {
+                worklist.push_back(frontier_block);
+            }
         }
     }
     return true;

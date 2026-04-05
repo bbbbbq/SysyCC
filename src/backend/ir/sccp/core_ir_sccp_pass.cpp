@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "backend/ir/effect/core_ir_effect.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -516,6 +517,7 @@ PassResult CoreIrSccpPass::Run(CompilerContext &context) {
         return fail_missing_core_ir(context, Name());
     }
 
+    CoreIrPassEffects effects;
     for (const auto &function : module->get_functions()) {
         if (function == nullptr || function->get_basic_blocks().empty()) {
             continue;
@@ -540,7 +542,7 @@ PassResult CoreIrSccpPass::Run(CompilerContext &context) {
                         continue;
                     }
                     if (dynamic_cast<CoreIrPhiInst *>(instruction.get()) == nullptr &&
-                        instruction->get_has_side_effect()) {
+                        !get_core_ir_instruction_effect(*instruction).is_pure_value) {
                         continue;
                     }
                     if (dynamic_cast<CoreIrBinaryInst *>(instruction.get()) == nullptr &&
@@ -570,7 +572,8 @@ PassResult CoreIrSccpPass::Run(CompilerContext &context) {
                 continue;
             }
             for (const auto &instruction : block->get_instructions()) {
-                if (instruction == nullptr || instruction->get_has_side_effect()) {
+                if (instruction == nullptr ||
+                    !get_core_ir_instruction_effect(*instruction).is_pure_value) {
                     continue;
                 }
                 auto it = lattice_map.find(instruction.get());
@@ -585,11 +588,18 @@ PassResult CoreIrSccpPass::Run(CompilerContext &context) {
         }
 
         if (function_changed) {
-            build_result->invalidate_core_ir_analyses(*function);
+            effects.changed_functions.insert(function.get());
         }
     }
 
-    return PassResult::Success();
+    if (!effects.has_changes()) {
+        effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_all();
+        return PassResult::Success(std::move(effects));
+    }
+    effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_none();
+    effects.preserved_analyses.preserve_cfg_family();
+    effects.preserved_analyses.preserve_loop_family();
+    return PassResult::Success(std::move(effects));
 }
 
 } // namespace sysycc
