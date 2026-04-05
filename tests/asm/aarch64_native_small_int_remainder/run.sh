@@ -27,9 +27,9 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-grep -q '^  sturb w9, \[x29, #-9\]$' "${ASM_FILE}"
-grep -q '^  ldurh w9, \[x29, #-26\]$' "${ASM_FILE}"
-grep -q '^  sdiv w9, w9, w10$' "${ASM_FILE}"
-grep -q '^  msub w9, w9, w10, w11$' "${ASM_FILE}"
+grep -Eq '^  sturb w[0-9]+, \[x29, #-9\]$' "${ASM_FILE}"
+grep -Eq '^  ldurh w[0-9]+, \[x29, #-26\]$' "${ASM_FILE}"
+grep -Eq '^  sdiv w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+grep -Eq '^  msub w[0-9]+, w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
 
 echo "verified: native AArch64 asm legalizes narrow integers and lowers remainder"

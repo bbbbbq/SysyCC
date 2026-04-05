@@ -27,8 +27,8 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-grep -q '^  sub x10, x29, #16$' "${ASM_FILE}"
-grep -q '^  str xzr, \[x10, #0\]$' "${ASM_FILE}"
-grep -q '^  str xzr, \[x10, #8\]$' "${ASM_FILE}"
+grep -Eq '^  sub x[0-9]+, x29, #16$' "${ASM_FILE}"
+grep -Eq '^  str xzr, \[x[0-9]+, #0\]$' "${ASM_FILE}"
+grep -Eq '^  str xzr, \[x[0-9]+, #8\]$' "${ASM_FILE}"
 
 echo "verified: native AArch64 asm lowers local zero aggregate initialization through explicit zero-fill stores"

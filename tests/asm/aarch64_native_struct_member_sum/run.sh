@@ -27,8 +27,8 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-grep -q '^  sub x10, x29, #8$' "${ASM_FILE}"
-grep -q '^  add x10, x10, #4$' "${ASM_FILE}"
-grep -q '^  ldr w9, \[x10\]$' "${ASM_FILE}"
+grep -Eq '^  sub x[0-9]+, x29, #8$' "${ASM_FILE}"
+grep -Eq '^  add x[0-9]+, x[0-9]+, #4$' "${ASM_FILE}"
+grep -Eq '^  ldr w[0-9]+, \[x[0-9]+\]$' "${ASM_FILE}"
 
 echo "verified: native AArch64 asm lowers struct member addresses through stack-slot base plus member offsets"

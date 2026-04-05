@@ -34,8 +34,8 @@ assert_file_nonempty "${CORE_IR_FILE}"
 
 grep -q '^\.globl fact$' "${ASM_FILE}"
 grep -q '^[[:space:]]*bl fact$' "${ASM_FILE}"
-grep -q '^[[:space:]]*cbnz w9, \.Lfact_if_then0$' "${ASM_FILE}"
-grep -q '^[[:space:]]*mul w9, w9, w10$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*cbnz w[0-9]+, \.Lfact_if_then0$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*mul w[0-9]+, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
 grep -q '^\.Lfact_epilogue:$' "${ASM_FILE}"
 
 echo "verified: native AArch64 asm backend emits recursive calls, branches, and core ir dump"

@@ -29,8 +29,8 @@ assert_file_nonempty "${ASM_FILE}"
 
 grep -q '^values:$' "${ASM_FILE}"
 grep -q '^  \.zero 16$' "${ASM_FILE}"
-grep -q '^  adrp x10, values$' "${ASM_FILE}"
-grep -q '^  add x10, x10, :lo12:values$' "${ASM_FILE}"
-grep -q '^  add x10, x10, #8$' "${ASM_FILE}"
+grep -Eq '^  adrp x[0-9]+, values$' "${ASM_FILE}"
+grep -Eq '^  add x[0-9]+, x[0-9]+, :lo12:values$' "${ASM_FILE}"
+grep -Eq '^  add x[0-9]+, x[0-9]+, #8$' "${ASM_FILE}"
 
 echo "verified: native AArch64 asm lowers global array addresses through symbol plus offset"

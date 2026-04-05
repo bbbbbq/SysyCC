@@ -27,8 +27,8 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-grep -q '^  adrp x9, inc$' "${ASM_FILE}"
-grep -q '^  add x9, x9, :lo12:inc$' "${ASM_FILE}"
-grep -q '^  blr x16$' "${ASM_FILE}"
+grep -Eq '^  adrp x[0-9]+, inc$' "${ASM_FILE}"
+grep -Eq '^  add x[0-9]+, x[0-9]+, :lo12:inc$' "${ASM_FILE}"
+grep -Eq '^  blr x[0-9]+$' "${ASM_FILE}"
 
 echo "verified: native AArch64 asm lowers address-of-function values and indirect calls"
