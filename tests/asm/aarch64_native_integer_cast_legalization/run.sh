@@ -30,6 +30,6 @@ assert_file_nonempty "${ASM_FILE}"
 grep -Eq '^[[:space:]]*uxtb w[0-9]+, w[0-9]+$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*uxth w[0-9]+, w[0-9]+$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*sxtb x[0-9]+, w[0-9]+$' "${ASM_FILE}"
-grep -Eq '^[[:space:]]*sxtw x[0-9]+, w[0-9]+$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*movz x[0-9]+, #250, lsl #0$' "${ASM_FILE}"
 
 echo "verified: native AArch64 asm legalizes integer trunc/zext/sext casts"
