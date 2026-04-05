@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -17,6 +18,65 @@ class CoreIrModule;
 class CoreIrStackSlot;
 class CoreIrValue;
 class DiagnosticEngine;
+
+enum class AArch64PhysicalReg : unsigned {
+    X0 = 0,
+    X1 = 1,
+    X2 = 2,
+    X3 = 3,
+    X4 = 4,
+    X5 = 5,
+    X6 = 6,
+    X7 = 7,
+    X8 = 8,
+    X9 = 9,
+    X10 = 10,
+    X11 = 11,
+    X12 = 12,
+    X13 = 13,
+    X14 = 14,
+    X15 = 15,
+    X16 = 16,
+    X17 = 17,
+    X18 = 18,
+    X19 = 19,
+    X20 = 20,
+    X21 = 21,
+    X22 = 22,
+    X23 = 23,
+    X24 = 24,
+    X25 = 25,
+    X26 = 26,
+    X27 = 27,
+    X28 = 28,
+    X29 = 29,
+    X30 = 30,
+};
+
+enum class AArch64RegClass {
+    CallerSavedGeneral,
+    CalleeSavedGeneral,
+    SpillScratchGeneral,
+};
+
+class AArch64CallClobberMask {
+  private:
+    std::set<unsigned> regs_;
+
+  public:
+    AArch64CallClobberMask() = default;
+    explicit AArch64CallClobberMask(std::set<unsigned> regs)
+        : regs_(std::move(regs)) {}
+
+    const std::set<unsigned> &get_regs() const noexcept { return regs_; }
+    bool clobbers(unsigned reg) const noexcept {
+        return regs_.find(reg) != regs_.end();
+    }
+};
+
+struct AArch64InstructionFlags {
+    bool is_call = false;
+};
 
 class AArch64VirtualReg {
   private:
@@ -47,17 +107,45 @@ class AArch64MachineInstr {
   private:
     std::string mnemonic_;
     std::vector<AArch64MachineOperand> operands_;
+    AArch64InstructionFlags flags_;
+    std::vector<std::size_t> explicit_defs_;
+    std::vector<std::size_t> explicit_uses_;
+    std::vector<std::size_t> implicit_defs_;
+    std::vector<std::size_t> implicit_uses_;
+    std::optional<AArch64CallClobberMask> call_clobber_mask_;
 
   public:
     explicit AArch64MachineInstr(std::string text);
     AArch64MachineInstr(std::string mnemonic,
-                        std::vector<AArch64MachineOperand> operands);
+                        std::vector<AArch64MachineOperand> operands,
+                        AArch64InstructionFlags flags = {},
+                        std::vector<std::size_t> implicit_defs = {},
+                        std::vector<std::size_t> implicit_uses = {},
+                        std::optional<AArch64CallClobberMask> call_clobber_mask =
+                            std::nullopt);
 
     const std::string &get_mnemonic() const noexcept { return mnemonic_; }
     const std::vector<AArch64MachineOperand> &get_operands() const noexcept {
         return operands_;
     }
     std::vector<AArch64MachineOperand> &get_operands() noexcept { return operands_; }
+    const AArch64InstructionFlags &get_flags() const noexcept { return flags_; }
+    const std::vector<std::size_t> &get_explicit_defs() const noexcept {
+        return explicit_defs_;
+    }
+    const std::vector<std::size_t> &get_explicit_uses() const noexcept {
+        return explicit_uses_;
+    }
+    const std::vector<std::size_t> &get_implicit_defs() const noexcept {
+        return implicit_defs_;
+    }
+    const std::vector<std::size_t> &get_implicit_uses() const noexcept {
+        return implicit_uses_;
+    }
+    const std::optional<AArch64CallClobberMask> &
+    get_call_clobber_mask() const noexcept {
+        return call_clobber_mask_;
+    }
 };
 
 class AArch64MachineBlock {
@@ -80,6 +168,10 @@ class AArch64MachineBlock {
     void append_instruction(std::string text) {
         instructions_.emplace_back(std::move(text));
     }
+
+    void append_instruction(AArch64MachineInstr instruction) {
+        instructions_.push_back(std::move(instruction));
+    }
 };
 
 class AArch64FunctionFrameInfo {
@@ -87,6 +179,8 @@ class AArch64FunctionFrameInfo {
     std::unordered_map<const CoreIrStackSlot *, std::size_t> stack_slot_offsets_;
     std::unordered_map<const CoreIrValue *, std::size_t> value_offsets_;
     std::unordered_map<std::size_t, std::size_t> virtual_reg_spill_offsets_;
+    std::unordered_map<unsigned, std::size_t> saved_physical_reg_offsets_;
+    std::set<unsigned> saved_physical_regs_;
     std::size_t local_size_ = 0;
     std::size_t frame_size_ = 0;
 
@@ -112,6 +206,19 @@ class AArch64FunctionFrameInfo {
             return std::nullopt;
         }
         return it->second;
+    }
+    void mark_saved_physical_reg(unsigned reg) { saved_physical_regs_.insert(reg); }
+    const std::set<unsigned> &get_saved_physical_regs() const noexcept {
+        return saved_physical_regs_;
+    }
+    bool has_saved_physical_reg_offset(unsigned reg) const noexcept {
+        return saved_physical_reg_offsets_.find(reg) != saved_physical_reg_offsets_.end();
+    }
+    void set_saved_physical_reg_offset(unsigned reg, std::size_t offset) {
+        saved_physical_reg_offsets_[reg] = offset;
+    }
+    std::size_t get_saved_physical_reg_offset(unsigned reg) const {
+        return saved_physical_reg_offsets_.at(reg);
     }
 
     void set_local_size(std::size_t local_size) noexcept { local_size_ = local_size; }
