@@ -8,6 +8,8 @@
 #include "backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.hpp"
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
 #include "backend/ir/gvn/core_ir_gvn_pass.hpp"
+#include "backend/ir/instcombine/core_ir_instcombine_pass.hpp"
+#include "backend/ir/licm/core_ir_licm_pass.hpp"
 #include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
 #include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
 #include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
@@ -65,35 +67,41 @@ int main(int argc, char **argv) {
     assert(frontend_result.ok);
 
     CompilerContext &context = complier.get_context();
-    BuildCoreIrPass build_pass;
-    CoreIrCanonicalizePass canonicalize_pass;
-    CoreIrSimplifyCfgPass simplify_cfg_pass;
-    CoreIrLoopSimplifyPass loop_simplify_pass;
-    CoreIrStackSlotForwardPass stack_slot_forward_pass;
-    CoreIrCopyPropagationPass copy_propagation_pass;
-    CoreIrSccpPass sccp_pass;
-    CoreIrLocalCsePass local_cse_pass;
-    CoreIrGvnPass gvn_pass;
-    CoreIrDeadStoreEliminationPass dead_store_elimination_pass;
-    CoreIrMem2RegPass mem2reg_pass;
-    CoreIrConstFoldPass const_fold_pass;
-    CoreIrDcePass dce_pass;
-    LowerIrPass lower_pass;
+    PassManager pass_manager;
+    pass_manager.AddPass(std::make_unique<BuildCoreIrPass>());
+    pass_manager.AddPass(std::make_unique<CoreIrCanonicalizePass>());
+    pass_manager.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
+    pass_manager.AddPass(std::make_unique<CoreIrLoopSimplifyPass>());
+    pass_manager.AddPass(std::make_unique<CoreIrInstCombinePass>());
+    pass_manager.AddPass(std::make_unique<CoreIrStackSlotForwardPass>());
+    pass_manager.AddPass(std::make_unique<CoreIrDeadStoreEliminationPass>());
+    pass_manager.AddPass(std::make_unique<CoreIrInstCombinePass>());
+    pass_manager.AddPass(std::make_unique<CoreIrMem2RegPass>());
 
-    assert(build_pass.Run(context).ok);
-    assert(canonicalize_pass.Run(context).ok);
-    assert(simplify_cfg_pass.Run(context).ok);
-    assert(loop_simplify_pass.Run(context).ok);
-    assert(stack_slot_forward_pass.Run(context).ok);
-    assert(dead_store_elimination_pass.Run(context).ok);
-    assert(mem2reg_pass.Run(context).ok);
-    assert(copy_propagation_pass.Run(context).ok);
-    assert(sccp_pass.Run(context).ok);
-    assert(local_cse_pass.Run(context).ok);
-    assert(gvn_pass.Run(context).ok);
-    assert(const_fold_pass.Run(context).ok);
-    assert(dce_pass.Run(context).ok);
-    assert(lower_pass.Run(context).ok);
+    std::vector<std::unique_ptr<Pass>> post_ssa_fixed_point_passes;
+    post_ssa_fixed_point_passes.push_back(
+        std::make_unique<CoreIrCopyPropagationPass>());
+    post_ssa_fixed_point_passes.push_back(
+        std::make_unique<CoreIrInstCombinePass>());
+    post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrSccpPass>());
+    post_ssa_fixed_point_passes.push_back(
+        std::make_unique<CoreIrSimplifyCfgPass>());
+    post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrLicmPass>());
+    post_ssa_fixed_point_passes.push_back(
+        std::make_unique<CoreIrLocalCsePass>());
+    post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrGvnPass>());
+    post_ssa_fixed_point_passes.push_back(
+        std::make_unique<CoreIrInstCombinePass>());
+    post_ssa_fixed_point_passes.push_back(
+        std::make_unique<CoreIrConstFoldPass>());
+    post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrDcePass>());
+    post_ssa_fixed_point_passes.push_back(
+        std::make_unique<CoreIrSimplifyCfgPass>());
+    pass_manager.AddCoreIrFixedPointGroup(std::move(post_ssa_fixed_point_passes),
+                                          4);
+    pass_manager.AddPass(std::make_unique<LowerIrPass>());
+
+    assert(pass_manager.Run(context).ok);
 
     const IRResult *ir_result = context.get_ir_result();
     assert(ir_result != nullptr);

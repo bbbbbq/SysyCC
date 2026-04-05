@@ -67,6 +67,8 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.cpp
     src/backend/ir/dce/core_ir_dce_pass.cpp
     src/backend/ir/gvn/core_ir_gvn_pass.cpp
+    src/backend/ir/instcombine/core_ir_instcombine_pass.cpp
+    src/backend/ir/licm/core_ir_licm_pass.cpp
     src/backend/ir/local_cse/core_ir_local_cse_pass.cpp
     src/backend/ir/loop_simplify/core_ir_loop_simplify_pass.cpp
     src/backend/ir/mem2reg/core_ir_mem2reg_pass.cpp
