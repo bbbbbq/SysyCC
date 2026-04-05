@@ -3,6 +3,7 @@
 #include <string>
 #include <utility>
 
+#include "common/diagnostic/warning_options.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
@@ -190,7 +191,7 @@ void warn_on_constant_condition(SemanticContext &semantic_context,
         DiagnosticSeverity::Warning,
         *constant_value == 0 ? "condition is always false"
                              : "condition is always true",
-        condition->get_source_span()));
+        condition->get_source_span(), warning_options::kConstantCondition));
 }
 
 } // namespace
@@ -214,13 +215,14 @@ void StmtAnalyzer::add_error(SemanticContext &semantic_context,
 
 void StmtAnalyzer::add_warning(SemanticContext &semantic_context,
                                std::string message,
-                               const SourceSpan &source_span) const {
+                               const SourceSpan &source_span,
+                               std::string warning_option) const {
     if (semantic_context.is_system_header_span(source_span)) {
         return;
     }
     semantic_context.get_semantic_model().add_diagnostic(
         SemanticDiagnostic(DiagnosticSeverity::Warning, std::move(message),
-                           source_span));
+                           source_span, std::move(warning_option)));
 }
 
 void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
@@ -245,7 +247,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
                 subsequent_statement_unreachable = false;
             } else if (subsequent_statement_unreachable) {
                 add_warning(semantic_context, "statement is unreachable",
-                            statement->get_source_span());
+                            statement->get_source_span(),
+                            warning_options::kUnreachableCode);
             }
             analyze_stmt(statement.get(), semantic_context, scope_stack);
             subsequent_statement_unreachable =
@@ -269,7 +272,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
             semantic_model.get_node_type(expr_stmt->get_expression()) != nullptr &&
             !expr_has_side_effects(expr_stmt->get_expression(), semantic_model)) {
             add_warning(semantic_context, "statement has no effect",
-                        expr_stmt->get_expression()->get_source_span());
+                        expr_stmt->get_expression()->get_source_span(),
+                        warning_options::kUnusedValue);
         }
         return;
     }
@@ -459,7 +463,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
                     expected_type, actual_type, semantic_model)) {
                 add_warning(semantic_context,
                             "return between incompatible pointer types",
-                            return_stmt->get_source_span());
+                            return_stmt->get_source_span(),
+                            warning_options::kIncompatiblePointerTypes);
                 return;
             }
             add_error(semantic_context,
@@ -472,7 +477,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
                            return_stmt->get_value(), semantic_context))) {
             add_warning(semantic_context,
                         "implicit integer conversion may change value",
-                        return_stmt->get_source_span());
+                        return_stmt->get_source_span(),
+                        warning_options::kConversion);
         }
         return;
     }

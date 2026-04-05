@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/diagnostic/warning_options.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/model/semantic_diagnostic.hpp"
 #include "frontend/semantic/support/semantic_context.hpp"
@@ -149,7 +150,7 @@ const SemanticType *TypeResolver::resolve_type(
         semantic_model.add_diagnostic(SemanticDiagnostic(
             DiagnosticSeverity::Warning,
             "semantic skeleton encountered unknown type",
-            type_node->get_source_span()));
+            type_node->get_source_span(), warning_options::kUnknownType));
         return nullptr;
     }
 }
