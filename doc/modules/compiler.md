@@ -84,7 +84,10 @@ At the current stage, the initialized pipeline is:
 ```text
 PreprocessPass -> LexerPass -> ParserPass -> AstPass -> SemanticPass ->
 BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrSimplifyCfgPass ->
-CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass
+CoreIrStackSlotForwardPass -> CoreIrDeadStoreEliminationPass ->
+CoreIrMem2RegPass -> CoreIrCopyPropagationPass -> CoreIrSccpPass ->
+CoreIrLocalCsePass -> CoreIrGvnPass -> CoreIrConstFoldPass ->
+CoreIrDcePass -> LowerIrPass
 ```
 
 ## Notes
@@ -117,8 +120,11 @@ CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass
   aggregate storage, and variadic default-argument promotions before LLVM text
   emission.
 - The executable hot path is now `BuildCoreIrPass -> CoreIrCanonicalizePass ->
-  CoreIrSimplifyCfgPass -> CoreIrConstFoldPass -> CoreIrDcePass ->
-  LowerIrPass -> AArch64AsmGenPass`.
+  CoreIrSimplifyCfgPass -> CoreIrStackSlotForwardPass ->
+  CoreIrDeadStoreEliminationPass -> CoreIrMem2RegPass ->
+  CoreIrCopyPropagationPass -> CoreIrSccpPass -> CoreIrLocalCsePass ->
+  CoreIrGvnPass -> CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass ->
+  AArch64AsmGenPass`.
   `LowerIrPass` is now LLVM-specific and no-ops for the native backend, while
   the native AArch64 path lives under
   [src/backend/asm_gen/aarch64](/Users/caojunze424/code/SysyCC/src/backend/asm_gen/aarch64).
@@ -132,9 +138,23 @@ CoreIrConstFoldPass -> CoreIrDcePass -> LowerIrPass
   staged Core IR pipeline, including constant / redundant branch collapse,
   jump trampoline removal, unreachable-block cleanup, and conservative linear
   block merging.
+- The staged optimization lane now also includes:
+  - `CoreIrStackSlotForwardPass` for conservative direct stack-slot
+    store-to-load forwarding
+  - `CoreIrDeadStoreEliminationPass` for conservative overwritten direct
+    stack-slot store cleanup
+  - `CoreIrMem2RegPass` for SSA promotion plus block-head phi insertion
+  - `CoreIrCopyPropagationPass` for post-SSA trivial-phi, single-incoming-phi,
+    identity-cast, and duplicate-value cleanup
+  - `CoreIrSccpPass` for SSA sparse conditional constant propagation without
+    direct CFG rewrites
+  - `CoreIrLocalCsePass` for cheap block-local pure-value cleanup ahead of GVN
+  - `CoreIrGvnPass` for dominator-based global reuse of pure SSA
+    computations
 - `CoreIrBuildResult` now also carries a staged Core IR analysis manager for
-  function-level CFG and dominator queries, with transform passes invalidating
-  cached analyses conservatively after IR mutation.
+  function-level CFG, dominator, dominance-frontier, and promotable-stack-slot
+  queries, with transform passes invalidating cached analyses conservatively
+  after IR mutation.
 - `LowerIrPass` now fails fast when the active IR backend cannot lower a
   required function body, function declaration, or global object. Unsupported
   IR is reported through the shared diagnostic engine and stops compilation
