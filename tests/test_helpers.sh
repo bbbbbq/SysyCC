@@ -176,6 +176,170 @@ strip_diagnostic_source_excerpts() {
     printf '%s' "$1" | sed '/^  /d'
 }
 
+parse_expected_diagnostic_shape() {
+    local expected_message="$1"
+    EXPECTED_STAGE=""
+    EXPECTED_SEVERITY=""
+    EXPECTED_MESSAGE_BODY=""
+    EXPECTED_SPAN=""
+
+    local remainder="${expected_message}"
+    local stage=""
+    for stage in semantic preprocess parser lexer compiler ast; do
+        if [[ "${remainder}" == "${stage} "* ]]; then
+            EXPECTED_STAGE="${stage}"
+            remainder="${remainder#${stage} }"
+            break
+        fi
+    done
+
+    case "${remainder}" in
+        error:\ *|warning:\ *|note:\ *)
+            EXPECTED_SEVERITY="${remainder%%:*}"
+            remainder="${remainder#${EXPECTED_SEVERITY}: }"
+            EXPECTED_MESSAGE_BODY="${remainder}"
+            if [[ "${remainder}" == *" at "* ]]; then
+                EXPECTED_MESSAGE_BODY="${remainder% at *}"
+                EXPECTED_SPAN="${remainder##* at }"
+            fi
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+parse_expected_span() {
+    local span="$1"
+    EXPECTED_SPAN_PATH=""
+    EXPECTED_LINE_BEGIN=""
+    EXPECTED_COL_BEGIN=""
+    EXPECTED_LINE_END=""
+    EXPECTED_COL_END=""
+
+    if [[ -z "${span}" ]]; then
+        return 1
+    fi
+
+    if [[ "${span}" =~ ^(.+):([0-9]+):([0-9]+)-([0-9]+):([0-9]+)$ ]]; then
+        EXPECTED_SPAN_PATH="${BASH_REMATCH[1]}"
+        EXPECTED_LINE_BEGIN="${BASH_REMATCH[2]}"
+        EXPECTED_COL_BEGIN="${BASH_REMATCH[3]}"
+        EXPECTED_LINE_END="${BASH_REMATCH[4]}"
+        EXPECTED_COL_END="${BASH_REMATCH[5]}"
+        return 0
+    fi
+
+    if [[ "${span}" =~ ^([0-9]+):([0-9]+)-([0-9]+):([0-9]+)$ ]]; then
+        EXPECTED_LINE_BEGIN="${BASH_REMATCH[1]}"
+        EXPECTED_COL_BEGIN="${BASH_REMATCH[2]}"
+        EXPECTED_LINE_END="${BASH_REMATCH[3]}"
+        EXPECTED_COL_END="${BASH_REMATCH[4]}"
+        return 0
+    fi
+
+    if [[ "${span}" =~ ^(.+):([0-9]+):([0-9]+)$ ]]; then
+        EXPECTED_SPAN_PATH="${BASH_REMATCH[1]}"
+        EXPECTED_LINE_BEGIN="${BASH_REMATCH[2]}"
+        EXPECTED_COL_BEGIN="${BASH_REMATCH[3]}"
+        EXPECTED_LINE_END="${BASH_REMATCH[2]}"
+        EXPECTED_COL_END="${BASH_REMATCH[3]}"
+        return 0
+    fi
+
+    if [[ "${span}" =~ ^([0-9]+):([0-9]+)$ ]]; then
+        EXPECTED_LINE_BEGIN="${BASH_REMATCH[1]}"
+        EXPECTED_COL_BEGIN="${BASH_REMATCH[2]}"
+        EXPECTED_LINE_END="${BASH_REMATCH[1]}"
+        EXPECTED_COL_END="${BASH_REMATCH[2]}"
+        return 0
+    fi
+
+    return 1
+}
+
+infer_primary_input_path() {
+    local compiler_args=("$@")
+    local arg=""
+    local input_path=""
+    for arg in "${compiler_args[@]}"; do
+        if [[ "${arg}" == -* ]]; then
+            continue
+        fi
+        if [[ -f "${arg}" ]]; then
+            input_path="${arg}"
+        fi
+    done
+    printf '%s' "${input_path}"
+}
+
+assert_diagnostic_span_rendering() {
+    local output="$1"
+    local severity="$2"
+    local line_begin="$3"
+    local col_begin="$4"
+    local line_end="$5"
+    local col_end="$6"
+
+    if [[ "${severity}" == "note" || "${line_begin}" != "${line_end}" ]]; then
+        return 0
+    fi
+
+    local width=$((col_end - col_begin + 1))
+    if (( width <= 1 )); then
+        grep -Eq '^[[:space:]]+\^$' <<<"${output}"
+        return
+    fi
+
+    grep -Eq "^[[:space:]]+\\^~{$((width - 1))}$" <<<"${output}"
+}
+
+assert_legacy_stage_expectation_matches_output() {
+    local output="$1"
+    shift
+    local expected_message="$1"
+    shift
+    local compiler_args=("$@")
+
+    if ! parse_expected_diagnostic_shape "${expected_message}"; then
+        return 1
+    fi
+
+    if [[ -z "${EXPECTED_SPAN}" ]]; then
+        [[ "${output}" == *"${EXPECTED_SEVERITY}: ${EXPECTED_MESSAGE_BODY}"* ]]
+        return
+    fi
+
+    if ! parse_expected_span "${EXPECTED_SPAN}"; then
+        return 1
+    fi
+
+    local expected_path="${EXPECTED_SPAN_PATH}"
+    if [[ -z "${expected_path}" ]]; then
+        expected_path="$(infer_primary_input_path "${compiler_args[@]}")"
+    fi
+
+    local expected_header
+    if [[ -n "${expected_path}" ]]; then
+        expected_header="${expected_path}:${EXPECTED_LINE_BEGIN}:${EXPECTED_COL_BEGIN}: ${EXPECTED_SEVERITY}: ${EXPECTED_MESSAGE_BODY}"
+    else
+        expected_header="${EXPECTED_LINE_BEGIN}:${EXPECTED_COL_BEGIN}: ${EXPECTED_SEVERITY}: ${EXPECTED_MESSAGE_BODY}"
+    fi
+
+    if [[ "${output}" != *"${expected_header}"* ]]; then
+        return 1
+    fi
+
+    assert_diagnostic_span_rendering \
+        "${output}" \
+        "${EXPECTED_SEVERITY}" \
+        "${EXPECTED_LINE_BEGIN}" \
+        "${EXPECTED_COL_BEGIN}" \
+        "${EXPECTED_LINE_END}" \
+        "${EXPECTED_COL_END}"
+}
+
 normalize_diagnostic_headers_to_legacy_path_line() {
     strip_diagnostic_source_excerpts "$1" |
         sed -E 's#^(.*):([0-9]+):([0-9]+): (error|warning|note): (.*)$#\1:\2: \5#'
@@ -261,6 +425,13 @@ assert_compiler_fails_with_message() {
         return 1
     fi
 
+    if assert_legacy_stage_expectation_matches_output \
+        "${output}" \
+        "${expected_message}" \
+        "${compiler_args[@]}"; then
+        return 0
+    fi
+
     if [[ "${output}" == *"${expected_message}"* ]]; then
         return 0
     fi
@@ -274,12 +445,15 @@ assert_compiler_fails_with_message() {
 
     local normalized_output
     normalized_output="$(normalize_diagnostic_headers_to_line_col "${output}")"
-    if ! legacy_stage_expectation_matches "${normalized_output}" \
-        "${expected_message}"; then
-        echo "error: expected semantic diagnostic not found" >&2
-        echo "${output}" >&2
-        return 1
+    if [[ "${normalized_output}" == *"${expected_message}"* ]] ||
+       legacy_stage_expectation_matches "${normalized_output}" \
+           "${expected_message}"; then
+        return 0
     fi
+
+    echo "error: expected semantic diagnostic not found" >&2
+    echo "${output}" >&2
+    return 1
 }
 
 assert_compiler_succeeds_with_message() {
@@ -302,6 +476,13 @@ assert_compiler_succeeds_with_message() {
         return 1
     fi
 
+    if assert_legacy_stage_expectation_matches_output \
+        "${output}" \
+        "${expected_message}" \
+        "${compiler_args[@]}"; then
+        return 0
+    fi
+
     if [[ "${output}" == *"${expected_message}"* ]]; then
         return 0
     fi
@@ -315,12 +496,15 @@ assert_compiler_succeeds_with_message() {
 
     local normalized_output
     normalized_output="$(normalize_diagnostic_headers_to_line_col "${output}")"
-    if ! legacy_stage_expectation_matches "${normalized_output}" \
-        "${expected_message}"; then
-        echo "error: expected compiler diagnostic not found" >&2
-        echo "${output}" >&2
-        return 1
+    if [[ "${normalized_output}" == *"${expected_message}"* ]] ||
+       legacy_stage_expectation_matches "${normalized_output}" \
+           "${expected_message}"; then
+        return 0
     fi
+
+    echo "error: expected compiler diagnostic not found" >&2
+    echo "${output}" >&2
+    return 1
 }
 
 assert_program_output() {
