@@ -1,7 +1,5 @@
 #include "pass.hpp"
 
-#include <stdexcept>
-
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/verify/core_ir_verifier.hpp"
 
@@ -138,6 +136,47 @@ bool verify_core_ir_after_pass(CompilerContext &context, const Pass &pass,
                                       pass.Name());
 }
 
+struct PassExecutionResult {
+    PassResult result = PassResult::Success();
+    bool changed = false;
+    bool stopped = false;
+};
+
+PassExecutionResult run_one_pass(CompilerContext &context, Pass &pass) {
+    PassExecutionResult execution_result;
+
+    PassResult result = pass.Run(context);
+    if (!result.ok) {
+        execution_result.result = std::move(result);
+        return execution_result;
+    }
+    if (context.get_diagnostic_engine().has_error()) {
+        execution_result.result = PassResult::Failure(
+            first_error_message(context.get_diagnostic_engine()));
+        return execution_result;
+    }
+    if (pass.Metadata().writes_core_ir && !result.core_ir_effects.has_value()) {
+        execution_result.result = PassResult::Failure(std::string(pass.Name()) +
+                                                      " wrote Core IR but did not report CoreIrPassEffects");
+        return execution_result;
+    }
+    if (result.core_ir_effects.has_value()) {
+        execution_result.changed = result.core_ir_effects->has_changes();
+        invalidate_non_preserved_analyses(context, *result.core_ir_effects);
+    }
+    if (!verify_core_ir_after_pass(context, pass, result)) {
+        execution_result.result =
+            PassResult::Failure(std::string(pass.Name()) +
+                                " failed Core IR verification");
+        return execution_result;
+    }
+    if (should_stop_after_pass(context, pass.Kind())) {
+        execution_result.stopped = true;
+    }
+    execution_result.result = PassResult::Success();
+    return execution_result;
+}
+
 } // namespace
 
 void PassManager::AddPass(std::unique_ptr<Pass> pass) {
@@ -145,18 +184,44 @@ void PassManager::AddPass(std::unique_ptr<Pass> pass) {
         return;
     }
 
-    if (get_pass_by_kind(pass->Kind()) != nullptr) {
-        throw std::runtime_error(std::string("duplicate pass kind: ") +
-                                 pass->Name());
-    }
+    PipelineEntry entry;
+    entry.pass = std::move(pass);
+    entries_.push_back(std::move(entry));
+}
 
-    passes_.push_back(std::move(pass));
+void PassManager::AddCoreIrFixedPointGroup(std::vector<std::unique_ptr<Pass>> passes,
+                                           std::size_t max_iterations) {
+    FixedPointPassGroup group;
+    for (std::unique_ptr<Pass> &pass : passes) {
+        if (pass != nullptr) {
+            group.passes.push_back(std::move(pass));
+        }
+    }
+    if (group.passes.empty()) {
+        return;
+    }
+    if (max_iterations == 0) {
+        max_iterations = 1;
+    }
+    group.max_iterations = max_iterations;
+
+    PipelineEntry entry;
+    entry.fixed_point_group = std::move(group);
+    entries_.push_back(std::move(entry));
 }
 
 Pass *PassManager::get_pass_by_kind(PassKind kind) const {
-    for (const std::unique_ptr<Pass> &pass : passes_) {
-        if (pass != nullptr && pass->Kind() == kind) {
-            return pass.get();
+    for (const PipelineEntry &entry : entries_) {
+        if (entry.pass != nullptr && entry.pass->Kind() == kind) {
+            return entry.pass.get();
+        }
+        if (!entry.fixed_point_group.has_value()) {
+            continue;
+        }
+        for (const std::unique_ptr<Pass> &pass : entry.fixed_point_group->passes) {
+            if (pass != nullptr && pass->Kind() == kind) {
+                return pass.get();
+            }
         }
     }
 
@@ -164,32 +229,46 @@ Pass *PassManager::get_pass_by_kind(PassKind kind) const {
 }
 
 PassResult PassManager::Run(CompilerContext &context) {
-    for (const std::unique_ptr<Pass> &pass : passes_) {
-        if (pass == nullptr) {
-            return PassResult::Failure("encountered null pass");
+    for (const PipelineEntry &entry : entries_) {
+        if (entry.pass != nullptr) {
+            PassExecutionResult execution_result =
+                run_one_pass(context, *entry.pass);
+            if (!execution_result.result.ok) {
+                return execution_result.result;
+            }
+            if (execution_result.stopped) {
+                return PassResult::Success();
+            }
+            continue;
         }
 
-        PassResult result = pass->Run(context);
-        if (!result.ok) {
-            return result;
+        if (!entry.fixed_point_group.has_value()) {
+            return PassResult::Failure("encountered empty pipeline entry");
         }
-        if (context.get_diagnostic_engine().has_error()) {
-            return PassResult::Failure(
-                first_error_message(context.get_diagnostic_engine()));
-        }
-        if (pass->Metadata().writes_core_ir && !result.core_ir_effects.has_value()) {
-            return PassResult::Failure(std::string(pass->Name()) +
-                                       " wrote Core IR but did not report CoreIrPassEffects");
-        }
-        if (result.core_ir_effects.has_value()) {
-            invalidate_non_preserved_analyses(context, *result.core_ir_effects);
-        }
-        if (!verify_core_ir_after_pass(context, *pass, result)) {
-            return PassResult::Failure(std::string(pass->Name()) +
-                                       " failed Core IR verification");
-        }
-        if (should_stop_after_pass(context, pass->Kind())) {
-            return PassResult::Success();
+
+        const FixedPointPassGroup &group = *entry.fixed_point_group;
+        for (std::size_t iteration = 0; iteration < group.max_iterations;
+             ++iteration) {
+            bool iteration_changed = false;
+            for (const std::unique_ptr<Pass> &pass : group.passes) {
+                if (pass == nullptr) {
+                    return PassResult::Failure(
+                        "encountered null pass in fixed-point group");
+                }
+
+                PassExecutionResult execution_result =
+                    run_one_pass(context, *pass);
+                if (!execution_result.result.ok) {
+                    return execution_result.result;
+                }
+                if (execution_result.stopped) {
+                    return PassResult::Success();
+                }
+                iteration_changed = execution_result.changed || iteration_changed;
+            }
+            if (!iteration_changed) {
+                break;
+            }
         }
     }
 
