@@ -18,7 +18,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^  br i1 %t[0-9]+(\.raw)?, label %for\.step[0-9]+, label %goto\.done([0-9]+)?$' "${IR_FILE}"
-grep -Eq '^goto\.done([0-9]+)?:$' "${IR_FILE}"
+grep -Eq '^  br i1 %t[0-9]+(\.raw)?, label %for\.step[0-9]+, label %for\.end[0-9]+$' "${IR_FILE}"
+grep -Eq '^for\.end[0-9]+:$' "${IR_FILE}"
+grep -Eq '^  ret i32 %t[0-9]+$' "${IR_FILE}"
 
-echo "verified: fallthrough into labels preserves a canonical direct branch into the label block"
+echo "verified: fallthrough after a loop can fold the unused label block into the loop exit"
