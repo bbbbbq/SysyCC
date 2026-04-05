@@ -5,6 +5,7 @@
 #include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
 #include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
+#include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "backend/ir/shared/ir_result.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
 #include "compiler/complier.hpp"
@@ -58,12 +59,14 @@ int main(int argc, char **argv) {
     CompilerContext &context = complier.get_context();
     BuildCoreIrPass build_pass;
     CoreIrCanonicalizePass canonicalize_pass;
+    CoreIrSimplifyCfgPass simplify_cfg_pass;
     CoreIrConstFoldPass const_fold_pass;
     CoreIrDcePass dce_pass;
     LowerIrPass lower_pass;
 
     assert(build_pass.Run(context).ok);
     assert(canonicalize_pass.Run(context).ok);
+    assert(simplify_cfg_pass.Run(context).ok);
     assert(const_fold_pass.Run(context).ok);
     assert(dce_pass.Run(context).ok);
     assert(lower_pass.Run(context).ok);
