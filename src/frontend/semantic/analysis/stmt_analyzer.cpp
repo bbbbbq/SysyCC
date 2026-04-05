@@ -16,6 +16,185 @@
 
 namespace sysycc::detail {
 
+namespace {
+
+const SemanticType *strip_qualifiers(const SemanticType *type) {
+    const SemanticType *current = type;
+    while (current != nullptr &&
+           current->get_kind() == SemanticTypeKind::Qualified) {
+        current =
+            static_cast<const QualifiedSemanticType *>(current)->get_base_type();
+    }
+    return current;
+}
+
+bool is_void_cast_expr(const Expr *expr, const SemanticModel &semantic_model) {
+    if (expr == nullptr || expr->get_kind() != AstKind::CastExpr) {
+        return false;
+    }
+
+    const SemanticType *expr_type = strip_qualifiers(
+        semantic_model.get_node_type(expr));
+    if (expr_type == nullptr || expr_type->get_kind() != SemanticTypeKind::Builtin) {
+        return false;
+    }
+
+    return static_cast<const BuiltinSemanticType *>(expr_type)->get_name() ==
+           "void";
+}
+
+bool expr_has_side_effects(const Expr *expr,
+                           const SemanticModel &semantic_model) {
+    if (expr == nullptr) {
+        return false;
+    }
+
+    switch (expr->get_kind()) {
+    case AstKind::CallExpr:
+    case AstKind::AssignExpr:
+    case AstKind::PrefixExpr:
+    case AstKind::PostfixExpr:
+        return true;
+    case AstKind::UnaryExpr:
+        return expr_has_side_effects(
+            static_cast<const UnaryExpr *>(expr)->get_operand(),
+            semantic_model);
+    case AstKind::BinaryExpr: {
+        const auto *binary_expr = static_cast<const BinaryExpr *>(expr);
+        return expr_has_side_effects(binary_expr->get_lhs(), semantic_model) ||
+               expr_has_side_effects(binary_expr->get_rhs(), semantic_model);
+    }
+    case AstKind::CastExpr:
+        if (is_void_cast_expr(expr, semantic_model)) {
+            return true;
+        }
+        return expr_has_side_effects(
+            static_cast<const CastExpr *>(expr)->get_operand(), semantic_model);
+    case AstKind::ConditionalExpr: {
+        const auto *conditional_expr = static_cast<const ConditionalExpr *>(expr);
+        return expr_has_side_effects(conditional_expr->get_condition(),
+                                     semantic_model) ||
+               expr_has_side_effects(conditional_expr->get_true_expr(),
+                                     semantic_model) ||
+               expr_has_side_effects(conditional_expr->get_false_expr(),
+                                     semantic_model);
+    }
+    case AstKind::IndexExpr: {
+        const auto *index_expr = static_cast<const IndexExpr *>(expr);
+        return expr_has_side_effects(index_expr->get_base(), semantic_model) ||
+               expr_has_side_effects(index_expr->get_index(), semantic_model);
+    }
+    case AstKind::MemberExpr:
+        return expr_has_side_effects(
+            static_cast<const MemberExpr *>(expr)->get_base(), semantic_model);
+    case AstKind::InitListExpr: {
+        const auto *init_list_expr = static_cast<const InitListExpr *>(expr);
+        for (const auto &element : init_list_expr->get_elements()) {
+            if (expr_has_side_effects(element.get(), semantic_model)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case AstKind::UnknownExpr:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool is_int_literal_one(const Expr *expr,
+                        const ConstantEvaluator &constant_evaluator,
+                        SemanticContext &semantic_context) {
+    if (expr == nullptr || expr->get_kind() != AstKind::IntegerLiteralExpr) {
+        return false;
+    }
+
+    const std::optional<long long> constant_value =
+        constant_evaluator.get_integer_constant_value(expr, semantic_context);
+    return constant_value.has_value() && *constant_value == 1;
+}
+
+bool stmt_terminates_current_block(const Stmt *stmt,
+                                   const SemanticContext &semantic_context) {
+    if (stmt == nullptr) {
+        return false;
+    }
+
+    switch (stmt->get_kind()) {
+    case AstKind::ReturnStmt:
+    case AstKind::GotoStmt:
+        return true;
+    case AstKind::BreakStmt:
+        return semantic_context.get_loop_depth() > 0 ||
+               semantic_context.get_switch_depth() > 0;
+    case AstKind::ContinueStmt:
+        return semantic_context.get_loop_depth() > 0;
+    case AstKind::IfStmt: {
+        const auto *if_stmt = static_cast<const IfStmt *>(stmt);
+        return if_stmt->get_then_branch() != nullptr &&
+               if_stmt->get_else_branch() != nullptr &&
+               stmt_terminates_current_block(if_stmt->get_then_branch(),
+                                            semantic_context) &&
+               stmt_terminates_current_block(if_stmt->get_else_branch(),
+                                            semantic_context);
+    }
+    case AstKind::BlockStmt: {
+        const auto *block_stmt = static_cast<const BlockStmt *>(stmt);
+        bool subsequent_statement_unreachable = false;
+        for (const auto &statement : block_stmt->get_statements()) {
+            if (statement == nullptr) {
+                continue;
+            }
+            if (subsequent_statement_unreachable &&
+                statement->get_kind() == AstKind::LabelStmt) {
+                subsequent_statement_unreachable = false;
+            }
+            if (subsequent_statement_unreachable) {
+                continue;
+            }
+            subsequent_statement_unreachable =
+                stmt_terminates_current_block(statement.get(), semantic_context);
+        }
+        return subsequent_statement_unreachable;
+    }
+    case AstKind::LabelStmt:
+        return stmt_terminates_current_block(
+            static_cast<const LabelStmt *>(stmt)->get_body(),
+            semantic_context);
+    default:
+        return false;
+    }
+}
+
+void warn_on_constant_condition(SemanticContext &semantic_context,
+                                const ConstantEvaluator &constant_evaluator,
+                                const Expr *condition,
+                                bool suppress_int_literal_one = false) {
+    if (condition == nullptr ||
+        semantic_context.is_system_header_span(condition->get_source_span())) {
+        return;
+    }
+
+    const std::optional<long long> constant_value =
+        constant_evaluator.get_integer_constant_value(condition, semantic_context);
+    if (!constant_value.has_value()) {
+        return;
+    }
+    if (suppress_int_literal_one &&
+        is_int_literal_one(condition, constant_evaluator, semantic_context)) {
+        return;
+    }
+
+    semantic_context.get_semantic_model().add_diagnostic(SemanticDiagnostic(
+        DiagnosticSeverity::Warning,
+        *constant_value == 0 ? "condition is always false"
+                             : "condition is always true",
+        condition->get_source_span()));
+}
+
+} // namespace
+
 StmtAnalyzer::StmtAnalyzer(const DeclAnalyzer &decl_analyzer,
                            const ExprAnalyzer &expr_analyzer,
                            const ConversionChecker &conversion_checker,
@@ -36,6 +215,9 @@ void StmtAnalyzer::add_error(SemanticContext &semantic_context,
 void StmtAnalyzer::add_warning(SemanticContext &semantic_context,
                                std::string message,
                                const SourceSpan &source_span) const {
+    if (semantic_context.is_system_header_span(source_span)) {
+        return;
+    }
     semantic_context.get_semantic_model().add_diagnostic(
         SemanticDiagnostic(DiagnosticSeverity::Warning, std::move(message),
                            source_span));
@@ -54,8 +236,20 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
     case AstKind::BlockStmt: {
         const auto *block_stmt = static_cast<const BlockStmt *>(stmt);
         scope_stack.push_scope();
+        bool subsequent_statement_unreachable = false;
         for (const auto &statement : block_stmt->get_statements()) {
+            if (statement == nullptr) {
+                continue;
+            }
+            if (statement->get_kind() == AstKind::LabelStmt) {
+                subsequent_statement_unreachable = false;
+            } else if (subsequent_statement_unreachable) {
+                add_warning(semantic_context, "statement is unreachable",
+                            statement->get_source_span());
+            }
             analyze_stmt(statement.get(), semantic_context, scope_stack);
+            subsequent_statement_unreachable =
+                stmt_terminates_current_block(statement.get(), semantic_context);
         }
         scope_stack.pop_scope();
         return;
@@ -71,6 +265,12 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         const auto *expr_stmt = static_cast<const ExprStmt *>(stmt);
         expr_analyzer_.analyze_expr(expr_stmt->get_expression(), semantic_context,
                                     scope_stack);
+        if (expr_stmt->get_expression() != nullptr &&
+            semantic_model.get_node_type(expr_stmt->get_expression()) != nullptr &&
+            !expr_has_side_effects(expr_stmt->get_expression(), semantic_model)) {
+            add_warning(semantic_context, "statement has no effect",
+                        expr_stmt->get_expression()->get_source_span());
+        }
         return;
     }
     case AstKind::IfStmt: {
@@ -82,6 +282,9 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
             add_error(semantic_context,
                       "condition expression must have scalar type",
                       if_stmt->get_condition()->get_source_span());
+        } else {
+            warn_on_constant_condition(semantic_context, constant_evaluator_,
+                                       if_stmt->get_condition());
         }
         analyze_stmt(if_stmt->get_then_branch(), semantic_context, scope_stack);
         analyze_stmt(if_stmt->get_else_branch(), semantic_context, scope_stack);
@@ -96,6 +299,9 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
             add_error(semantic_context,
                       "condition expression must have scalar type",
                       while_stmt->get_condition()->get_source_span());
+        } else {
+            warn_on_constant_condition(semantic_context, constant_evaluator_,
+                                       while_stmt->get_condition(), true);
         }
         semantic_context.enter_loop();
         analyze_stmt(while_stmt->get_body(), semantic_context, scope_stack);
@@ -114,6 +320,9 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
             add_error(semantic_context,
                       "condition expression must have scalar type",
                       do_while_stmt->get_condition()->get_source_span());
+        } else {
+            warn_on_constant_condition(semantic_context, constant_evaluator_,
+                                       do_while_stmt->get_condition(), true);
         }
         return;
     }
@@ -131,6 +340,9 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
             add_error(semantic_context,
                       "condition expression must have scalar type",
                       for_stmt->get_condition()->get_source_span());
+        } else {
+            warn_on_constant_condition(semantic_context, constant_evaluator_,
+                                       for_stmt->get_condition(), true);
         }
         expr_analyzer_.analyze_expr(for_stmt->get_step(), semantic_context,
                                     scope_stack);
@@ -197,7 +409,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
     }
     case AstKind::LabelStmt: {
         const auto *label_stmt = static_cast<const LabelStmt *>(stmt);
-        if (!semantic_context.record_label_definition(label_stmt->get_label_name())) {
+        if (!semantic_context.record_label_definition(label_stmt->get_label_name(),
+                                                      label_stmt->get_source_span())) {
             add_error(semantic_context,
                       "duplicate label '" + label_stmt->get_label_name() + "'",
                       label_stmt->get_source_span());
