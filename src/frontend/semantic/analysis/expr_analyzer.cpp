@@ -951,6 +951,11 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
     case AstKind::PrefixExpr: {
         const auto *prefix_expr = static_cast<const PrefixExpr *>(expr);
         analyze_expr(prefix_expr->get_operand(), semantic_context, scope_stack);
+        if (prefix_expr->get_operand() != nullptr &&
+            prefix_expr->get_operand()->get_kind() == AstKind::IdentifierExpr) {
+            semantic_model.mark_symbol_written(
+                semantic_model.get_symbol_binding(prefix_expr->get_operand()));
+        }
         const SemanticType *operand_type =
             semantic_model.get_node_type(prefix_expr->get_operand());
         if (!conversion_checker_.is_assignable_expr(prefix_expr->get_operand())) {
@@ -972,6 +977,11 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
     case AstKind::PostfixExpr: {
         const auto *postfix_expr = static_cast<const PostfixExpr *>(expr);
         analyze_expr(postfix_expr->get_operand(), semantic_context, scope_stack);
+        if (postfix_expr->get_operand() != nullptr &&
+            postfix_expr->get_operand()->get_kind() == AstKind::IdentifierExpr) {
+            semantic_model.mark_symbol_written(
+                semantic_model.get_symbol_binding(postfix_expr->get_operand()));
+        }
         const SemanticType *operand_type =
             semantic_model.get_node_type(postfix_expr->get_operand());
         if (!conversion_checker_.is_assignable_expr(postfix_expr->get_operand())) {
@@ -1186,6 +1196,14 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                           binary_expr->get_source_span());
                 return;
             }
+            if (conversion_checker_.is_integer_like_type(lhs_type) &&
+                conversion_checker_.is_integer_like_type(rhs_type) &&
+                conversion_checker_.should_warn_sign_compare(
+                    lhs_type, rhs_type, semantic_model)) {
+                add_warning(semantic_context,
+                            "comparison of integers of different signs",
+                            binary_expr->get_source_span());
+            }
             semantic_model.bind_node_type(binary_expr,
                                           get_int_semantic_type(semantic_model));
             if (lhs_constant.has_value() && rhs_constant.has_value()) {
@@ -1217,6 +1235,14 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                                   "' requires compatible arithmetic operands",
                               binary_expr->get_source_span());
                     return;
+                }
+                if (conversion_checker_.is_integer_like_type(lhs_type) &&
+                    conversion_checker_.is_integer_like_type(rhs_type) &&
+                    conversion_checker_.should_warn_sign_compare(
+                        lhs_type, rhs_type, semantic_model)) {
+                    add_warning(semantic_context,
+                                "comparison of integers of different signs",
+                                binary_expr->get_source_span());
                 }
             } else if (!conversion_checker_.is_compatible_equality_type(
                            lhs_type, rhs_type, binary_expr->get_lhs(),
@@ -1349,6 +1375,11 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         const auto *assign_expr = static_cast<const AssignExpr *>(expr);
         analyze_expr(assign_expr->get_target(), semantic_context, scope_stack);
         analyze_expr(assign_expr->get_value(), semantic_context, scope_stack);
+        if (assign_expr->get_target() != nullptr &&
+            assign_expr->get_target()->get_kind() == AstKind::IdentifierExpr) {
+            semantic_model.mark_symbol_written(
+                semantic_model.get_symbol_binding(assign_expr->get_target()));
+        }
         const bool target_assignable =
             conversion_checker_.is_assignable_expr(assign_expr->get_target());
         if (!target_assignable) {
@@ -1377,6 +1408,14 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                             "assignment value type does not match target type",
                             assign_expr->get_source_span());
                     }
+                } else if (assign_expr->get_value()->get_kind() != AstKind::CastExpr &&
+                           conversion_checker_.should_warn_implicit_integer_narrowing(
+                               target_type, value_type,
+                               constant_evaluator_.get_integer_constant_value(
+                                   assign_expr->get_value(), semantic_context))) {
+                    add_warning(semantic_context,
+                                "implicit integer conversion may change value",
+                                assign_expr->get_source_span());
                 }
             } else if (is_compound_assignment_operator(
                            assign_expr->get_operator_text())) {
@@ -1477,6 +1516,18 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                         break;
                     }
                     break;
+                } else if (argument_type != nullptr && parameter_type != nullptr &&
+                           call_expr->get_arguments()[index]->get_kind() !=
+                               AstKind::CastExpr &&
+                           conversion_checker_.should_warn_implicit_integer_narrowing(
+                               parameter_type, argument_type,
+                               constant_evaluator_.get_integer_constant_value(
+                                   call_expr->get_arguments()[index].get(),
+                                   semantic_context))) {
+                    add_warning(
+                        semantic_context,
+                        "implicit integer conversion may change value",
+                        call_expr->get_arguments()[index]->get_source_span());
                 }
             }
         }

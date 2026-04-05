@@ -78,9 +78,11 @@ bool expr_is_obviously_nonzero_constant(const Expr *expr) {
     }
 }
 
-void emit_unused_symbol_warnings(SemanticContext &semantic_context) {
+void emit_unused_static_function_warnings(
+    SemanticContext &semantic_context,
+    const std::vector<const SemanticSymbol *> &static_function_candidates) {
     SemanticModel &semantic_model = semantic_context.get_semantic_model();
-    for (const SemanticSymbol *symbol : semantic_context.get_function_local_symbols()) {
+    for (const SemanticSymbol *symbol : static_function_candidates) {
         if (symbol == nullptr || symbol->get_decl_node() == nullptr ||
             symbol->get_name().empty()) {
             continue;
@@ -92,17 +94,47 @@ void emit_unused_symbol_warnings(SemanticContext &semantic_context) {
         if (semantic_model.get_symbol_use_count(symbol) != 0U) {
             continue;
         }
+        add_warning(semantic_context,
+                    "unused static function '" + symbol->get_name() + "'",
+                    symbol->get_decl_node()->get_source_span());
+    }
+}
+
+void emit_unused_symbol_warnings(SemanticContext &semantic_context) {
+    SemanticModel &semantic_model = semantic_context.get_semantic_model();
+    for (const SemanticSymbol *symbol : semantic_context.get_function_local_symbols()) {
+        if (symbol == nullptr || symbol->get_decl_node() == nullptr ||
+            symbol->get_name().empty()) {
+            continue;
+        }
+        const std::size_t use_count = semantic_model.get_symbol_use_count(symbol);
+        const std::size_t write_count =
+            semantic_model.get_symbol_write_count(symbol);
+
+        if (semantic_context.is_system_header_span(
+                symbol->get_decl_node()->get_source_span())) {
+            continue;
+        }
 
         switch (symbol->get_kind()) {
         case SymbolKind::Parameter:
-            add_warning(semantic_context,
-                        "unused parameter '" + symbol->get_name() + "'",
-                        symbol->get_decl_node()->get_source_span());
+            if (use_count == write_count) {
+                add_warning(semantic_context,
+                            "unused parameter '" + symbol->get_name() + "'",
+                            symbol->get_decl_node()->get_source_span());
+            }
             break;
         case SymbolKind::Variable:
-            add_warning(semantic_context,
-                        "unused variable '" + symbol->get_name() + "'",
-                        symbol->get_decl_node()->get_source_span());
+            if (use_count == 0U) {
+                add_warning(semantic_context,
+                            "unused variable '" + symbol->get_name() + "'",
+                            symbol->get_decl_node()->get_source_span());
+            } else if (write_count != 0U && use_count == write_count) {
+                add_warning(semantic_context,
+                            "variable '" + symbol->get_name() +
+                                "' set but not used",
+                            symbol->get_decl_node()->get_source_span());
+            }
             break;
         default:
             break;
@@ -145,17 +177,22 @@ void SemanticAnalyzer::Analyze(const TranslationUnit *translation_unit,
                                constant_evaluator, expr_analyzer);
     StmtAnalyzer stmt_analyzer(decl_analyzer, expr_analyzer, conversion_checker,
                                constant_evaluator);
+    std::vector<const SemanticSymbol *> static_function_candidates;
 
     for (const auto &decl : translation_unit->get_top_level_decls()) {
         if (decl->get_kind() == AstKind::FunctionDecl) {
             analyze_function_decl(decl.get(), semantic_context, scope_stack,
                                   type_resolver, conversion_checker,
                                   decl_analyzer, stmt_analyzer,
-                                  attribute_analyzer);
+                                  attribute_analyzer,
+                                  static_function_candidates);
             continue;
         }
         decl_analyzer.analyze_decl(decl.get(), semantic_context, scope_stack);
     }
+
+    emit_unused_static_function_warnings(semantic_context,
+                                         static_function_candidates);
 }
 
 const SemanticType *SemanticAnalyzer::build_function_type(
@@ -191,7 +228,8 @@ void SemanticAnalyzer::analyze_function_decl(
     const ConversionChecker &conversion_checker,
     const DeclAnalyzer &decl_analyzer,
     const StmtAnalyzer &stmt_analyzer,
-    const AttributeAnalyzer &attribute_analyzer) const {
+    const AttributeAnalyzer &attribute_analyzer,
+    std::vector<const SemanticSymbol *> &static_function_candidates) const {
     if (decl == nullptr || decl->get_kind() != AstKind::FunctionDecl) {
         return;
     }
@@ -230,6 +268,9 @@ void SemanticAnalyzer::analyze_function_decl(
     if (function_defined) {
         semantic_model.bind_symbol(function_decl, function_symbol);
         semantic_model.bind_node_type(function_decl, function_type);
+        if (function_decl->get_is_static() && function_decl->get_body() != nullptr) {
+            static_function_candidates.push_back(function_symbol);
+        }
     }
     semantic_model.bind_function_attributes(
         function_decl,

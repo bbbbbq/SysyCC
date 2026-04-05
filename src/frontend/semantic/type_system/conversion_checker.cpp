@@ -119,6 +119,28 @@ bool is_standard_numeric_builtin_name(const std::string &name) {
            name == "char";
 }
 
+bool is_value_representable_in_integer_type(long long value,
+                                            const IntegerTypeInfo &type_info) {
+    if (!type_info.get_is_signed()) {
+        if (value < 0) {
+            return false;
+        }
+        if (type_info.get_bit_width() >= 63) {
+            return true;
+        }
+        const unsigned long long max_value =
+            (1ULL << type_info.get_bit_width()) - 1ULL;
+        return static_cast<unsigned long long>(value) <= max_value;
+    }
+
+    if (type_info.get_bit_width() >= 63) {
+        return true;
+    }
+    const long long min_value = -(1LL << (type_info.get_bit_width() - 1));
+    const long long max_value = (1LL << (type_info.get_bit_width() - 1)) - 1LL;
+    return value >= min_value && value <= max_value;
+}
+
 } // namespace
 
 bool ConversionChecker::has_semantic_feature(SemanticFeature feature) const
@@ -379,6 +401,65 @@ bool ConversionChecker::is_compatible_equality_type(
         lhs_constant.has_value() && *lhs_constant == 0) {
         return true;
     }
+    return false;
+}
+
+bool ConversionChecker::should_warn_sign_compare(
+    const SemanticType *lhs, const SemanticType *rhs,
+    SemanticModel &semantic_model) const {
+    if (!is_integer_like_type(lhs) || !is_integer_like_type(rhs)) {
+        return false;
+    }
+
+    IntegerConversionService service;
+    const SemanticType *lhs_promoted =
+        service.get_integer_promotion_type(lhs, semantic_model);
+    const SemanticType *rhs_promoted =
+        service.get_integer_promotion_type(rhs, semantic_model);
+    const auto lhs_info = service.get_integer_type_info(lhs_promoted);
+    const auto rhs_info = service.get_integer_type_info(rhs_promoted);
+    if (!lhs_info.has_value() || !rhs_info.has_value()) {
+        return false;
+    }
+
+    return lhs_info->get_is_signed() != rhs_info->get_is_signed();
+}
+
+bool ConversionChecker::should_warn_implicit_integer_narrowing(
+    const SemanticType *target, const SemanticType *value,
+    std::optional<long long> constant_value) const {
+    if (!is_integer_like_type(target) || !is_integer_like_type(value)) {
+        return false;
+    }
+
+    const SemanticType *unqualified_target = strip_qualifiers(target);
+    const SemanticType *unqualified_value = strip_qualifiers(value);
+    if (unqualified_target == nullptr || unqualified_value == nullptr) {
+        return false;
+    }
+
+    IntegerConversionService service;
+    const auto source_info = service.get_integer_type_info(unqualified_value);
+    const auto target_info = service.get_integer_type_info(unqualified_target);
+    if (!source_info.has_value() || !target_info.has_value()) {
+        return false;
+    }
+
+    if (constant_value.has_value()) {
+        return !is_value_representable_in_integer_type(*constant_value,
+                                                       *target_info);
+    }
+
+    if (service.get_integer_conversion_plan(unqualified_value, unqualified_target)
+            .get_kind() == IntegerConversionKind::Truncate) {
+        return true;
+    }
+
+    if (source_info->get_is_signed() != target_info->get_is_signed() &&
+        source_info->get_bit_width() >= target_info->get_bit_width()) {
+        return true;
+    }
+
     return false;
 }
 
