@@ -100,21 +100,45 @@ std::optional<long long> SemanticContext::get_current_switch_case_count() const
 }
 
 void SemanticContext::begin_function_labels() noexcept {
+    function_local_symbols_.clear();
     defined_labels_.clear();
+    defined_label_definitions_.clear();
+    referenced_labels_.clear();
     goto_references_.clear();
 }
 
 void SemanticContext::end_function_labels() noexcept {
+    function_local_symbols_.clear();
     defined_labels_.clear();
+    defined_label_definitions_.clear();
+    referenced_labels_.clear();
     goto_references_.clear();
 }
 
-bool SemanticContext::record_label_definition(const std::string &label_name) {
-    return defined_labels_.insert(label_name).second;
+void SemanticContext::record_function_local_symbol(const SemanticSymbol *symbol) {
+    if (symbol == nullptr) {
+        return;
+    }
+    function_local_symbols_.push_back(symbol);
+}
+
+const std::vector<const SemanticSymbol *> &
+SemanticContext::get_function_local_symbols() const noexcept {
+    return function_local_symbols_;
+}
+
+bool SemanticContext::record_label_definition(const std::string &label_name,
+                                              const SourceSpan &source_span) {
+    const bool inserted = defined_labels_.insert(label_name).second;
+    if (inserted) {
+        defined_label_definitions_.push_back(LabelDefinition{label_name, source_span});
+    }
+    return inserted;
 }
 
 void SemanticContext::record_goto_reference(std::string label_name,
                                             SourceSpan source_span) {
+    referenced_labels_.insert(label_name);
     goto_references_.push_back(
         GotoReference{std::move(label_name), std::move(source_span)});
 }
@@ -127,6 +151,18 @@ std::vector<GotoReference> SemanticContext::get_undefined_goto_references() cons
         }
     }
     return undefined_references;
+}
+
+std::vector<LabelDefinition> SemanticContext::get_unused_label_definitions() const {
+    std::vector<LabelDefinition> unused_labels;
+    for (const auto &label_definition : defined_label_definitions_) {
+        if (referenced_labels_.find(label_definition.label_name) !=
+            referenced_labels_.end()) {
+            continue;
+        }
+        unused_labels.push_back(label_definition);
+    }
+    return unused_labels;
 }
 
 bool SemanticContext::is_system_header_path(const std::string &file_path) const {

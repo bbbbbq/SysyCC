@@ -751,6 +751,9 @@ void ExprAnalyzer::add_error(SemanticContext &semantic_context,
 void ExprAnalyzer::add_warning(SemanticContext &semantic_context,
                                std::string message,
                                const SourceSpan &source_span) const {
+    if (semantic_context.is_system_header_span(source_span)) {
+        return;
+    }
     semantic_context.get_semantic_model().add_diagnostic(
         SemanticDiagnostic(DiagnosticSeverity::Warning, std::move(message),
                            source_span));
@@ -776,6 +779,7 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             return;
         }
         semantic_model.bind_symbol(identifier_expr, symbol);
+        semantic_model.mark_symbol_used(symbol);
         semantic_model.bind_node_type(identifier_expr, symbol->get_type());
         if ((symbol->get_kind() == SymbolKind::Constant ||
              symbol->get_kind() == SymbolKind::Enumerator) &&

@@ -186,6 +186,7 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         if (define_symbol(semantic_context, scope_stack, symbol,
                           param_decl->get_source_span())) {
             semantic_model.bind_symbol(param_decl, symbol);
+            semantic_context.record_function_local_symbol(symbol);
         }
         return;
     }
@@ -283,6 +284,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
 
         semantic_model.bind_symbol(var_decl, symbol);
         semantic_model.bind_node_type(var_decl, declared_type);
+        if (!is_global_storage) {
+            semantic_context.record_function_local_symbol(symbol);
+        }
         expr_analyzer_.analyze_expr(var_decl->get_initializer(), semantic_context,
                                     scope_stack);
         if (var_decl->get_initializer() != nullptr &&

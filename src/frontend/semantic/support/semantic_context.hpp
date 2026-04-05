@@ -28,6 +28,11 @@ struct GotoReference {
     SourceSpan source_span;
 };
 
+struct LabelDefinition {
+    std::string label_name;
+    SourceSpan source_span;
+};
+
 // Holds transient state for one semantic analysis run.
 class SemanticContext {
   private:
@@ -38,7 +43,10 @@ class SemanticContext {
     int loop_depth_ = 0;
     int switch_depth_ = 0;
     std::vector<SwitchFrame> switch_frames_;
+    std::vector<const SemanticSymbol *> function_local_symbols_;
     std::unordered_set<std::string> defined_labels_;
+    std::vector<LabelDefinition> defined_label_definitions_;
+    std::unordered_set<std::string> referenced_labels_;
     std::vector<GotoReference> goto_references_;
 
   public:
@@ -71,10 +79,15 @@ class SemanticContext {
 
     void begin_function_labels() noexcept;
     void end_function_labels() noexcept;
-    bool record_label_definition(const std::string &label_name);
+    void record_function_local_symbol(const SemanticSymbol *symbol);
+    const std::vector<const SemanticSymbol *> &get_function_local_symbols() const
+        noexcept;
+    bool record_label_definition(const std::string &label_name,
+                                 const SourceSpan &source_span);
     void record_goto_reference(std::string label_name,
                                SourceSpan source_span);
     std::vector<GotoReference> get_undefined_goto_references() const;
+    std::vector<LabelDefinition> get_unused_label_definitions() const;
 
     bool is_system_header_path(const std::string &file_path) const;
     bool is_system_header_span(const SourceSpan &source_span) const;
