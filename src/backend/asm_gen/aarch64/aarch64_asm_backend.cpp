@@ -463,163 +463,6 @@ AArch64LivenessInfo build_liveness_info(const AArch64MachineFunction &function) 
     return AArch64LivenessInfo(std::move(result));
 }
 
-bool is_temp_physical_reg_number(unsigned reg_number) {
-    switch (reg_number) {
-    case 9:
-    case 10:
-    case 11:
-    case 14:
-    case 15:
-    case 16:
-        return true;
-    default:
-        return false;
-    }
-}
-
-struct ParsedPhysicalRegRef {
-    unsigned reg_number = 0;
-    bool use_64bit = false;
-    std::size_t offset = 0;
-    std::size_t length = 0;
-};
-
-std::vector<ParsedPhysicalRegRef> parse_temp_physical_regs(const std::string &text) {
-    std::vector<ParsedPhysicalRegRef> refs;
-    for (std::size_t index = 0; index + 1 < text.size(); ++index) {
-        if (text[index] != 'x' && text[index] != 'w') {
-            continue;
-        }
-        if (index > 0 &&
-            (std::isalnum(static_cast<unsigned char>(text[index - 1])) != 0 ||
-             text[index - 1] == '_')) {
-            continue;
-        }
-        std::size_t cursor = index + 1;
-        if (cursor >= text.size() ||
-            std::isdigit(static_cast<unsigned char>(text[cursor])) == 0) {
-            continue;
-        }
-        unsigned reg_number = 0;
-        while (cursor < text.size() &&
-               std::isdigit(static_cast<unsigned char>(text[cursor])) != 0) {
-            reg_number =
-                (reg_number * 10U) + static_cast<unsigned>(text[cursor] - '0');
-            ++cursor;
-        }
-        if (!is_temp_physical_reg_number(reg_number)) {
-            continue;
-        }
-        if (cursor < text.size() &&
-            (std::isalnum(static_cast<unsigned char>(text[cursor])) != 0 ||
-             text[cursor] == '_')) {
-            continue;
-        }
-        refs.push_back({reg_number, text[index] == 'x', index, cursor - index});
-        index = cursor - 1;
-    }
-    return refs;
-}
-
-bool instruction_defines_first_operand(const std::string &mnemonic) {
-    return mnemonic == "mov" || mnemonic == "movz" || mnemonic == "movk" ||
-           mnemonic == "adrp" || mnemonic == "add" || mnemonic == "sub" ||
-           mnemonic == "ldr" || mnemonic == "ldur" || mnemonic == "ldrb" ||
-           mnemonic == "ldrh" || mnemonic == "ldurb" || mnemonic == "ldurh" ||
-           mnemonic == "mul" || mnemonic == "sdiv" || mnemonic == "udiv" ||
-           mnemonic == "msub" || mnemonic == "and" || mnemonic == "orr" ||
-           mnemonic == "eor" || mnemonic == "lsl" || mnemonic == "lsr" ||
-           mnemonic == "asr" || mnemonic == "neg" || mnemonic == "mvn" ||
-           mnemonic == "cset" || mnemonic == "sxtw" || mnemonic == "uxtb" ||
-           mnemonic == "uxth" || mnemonic == "sxtb" || mnemonic == "sxth";
-}
-
-bool instruction_keeps_first_operand_mapping(const std::string &mnemonic) {
-    return mnemonic == "movk";
-}
-
-std::string replace_temp_reg_with_token(
-    const std::string &text,
-    const std::function<std::string(const ParsedPhysicalRegRef &)> &mapper) {
-    std::string rendered = text;
-    const std::vector<ParsedPhysicalRegRef> refs = parse_temp_physical_regs(text);
-    std::size_t delta = 0;
-    for (const ParsedPhysicalRegRef &ref : refs) {
-        const std::string replacement = mapper(ref);
-        if (replacement.empty()) {
-            continue;
-        }
-        rendered.replace(ref.offset + delta, ref.length, replacement);
-        delta += replacement.size() - ref.length;
-    }
-    return rendered;
-}
-
-void rename_temporary_registers_to_virtuals(AArch64MachineFunction &function) {
-    std::unordered_map<unsigned, AArch64VirtualReg> current_mapping;
-    for (AArch64MachineBlock &block : function.get_blocks()) {
-        for (AArch64MachineInstr &instruction : block.get_instructions()) {
-            auto &operands = instruction.get_operands();
-            std::unordered_map<unsigned, AArch64VirtualReg> previous_mapping = current_mapping;
-
-            for (std::size_t operand_index = 0; operand_index < operands.size();
-                 ++operand_index) {
-                const bool defines_first =
-                    operand_index == 0 &&
-                    instruction_defines_first_operand(instruction.get_mnemonic());
-                if (defines_first) {
-                    continue;
-                }
-                std::string rewritten = replace_temp_reg_with_token(
-                    operands[operand_index].get_text(),
-                    [&](const ParsedPhysicalRegRef &ref) -> std::string {
-                        const auto it = previous_mapping.find(ref.reg_number);
-                        if (it == previous_mapping.end()) {
-                            return "";
-                        }
-                        return use_vreg(it->second);
-                    });
-                operands[operand_index] = AArch64MachineOperand(std::move(rewritten));
-            }
-
-            if (!operands.empty() &&
-                instruction_defines_first_operand(instruction.get_mnemonic())) {
-                const std::vector<ParsedPhysicalRegRef> defs =
-                    parse_temp_physical_regs(operands.front().get_text());
-                if (!defs.empty()) {
-                    const ParsedPhysicalRegRef &def_ref = defs.front();
-                    AArch64VirtualReg vreg;
-                    if (instruction_keeps_first_operand_mapping(
-                            instruction.get_mnemonic()) &&
-                        previous_mapping.find(def_ref.reg_number) !=
-                            previous_mapping.end()) {
-                        vreg = previous_mapping.at(def_ref.reg_number);
-                    } else {
-                        vreg = function.create_virtual_reg(def_ref.use_64bit);
-                        current_mapping[def_ref.reg_number] = vreg;
-                    }
-                    std::string rewritten = replace_temp_reg_with_token(
-                        operands.front().get_text(),
-                        [&](const ParsedPhysicalRegRef &ref) -> std::string {
-                            if (ref.reg_number != def_ref.reg_number) {
-                                const auto it = previous_mapping.find(ref.reg_number);
-                                if (it == previous_mapping.end()) {
-                                    return "";
-                                }
-                                return use_vreg(it->second);
-                            }
-                            return instruction_keeps_first_operand_mapping(
-                                       instruction.get_mnemonic())
-                                       ? use_vreg(vreg)
-                                       : def_vreg(vreg);
-                        });
-                    operands.front() = AArch64MachineOperand(std::move(rewritten));
-                }
-            }
-        }
-    }
-}
-
 std::string load_mnemonic_for_width(bool use_64bit, std::size_t size) {
     if (use_64bit || size == 8) {
         return "ldr";
@@ -1282,7 +1125,6 @@ class AArch64LoweringSession {
         if (!emit_function(machine_function, function, state)) {
             return false;
         }
-        rename_temporary_registers_to_virtuals(machine_function);
         if (!allocate_virtual_registers(machine_function, diagnostic_engine_)) {
             return false;
         }
@@ -1587,6 +1429,119 @@ class AArch64LoweringSession {
                                              zero_register_name(use_64bit));
         }
         return true;
+    }
+
+    bool materialize_value(AArch64MachineBlock &machine_block,
+                           const CoreIrValue *value,
+                           const AArch64VirtualReg &target_reg,
+                           const FunctionState &state) {
+        if (value == nullptr) {
+            add_backend_error(diagnostic_engine_,
+                              "encountered null Core IR value during AArch64 lowering");
+            return false;
+        }
+
+        if (const auto *int_constant =
+                dynamic_cast<const CoreIrConstantInt *>(value);
+            int_constant != nullptr) {
+            return materialize_integer_constant(machine_block, value->get_type(),
+                                                int_constant->get_value(), target_reg);
+        }
+        if (dynamic_cast<const CoreIrConstantNull *>(value) != nullptr ||
+            dynamic_cast<const CoreIrConstantZeroInitializer *>(value) != nullptr) {
+            machine_block.append_instruction("mov " + def_vreg(target_reg) + ", " +
+                                             zero_register_name(target_reg.get_use_64bit()));
+            return true;
+        }
+        if (const auto *global_address =
+                dynamic_cast<const CoreIrConstantGlobalAddress *>(value);
+            global_address != nullptr) {
+            return materialize_global_address(machine_block,
+                                              global_address->get_global()->get_name(),
+                                              target_reg);
+        }
+        if (const auto *gep_constant =
+                dynamic_cast<const CoreIrConstantGetElementPtr *>(value);
+            gep_constant != nullptr) {
+            const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
+                gep_constant->get_base()->get_type());
+            if (base_pointer_type == nullptr) {
+                add_backend_error(diagnostic_engine_,
+                                  "unsupported constant gep base in AArch64 native backend");
+                return false;
+            }
+            return materialize_gep_value(
+                machine_block, gep_constant->get_base(),
+                base_pointer_type->get_pointee_type(),
+                gep_constant->get_indices().size(),
+                [&gep_constant](std::size_t index) -> CoreIrValue * {
+                    return const_cast<CoreIrConstant *>(gep_constant->get_indices()[index]);
+                },
+                target_reg, state);
+        }
+        if (const auto *parameter = dynamic_cast<const CoreIrParameter *>(value);
+            parameter != nullptr) {
+            const std::size_t offset = state.parameter_offsets.at(parameter);
+            append_load_from_frame(machine_block, parameter->get_type(), target_reg,
+                                   offset, *state.machine_function);
+            return true;
+        }
+        if (const auto *address_of_stack_slot =
+                dynamic_cast<const CoreIrAddressOfStackSlotInst *>(value);
+            address_of_stack_slot != nullptr) {
+            const std::size_t offset =
+                state.machine_function->get_frame_info().get_stack_slot_offset(
+                    address_of_stack_slot->get_stack_slot());
+            append_frame_address(machine_block, target_reg, offset,
+                                 *state.machine_function);
+            return true;
+        }
+        if (const auto *address_of_global =
+                dynamic_cast<const CoreIrAddressOfGlobalInst *>(value);
+            address_of_global != nullptr) {
+            return materialize_global_address(
+                machine_block, address_of_global->get_global()->get_name(),
+                target_reg);
+        }
+        if (const auto *address_of_function =
+                dynamic_cast<const CoreIrAddressOfFunctionInst *>(value);
+            address_of_function != nullptr) {
+            return materialize_global_address(
+                machine_block, address_of_function->get_function()->get_name(),
+                target_reg);
+        }
+        if (const auto *gep_instruction =
+                dynamic_cast<const CoreIrGetElementPtrInst *>(value);
+            gep_instruction != nullptr) {
+            const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
+                gep_instruction->get_base()->get_type());
+            if (base_pointer_type == nullptr) {
+                add_backend_error(diagnostic_engine_,
+                                  "unsupported gep base in AArch64 native backend");
+                return false;
+            }
+            return materialize_gep_value(
+                machine_block, gep_instruction->get_base(),
+                base_pointer_type->get_pointee_type(),
+                gep_instruction->get_index_count(),
+                [&gep_instruction](std::size_t index) -> CoreIrValue * {
+                    return gep_instruction->get_index(index);
+                },
+                target_reg, state);
+        }
+        if (const auto *instruction = dynamic_cast<const CoreIrInstruction *>(value);
+            instruction != nullptr &&
+            state.machine_function->get_frame_info().has_value_offset(instruction)) {
+            const std::size_t offset =
+                state.machine_function->get_frame_info().get_value_offset(instruction);
+            append_load_from_frame(machine_block, instruction->get_type(), target_reg,
+                                   offset, *state.machine_function);
+            return true;
+        }
+
+        add_backend_error(diagnostic_engine_,
+                          "unsupported Core IR value in AArch64 native backend");
+        return false;
     }
 
     bool materialize_global_address(AArch64MachineBlock &machine_block,
@@ -1923,6 +1878,32 @@ class AArch64LoweringSession {
         return true;
     }
 
+    bool append_memory_store(AArch64MachineBlock &machine_block, const CoreIrType *type,
+                             const std::string &source_reg,
+                             const AArch64VirtualReg &address_reg,
+                             std::size_t offset,
+                             AArch64MachineFunction &function) {
+        if (offset <= 4095) {
+            machine_block.append_instruction(store_mnemonic_for_type(type) + " " +
+                                             source_reg + ", [" +
+                                             use_vreg(address_reg) + ", #" +
+                                             std::to_string(offset) + "]");
+            return true;
+        }
+        const AArch64VirtualReg offset_address_reg =
+            create_pointer_virtual_reg(function);
+        machine_block.append_instruction("mov " + def_vreg(offset_address_reg) + ", " +
+                                         use_vreg(address_reg));
+        if (!add_constant_offset(machine_block, offset_address_reg,
+                                 static_cast<long long>(offset), function)) {
+            return false;
+        }
+        machine_block.append_instruction(store_mnemonic_for_type(type) + " " +
+                                         source_reg + ", [" +
+                                         use_vreg(offset_address_reg) + "]");
+        return true;
+    }
+
     bool emit_zero_fill(AArch64MachineBlock &machine_block, unsigned address_reg_index,
                         const CoreIrType *type) {
         std::size_t remaining = get_type_size(type);
@@ -1952,6 +1933,380 @@ class AArch64LoweringSession {
             append_memory_store(machine_block, &i8_type, "wzr", address_reg_index,
                                 offset);
         }
+        return true;
+    }
+
+    bool emit_zero_fill(AArch64MachineBlock &machine_block,
+                        const AArch64VirtualReg &address_reg,
+                        const CoreIrType *type,
+                        AArch64MachineFunction &function) {
+        std::size_t remaining = get_type_size(type);
+        std::size_t offset = 0;
+        while (remaining >= 8) {
+            if (!append_memory_store(machine_block, create_fake_pointer_type(), "xzr",
+                                     address_reg, offset, function)) {
+                return false;
+            }
+            offset += 8;
+            remaining -= 8;
+        }
+        if (remaining >= 4) {
+            static CoreIrIntegerType i32_type(32);
+            if (!append_memory_store(machine_block, &i32_type, "wzr", address_reg,
+                                     offset, function)) {
+                return false;
+            }
+            offset += 4;
+            remaining -= 4;
+        }
+        if (remaining >= 2) {
+            static CoreIrIntegerType i16_type(16);
+            if (!append_memory_store(machine_block, &i16_type, "wzr", address_reg,
+                                     offset, function)) {
+                return false;
+            }
+            offset += 2;
+            remaining -= 2;
+        }
+        if (remaining >= 1) {
+            static CoreIrIntegerType i8_type(8);
+            if (!append_memory_store(machine_block, &i8_type, "wzr", address_reg,
+                                     offset, function)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void append_load_from_frame(AArch64MachineBlock &machine_block,
+                                const CoreIrType *type,
+                                const AArch64VirtualReg &target_reg,
+                                std::size_t offset,
+                                AArch64MachineFunction &function) {
+        std::string mnemonic = "ldur";
+        if (get_storage_size(type) == 2) {
+            mnemonic = "ldurh";
+        } else if (get_storage_size(type) == 1) {
+            mnemonic = "ldurb";
+        }
+        if (offset <= 255) {
+            machine_block.append_instruction(
+                mnemonic + " " + def_vreg(target_reg) + ", [x29, #-" +
+                std::to_string(offset) + "]");
+            return;
+        }
+        const AArch64VirtualReg address_reg = create_pointer_virtual_reg(function);
+        append_frame_address(machine_block, address_reg, offset, function);
+        machine_block.append_instruction(load_mnemonic_for_type(type) + " " +
+                                         def_vreg(target_reg) + ", [" +
+                                         use_vreg(address_reg) + "]");
+    }
+
+    void append_store_to_frame(AArch64MachineBlock &machine_block,
+                               const CoreIrType *type,
+                               const AArch64VirtualReg &source_reg,
+                               std::size_t offset,
+                               AArch64MachineFunction &function) {
+        std::string mnemonic = "stur";
+        if (get_storage_size(type) == 2) {
+            mnemonic = "sturh";
+        } else if (get_storage_size(type) == 1) {
+            mnemonic = "sturb";
+        }
+        if (offset <= 255) {
+            machine_block.append_instruction(
+                mnemonic + " " + use_vreg(source_reg) + ", [x29, #-" +
+                std::to_string(offset) + "]");
+            return;
+        }
+        const AArch64VirtualReg address_reg = create_pointer_virtual_reg(function);
+        append_frame_address(machine_block, address_reg, offset, function);
+        machine_block.append_instruction(store_mnemonic_for_type(type) + " " +
+                                         use_vreg(source_reg) + ", [" +
+                                         use_vreg(address_reg) + "]");
+    }
+
+    void append_load_from_incoming_stack_arg(AArch64MachineBlock &machine_block,
+                                             const CoreIrType *type,
+                                             const AArch64VirtualReg &target_reg,
+                                             std::size_t offset,
+                                             AArch64MachineFunction &function) {
+        if (offset <= 4095) {
+            machine_block.append_instruction(load_mnemonic_for_type(type) + " " +
+                                             def_vreg(target_reg) + ", [x29, #" +
+                                             std::to_string(offset) + "]");
+            return;
+        }
+        const AArch64VirtualReg address_reg = create_pointer_virtual_reg(function);
+        machine_block.append_instruction("mov " + def_vreg(address_reg) + ", x29");
+        add_constant_offset(machine_block, address_reg,
+                            static_cast<long long>(offset), function);
+        machine_block.append_instruction(load_mnemonic_for_type(type) + " " +
+                                         def_vreg(target_reg) + ", [" +
+                                         use_vreg(address_reg) + "]");
+    }
+
+    bool materialize_integer_constant(AArch64MachineBlock &machine_block,
+                                      const CoreIrType *type, std::uint64_t value,
+                                      const AArch64VirtualReg &target_reg) {
+        const unsigned pieces = target_reg.get_use_64bit() ? 4U : 2U;
+        bool emitted = false;
+        for (unsigned piece = 0; piece < pieces; ++piece) {
+            const std::uint16_t imm16 =
+                static_cast<std::uint16_t>((value >> (piece * 16U)) & 0xFFFFU);
+            if (!emitted) {
+                machine_block.append_instruction(
+                    "movz " + def_vreg(target_reg) + ", #" +
+                    std::to_string(imm16) + ", lsl #" +
+                    std::to_string(piece * 16U));
+                emitted = true;
+                continue;
+            }
+            if (imm16 == 0) {
+                continue;
+            }
+            machine_block.append_instruction(
+                "movk " + use_vreg(target_reg) + ", #" +
+                std::to_string(imm16) + ", lsl #" +
+                std::to_string(piece * 16U));
+        }
+        if (!emitted) {
+            machine_block.append_instruction("mov " + def_vreg(target_reg) + ", " +
+                                             zero_register_name(target_reg.get_use_64bit()));
+        }
+        truncate_register_to_type(machine_block, 9, type);
+        return true;
+    }
+
+    bool materialize_global_address(AArch64MachineBlock &machine_block,
+                                    const std::string &symbol_name,
+                                    const AArch64VirtualReg &target_reg) {
+        machine_block.append_instruction("adrp " + def_vreg(target_reg) + ", " +
+                                         symbol_name);
+        machine_block.append_instruction("add " + def_vreg(target_reg) + ", " +
+                                         use_vreg(target_reg) + ", :lo12:" +
+                                         symbol_name);
+        return true;
+    }
+
+    void append_frame_address(AArch64MachineBlock &machine_block,
+                              const AArch64VirtualReg &target_reg,
+                              std::size_t offset,
+                              AArch64MachineFunction &function) {
+        if (offset <= 4095) {
+            machine_block.append_instruction("sub " + def_vreg(target_reg) +
+                                             ", x29, #" + std::to_string(offset));
+            return;
+        }
+        const AArch64VirtualReg offset_reg = create_pointer_virtual_reg(function);
+        materialize_integer_constant(machine_block, create_fake_pointer_type(),
+                                     static_cast<std::uint64_t>(offset), offset_reg);
+        machine_block.append_instruction("sub " + def_vreg(target_reg) + ", x29, " +
+                                         use_vreg(offset_reg));
+    }
+
+    bool add_constant_offset(AArch64MachineBlock &machine_block,
+                             const AArch64VirtualReg &base_reg, long long offset,
+                             AArch64MachineFunction &function) {
+        if (offset == 0) {
+            return true;
+        }
+        const long long absolute_offset = offset >= 0 ? offset : -offset;
+        if (absolute_offset <= 4095) {
+            machine_block.append_instruction(
+                std::string(offset >= 0 ? "add " : "sub ") + def_vreg(base_reg) +
+                ", " + use_vreg(base_reg) + ", #" +
+                std::to_string(absolute_offset));
+            return true;
+        }
+        const AArch64VirtualReg offset_reg = create_pointer_virtual_reg(function);
+        if (!materialize_integer_constant(machine_block, create_fake_pointer_type(),
+                                          static_cast<std::uint64_t>(absolute_offset),
+                                          offset_reg)) {
+            return false;
+        }
+        machine_block.append_instruction(
+            std::string(offset >= 0 ? "add " : "sub ") + def_vreg(base_reg) +
+            ", " + use_vreg(base_reg) + ", " + use_vreg(offset_reg));
+        return true;
+    }
+
+    bool add_scaled_index(AArch64MachineBlock &machine_block,
+                          const AArch64VirtualReg &base_reg,
+                          const CoreIrValue *index_value,
+                          std::size_t scale,
+                          const FunctionState &state) {
+        const AArch64VirtualReg index_reg =
+            create_virtual_reg(*state.machine_function, index_value->get_type());
+        if (!materialize_value(machine_block, index_value, index_reg, state)) {
+            return false;
+        }
+        const auto *index_integer_type = as_integer_type(index_value->get_type());
+        if (index_integer_type != nullptr && index_integer_type->get_bit_width() <= 32) {
+            machine_block.append_instruction("sxtw " + def_vreg(index_reg) + ", " +
+                                             use_vreg(index_reg));
+        }
+
+        if (scale == 1) {
+            machine_block.append_instruction("add " + def_vreg(base_reg) + ", " +
+                                             use_vreg(base_reg) + ", " +
+                                             use_vreg(index_reg));
+            return true;
+        }
+
+        const bool power_of_two = scale != 0 && (scale & (scale - 1)) == 0;
+        if (power_of_two) {
+            std::size_t shift = 0;
+            std::size_t remaining = scale;
+            while (remaining > 1) {
+                remaining >>= 1U;
+                ++shift;
+            }
+            machine_block.append_instruction("add " + def_vreg(base_reg) + ", " +
+                                             use_vreg(base_reg) + ", " +
+                                             use_vreg(index_reg) + ", lsl #" +
+                                             std::to_string(shift));
+            return true;
+        }
+
+        const AArch64VirtualReg scale_reg =
+            create_pointer_virtual_reg(*state.machine_function);
+        if (!materialize_integer_constant(machine_block, create_fake_pointer_type(),
+                                          static_cast<std::uint64_t>(scale),
+                                          scale_reg)) {
+            return false;
+        }
+        machine_block.append_instruction("mul " + def_vreg(index_reg) + ", " +
+                                         use_vreg(index_reg) + ", " +
+                                         use_vreg(scale_reg));
+        machine_block.append_instruction("add " + def_vreg(base_reg) + ", " +
+                                         use_vreg(base_reg) + ", " +
+                                         use_vreg(index_reg));
+        return true;
+    }
+
+    bool materialize_gep_value(
+        AArch64MachineBlock &machine_block, const CoreIrValue *base_value,
+        const CoreIrType *base_type, std::size_t index_count,
+        const std::function<CoreIrValue *(std::size_t)> &get_index_value,
+        const AArch64VirtualReg &target_reg, const FunctionState &state) {
+        if (!materialize_value(machine_block, base_value, target_reg, state)) {
+            return false;
+        }
+
+        const CoreIrType *current_type = base_type;
+        for (std::size_t index_position = 0; index_position < index_count;
+             ++index_position) {
+            CoreIrValue *index_value = get_index_value(index_position);
+            if (index_value == nullptr) {
+                add_backend_error(diagnostic_engine_,
+                                  "encountered null gep index in AArch64 native backend");
+                return false;
+            }
+
+            if (const auto *index_constant =
+                    dynamic_cast<const CoreIrConstantInt *>(index_value);
+                index_constant != nullptr) {
+                const std::optional<long long> index =
+                    get_signed_integer_constant(index_constant);
+                if (!index.has_value()) {
+                    return false;
+                }
+                if (index_position == 0) {
+                    if (!add_constant_offset(machine_block, target_reg,
+                                             *index * static_cast<long long>(
+                                                          get_type_size(current_type)),
+                                             *state.machine_function)) {
+                        return false;
+                    }
+                    continue;
+                }
+                if (const auto *array_type =
+                        dynamic_cast<const CoreIrArrayType *>(current_type);
+                    array_type != nullptr) {
+                    if (!add_constant_offset(
+                            machine_block, target_reg,
+                            *index * static_cast<long long>(
+                                         get_type_size(array_type->get_element_type())),
+                            *state.machine_function)) {
+                        return false;
+                    }
+                    current_type = array_type->get_element_type();
+                    continue;
+                }
+                if (const auto *struct_type =
+                        dynamic_cast<const CoreIrStructType *>(current_type);
+                    struct_type != nullptr) {
+                    if (*index < 0 ||
+                        static_cast<std::size_t>(*index) >=
+                            struct_type->get_element_types().size()) {
+                        add_backend_error(diagnostic_engine_,
+                                          "unsupported gep struct index in AArch64 native backend");
+                        return false;
+                    }
+                    if (!add_constant_offset(
+                            machine_block, target_reg,
+                            static_cast<long long>(
+                                get_struct_member_offset(
+                                    struct_type, static_cast<std::size_t>(*index))),
+                            *state.machine_function)) {
+                        return false;
+                    }
+                    current_type =
+                        struct_type->get_element_types()[static_cast<std::size_t>(*index)];
+                    continue;
+                }
+                if (const auto *pointer_type =
+                        dynamic_cast<const CoreIrPointerType *>(current_type);
+                    pointer_type != nullptr) {
+                    if (!add_constant_offset(
+                            machine_block, target_reg,
+                            *index * static_cast<long long>(
+                                         get_type_size(pointer_type->get_pointee_type())),
+                            *state.machine_function)) {
+                        return false;
+                    }
+                    current_type = pointer_type->get_pointee_type();
+                    continue;
+                }
+                add_backend_error(diagnostic_engine_,
+                                  "unsupported constant gep shape in AArch64 native backend");
+                return false;
+            }
+
+            if (index_position == 0) {
+                if (!add_scaled_index(machine_block, target_reg, index_value,
+                                      get_type_size(current_type), state)) {
+                    return false;
+                }
+                continue;
+            }
+            if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
+                array_type != nullptr) {
+                if (!add_scaled_index(machine_block, target_reg, index_value,
+                                      get_type_size(array_type->get_element_type()),
+                                      state)) {
+                    return false;
+                }
+                current_type = array_type->get_element_type();
+                continue;
+            }
+            if (const auto *pointer_type =
+                    dynamic_cast<const CoreIrPointerType *>(current_type);
+                pointer_type != nullptr) {
+                if (!add_scaled_index(machine_block, target_reg, index_value,
+                                      get_type_size(pointer_type->get_pointee_type()),
+                                      state)) {
+                    return false;
+                }
+                current_type = pointer_type->get_pointee_type();
+                continue;
+            }
+            add_backend_error(diagnostic_engine_,
+                              "unsupported non-constant aggregate gep in AArch64 native backend");
+            return false;
+        }
+
         return true;
     }
 
@@ -2025,26 +2380,29 @@ class AArch64LoweringSession {
 
     bool emit_load(AArch64MachineBlock &machine_block, const CoreIrLoadInst &load,
                    const FunctionState &state) {
-        const bool use_64bit = uses_64bit_register(load.get_type());
-        const std::string reg = general_register_name(9, use_64bit);
+        const AArch64VirtualReg value_reg =
+            create_virtual_reg(*state.machine_function, load.get_type());
         if (load.get_stack_slot() != nullptr) {
             append_load_from_frame(
-                machine_block, load.get_type(), 9,
+                machine_block, load.get_type(), value_reg,
                 state.machine_function->get_frame_info().get_stack_slot_offset(
-                    load.get_stack_slot()));
+                    load.get_stack_slot()),
+                *state.machine_function);
         } else {
-            if (!materialize_value(machine_block, load.get_address(), 10, state)) {
+            const AArch64VirtualReg address_reg =
+                create_pointer_virtual_reg(*state.machine_function);
+            if (!materialize_value(machine_block, load.get_address(), address_reg,
+                                   state)) {
                 return false;
             }
             machine_block.append_instruction(load_mnemonic_for_type(load.get_type()) +
-                                             " " + reg + ", [x10]");
-            if (is_narrow_integer_type(load.get_type())) {
-                truncate_register_to_type(machine_block, 9, load.get_type());
-            }
+                                             " " + def_vreg(value_reg) + ", [" +
+                                             use_vreg(address_reg) + "]");
         }
-        append_store_to_frame(machine_block, load.get_type(), reg,
+        append_store_to_frame(machine_block, load.get_type(), value_reg,
                               state.machine_function->get_frame_info().get_value_offset(
-                                  &load));
+                                  &load),
+                              *state.machine_function);
         return true;
     }
 
@@ -2053,60 +2411,61 @@ class AArch64LoweringSession {
         if (const auto *zero_initializer =
                 dynamic_cast<const CoreIrConstantZeroInitializer *>(store.get_value());
             zero_initializer != nullptr) {
+            const AArch64VirtualReg address_reg =
+                create_pointer_virtual_reg(*state.machine_function);
             if (store.get_stack_slot() != nullptr) {
                 append_frame_address(
-                    machine_block, 10,
+                    machine_block, address_reg,
                     state.machine_function->get_frame_info().get_stack_slot_offset(
-                        store.get_stack_slot()));
-            } else if (!materialize_value(machine_block, store.get_address(), 10,
-                                          state)) {
-                return false;
+                        store.get_stack_slot()),
+                    *state.machine_function);
+            } else {
+                if (!materialize_value(machine_block, store.get_address(), address_reg,
+                                       state)) {
+                    return false;
+                }
             }
-            return emit_zero_fill(machine_block, 10, zero_initializer->get_type());
+            return emit_zero_fill(machine_block, address_reg,
+                                  zero_initializer->get_type(),
+                                  *state.machine_function);
         }
 
-        if (!materialize_value(machine_block, store.get_value(), 9, state)) {
+        const AArch64VirtualReg value_reg =
+            create_virtual_reg(*state.machine_function, store.get_value()->get_type());
+        if (!materialize_value(machine_block, store.get_value(), value_reg, state)) {
             return false;
         }
-        truncate_register_to_type(machine_block, 9, store.get_value()->get_type());
-        const std::string reg =
-            general_register_name(9, uses_64bit_register(store.get_value()->get_type()));
         if (store.get_stack_slot() != nullptr) {
             append_store_to_frame(
-                machine_block, store.get_value()->get_type(), reg,
+                machine_block, store.get_value()->get_type(), value_reg,
                 state.machine_function->get_frame_info().get_stack_slot_offset(
-                    store.get_stack_slot()));
+                    store.get_stack_slot()),
+                *state.machine_function);
             return true;
         }
-        if (!materialize_value(machine_block, store.get_address(), 10, state)) {
+        const AArch64VirtualReg address_reg =
+            create_pointer_virtual_reg(*state.machine_function);
+        if (!materialize_value(machine_block, store.get_address(), address_reg, state)) {
             return false;
         }
         machine_block.append_instruction(store_mnemonic_for_type(store.get_value()->get_type()) +
-                                         " " + reg + ", [x10]");
+                                         " " + use_vreg(value_reg) + ", [" +
+                                         use_vreg(address_reg) + "]");
         return true;
     }
 
     bool emit_binary(AArch64MachineBlock &machine_block,
                      const CoreIrBinaryInst &binary, const FunctionState &state) {
-        if (!materialize_value(machine_block, binary.get_lhs(), 9, state) ||
-            !materialize_value(machine_block, binary.get_rhs(), 10, state)) {
+        const AArch64VirtualReg lhs_reg =
+            create_virtual_reg(*state.machine_function, binary.get_lhs()->get_type());
+        const AArch64VirtualReg rhs_reg =
+            create_virtual_reg(*state.machine_function, binary.get_rhs()->get_type());
+        const AArch64VirtualReg dst_reg =
+            create_virtual_reg(*state.machine_function, binary.get_type());
+        if (!materialize_value(machine_block, binary.get_lhs(), lhs_reg, state) ||
+            !materialize_value(machine_block, binary.get_rhs(), rhs_reg, state)) {
             return false;
         }
-        const auto *result_integer_type = as_integer_type(binary.get_type());
-        if (result_integer_type != nullptr) {
-            if (binary.get_binary_opcode() == CoreIrBinaryOpcode::AShr ||
-                binary.get_binary_opcode() == CoreIrBinaryOpcode::SDiv ||
-                binary.get_binary_opcode() == CoreIrBinaryOpcode::SRem) {
-                sign_extend_register_for_type(machine_block, 9, binary.get_type());
-                sign_extend_register_for_type(machine_block, 10, binary.get_type());
-            } else {
-                truncate_register_to_type(machine_block, 9, binary.get_type());
-                truncate_register_to_type(machine_block, 10, binary.get_type());
-            }
-        }
-        const bool use_64bit = uses_64bit_register(binary.get_type());
-        const std::string dst = general_register_name(9, use_64bit);
-        const std::string rhs = general_register_name(10, use_64bit);
         std::string opcode;
         switch (binary.get_binary_opcode()) {
         case CoreIrBinaryOpcode::Add:
@@ -2143,126 +2502,117 @@ class AArch64LoweringSession {
             opcode = "asr";
             break;
         case CoreIrBinaryOpcode::SRem:
-            machine_block.append_instruction("mov " +
-                                             general_register_name(11, use_64bit) +
-                                             ", " + dst);
-            machine_block.append_instruction("sdiv " + dst + ", " + dst + ", " +
-                                             rhs);
-            machine_block.append_instruction("msub " + dst + ", " + dst + ", " +
-                                             rhs + ", " +
-                                             general_register_name(11, use_64bit));
-            truncate_register_to_type(machine_block, 9, binary.get_type());
-            append_store_to_frame(machine_block, binary.get_type(), dst,
+            machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(lhs_reg));
+            machine_block.append_instruction("sdiv " + def_vreg(lhs_reg) + ", " +
+                                             use_vreg(lhs_reg) + ", " +
+                                             use_vreg(rhs_reg));
+            machine_block.append_instruction("msub " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(lhs_reg) + ", " +
+                                             use_vreg(rhs_reg) + ", " +
+                                             use_vreg(dst_reg));
+            append_store_to_frame(machine_block, binary.get_type(), dst_reg,
                                   state.machine_function->get_frame_info()
-                                      .get_value_offset(&binary));
+                                      .get_value_offset(&binary),
+                                  *state.machine_function);
             return true;
         case CoreIrBinaryOpcode::URem:
-            machine_block.append_instruction("mov " +
-                                             general_register_name(11, use_64bit) +
-                                             ", " + dst);
-            machine_block.append_instruction("udiv " + dst + ", " + dst + ", " +
-                                             rhs);
-            machine_block.append_instruction("msub " + dst + ", " + dst + ", " +
-                                             rhs + ", " +
-                                             general_register_name(11, use_64bit));
-            truncate_register_to_type(machine_block, 9, binary.get_type());
-            append_store_to_frame(machine_block, binary.get_type(), dst,
+            machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(lhs_reg));
+            machine_block.append_instruction("udiv " + def_vreg(lhs_reg) + ", " +
+                                             use_vreg(lhs_reg) + ", " +
+                                             use_vreg(rhs_reg));
+            machine_block.append_instruction("msub " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(lhs_reg) + ", " +
+                                             use_vreg(rhs_reg) + ", " +
+                                             use_vreg(dst_reg));
+            append_store_to_frame(machine_block, binary.get_type(), dst_reg,
                                   state.machine_function->get_frame_info()
-                                      .get_value_offset(&binary));
+                                      .get_value_offset(&binary),
+                                  *state.machine_function);
             return true;
         }
-        machine_block.append_instruction(opcode + " " + dst + ", " + dst + ", " +
-                                         rhs);
-        truncate_register_to_type(machine_block, 9, binary.get_type());
-        append_store_to_frame(machine_block, binary.get_type(), dst,
+        machine_block.append_instruction(opcode + " " + def_vreg(dst_reg) + ", " +
+                                         use_vreg(lhs_reg) + ", " +
+                                         use_vreg(rhs_reg));
+        append_store_to_frame(machine_block, binary.get_type(), dst_reg,
                               state.machine_function->get_frame_info().get_value_offset(
-                                  &binary));
+                                  &binary),
+                              *state.machine_function);
         return true;
     }
 
     bool emit_unary(AArch64MachineBlock &machine_block, const CoreIrUnaryInst &unary,
                     const FunctionState &state) {
-        if (!materialize_value(machine_block, unary.get_operand(), 9, state)) {
+        const AArch64VirtualReg operand_reg =
+            create_virtual_reg(*state.machine_function, unary.get_operand()->get_type());
+        const AArch64VirtualReg dst_reg =
+            create_virtual_reg(*state.machine_function, unary.get_type());
+        if (!materialize_value(machine_block, unary.get_operand(), operand_reg, state)) {
             return false;
         }
-        const bool use_64bit = uses_64bit_register(unary.get_type());
-        const std::string dst = general_register_name(9, use_64bit);
         switch (unary.get_unary_opcode()) {
         case CoreIrUnaryOpcode::Negate:
-            machine_block.append_instruction("neg " + dst + ", " + dst);
+            machine_block.append_instruction("neg " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(operand_reg));
             break;
         case CoreIrUnaryOpcode::BitwiseNot:
-            machine_block.append_instruction("mvn " + dst + ", " + dst);
+            machine_block.append_instruction("mvn " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(operand_reg));
             break;
         case CoreIrUnaryOpcode::LogicalNot:
-            machine_block.append_instruction("cmp " + dst + ", #0");
-            machine_block.append_instruction("cset w9, eq");
+            machine_block.append_instruction("cmp " + use_vreg(operand_reg) + ", #0");
+            machine_block.append_instruction("cset " + def_vreg(dst_reg) + ", eq");
             break;
         }
-        append_store_to_frame(machine_block, unary.get_type(), dst,
+        append_store_to_frame(machine_block, unary.get_type(), dst_reg,
                               state.machine_function->get_frame_info().get_value_offset(
-                                  &unary));
+                                  &unary),
+                              *state.machine_function);
         return true;
     }
 
     bool emit_compare(AArch64MachineBlock &machine_block,
                       const CoreIrCompareInst &compare,
                       const FunctionState &state) {
-        if (!materialize_value(machine_block, compare.get_lhs(), 9, state) ||
-            !materialize_value(machine_block, compare.get_rhs(), 10, state)) {
+        const AArch64VirtualReg lhs_reg =
+            create_virtual_reg(*state.machine_function, compare.get_lhs()->get_type());
+        const AArch64VirtualReg rhs_reg =
+            create_virtual_reg(*state.machine_function, compare.get_rhs()->get_type());
+        const AArch64VirtualReg dst_reg =
+            create_virtual_reg(*state.machine_function, compare.get_type());
+        if (!materialize_value(machine_block, compare.get_lhs(), lhs_reg, state) ||
+            !materialize_value(machine_block, compare.get_rhs(), rhs_reg, state)) {
             return false;
         }
-        switch (compare.get_predicate()) {
-        case CoreIrComparePredicate::SignedLess:
-        case CoreIrComparePredicate::SignedLessEqual:
-        case CoreIrComparePredicate::SignedGreater:
-        case CoreIrComparePredicate::SignedGreaterEqual:
-            sign_extend_register_for_type(machine_block, 9,
-                                          compare.get_lhs()->get_type());
-            sign_extend_register_for_type(machine_block, 10,
-                                          compare.get_rhs()->get_type());
-            break;
-        default:
-            truncate_register_to_type(machine_block, 9, compare.get_lhs()->get_type());
-            truncate_register_to_type(machine_block, 10, compare.get_rhs()->get_type());
-            break;
-        }
-        const bool use_64bit = uses_64bit_register(compare.get_lhs()->get_type());
-        machine_block.append_instruction(
-            "cmp " + general_register_name(9, use_64bit) + ", " +
-            general_register_name(10, use_64bit));
-        machine_block.append_instruction("cset w9, " +
+        machine_block.append_instruction("cmp " + use_vreg(lhs_reg) + ", " +
+                                         use_vreg(rhs_reg));
+        machine_block.append_instruction("cset " + def_vreg(dst_reg) + ", " +
                                          condition_code(compare.get_predicate()));
-        append_store_to_frame(
-            machine_block, compare.get_type(), "w9",
-            state.machine_function->get_frame_info().get_value_offset(&compare));
+        append_store_to_frame(machine_block, compare.get_type(), dst_reg,
+                              state.machine_function->get_frame_info().get_value_offset(
+                                  &compare),
+                              *state.machine_function);
         return true;
     }
 
     bool emit_cast(AArch64MachineBlock &machine_block, const CoreIrCastInst &cast,
                    const FunctionState &state) {
-        if (!materialize_value(machine_block, cast.get_operand(), 9, state)) {
+        const AArch64VirtualReg operand_reg =
+            create_virtual_reg(*state.machine_function, cast.get_operand()->get_type());
+        const AArch64VirtualReg dst_reg =
+            create_virtual_reg(*state.machine_function, cast.get_type());
+        if (!materialize_value(machine_block, cast.get_operand(), operand_reg, state)) {
             return false;
         }
         switch (cast.get_cast_kind()) {
         case CoreIrCastKind::Truncate:
-            truncate_register_to_type(machine_block, 9, cast.get_type());
-            break;
         case CoreIrCastKind::ZeroExtend:
-            truncate_register_to_type(machine_block, 9,
-                                      cast.get_operand()->get_type());
-            break;
         case CoreIrCastKind::SignExtend:
-            sign_extend_register_for_type(machine_block, 9,
-                                          cast.get_operand()->get_type());
-            if (uses_64bit_register(cast.get_type()) &&
-                !uses_64bit_register(cast.get_operand()->get_type())) {
-                machine_block.append_instruction("sxtw x9, w9");
-            }
-            break;
         case CoreIrCastKind::PtrToInt:
-            truncate_register_to_type(machine_block, 9, cast.get_type());
         case CoreIrCastKind::IntToPtr:
+            machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(operand_reg));
             break;
         case CoreIrCastKind::SignedIntToFloat:
         case CoreIrCastKind::UnsignedIntToFloat:
@@ -2275,10 +2625,10 @@ class AArch64LoweringSession {
                               "AArch64 native backend");
             return false;
         }
-        append_store_to_frame(
-            machine_block, cast.get_type(),
-            general_register_name(9, uses_64bit_register(cast.get_type())),
-            state.machine_function->get_frame_info().get_value_offset(&cast));
+        append_store_to_frame(machine_block, cast.get_type(), dst_reg,
+                              state.machine_function->get_frame_info().get_value_offset(
+                                  &cast),
+                              *state.machine_function);
         return true;
     }
 
@@ -2312,31 +2662,37 @@ class AArch64LoweringSession {
             const std::size_t argument_index =
                 index - call.get_argument_begin_index();
             if (argument_index < 8) {
-                if (!materialize_value(machine_block, argument,
-                                       static_cast<unsigned>(argument_index),
-                                       state)) {
+                const AArch64VirtualReg arg_value =
+                    create_virtual_reg(*state.machine_function, argument->get_type());
+                if (!materialize_value(machine_block, argument, arg_value, state)) {
                     return false;
                 }
-                truncate_register_to_type(
-                    machine_block, static_cast<unsigned>(argument_index),
-                    argument->get_type());
+                machine_block.append_instruction(
+                    "mov " +
+                    general_register_name(static_cast<unsigned>(argument_index),
+                                          uses_64bit_register(argument->get_type())) +
+                    ", " + use_vreg(arg_value));
                 continue;
             }
-            if (!materialize_value(machine_block, argument, 9, state)) {
+            const AArch64VirtualReg arg_value =
+                create_virtual_reg(*state.machine_function, argument->get_type());
+            if (!materialize_value(machine_block, argument, arg_value, state)) {
                 return false;
             }
-            truncate_register_to_type(machine_block, 9, argument->get_type());
             const std::size_t stack_slot_offset = (argument_index - 8) * 8;
             machine_block.append_instruction(
                 store_mnemonic_for_type(argument->get_type()) + " " +
-                general_register_name(9, uses_64bit_register(argument->get_type())) +
+                use_vreg(arg_value) +
                 ", [sp, #" + std::to_string(stack_slot_offset) + "]");
         }
         if (!call.get_is_direct_call()) {
-            if (!materialize_value(machine_block, call.get_callee_value(), 16, state)) {
+            const AArch64VirtualReg callee_reg =
+                create_pointer_virtual_reg(*state.machine_function);
+            if (!materialize_value(machine_block, call.get_callee_value(), callee_reg,
+                                   state)) {
                 return false;
             }
-            machine_block.append_instruction("blr x16");
+            machine_block.append_instruction("blr " + use_vreg(callee_reg));
         } else {
             machine_block.append_instruction("bl " + call.get_callee_name());
         }
@@ -2345,11 +2701,15 @@ class AArch64LoweringSession {
                 "add sp, sp, #" + std::to_string(stack_arg_bytes));
         }
         if (!is_void_type(call.get_type())) {
-            truncate_register_to_type(machine_block, 0, call.get_type());
-            append_store_to_frame(
-                machine_block, call.get_type(),
-                general_register_name(0, uses_64bit_register(call.get_type())),
-                state.machine_function->get_frame_info().get_value_offset(&call));
+            const AArch64VirtualReg result_reg =
+                create_virtual_reg(*state.machine_function, call.get_type());
+            machine_block.append_instruction("mov " + def_vreg(result_reg) + ", " +
+                                             general_register_name(
+                                                 0, uses_64bit_register(call.get_type())));
+            append_store_to_frame(machine_block, call.get_type(), result_reg,
+                                  state.machine_function->get_frame_info()
+                                      .get_value_offset(&call),
+                                  *state.machine_function);
         }
         return true;
     }
@@ -2357,14 +2717,16 @@ class AArch64LoweringSession {
     bool emit_cond_jump(AArch64MachineBlock &machine_block,
                         const CoreIrCondJumpInst &cond_jump,
                         const FunctionState &state) {
-        if (!materialize_value(machine_block, cond_jump.get_condition(), 9, state)) {
+        const AArch64VirtualReg condition_reg =
+            create_virtual_reg(*state.machine_function,
+                               cond_jump.get_condition()->get_type());
+        if (!materialize_value(machine_block, cond_jump.get_condition(), condition_reg,
+                               state)) {
             return false;
         }
         machine_block.append_instruction(
-            "cbnz " +
-            general_register_name(9,
-                                  uses_64bit_register(cond_jump.get_condition()->get_type())) +
-            ", " + block_labels_.at(cond_jump.get_true_block()));
+            "cbnz " + use_vreg(condition_reg) + ", " +
+            block_labels_.at(cond_jump.get_true_block()));
         machine_block.append_instruction(
             "b " + block_labels_.at(cond_jump.get_false_block()));
         return true;
@@ -2375,16 +2737,17 @@ class AArch64LoweringSession {
                      const CoreIrReturnInst &return_inst,
                      const FunctionState &state) {
         if (return_inst.get_return_value() != nullptr) {
-            if (!materialize_value(machine_block, return_inst.get_return_value(), 9,
-                                   state)) {
+            const AArch64VirtualReg return_reg =
+                create_virtual_reg(*state.machine_function,
+                                   return_inst.get_return_value()->get_type());
+            if (!materialize_value(machine_block, return_inst.get_return_value(),
+                                   return_reg, state)) {
                 return false;
             }
-            truncate_register_to_type(machine_block, 9,
-                                      return_inst.get_return_value()->get_type());
             const bool use_64bit =
                 uses_64bit_register(return_inst.get_return_value()->get_type());
             machine_block.append_instruction("mov " + general_register_name(0, use_64bit) +
-                                             ", " + general_register_name(9, use_64bit));
+                                             ", " + use_vreg(return_reg));
         }
         machine_block.append_instruction("b " + machine_function.get_epilogue_label());
         return true;
