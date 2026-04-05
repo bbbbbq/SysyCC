@@ -72,15 +72,13 @@ main
       -> BuildCoreIrPass
       -> CoreIrCanonicalizePass
       -> CoreIrSimplifyCfgPass
+      -> CoreIrLoopSimplifyPass
+      -> CoreIrInstCombinePass
       -> CoreIrStackSlotForwardPass
       -> CoreIrDeadStoreEliminationPass
+      -> CoreIrInstCombinePass
       -> CoreIrMem2RegPass
-      -> CoreIrCopyPropagationPass
-      -> CoreIrSccpPass
-      -> CoreIrLocalCsePass
-      -> CoreIrGvnPass
-      -> CoreIrConstFoldPass
-      -> CoreIrDcePass
+      -> post-SSA fixed-point group
       -> LowerIrPass
       -> AArch64AsmGenPass
 ```
@@ -200,17 +198,24 @@ main
   `const char * -> char *`.
 - The backend is now split into explicit top-level passes:
   `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrSimplifyCfgPass ->
+  CoreIrLoopSimplifyPass -> CoreIrInstCombinePass ->
   CoreIrStackSlotForwardPass -> CoreIrDeadStoreEliminationPass ->
-  CoreIrMem2RegPass -> CoreIrCopyPropagationPass -> CoreIrSccpPass ->
-  CoreIrLocalCsePass -> CoreIrGvnPass -> CoreIrConstFoldPass ->
-  CoreIrDcePass -> LowerIrPass`. `CompilerContext` stores both the staged
-  `CoreIrBuildResult` and the final `IRResult`, while the staged
+  CoreIrInstCombinePass -> CoreIrMem2RegPass -> post-SSA fixed-point group ->
+  LowerIrPass`. That fixed-point group is
+  `CoreIrCopyPropagationPass -> CoreIrInstCombinePass -> CoreIrSccpPass ->
+  CoreIrSimplifyCfgPass -> CoreIrLicmPass -> CoreIrLocalCsePass ->
+  CoreIrGvnPass -> CoreIrInstCombinePass -> CoreIrConstFoldPass ->
+  CoreIrDcePass -> CoreIrSimplifyCfgPass`, iterated until one round makes no
+  Core IR changes or four rounds are reached. `CompilerContext` stores both
+  the staged `CoreIrBuildResult` and the final `IRResult`, while the staged
   `CoreIrBuildResult` now also owns function-level CFG, dominator,
   dominance-frontier, and promotable-stack-slot analysis caches for the
   current Core IR module. The staged Core IR now includes block-head `phi`
   nodes, allowing the post-`Mem2Reg` optimization lane to run over SSA-form
-  values before LLVM lowering, then strengthen value propagation through SCCP
-  and widen pure-value reuse through GVN.
+  values before LLVM lowering, repeatedly combine small value patterns through
+  `InstCombine`, strengthen value propagation through SCCP, hoist
+  loop-invariant SSA work through LICM, and widen pure-value reuse through
+  GVN.
 - The current LLVM IR path now also lowers enum storage through `i32`,
   supports local/global character-array initialization from string literals,
   and supports indirect calls through lowered function-pointer values.
