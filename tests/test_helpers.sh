@@ -46,11 +46,23 @@ prune_stale_build_outputs() {
     local project_root="$1"
     local build_dir="$2"
     local stale_ir_object_dir="${build_dir}/CMakeFiles/SysyCC.dir/src/backend/ir/passes"
+    local stale_generated_parser_object="${build_dir}/CMakeFiles/SysyCC.dir/src/frontend/parser/parser_generated.cpp.o"
+    local stale_generated_parser_dep="${build_dir}/CMakeFiles/SysyCC.dir/src/frontend/parser/parser_generated.cpp.o.d"
+    local stale_generated_lexer_object="${build_dir}/CMakeFiles/SysyCC.dir/src/frontend/lexer/lexer_scanner.cpp.o"
+    local stale_generated_lexer_dep="${build_dir}/CMakeFiles/SysyCC.dir/src/frontend/lexer/lexer_scanner.cpp.o.d"
 
     # Path-only refactors can leave old object trees behind. Some IR tests link
     # every compiler object except main.cpp, so stale objects must be removed.
     if [[ ! -d "${project_root}/src/backend/ir/passes" ]] && [[ -d "${stale_ir_object_dir}" ]]; then
         rm -rf "${stale_ir_object_dir}"
+    fi
+
+    if [[ ! -f "${project_root}/src/frontend/parser/parser_generated.cpp" ]]; then
+        rm -f "${stale_generated_parser_object}" "${stale_generated_parser_dep}"
+    fi
+
+    if [[ ! -f "${project_root}/src/frontend/lexer/lexer_scanner.cpp" ]]; then
+        rm -f "${stale_generated_lexer_object}" "${stale_generated_lexer_dep}"
     fi
 }
 

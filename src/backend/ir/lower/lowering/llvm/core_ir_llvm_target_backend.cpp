@@ -384,6 +384,9 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
     if (dynamic_cast<const CoreIrConstantNull *>(constant) != nullptr) {
         return "null";
     }
+    if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) != nullptr) {
+        return "zeroinitializer";
+    }
     if (const auto *byte_string =
             dynamic_cast<const CoreIrConstantByteString *>(constant);
         byte_string != nullptr) {

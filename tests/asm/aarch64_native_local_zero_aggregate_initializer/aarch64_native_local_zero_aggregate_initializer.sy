@@ -1,0 +1,4 @@
+int main() {
+    int local[4] = {0};
+    return local[0];
+}

@@ -15,7 +15,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -q '^@values = global \[4 x i32\] \[ i32 0, i32 0, i32 0, i32 0 \]$' "${IR_FILE}"
+grep -q '^@values = global \[4 x i32\] zeroinitializer$' "${IR_FILE}"
 grep -q 'getelementptr inbounds \[4 x i32\], ptr @values, i32 0, i32 2' "${IR_FILE}"
 
 echo "verified: ir lowers global array definition and indexed access"

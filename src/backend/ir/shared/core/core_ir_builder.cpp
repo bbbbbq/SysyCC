@@ -98,6 +98,25 @@ bool is_scalar_semantic_type(const SemanticType *type) {
            type->get_kind() == SemanticTypeKind::Enum;
 }
 
+bool is_zero_float_literal_text(std::string value_text) {
+    while (!value_text.empty()) {
+        const char last = value_text.back();
+        if (last == 'f' || last == 'F' || last == 'l' || last == 'L') {
+            value_text.pop_back();
+            continue;
+        }
+        break;
+    }
+    if (value_text.empty()) {
+        return false;
+    }
+    try {
+        return std::stold(value_text) == 0.0L;
+    } catch (...) {
+        return false;
+    }
+}
+
 bool expr_is_obviously_nonzero_constant(const Expr *expr) {
     if (expr == nullptr) {
         return false;
@@ -1160,6 +1179,37 @@ class CoreIrBuildSession {
         const auto *cast_expr = dynamic_cast<const CastExpr *>(expr);
         return cast_expr != nullptr &&
                is_null_pointer_constant_expr(cast_expr->get_operand());
+    }
+
+    bool is_zero_initializer_expr(const Expr *expr) const {
+        if (expr == nullptr) {
+            return true;
+        }
+
+        if (is_null_pointer_constant_expr(expr)) {
+            return true;
+        }
+
+        if (const std::optional<long long> constant_value =
+                get_integer_constant_value(expr);
+            constant_value.has_value()) {
+            return *constant_value == 0;
+        }
+
+        if (const auto *float_literal = dynamic_cast<const FloatLiteralExpr *>(expr);
+            float_literal != nullptr) {
+            return is_zero_float_literal_text(float_literal->get_value_text());
+        }
+
+        if (const auto *init_list = dynamic_cast<const InitListExpr *>(expr);
+            init_list != nullptr) {
+            return init_list->get_elements().empty() ||
+                   (init_list->get_elements().size() == 1 &&
+                    is_zero_initializer_expr(
+                        init_list->get_elements().front().get()));
+        }
+
+        return false;
     }
 
     const SemanticType *get_member_owner_type(const SemanticType *base_type,
@@ -3161,9 +3211,9 @@ class CoreIrBuildSession {
         return true;
     }
 
-    CoreIrValue *build_zero_scalar_value(const SemanticType *target_semantic_type,
-                                         const CoreIrType *target_type,
-                                         SourceSpan source_span) {
+    CoreIrValue *build_zero_constant_value(const SemanticType *target_semantic_type,
+                                           const CoreIrType *target_type,
+                                           SourceSpan source_span) {
         if (target_type == nullptr) {
             add_error("core ir generation could not resolve zero scalar target "
                       "type",
@@ -3186,6 +3236,14 @@ class CoreIrBuildSession {
             auto *zero_value =
                 core_ir_context_->create_constant<CoreIrConstantFloat>(
                     target_type, "0.0");
+            zero_value->set_source_span(source_span);
+            return zero_value;
+        }
+        if (target_type->get_kind() == CoreIrTypeKind::Array ||
+            target_type->get_kind() == CoreIrTypeKind::Struct) {
+            auto *zero_value =
+                core_ir_context_->create_constant<CoreIrConstantZeroInitializer>(
+                    target_type);
             zero_value->set_source_span(source_span);
             return zero_value;
         }
@@ -3293,6 +3351,20 @@ class CoreIrBuildSession {
                       "target",
                       source_span);
             return false;
+        }
+
+        if (initializer == nullptr || is_zero_initializer_expr(initializer)) {
+            CoreIrValue *zero_value = build_zero_constant_value(
+                target_semantic_type, target_type, source_span);
+            if (zero_value == nullptr) {
+                return false;
+            }
+            auto *store = current_block_->create_instruction<CoreIrStoreInst>(
+                void_type_, zero_value, address);
+            store->set_source_span(initializer == nullptr
+                                       ? source_span
+                                       : initializer->get_source_span());
+            return true;
         }
 
         if (target_semantic_type->get_kind() == SemanticTypeKind::Array) {
@@ -3714,8 +3786,8 @@ class CoreIrBuildSession {
 
         CoreIrValue *value = nullptr;
         if (initializer == nullptr) {
-            value = build_zero_scalar_value(target_semantic_type, target_type,
-                                            source_span);
+            value = build_zero_constant_value(target_semantic_type, target_type,
+                                              source_span);
         } else {
             value = build_expr(initializer);
             if (value == nullptr) {
@@ -4421,6 +4493,11 @@ class CoreIrBuildSession {
             return false;
         }
 
+        if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) != nullptr) {
+            bytes.insert(bytes.end(), get_core_ir_type_size(type), 0);
+            return true;
+        }
+
         switch (type->get_kind()) {
         case CoreIrTypeKind::Integer: {
             const auto *int_constant =
@@ -4872,86 +4949,26 @@ class CoreIrBuildSession {
                 declared_type, "0.0");
         }
         if (declared_type->get_kind() == CoreIrTypeKind::Array) {
-            const auto *array_type =
-                dynamic_cast<const CoreIrArrayType *>(declared_type);
-            const auto *array_semantic_type =
-                dynamic_cast<const ArraySemanticType *>(semantic_type);
-            if (array_type == nullptr) {
+            if (dynamic_cast<const CoreIrArrayType *>(declared_type) == nullptr) {
                 add_error("core ir generation expected a resolved array zero "
                           "initializer type",
                           source_span);
                 return nullptr;
             }
-            std::vector<const CoreIrConstant *> elements;
-            elements.reserve(array_type->get_element_count());
-            for (std::size_t index = 0; index < array_type->get_element_count();
-                 ++index) {
-                const CoreIrConstant *element =
-                    build_zero_global_constant(
-                        array_semantic_type == nullptr
-                            ? nullptr
-                            : array_semantic_type->get_element_type(),
-                                               array_type->get_element_type(),
-                                               source_span);
-                if (element == nullptr) {
-                    return nullptr;
-                }
-                elements.push_back(element);
-            }
-            return core_ir_context_->create_constant<CoreIrConstantAggregate>(
-                declared_type, std::move(elements));
+            return core_ir_context_->create_constant<CoreIrConstantZeroInitializer>(
+                declared_type);
         }
         if (declared_type->get_kind() == CoreIrTypeKind::Struct) {
-            const auto *struct_semantic_type =
-                dynamic_cast<const StructSemanticType *>(semantic_type);
-            const auto *union_semantic_type =
-                dynamic_cast<const UnionSemanticType *>(semantic_type);
             const auto *struct_type =
                 dynamic_cast<const CoreIrStructType *>(declared_type);
-            if (struct_type == nullptr ||
-                (struct_semantic_type == nullptr && union_semantic_type == nullptr)) {
+            if (struct_type == nullptr) {
                 add_error("core ir generation expected a resolved aggregate zero "
                           "initializer type",
                           source_span);
                 return nullptr;
             }
-            std::vector<const CoreIrConstant *> elements;
-            const auto &element_types = struct_type->get_element_types();
-            elements.reserve(element_types.size());
-            if (union_semantic_type != nullptr) {
-                const SemanticType *carrier_semantic_type =
-                    get_union_carrier_semantic_type(union_semantic_type);
-                for (std::size_t index = 0; index < element_types.size(); ++index) {
-                    const SemanticType *element_semantic_type =
-                        index == 0 ? carrier_semantic_type : nullptr;
-                    const CoreIrConstant *element_constant =
-                        build_zero_global_constant(element_semantic_type,
-                                                   element_types[index], source_span);
-                    if (element_constant == nullptr) {
-                        return nullptr;
-                    }
-                    elements.push_back(element_constant);
-                }
-            } else {
-                const detail::AggregateLayoutInfo layout =
-                    detail::compute_aggregate_layout(semantic_type);
-                for (std::size_t index = 0; index < layout.elements.size(); ++index) {
-                    const auto &element = layout.elements[index];
-                    const SemanticType *element_semantic_type = element.type;
-                    if (element.kind == detail::AggregateLayoutElementKind::Padding) {
-                        element_semantic_type = nullptr;
-                    }
-                    const CoreIrConstant *element_constant =
-                        build_zero_global_constant(element_semantic_type,
-                                                   element_types[index], source_span);
-                    if (element_constant == nullptr) {
-                        return nullptr;
-                    }
-                    elements.push_back(element_constant);
-                }
-            }
-            return core_ir_context_->create_constant<CoreIrConstantAggregate>(
-                declared_type, std::move(elements));
+            return core_ir_context_->create_constant<CoreIrConstantZeroInitializer>(
+                declared_type);
         }
 
         add_error("core ir generation does not yet support zero-initializing "
@@ -4969,6 +4986,10 @@ class CoreIrBuildSession {
                       "type",
                       source_span);
             return nullptr;
+        }
+        if (initializer != nullptr && is_zero_initializer_expr(initializer)) {
+            return build_zero_global_constant(semantic_type, declared_type,
+                                              initializer->get_source_span());
         }
         if (initializer == nullptr) {
             return build_zero_global_constant(semantic_type, declared_type,

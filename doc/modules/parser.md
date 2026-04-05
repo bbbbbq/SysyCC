@@ -13,7 +13,13 @@ src/frontend/parser/
 ├── parser.cpp
 ├── parser_runtime.hpp
 ├── parser_runtime.cpp
-├── parser.y
+└── parser.y
+```
+
+Generated parser outputs live under the active build tree:
+
+```text
+<build-dir>/generated/frontend/parser/
 ├── parser_generated.cpp
 └── parser.tab.h
 ```
@@ -135,8 +141,6 @@ src/frontend/parser/
 - [parser_runtime.hpp](/Users/caojunze424/code/SysyCC/src/frontend/parser/parser_runtime.hpp)
 - [parser_runtime.cpp](/Users/caojunze424/code/SysyCC/src/frontend/parser/parser_runtime.cpp)
 - [parser.y](/Users/caojunze424/code/SysyCC/src/frontend/parser/parser.y)
-- [parser_generated.cpp](/Users/caojunze424/code/SysyCC/src/frontend/parser/parser_generated.cpp)
-- [parser.tab.h](/Users/caojunze424/code/SysyCC/src/frontend/parser/parser.tab.h)
 
 ## Output Artifacts
 
@@ -147,5 +151,7 @@ src/frontend/parser/
 
 ## Notes
 
-- The generated parser header is [parser.tab.h](/Users/caojunze424/code/SysyCC/src/frontend/parser/parser.tab.h).
-- The generated parser implementation is [parser_generated.cpp](/Users/caojunze424/code/SysyCC/src/frontend/parser/parser_generated.cpp).
+- The generated parser header now lives under the active build tree, for
+  example `build/generated/frontend/parser/parser.tab.h`.
+- The generated parser implementation now lives under the active build tree,
+  for example `build/generated/frontend/parser/parser_generated.cpp`.

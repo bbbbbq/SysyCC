@@ -35,6 +35,7 @@ That shared helper now also prefers Ninja plus `ccache` when available and
 coordinates one local build per `build/` directory at a time, so overlapping
 test runs wait for the in-flight compile instead of racing.
 The top-level regression entry [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh) now also writes a summary table to `build/test_result.md`.
+For day-to-day local development, the top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now drives a dedicated Ninja build under `build-ninja/`, while test and intermediate-result flows continue to use `build/`.
 
 ## Project Overview
 

@@ -1,0 +1,13 @@
+struct Pair {
+    int left;
+    int right;
+};
+
+int main() {
+    struct Pair pair;
+    pair.left = getint();
+    pair.right = getint();
+    putint(pair.left + pair.right);
+    putch(10);
+    return 0;
+}
