@@ -23,6 +23,16 @@ namespace sysycc::detail {
 
 namespace {
 
+void add_warning(SemanticContext &semantic_context, std::string message,
+                 const SourceSpan &source_span) {
+    if (semantic_context.is_system_header_span(source_span)) {
+        return;
+    }
+    semantic_context.get_semantic_model().add_diagnostic(
+        SemanticDiagnostic(DiagnosticSeverity::Warning, std::move(message),
+                           source_span));
+}
+
 void add_error(SemanticContext &semantic_context, std::string message,
                const SourceSpan &source_span) {
     semantic_context.get_semantic_model().add_diagnostic(
@@ -65,6 +75,47 @@ bool expr_is_obviously_nonzero_constant(const Expr *expr) {
         return static_cast<const CharLiteralExpr *>(expr)->get_value_text() != "'\\0'";
     default:
         return false;
+    }
+}
+
+void emit_unused_symbol_warnings(SemanticContext &semantic_context) {
+    SemanticModel &semantic_model = semantic_context.get_semantic_model();
+    for (const SemanticSymbol *symbol : semantic_context.get_function_local_symbols()) {
+        if (symbol == nullptr || symbol->get_decl_node() == nullptr ||
+            symbol->get_name().empty()) {
+            continue;
+        }
+        if (semantic_context.is_system_header_span(
+                symbol->get_decl_node()->get_source_span())) {
+            continue;
+        }
+        if (semantic_model.get_symbol_use_count(symbol) != 0U) {
+            continue;
+        }
+
+        switch (symbol->get_kind()) {
+        case SymbolKind::Parameter:
+            add_warning(semantic_context,
+                        "unused parameter '" + symbol->get_name() + "'",
+                        symbol->get_decl_node()->get_source_span());
+            break;
+        case SymbolKind::Variable:
+            add_warning(semantic_context,
+                        "unused variable '" + symbol->get_name() + "'",
+                        symbol->get_decl_node()->get_source_span());
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+void emit_unused_label_warnings(SemanticContext &semantic_context) {
+    for (const auto &label_definition :
+         semantic_context.get_unused_label_definitions()) {
+        add_warning(semantic_context,
+                    "unused label '" + label_definition.label_name + "'",
+                    label_definition.source_span);
     }
 }
 
@@ -208,6 +259,8 @@ void SemanticAnalyzer::analyze_function_decl(
                   "undefined label '" + reference.label_name + "'",
                   reference.source_span);
     }
+    emit_unused_symbol_warnings(semantic_context);
+    emit_unused_label_warnings(semantic_context);
     if (resolved_function_type != nullptr &&
         resolved_function_type->get_return_type() != nullptr &&
         !conversion_checker.is_void_type(
