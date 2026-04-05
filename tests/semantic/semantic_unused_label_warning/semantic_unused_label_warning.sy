@@ -1,0 +1,4 @@
+int main() {
+unused:
+    return 0;
+}
