@@ -300,6 +300,18 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                 add_error(semantic_context,
                           "initializer type does not match declared type",
                           var_decl->get_initializer()->get_source_span());
+            } else if (initializer_type != nullptr &&
+                       var_decl->get_initializer()->get_kind() !=
+                           AstKind::CastExpr &&
+                       conversion_checker_.should_warn_implicit_integer_narrowing(
+                           declared_type, initializer_type,
+                           constant_evaluator_.get_integer_constant_value(
+                               var_decl->get_initializer(), semantic_context))) {
+                semantic_context.get_semantic_model().add_diagnostic(
+                    SemanticDiagnostic(
+                        DiagnosticSeverity::Warning,
+                        "implicit integer conversion may change value",
+                        var_decl->get_initializer()->get_source_span()));
             }
         }
         return;

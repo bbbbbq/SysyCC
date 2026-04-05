@@ -1,0 +1,7 @@
+unsigned char helper() {
+    return 300;
+}
+
+int main() {
+    return helper();
+}

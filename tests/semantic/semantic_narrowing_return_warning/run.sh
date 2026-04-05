@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
-INPUT_FILE="${SCRIPT_DIR}/semantic_bit_field_width_exceeds_base.sy"
+INPUT_FILE="${SCRIPT_DIR}/semantic_narrowing_return_warning.sy"
 TEST_NAME="$(basename "${SCRIPT_DIR}")"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
@@ -17,13 +17,13 @@ OUTPUT="$("${BUILD_DIR}/SysyCC" --stop-after=semantic "${INPUT_FILE}" --dump-tok
 RC=$?
 set -e
 
-if [[ ${RC} -eq 0 ]]; then
-    echo "error: compiler unexpectedly succeeded for ${INPUT_FILE}" >&2
+if [[ ${RC} -ne 0 ]]; then
+    echo "error: compiler unexpectedly failed for ${INPUT_FILE}" >&2
     echo "${OUTPUT}" >&2
     exit 1
 fi
 
-grep -Fq "error: bit-field width exceeds base type width" <<<"${OUTPUT}"
+grep -Fq "warning: implicit integer conversion may change value" <<<"${OUTPUT}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 
-echo "verified: semantic analysis rejects oversized bit-field widths"
+echo "verified: semantic analysis warns on narrowing integer returns"

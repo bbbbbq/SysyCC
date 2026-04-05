@@ -465,6 +465,14 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
             add_error(semantic_context,
                       "return type does not match function return type",
                       return_stmt->get_source_span());
+        } else if (return_stmt->get_value()->get_kind() != AstKind::CastExpr &&
+                   conversion_checker_.should_warn_implicit_integer_narrowing(
+                       expected_type, actual_type,
+                       constant_evaluator_.get_integer_constant_value(
+                           return_stmt->get_value(), semantic_context))) {
+            add_warning(semantic_context,
+                        "implicit integer conversion may change value",
+                        return_stmt->get_source_span());
         }
         return;
     }
