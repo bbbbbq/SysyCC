@@ -37,31 +37,39 @@ struct ParsedPathLinePrefix {
 
 std::optional<ParsedPathLinePrefix>
 parse_prefixed_path_line(const std::string &message_line) {
-    const std::size_t first_colon = message_line.find(':');
-    if (first_colon == std::string::npos || first_colon + 1 >= message_line.size()) {
-        return std::nullopt;
+    std::optional<ParsedPathLinePrefix> parsed;
+    for (std::size_t colon_index = 0; colon_index < message_line.size();
+         ++colon_index) {
+        if (message_line[colon_index] != ':' ||
+            colon_index + 1 >= message_line.size()) {
+            continue;
+        }
+
+        std::size_t line_begin = colon_index + 1;
+        std::size_t line_end = line_begin;
+        while (line_end < message_line.size() &&
+               std::isdigit(static_cast<unsigned char>(message_line[line_end])) !=
+                   0) {
+            ++line_end;
+        }
+
+        if (line_end == line_begin || line_end >= message_line.size() ||
+            message_line[line_end] != ':') {
+            continue;
+        }
+
+        ParsedPathLinePrefix candidate;
+        candidate.file_path = message_line.substr(0, colon_index);
+        candidate.line = std::stoi(
+            message_line.substr(line_begin, line_end - line_begin));
+        candidate.message_begin = line_end + 1;
+        if (candidate.message_begin < message_line.size() &&
+            message_line[candidate.message_begin] == ' ') {
+            ++candidate.message_begin;
+        }
+        parsed = std::move(candidate);
     }
 
-    std::size_t index = first_colon + 1;
-    while (index < message_line.size() &&
-           std::isdigit(static_cast<unsigned char>(message_line[index])) != 0) {
-        ++index;
-    }
-
-    if (index == first_colon + 1 || index >= message_line.size() ||
-        message_line[index] != ':') {
-        return std::nullopt;
-    }
-
-    ParsedPathLinePrefix parsed;
-    parsed.file_path = message_line.substr(0, first_colon);
-    parsed.line = std::stoi(
-        message_line.substr(first_colon + 1, index - first_colon - 1));
-    parsed.message_begin = index + 1;
-    if (parsed.message_begin < message_line.size() &&
-        message_line[parsed.message_begin] == ' ') {
-        ++parsed.message_begin;
-    }
     return parsed;
 }
 
