@@ -324,6 +324,21 @@ LLVM IR lowering path:
     `cast`
   - executable-block and executable-edge discovery from branch conditions
   - replacement of constant SSA users, leaving CFG reshaping to later passes
+- `CoreIrSimpleLoopUnswitchPass` currently handles:
+  - loop-header unswitching when the exit condition is loop-invariant
+  - loop-body unswitching for small invariant condition slices built from
+    pure `binary`, `compare`, `cast`, `gep`, address, and invariant stack-slot
+    load chains
+  - conservative nesting-depth and condition-slice-size budgets to cap code
+    growth
+- `CoreIrLoopMemoryPromotionPass` currently handles:
+  - direct stack-slot recurrence promotion inside loops
+  - constant-path aggregate and local-array subobject promotion, including
+    exact access-path recurrence inside nested loops when the subobject has
+    loop-external accesses and the seed can be materialized from the loop
+    preheader
+  - exit-block SSA rematerialization back into memory through exit `phi` and
+    store repair
 - `CoreIrLicmPass` currently handles:
   - hoist-only loop-invariant code motion into loop preheaders
   - pure `binary`, `unary`, `compare`, `cast`, `addr_of_*`, and `gep`

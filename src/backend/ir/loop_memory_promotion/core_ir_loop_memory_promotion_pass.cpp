@@ -30,6 +30,9 @@ namespace {
 
 using sysycc::detail::erase_instruction;
 using sysycc::detail::insert_instruction_before;
+using sysycc::detail::normalize_constant_stack_slot_path;
+using sysycc::detail::paths_overlap;
+using sysycc::detail::trace_stack_slot_prefix;
 
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
     const std::string message =
@@ -118,89 +121,6 @@ std::string build_unit_key(const CoreIrPromotionUnit &unit) {
         key += std::to_string(index);
     }
     return key;
-}
-
-bool normalize_constant_stack_slot_path(CoreIrValue *value, CoreIrStackSlot *&stack_slot,
-                                        std::vector<std::uint64_t> &path) {
-    if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(value);
-        address != nullptr) {
-        stack_slot = address->get_stack_slot();
-        return stack_slot != nullptr;
-    }
-
-    auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(value);
-    if (gep == nullptr) {
-        return false;
-    }
-
-    std::vector<std::uint64_t> base_path;
-    if (!normalize_constant_stack_slot_path(gep->get_base(), stack_slot, base_path) ||
-        stack_slot == nullptr) {
-        return false;
-    }
-
-    for (std::size_t index = 0; index < gep->get_index_count(); ++index) {
-        const auto *constant_index =
-            dynamic_cast<const CoreIrConstantInt *>(gep->get_index(index));
-        if (constant_index == nullptr) {
-            return false;
-        }
-        base_path.push_back(constant_index->get_value());
-    }
-
-    if (!base_path.empty() && base_path.front() == 0) {
-        base_path.erase(base_path.begin());
-    }
-    path = std::move(base_path);
-    return true;
-}
-
-bool trace_stack_slot_prefix(CoreIrValue *value, CoreIrStackSlot *&stack_slot,
-                             std::vector<std::uint64_t> &path, bool &exact_path) {
-    if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(value);
-        address != nullptr) {
-        stack_slot = address->get_stack_slot();
-        exact_path = stack_slot != nullptr;
-        return stack_slot != nullptr;
-    }
-
-    auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(value);
-    if (gep == nullptr) {
-        return false;
-    }
-
-    std::vector<std::uint64_t> base_path;
-    if (!trace_stack_slot_prefix(gep->get_base(), stack_slot, base_path, exact_path) ||
-        stack_slot == nullptr) {
-        return false;
-    }
-
-    for (std::size_t index = 0; index < gep->get_index_count(); ++index) {
-        const auto *constant_index =
-            dynamic_cast<const CoreIrConstantInt *>(gep->get_index(index));
-        if (constant_index == nullptr) {
-            exact_path = false;
-            break;
-        }
-        base_path.push_back(constant_index->get_value());
-    }
-
-    if (!base_path.empty() && base_path.front() == 0) {
-        base_path.erase(base_path.begin());
-    }
-    path = std::move(base_path);
-    return true;
-}
-
-bool paths_overlap(const std::vector<std::uint64_t> &lhs,
-                   const std::vector<std::uint64_t> &rhs) {
-    const std::size_t shared = std::min(lhs.size(), rhs.size());
-    for (std::size_t index = 0; index < shared; ++index) {
-        if (lhs[index] != rhs[index]) {
-            return false;
-        }
-    }
-    return true;
 }
 
 bool is_safe_address_user(CoreIrInstruction &user, std::size_t operand_index) {
@@ -941,7 +861,8 @@ bool can_promote_slot_in_loop(const CoreIrFunction &function,
                                         promotable_units) != nullptr) {
         return true;
     }
-    return loop.get_parent_loop() == nullptr &&
+    return (loop.get_parent_loop() == nullptr ||
+            access_info.kind == CoreIrPromotionUnitKind::AccessPath) &&
            loop.get_blocks().size() <= 8 &&
            count_loop_instructions(loop) <= 256 &&
            unit_has_outside_accesses(function, loop, promotable_units, access_info);

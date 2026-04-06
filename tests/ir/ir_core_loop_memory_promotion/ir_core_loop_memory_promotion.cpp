@@ -283,5 +283,118 @@ int main() {
     assert(text4.find("%sum.inner.load = load i32, stackslot %sum") == std::string::npos);
     assert(text4.find("store i32 %sum.inner.next, stackslot %sum") == std::string::npos);
     assert(text4.find("%sum.loop.") != std::string::npos);
+    {
+        auto context5 = std::make_unique<CoreIrContext>();
+        auto *void_type5 = context5->create_type<CoreIrVoidType>();
+        auto *i1_type5 = context5->create_type<CoreIrIntegerType>(1);
+        auto *i32_type5 = context5->create_type<CoreIrIntegerType>(32);
+        auto *array2_i32_5 = context5->create_type<CoreIrArrayType>(i32_type5, 2);
+        auto *ptr_array2_i32_5 =
+            context5->create_type<CoreIrPointerType>(array2_i32_5);
+        auto *ptr_i32_type5 = context5->create_type<CoreIrPointerType>(i32_type5);
+        auto *function_type5 = context5->create_type<CoreIrFunctionType>(
+            i32_type5, std::vector<const CoreIrType *>{}, false);
+        auto *module5 = context5->create_module<CoreIrModule>(
+            "ir_core_loop_memory_promotion_nested_access_path");
+        auto *function5 =
+            module5->create_function<CoreIrFunction>("main", function_type5, false);
+        auto *entry5 = function5->create_basic_block<CoreIrBasicBlock>("entry");
+        auto *outer_header5 =
+            function5->create_basic_block<CoreIrBasicBlock>("outer.header");
+        auto *outer_body5 =
+            function5->create_basic_block<CoreIrBasicBlock>("outer.body");
+        auto *inner_preheader5 =
+            function5->create_basic_block<CoreIrBasicBlock>("inner.preheader");
+        auto *inner_header5 =
+            function5->create_basic_block<CoreIrBasicBlock>("inner.header");
+        auto *inner_body5 =
+            function5->create_basic_block<CoreIrBasicBlock>("inner.body");
+        auto *inner_exit5 =
+            function5->create_basic_block<CoreIrBasicBlock>("inner.exit");
+        auto *outer_latch5 =
+            function5->create_basic_block<CoreIrBasicBlock>("outer.latch");
+        auto *outer_exit5 =
+            function5->create_basic_block<CoreIrBasicBlock>("outer.exit");
+        auto *state5 =
+            function5->create_stack_slot<CoreIrStackSlot>("state", array2_i32_5, 4);
+        auto *zero5 = context5->create_constant<CoreIrConstantInt>(i32_type5, 0);
+        auto *one5 = context5->create_constant<CoreIrConstantInt>(i32_type5, 1);
+        auto *two5 = context5->create_constant<CoreIrConstantInt>(i32_type5, 2);
+
+        auto *entry_state_addr5 =
+            entry5->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_5, "state.addr", state5);
+        auto *entry_field0_addr5 = entry5->create_instruction<CoreIrGetElementPtrInst>(
+            ptr_i32_type5, "state.field0.addr", entry_state_addr5,
+            std::vector<CoreIrValue *>{zero5, zero5});
+        entry5->create_instruction<CoreIrStoreInst>(void_type5, zero5,
+                                                    entry_field0_addr5);
+        entry5->create_instruction<CoreIrJumpInst>(void_type5, outer_header5);
+        auto *outer_iv =
+            outer_header5->create_instruction<CoreIrPhiInst>(i32_type5, "outer.iv");
+        auto *outer_cmp = outer_header5->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::SignedLess, i1_type5, "outer.cmp", outer_iv,
+            one5);
+        outer_header5->create_instruction<CoreIrCondJumpInst>(
+            void_type5, outer_cmp, outer_body5, outer_exit5);
+        outer_body5->create_instruction<CoreIrJumpInst>(void_type5, inner_preheader5);
+        inner_preheader5->create_instruction<CoreIrJumpInst>(void_type5, inner_header5);
+        auto *inner_iv =
+            inner_header5->create_instruction<CoreIrPhiInst>(i32_type5, "inner.iv");
+        auto *inner_cmp = inner_header5->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::SignedLess, i1_type5, "inner.cmp", inner_iv,
+            two5);
+        inner_header5->create_instruction<CoreIrCondJumpInst>(
+            void_type5, inner_cmp, inner_body5, inner_exit5);
+        auto *loop_state_addr5 =
+            inner_body5->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_5, "state.addr.loop", state5);
+        auto *loop_field0_addr5 =
+            inner_body5->create_instruction<CoreIrGetElementPtrInst>(
+                ptr_i32_type5, "state.field0.addr.loop", loop_state_addr5,
+                std::vector<CoreIrValue *>{zero5, zero5});
+        auto *field0_load5 = inner_body5->create_instruction<CoreIrLoadInst>(
+            i32_type5, "field0.inner.load", loop_field0_addr5);
+        auto *field0_next5 = inner_body5->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type5, "field0.inner.next", field0_load5,
+            one5);
+        inner_body5->create_instruction<CoreIrStoreInst>(void_type5, field0_next5,
+                                                         loop_field0_addr5);
+        auto *inner_next = inner_body5->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type5, "inner.next", inner_iv, one5);
+        inner_body5->create_instruction<CoreIrJumpInst>(void_type5, inner_header5);
+        inner_exit5->create_instruction<CoreIrJumpInst>(void_type5, outer_latch5);
+        auto *outer_next = outer_latch5->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type5, "outer.next", outer_iv, one5);
+        outer_latch5->create_instruction<CoreIrJumpInst>(void_type5, outer_header5);
+        auto *exit_state_addr5 =
+            outer_exit5->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_5, "state.addr.exit", state5);
+        auto *exit_field0_addr5 =
+            outer_exit5->create_instruction<CoreIrGetElementPtrInst>(
+                ptr_i32_type5, "state.field0.addr.exit", exit_state_addr5,
+                std::vector<CoreIrValue *>{zero5, zero5});
+        auto *exit_load5 = outer_exit5->create_instruction<CoreIrLoadInst>(
+            i32_type5, "field0.exit", exit_field0_addr5);
+        outer_exit5->create_instruction<CoreIrReturnInst>(void_type5, exit_load5);
+        outer_iv->add_incoming(entry5, zero5);
+        outer_iv->add_incoming(outer_latch5, outer_next);
+        inner_iv->add_incoming(inner_preheader5, zero5);
+        inner_iv->add_incoming(inner_body5, inner_next);
+
+        CompilerContext compiler_context5;
+        compiler_context5.set_core_ir_build_result(
+            std::make_unique<CoreIrBuildResult>(std::move(context5), module5));
+        CoreIrLcssaPass lcssa5;
+        assert(lcssa5.Run(compiler_context5).ok);
+        CoreIrLoopMemoryPromotionPass pass5;
+        assert(pass5.Run(compiler_context5).ok);
+
+        const std::string text5 = printer.print_module(*module5);
+        assert(text5.find("%field0.inner.load = load i32") == std::string::npos);
+        assert(text5.find("store i32 %field0.inner.next") == std::string::npos);
+        assert(text5.find("%field0.exit = load i32") == std::string::npos);
+        assert(text5.find("%state.loop.") != std::string::npos);
+    }
     return 0;
 }

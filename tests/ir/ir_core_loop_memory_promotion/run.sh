@@ -27,5 +27,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: LoopMemoryPromotion promotes direct stack-slot recurrences inside loops and rematerializes exit memory state"
-
+echo "verified: LoopMemoryPromotion promotes direct and constant-path loop recurrences and rematerializes exit memory state"
