@@ -102,6 +102,8 @@ bool is_scalar_semantic_type(const SemanticType *type) {
            type->get_kind() == SemanticTypeKind::Enum;
 }
 
+bool is_character_semantic_type(const SemanticType *type);
+
 bool is_zero_float_literal_text(std::string value_text) {
     while (!value_text.empty()) {
         const char last = value_text.back();
@@ -119,6 +121,18 @@ bool is_zero_float_literal_text(std::string value_text) {
     } catch (...) {
         return false;
     }
+}
+
+bool consumes_array_subinitializer_directly(const Expr *expr,
+                                            const ArraySemanticType *array_type) {
+    if (expr == nullptr || array_type == nullptr) {
+        return false;
+    }
+    if (expr->get_kind() == AstKind::InitListExpr) {
+        return true;
+    }
+    return expr->get_kind() == AstKind::StringLiteralExpr &&
+           is_character_semantic_type(array_type->get_element_type());
 }
 
 bool expr_is_obviously_nonzero_constant(const Expr *expr) {
@@ -1094,6 +1108,25 @@ class CoreIrBuildSession {
                 pointer_type, next_temp_name(), base, std::move(indices));
         instruction->set_source_span(source_span);
         return instruction;
+    }
+
+    CoreIrValue *
+    build_local_array_element_address(CoreIrValue *base,
+                                      const CoreIrType *element_type,
+                                      const std::vector<std::size_t> &element_path,
+                                      SourceSpan source_span) {
+        if (base == nullptr || element_type == nullptr || element_path.empty()) {
+            return nullptr;
+        }
+
+        std::vector<CoreIrValue *> indices;
+        indices.reserve(element_path.size() + 1);
+        indices.push_back(create_i32_constant(0, source_span));
+        for (std::size_t index : element_path) {
+            indices.push_back(
+                create_i32_constant(static_cast<long long>(index), source_span));
+        }
+        return build_gep(base, element_type, std::move(indices), source_span);
     }
 
     CoreIrValue *build_array_decay_from_address(CoreIrValue *address,
@@ -3534,10 +3567,12 @@ class CoreIrBuildSession {
         }
 
         std::function<bool(const ArraySemanticType *, const CoreIrArrayType *,
-                           const InitListExpr *, std::size_t &, SourceSpan)>
+                           const InitListExpr *, std::size_t &,
+                           std::vector<std::size_t> &, SourceSpan)>
             walk = [&](const ArraySemanticType *current_semantic_type,
                        const CoreIrArrayType *current_array_type,
                        const InitListExpr *current_init_list, std::size_t &cursor,
+                       std::vector<std::size_t> &element_path,
                        SourceSpan current_source_span) -> bool {
             const SemanticType *current_element_semantic_type =
                 current_semantic_type->get_element_type();
@@ -3551,6 +3586,7 @@ class CoreIrBuildSession {
 
             for (std::size_t index = 0;
                  index < current_array_type->get_element_count(); ++index) {
+                element_path.push_back(index);
                 const Expr *element_initializer =
                     current_init_list != nullptr &&
                             cursor < current_init_list->get_elements().size()
@@ -3563,28 +3599,36 @@ class CoreIrBuildSession {
 
                 if (nested_array_semantic_type != nullptr &&
                     nested_array_type != nullptr && element_initializer != nullptr &&
-                    element_initializer->get_kind() != AstKind::InitListExpr) {
+                    !consumes_array_subinitializer_directly(
+                        element_initializer, nested_array_semantic_type)) {
                     if (!walk(nested_array_semantic_type, nested_array_type,
-                              current_init_list, cursor, element_source_span)) {
+                              current_init_list, cursor, element_path,
+                              element_source_span)) {
+                        element_path.pop_back();
                         return false;
                     }
+                    element_path.pop_back();
                     continue;
                 }
 
                 if (element_initializer != nullptr && current_init_list != nullptr) {
                     ++cursor;
                 }
-                if (!visit_element(index, current_element_semantic_type,
+                if (!visit_element(element_path, current_element_semantic_type,
                                    current_element_type, element_initializer,
                                    element_source_span)) {
+                    element_path.pop_back();
                     return false;
                 }
+                element_path.pop_back();
             }
             return true;
         };
 
         std::size_t cursor = 0;
-        if (!walk(array_semantic_type, array_type, init_list, cursor, source_span)) {
+        std::vector<std::size_t> element_path;
+        if (!walk(array_semantic_type, array_type, init_list, cursor, element_path,
+                  source_span)) {
             return false;
         }
         if (init_list != nullptr && cursor < init_list->get_elements().size()) {
@@ -3735,16 +3779,15 @@ class CoreIrBuildSession {
             return walk_array_initializer_elements(
                 array_semantic_type, array_type, initializer, source_span,
                 "local array initializer",
-                [&](std::size_t index, const SemanticType *element_semantic_type,
+                [&](const std::vector<std::size_t> &element_path,
+                    const SemanticType *element_semantic_type,
                     const CoreIrType *current_element_type,
                     const Expr *element_initializer,
                     SourceSpan element_source_span) -> bool {
                     CoreIrValue *element_address =
-                        build_gep(address, current_element_type,
-                                  {create_i32_constant(0, source_span),
-                                   create_i32_constant(
-                                       static_cast<long long>(index), source_span)},
-                                  source_span);
+                        build_local_array_element_address(
+                            address, current_element_type, element_path,
+                            element_source_span);
                     if (element_address == nullptr) {
                         return false;
                     }
@@ -4147,6 +4190,9 @@ class CoreIrBuildSession {
             return false;
         }
 
+        const bool infinite_loop_without_break =
+            expr_is_obviously_nonzero_constant(while_stmt.get_condition()) &&
+            !stmt_contains_break(while_stmt.get_body());
         const std::string loop_suffix = next_loop_suffix();
         CoreIrBasicBlock *condition_block =
             current_function_->create_basic_block<CoreIrBasicBlock>(
@@ -4155,38 +4201,49 @@ class CoreIrBuildSession {
             current_function_->create_basic_block<CoreIrBasicBlock>(
                 "while.body" + loop_suffix);
         CoreIrBasicBlock *end_block =
-            current_function_->create_basic_block<CoreIrBasicBlock>(
-                "while.end" + loop_suffix);
+            infinite_loop_without_break
+                ? nullptr
+                : current_function_->create_basic_block<CoreIrBasicBlock>(
+                      "while.end" + loop_suffix);
 
         emit_jump_to(condition_block, while_stmt.get_source_span());
 
         current_block_ = condition_block;
-        CoreIrValue *condition = build_expr(while_stmt.get_condition());
-        if (condition == nullptr) {
-            return false;
+        if (infinite_loop_without_break) {
+            auto *jump_instruction =
+                current_block_->create_instruction<CoreIrJumpInst>(void_type_,
+                                                                   body_block);
+            jump_instruction->set_source_span(while_stmt.get_source_span());
+        } else {
+            CoreIrValue *condition = build_expr(while_stmt.get_condition());
+            if (condition == nullptr) {
+                return false;
+            }
+            auto *branch_instruction =
+                current_block_->create_instruction<CoreIrCondJumpInst>(
+                    void_type_, condition, body_block, end_block);
+            branch_instruction->set_source_span(while_stmt.get_source_span());
         }
-        auto *branch_instruction =
-            current_block_->create_instruction<CoreIrCondJumpInst>(
-                void_type_, condition, body_block, end_block);
-        branch_instruction->set_source_span(while_stmt.get_source_span());
 
         loop_frames_.push_back(LoopFrame{end_block, condition_block});
-        break_blocks_.push_back(end_block);
+        if (!infinite_loop_without_break) {
+            break_blocks_.push_back(end_block);
+        }
         current_block_ = body_block;
         if (!emit_stmt(while_stmt.get_body())) {
             loop_frames_.pop_back();
-            break_blocks_.pop_back();
+            if (!infinite_loop_without_break) {
+                break_blocks_.pop_back();
+            }
             return false;
         }
         if (current_block_ != nullptr && !current_block_->get_has_terminator()) {
             emit_jump_to(condition_block, while_stmt.get_source_span());
         }
         loop_frames_.pop_back();
-        break_blocks_.pop_back();
-
-        const bool infinite_loop_without_break =
-            expr_is_obviously_nonzero_constant(while_stmt.get_condition()) &&
-            !stmt_contains_break(while_stmt.get_body());
+        if (!infinite_loop_without_break) {
+            break_blocks_.pop_back();
+        }
         current_block_ = infinite_loop_without_break ? nullptr : end_block;
         return true;
     }
@@ -5310,6 +5367,75 @@ class CoreIrBuildSession {
         return nullptr;
     }
 
+    // Global array constants must preserve one aggregate element per declared
+    // slot even when the source initializer is flattened.
+    const CoreIrConstant *build_global_array_constant_aggregate(
+        const ArraySemanticType *array_semantic_type,
+        const CoreIrArrayType *array_type, const InitListExpr *init_list,
+        std::size_t &cursor, SourceSpan source_span) {
+        if (array_semantic_type == nullptr || array_type == nullptr) {
+            add_error("core ir generation could not resolve top-level array "
+                      "initializer shape",
+                      source_span);
+            return nullptr;
+        }
+
+        const SemanticType *element_semantic_type =
+            array_semantic_type->get_element_type();
+        const CoreIrType *element_type = array_type->get_element_type();
+        const auto *nested_array_semantic_type =
+            dynamic_cast<const ArraySemanticType *>(
+                strip_qualifiers(element_semantic_type));
+        const auto *nested_array_type =
+            dynamic_cast<const CoreIrArrayType *>(element_type);
+
+        std::vector<const CoreIrConstant *> elements;
+        elements.reserve(array_type->get_element_count());
+        for (std::size_t index = 0; index < array_type->get_element_count();
+             ++index) {
+            const Expr *element_initializer =
+                init_list != nullptr && cursor < init_list->get_elements().size()
+                    ? init_list->get_elements()[cursor].get()
+                    : nullptr;
+            const SourceSpan element_source_span =
+                element_initializer == nullptr ? source_span
+                                               : element_initializer->get_source_span();
+
+            const CoreIrConstant *element_constant = nullptr;
+            if (nested_array_semantic_type != nullptr &&
+                nested_array_type != nullptr) {
+                const bool consumes_nested_initializer_directly =
+                    consumes_array_subinitializer_directly(
+                        element_initializer, nested_array_semantic_type);
+                if (consumes_nested_initializer_directly) {
+                    ++cursor;
+                    element_constant = build_global_constant_for_initializer(
+                        element_initializer, nested_array_semantic_type,
+                        nested_array_type, element_source_span);
+                } else {
+                    element_constant = build_global_array_constant_aggregate(
+                        nested_array_semantic_type, nested_array_type, init_list,
+                        cursor, element_source_span);
+                }
+            } else {
+                if (element_initializer != nullptr && init_list != nullptr) {
+                    ++cursor;
+                }
+                element_constant = build_global_constant_for_initializer(
+                    element_initializer, element_semantic_type, element_type,
+                    element_source_span);
+            }
+
+            if (element_constant == nullptr) {
+                return nullptr;
+            }
+            elements.push_back(element_constant);
+        }
+
+        return core_ir_context_->create_constant<CoreIrConstantAggregate>(
+            array_type, std::move(elements));
+    }
+
     const CoreIrConstant *build_global_constant_for_initializer(
         const Expr *initializer, const SemanticType *semantic_type,
         const CoreIrType *declared_type, SourceSpan source_span) {
@@ -5354,30 +5480,28 @@ class CoreIrBuildSession {
                     array_type, std::move(string_bytes));
             }
 
-            std::vector<const CoreIrConstant *> elements;
-            elements.reserve(array_type->get_element_count());
-            if (!walk_array_initializer_elements(
-                    array_semantic_type, array_type, initializer, source_span,
-                    "top-level array initializer",
-                    [&](std::size_t /*index*/,
-                        const SemanticType *element_semantic_type,
-                        const CoreIrType *element_core_type,
-                        const Expr *element_initializer,
-                        SourceSpan element_source_span) -> bool {
-                        const CoreIrConstant *element_constant =
-                            build_global_constant_for_initializer(
-                                element_initializer, element_semantic_type,
-                                element_core_type, element_source_span);
-                        if (element_constant == nullptr) {
-                            return false;
-                        }
-                        elements.push_back(element_constant);
-                        return true;
-                    })) {
+            if (initializer->get_kind() != AstKind::InitListExpr) {
+                add_error("core ir generation currently requires an initializer "
+                              "list for this top-level array initializer",
+                          initializer->get_source_span());
                 return nullptr;
             }
-            return core_ir_context_->create_constant<CoreIrConstantAggregate>(
-                array_type, std::move(elements));
+            const auto *init_list = static_cast<const InitListExpr *>(initializer);
+            std::size_t cursor = 0;
+            const CoreIrConstant *array_constant =
+                build_global_array_constant_aggregate(
+                    array_semantic_type, array_type, init_list, cursor,
+                    source_span);
+            if (array_constant == nullptr) {
+                return nullptr;
+            }
+            if (cursor < init_list->get_elements().size()) {
+                add_error("core ir generation encountered too many top-level "
+                          "array initializer elements",
+                          initializer->get_source_span());
+                return nullptr;
+            }
+            return array_constant;
         }
 
         if (semantic_type->get_kind() == SemanticTypeKind::Struct) {
