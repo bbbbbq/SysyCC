@@ -138,6 +138,18 @@ includes:
   SysyCC stdin/stdout harness, including in-place duplicate compaction,
   binary-search insertion index lookup, Kadane maximum subarray, single-pass
   stock-profit scanning, and Boyer-Moore majority voting
+- bug-reproducer coverage for direct standard-library heap allocation through
+  `malloc` / `free`, preserving the current failure mode where the compiler
+  still chokes on transitive macOS system-header constructs while trying to
+  compile a dynamically allocated integer-buffer sum program
+- currently failing standard-library compatibility coverage for additional
+  macOS system-header and builtin expansion gaps, including `string.h`
+  `memcpy`, `math.h` `isnan`, `ctype.h` classification macros, and
+  `assert.h` predefined-builtin usage
+- currently failing standard-library compatibility coverage for compiler
+  builtin-type and declaration forms surfaced by common headers, including
+  `stddef.h` `ptrdiff_t`, `time.h` declaration aliases, `float.h` builtin
+  floating macros, and `stdalign.h` `alignas`
 - runtime coverage for longer LeetCode-inspired composite problems including
   dynamic 2D union-find, multi-source grid BFS, handwritten heap-based graph
   shortest path, interval-room scheduling with paired heaps, and 2D dynamic

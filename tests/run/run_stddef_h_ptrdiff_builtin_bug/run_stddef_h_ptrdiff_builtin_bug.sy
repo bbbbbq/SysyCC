@@ -1,0 +1,6 @@
+#include <stddef.h>
+
+int main(void) {
+    ptrdiff_t delta = 0;
+    return (int)delta;
+}
