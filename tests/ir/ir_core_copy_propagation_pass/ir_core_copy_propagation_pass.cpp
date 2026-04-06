@@ -125,6 +125,24 @@ int main() {
         escape_entry->create_instruction<CoreIrLoadInst>(i32_type, "t11", escaped_slot);
     escape_entry->create_instruction<CoreIrReturnInst>(void_type, escaped_load);
 
+    auto *mutable_function = module->create_function<CoreIrFunction>(
+        "mutable_slot_chain", function_type, false);
+    auto *mutable_entry =
+        mutable_function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *mutable_slot =
+        mutable_function->create_stack_slot<CoreIrStackSlot>("mutable", i32_type, 4);
+    mutable_entry->create_instruction<CoreIrStoreInst>(void_type, zero, mutable_slot);
+    auto *mutable_load0 =
+        mutable_entry->create_instruction<CoreIrLoadInst>(i32_type, "t12", mutable_slot);
+    auto *mutable_next = mutable_entry->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "t13", mutable_load0, one);
+    mutable_entry->create_instruction<CoreIrStoreInst>(void_type, mutable_next, mutable_slot);
+    auto *mutable_load1 =
+        mutable_entry->create_instruction<CoreIrLoadInst>(i32_type, "t14", mutable_slot);
+    auto *mutable_sum = mutable_entry->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "t15", mutable_load1, one);
+    mutable_entry->create_instruction<CoreIrReturnInst>(void_type, mutable_sum);
+
     CompilerContext compiler_context;
     compiler_context.set_core_ir_build_result(
         std::make_unique<CoreIrBuildResult>(std::move(context), module));
@@ -147,6 +165,8 @@ int main() {
     assert(text.find("%t8 = add i32 7, 1") != std::string::npos);
     assert(text.find("%t10 = add i32 %t8, 7") != std::string::npos);
     assert(text.find("ret i32 0") == std::string::npos);
+    assert(text.find("%t14 = load i32, stackslot %mutable") == std::string::npos);
+    assert(text.find("%t15 = add i32 %t13, 1") != std::string::npos);
     assert(escape_call != nullptr);
     return 0;
 }

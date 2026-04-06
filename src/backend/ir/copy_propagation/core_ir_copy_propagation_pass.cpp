@@ -309,7 +309,11 @@ bool propagate_load_copies(CoreIrBasicBlock &block) {
         }
 
         if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction); store != nullptr) {
-            invalidate_available_loads_for_store(*store, available_loads);
+            if (store->get_stack_slot() != nullptr) {
+                available_loads[store->get_stack_slot()] = store->get_value();
+            } else {
+                invalidate_available_loads_for_store(*store, available_loads);
+            }
             ++index;
             continue;
         }
