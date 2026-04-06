@@ -18,9 +18,11 @@
 #include "backend/ir/lower/lower_ir_pass.hpp"
 #include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
 #include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
+#include "backend/ir/pipeline/core_ir_pass_pipeline.hpp"
 #include "backend/ir/sccp/core_ir_sccp_pass.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
+#include "backend/ir/verify/core_ir_verifier.hpp"
 #include "compiler/complier.hpp"
 #include "frontend/ast/ast_pass.hpp"
 #include "frontend/lexer/lexer.hpp"
@@ -129,6 +131,24 @@ const std::vector<CoreIrBasicBlock *> &
 CoreIrCfgAnalysisResult::get_predecessors(const CoreIrBasicBlock *) const {
     static const std::vector<CoreIrBasicBlock *> empty;
     return empty;
+}
+
+CoreIrVerifyResult CoreIrVerifier::verify_module(const CoreIrModule &) const {
+    return {};
+}
+
+CoreIrVerifyResult CoreIrVerifier::verify_function(
+    const CoreIrFunction &, const CoreIrCfgAnalysisResult *) const {
+    return {};
+}
+
+bool emit_core_ir_verify_result(CompilerContext &, const CoreIrVerifyResult &,
+                                const char *) {
+    return true;
+}
+
+void append_default_core_ir_pipeline(PassManager &pass_manager) {
+    pass_manager.AddPass(std::make_unique<BuildCoreIrPass>());
 }
 
 PassKind CoreIrCanonicalizePass::Kind() const {

@@ -17,6 +17,7 @@
 #include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
 #include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
 #include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
+#include "backend/ir/pipeline/core_ir_pass_pipeline.hpp"
 #include "backend/ir/sccp/core_ir_sccp_pass.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
@@ -67,37 +68,7 @@ void Complier::InitializePasses() {
     pass_manager_.AddPass(std::make_unique<ParserPass>());
     pass_manager_.AddPass(std::make_unique<AstPass>());
     pass_manager_.AddPass(std::make_unique<SemanticPass>());
-    pass_manager_.AddPass(std::make_unique<BuildCoreIrPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrCanonicalizePass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrLoopSimplifyPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrInstCombinePass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrStackSlotForwardPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrDeadStoreEliminationPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrInstCombinePass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrMem2RegPass>());
-    std::vector<std::unique_ptr<Pass>> post_ssa_fixed_point_passes;
-    post_ssa_fixed_point_passes.push_back(
-        std::make_unique<CoreIrCopyPropagationPass>());
-    post_ssa_fixed_point_passes.push_back(
-        std::make_unique<CoreIrInstCombinePass>());
-    post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrSccpPass>());
-    post_ssa_fixed_point_passes.push_back(
-        std::make_unique<CoreIrSimplifyCfgPass>());
-    post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrLicmPass>());
-    post_ssa_fixed_point_passes.push_back(
-        std::make_unique<CoreIrLocalCsePass>());
-    post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrGvnPass>());
-    post_ssa_fixed_point_passes.push_back(
-        std::make_unique<CoreIrInstCombinePass>());
-    post_ssa_fixed_point_passes.push_back(
-        std::make_unique<CoreIrConstFoldPass>());
-    post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrDcePass>());
-    post_ssa_fixed_point_passes.push_back(
-        std::make_unique<CoreIrSimplifyCfgPass>());
-    pass_manager_.AddCoreIrFixedPointGroup(std::move(post_ssa_fixed_point_passes),
-                                           4);
-    pass_manager_.AddPass(std::make_unique<LowerIrPass>());
+    append_default_core_ir_pipeline(pass_manager_);
     pass_manager_.AddPass(std::make_unique<AArch64AsmGenPass>());
     pipeline_initialized_ = true;
 }
