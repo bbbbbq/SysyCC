@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/intermediate_results_path.hpp"
+
 namespace sysycc::preprocess::detail {
 
 namespace {
@@ -366,7 +368,7 @@ PreprocessSession::process_line(const std::string &line, int line_number,
 
 PassResult PreprocessSession::write_preprocessed_file(
     std::string &output_file_path) const {
-    const std::filesystem::path output_dir("build/intermediate_results");
+    const std::filesystem::path output_dir = sysycc::get_intermediate_results_dir();
     std::filesystem::create_directories(output_dir);
 
     const std::filesystem::path input_path(preprocess_context_.get_input_file());

@@ -7,6 +7,7 @@
 #include <string>
 
 #include "common/diagnostic/diagnostic_engine.hpp"
+#include "common/intermediate_results_path.hpp"
 #include "common/source_span.hpp"
 #include "frontend/parser/parser.tab.h"
 
@@ -287,7 +288,8 @@ PassResult LexerPass::Run(CompilerContext &context) {
     std::fclose(input);
 
     if (context.get_dump_tokens()) {
-        const std::filesystem::path output_dir("build/intermediate_results");
+        const std::filesystem::path output_dir =
+            sysycc::get_intermediate_results_dir();
         std::filesystem::create_directories(output_dir);
 
         const std::filesystem::path input_path(context.get_input_file());

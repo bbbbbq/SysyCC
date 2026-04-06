@@ -7,6 +7,7 @@
 #include <string>
 
 #include "common/diagnostic/diagnostic_engine.hpp"
+#include "common/intermediate_results_path.hpp"
 #include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser_feature_validator.hpp"
 #include "frontend/parser/parser_runtime.hpp"
@@ -117,7 +118,8 @@ PassResult ParserPass::Run(CompilerContext &context) {
                    : FormatParserErrorMessage(parser_error_info));
 
     if (context.get_dump_parse()) {
-        const std::filesystem::path output_dir("build/intermediate_results");
+        const std::filesystem::path output_dir =
+            sysycc::get_intermediate_results_dir();
         std::filesystem::create_directories(output_dir);
 
         const std::filesystem::path input_path(context.get_input_file());

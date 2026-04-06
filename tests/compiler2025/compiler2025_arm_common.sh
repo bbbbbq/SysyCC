@@ -200,3 +200,33 @@ payload = {
 output_json.write_text(json.dumps(payload, indent=2, sort_keys=True))
 PY
 }
+
+compiler2025_prepare_compiler_snapshot() {
+    local compiler_bin="$1"
+    local ir_output_dir="$2"
+    local snapshot_root="$3"
+
+    if [[ ! -f "${compiler_bin}" || ! -x "${compiler_bin}" ]]; then
+        echo "missing compiler binary for snapshot: ${compiler_bin}" >&2
+        return 1
+    fi
+
+    mkdir -p "${snapshot_root}"
+    local snapshot_bin="${snapshot_root}/SysyCC.snapshot"
+    local snapshot_ir_dir="${snapshot_root}/intermediate_results"
+    rm -rf "${snapshot_ir_dir}"
+    mkdir -p "${snapshot_ir_dir}"
+    cp "${compiler_bin}" "${snapshot_bin}"
+    chmod +x "${snapshot_bin}"
+
+    COMPILER2025_SNAPSHOT_COMPILER_BIN="${snapshot_bin}"
+    COMPILER2025_SNAPSHOT_IR_OUTPUT_DIR="${snapshot_ir_dir}"
+    export COMPILER2025_SNAPSHOT_COMPILER_BIN
+    export COMPILER2025_SNAPSHOT_IR_OUTPUT_DIR
+
+    if [[ -d "${ir_output_dir}" ]]; then
+        # Keep existing tooling that expects the directory to exist, but run the
+        # actual benchmark compiles against the isolated snapshot directory above.
+        :
+    fi
+}

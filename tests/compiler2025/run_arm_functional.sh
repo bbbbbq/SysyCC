@@ -149,6 +149,12 @@ fi
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 mkdir -p "${CASE_BUILD_ROOT_BASE}"
+compiler2025_prepare_compiler_snapshot \
+    "${COMPILER_BIN}" "${IR_OUTPUT_DIR}" \
+    "${CASE_BUILD_ROOT_BASE}/toolchain_snapshot"
+COMPILER_BIN="${COMPILER2025_SNAPSHOT_COMPILER_BIN}"
+IR_OUTPUT_DIR="${COMPILER2025_SNAPSHOT_IR_OUTPUT_DIR}"
+export SYSYCC_INTERMEDIATE_RESULTS_DIR="${IR_OUTPUT_DIR}"
 RUNTIME_IR_FILE="$(
     compiler2025_compile_runtime_ir \
         "${COMPILER_BIN}" "${RUNTIME_SOURCE}" "${IR_OUTPUT_DIR}" \

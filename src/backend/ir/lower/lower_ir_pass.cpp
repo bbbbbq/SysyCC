@@ -12,6 +12,7 @@
 #include "backend/ir/lower/lowering/core_ir_target_backend_factory.hpp"
 #include "backend/asm_gen/backend_kind.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
+#include "common/intermediate_results_path.hpp"
 
 namespace sysycc {
 
@@ -66,7 +67,8 @@ PassResult LowerIrPass::Run(CompilerContext &context) {
 
     context.set_ir_result(std::move(ir_result));
     if (context.get_dump_ir() && context.get_ir_result() != nullptr) {
-        const std::filesystem::path output_dir("build/intermediate_results");
+        const std::filesystem::path output_dir =
+            sysycc::get_intermediate_results_dir();
         std::filesystem::create_directories(output_dir);
 
         const std::filesystem::path input_path(context.get_input_file());

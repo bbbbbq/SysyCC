@@ -4,6 +4,7 @@
 #include <fstream>
 
 #include "common/diagnostic/diagnostic_engine.hpp"
+#include "common/intermediate_results_path.hpp"
 #include "frontend/ast/ast_dump.hpp"
 #include "frontend/ast/detail/ast_builder.hpp"
 #include "frontend/ast/detail/ast_feature_validator.hpp"
@@ -350,7 +351,8 @@ PassResult AstPass::Run(CompilerContext &context) {
     context.set_ast_complete(!ast_contains_unknown_nodes(context.get_ast_root()));
 
     if (context.get_dump_ast()) {
-        const std::filesystem::path output_dir("build/intermediate_results");
+        const std::filesystem::path output_dir =
+            sysycc::get_intermediate_results_dir();
         std::filesystem::create_directories(output_dir);
 
         const std::filesystem::path input_path(context.get_input_file());

@@ -14,6 +14,7 @@
 #include "backend/ir/shared/core/ir_module.hpp"
 #include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
+#include "common/intermediate_results_path.hpp"
 
 namespace sysycc {
 
@@ -241,7 +242,8 @@ PassResult CoreIrDcePass::Run(CompilerContext &context) {
 
     context.set_core_ir_dump_file_path("");
     if (context.get_dump_core_ir()) {
-        const std::filesystem::path output_dir("build/intermediate_results");
+        const std::filesystem::path output_dir =
+            sysycc::get_intermediate_results_dir();
         std::filesystem::create_directories(output_dir);
         const std::filesystem::path input_path(context.get_input_file());
         const std::filesystem::path output_file =
