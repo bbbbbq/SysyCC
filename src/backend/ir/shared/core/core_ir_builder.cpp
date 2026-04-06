@@ -29,6 +29,7 @@
 #include "frontend/semantic/model/semantic_model.hpp"
 #include "frontend/semantic/model/semantic_symbol.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
+#include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/integer_conversion_service.hpp"
 
 namespace sysycc {
@@ -305,6 +306,7 @@ class CoreIrBuildSession {
 
     CompilerContext &compiler_context_;
     SemanticModel &semantic_model_;
+    detail::ConstantEvaluator constant_evaluator_;
     std::unique_ptr<CoreIrContext> core_ir_context_;
     CoreIrModule *module_ = nullptr;
     const CoreIrType *void_type_ = nullptr;
@@ -4843,6 +4845,7 @@ class CoreIrBuildSession {
 
     const CoreIrConstant *
     build_global_scalar_initializer(const Expr *initializer,
+                                    const SemanticType *declared_semantic_type,
                                     const CoreIrType *declared_type,
                                     SourceSpan source_span,
                                     bool is_extern) {
@@ -4892,7 +4895,12 @@ class CoreIrBuildSession {
 
         const std::optional<long long> constant_value =
             get_integer_constant_value(initializer);
-        if (!constant_value.has_value()) {
+        const std::optional<long long> converted_constant_value =
+            constant_value.has_value()
+                ? constant_value
+                : constant_evaluator_.get_scalar_constant_value_as_integer(
+                      initializer, declared_semantic_type, semantic_model_);
+        if (!converted_constant_value.has_value()) {
             if (declared_type->get_kind() == CoreIrTypeKind::Pointer) {
                 if (is_null_pointer_constant_expr(initializer)) {
                     return core_ir_context_->create_constant<CoreIrConstantNull>(
@@ -4914,10 +4922,11 @@ class CoreIrBuildSession {
         }
         if (declared_type->get_kind() == CoreIrTypeKind::Integer) {
             return core_ir_context_->create_constant<CoreIrConstantInt>(
-                declared_type, static_cast<std::uint64_t>(*constant_value));
+                declared_type,
+                static_cast<std::uint64_t>(*converted_constant_value));
         }
         if (declared_type->get_kind() == CoreIrTypeKind::Pointer &&
-            *constant_value == 0) {
+            *converted_constant_value == 0) {
             return core_ir_context_->create_constant<CoreIrConstantNull>(
                 declared_type);
         }
@@ -5324,10 +5333,16 @@ class CoreIrBuildSession {
 
         const std::optional<long long> constant_value =
             get_integer_constant_value(initializer);
+        const std::optional<long long> converted_constant_value =
+            constant_value.has_value()
+                ? constant_value
+                : constant_evaluator_.get_scalar_constant_value_as_integer(
+                      initializer, semantic_type, semantic_model_);
         if (declared_type->get_kind() == CoreIrTypeKind::Integer &&
-            constant_value.has_value()) {
+            converted_constant_value.has_value()) {
             return core_ir_context_->create_constant<CoreIrConstantInt>(
-                declared_type, static_cast<std::uint64_t>(*constant_value));
+                declared_type,
+                static_cast<std::uint64_t>(*converted_constant_value));
         }
         if (declared_type->get_kind() == CoreIrTypeKind::Pointer &&
             is_null_pointer_constant_expr(initializer)) {
@@ -5425,8 +5440,9 @@ class CoreIrBuildSession {
                 initializer, semantic_type, union_type, source_span);
         }
 
-        return build_global_scalar_initializer(initializer, declared_type,
-                                               source_span, is_extern);
+        return build_global_scalar_initializer(initializer, semantic_type,
+                                               declared_type, source_span,
+                                               is_extern);
     }
 
     bool emit_global_var_decl(const VarDecl &var_decl) {
