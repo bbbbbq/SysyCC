@@ -11,6 +11,11 @@ Tests are now grouped by pipeline stage:
 
 ```text
 tests/
+├── compiler2025/
+│   ├── run_functional.sh
+│   ├── run_arm_functional.sh
+│   ├── run_arm_performance.sh
+│   └── runtime support files
 ├── dialects/
 │   └── <case>/
 ├── fuzz/
@@ -48,6 +53,18 @@ now also does three important pieces of resource coordination for local runs:
 - wraps heavy host-side tools such as `SysyCC`, `clang`, and `clang++`
   behind one shared slot controller so several manually started single-case
   scripts do not all spawn peak-memory compile/link work at once
+
+`tests/compiler2025/` holds larger external-suite entry points that sit beside,
+rather than inside, the regular `tests/<stage>/<case>/run.sh` tree. The
+current scripts cover:
+
+- the original correctness harness for the recovered `functional` and
+  `h_functional` suites
+- an ARM-performance correctness runner that treats
+  `tests/compiler2025/extracted/ARM-性能` as a case root and checks the
+  generated program output against the bundled `.out` files
+- an ARM-performance benchmark runner that compares SysyCC-generated LLVM IR
+  programs against a direct Clang baseline and writes a Markdown timing report
 
 Recent end-to-end coverage that now matters for the shared SysY22/C goal
 includes:
