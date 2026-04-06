@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "backend/ir/analysis/analysis_manager.hpp"
+#include "backend/ir/analysis/cfg_analysis.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -236,14 +236,17 @@ bool simplify_constant_cond_jumps(CoreIrFunction &function) {
     return changed;
 }
 
-bool remove_one_trampoline_block(CoreIrAnalysisManager &analysis_manager,
-                                 CoreIrFunction &function) {
+CoreIrCfgAnalysisResult compute_cfg(CoreIrFunction &function) {
+    CoreIrCfgAnalysis analysis;
+    return analysis.Run(function);
+}
+
+bool remove_one_trampoline_block(CoreIrFunction &function,
+                                 const CoreIrCfgAnalysisResult &cfg_analysis) {
     if (function.get_basic_blocks().empty()) {
         return false;
     }
 
-    const CoreIrCfgAnalysisResult &cfg_analysis =
-        analysis_manager.get_or_compute<CoreIrCfgAnalysis>(function);
     CoreIrBasicBlock *entry_block = function.get_basic_blocks().front().get();
     auto &blocks = function.get_basic_blocks();
     for (auto it = blocks.begin(); it != blocks.end(); ++it) {
@@ -285,10 +288,8 @@ bool remove_one_trampoline_block(CoreIrAnalysisManager &analysis_manager,
     return false;
 }
 
-bool remove_unreachable_blocks(CoreIrAnalysisManager &analysis_manager,
-                               CoreIrFunction &function) {
-    const CoreIrCfgAnalysisResult &cfg_analysis =
-        analysis_manager.get_or_compute<CoreIrCfgAnalysis>(function);
+bool remove_unreachable_blocks(CoreIrFunction &function,
+                               const CoreIrCfgAnalysisResult &cfg_analysis) {
     const CoreIrBasicBlock *entry_block = cfg_analysis.get_entry_block();
     auto &blocks = function.get_basic_blocks();
     std::vector<CoreIrBasicBlock *> unreachable_blocks;
@@ -331,10 +332,8 @@ bool remove_unreachable_blocks(CoreIrAnalysisManager &analysis_manager,
     return true;
 }
 
-bool merge_linear_blocks(CoreIrAnalysisManager &analysis_manager,
-                         CoreIrFunction &function) {
-    const CoreIrCfgAnalysisResult &cfg_analysis =
-        analysis_manager.get_or_compute<CoreIrCfgAnalysis>(function);
+bool merge_linear_blocks(CoreIrFunction &function,
+                         const CoreIrCfgAnalysisResult &cfg_analysis) {
     if (function.get_basic_blocks().empty()) {
         return false;
     }
@@ -434,37 +433,33 @@ PassResult CoreIrSimplifyCfgPass::Run(CompilerContext &context) {
         return fail_missing_core_ir(context, Name());
     }
 
-    CoreIrAnalysisManager *analysis_manager = build_result->get_analysis_manager();
-    if (analysis_manager == nullptr) {
-        return PassResult::Failure("missing core ir analysis manager");
-    }
-
     CoreIrPassEffects effects;
     bool changed = true;
     while (changed) {
         changed = false;
         for (const auto &function : build_result->get_module()->get_functions()) {
             bool function_changed = false;
+            CoreIrCfgAnalysisResult cfg_analysis = compute_cfg(*function);
 
             if (simplify_constant_cond_jumps(*function)) {
                 function_changed = true;
-                analysis_manager->invalidate(*function);
+                cfg_analysis = compute_cfg(*function);
             }
             if (simplify_redundant_cond_jumps(*function)) {
                 function_changed = true;
-                analysis_manager->invalidate(*function);
+                cfg_analysis = compute_cfg(*function);
             }
-            if (remove_one_trampoline_block(*analysis_manager, *function)) {
+            if (remove_one_trampoline_block(*function, cfg_analysis)) {
                 function_changed = true;
-                analysis_manager->invalidate(*function);
+                cfg_analysis = compute_cfg(*function);
             }
-            if (remove_unreachable_blocks(*analysis_manager, *function)) {
+            if (remove_unreachable_blocks(*function, cfg_analysis)) {
                 function_changed = true;
-                analysis_manager->invalidate(*function);
+                cfg_analysis = compute_cfg(*function);
             }
-            if (merge_linear_blocks(*analysis_manager, *function)) {
+            if (merge_linear_blocks(*function, cfg_analysis)) {
                 function_changed = true;
-                analysis_manager->invalidate(*function);
+                cfg_analysis = compute_cfg(*function);
             }
             if (function_changed) {
                 effects.changed_functions.insert(function.get());

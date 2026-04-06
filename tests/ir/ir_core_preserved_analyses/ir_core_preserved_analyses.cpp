@@ -119,7 +119,7 @@ void test_simplify_cfg_invalidates_cfg_family() {
     assert(pass_manager.Run(*context).ok);
 
     (void)analysis_manager->get_or_compute<CoreIrCfgAnalysis>(*function);
-    assert(analysis_manager->get_compute_count(*function, CoreIrAnalysisKind::Cfg) >= 2);
+    assert(analysis_manager->get_compute_count(*function, CoreIrAnalysisKind::Cfg) == 2);
 }
 
 void test_mem2reg_preserves_cfg_but_invalidates_memory() {
