@@ -237,6 +237,16 @@ std::size_t count_unrollable_body_instructions(const CoreIrBasicBlock &body) {
     return count;
 }
 
+std::size_t count_unrollable_body_instructions(const std::vector<CoreIrBasicBlock *> &blocks) {
+    std::size_t count = 0;
+    for (CoreIrBasicBlock *block : blocks) {
+        if (block != nullptr) {
+            count += count_unrollable_body_instructions(*block);
+        }
+    }
+    return count;
+}
+
 struct HeaderPhiInfo {
     CoreIrPhiInst *phi = nullptr;
     CoreIrValue *initial_value = nullptr;
@@ -387,23 +397,30 @@ bool fully_unroll_small_loop(CoreIrFunction &function, const CoreIrLoopInfo &loo
                              CoreIrContext &core_ir_context) {
     std::optional<std::uint64_t> trip_count = scev.get_constant_trip_count(loop);
     if (!trip_count.has_value() || *trip_count > 128 || loop.get_latches().size() != 1 ||
-        loop.get_blocks().size() != 2 || loop.get_preheader() == nullptr ||
+        loop.get_blocks().size() < 2 || loop.get_blocks().size() > 3 ||
+        loop.get_preheader() == nullptr ||
         iv.phi == nullptr || iv.latch == nullptr) {
         return false;
     }
 
     CoreIrBasicBlock *header = loop.get_header();
+    CoreIrBasicBlock *latch = iv.latch;
     CoreIrBasicBlock *body = nullptr;
     for (CoreIrBasicBlock *block : loop.get_blocks()) {
-        if (block != nullptr && block != header) {
+        if (block != nullptr && block != header && block != latch) {
             body = block;
         }
     }
-    if (header == nullptr || body == nullptr || body != iv.latch ||
-        body->get_instructions().empty()) {
+    if (header == nullptr || latch == nullptr) {
         return false;
     }
-    const auto phi_infos = collect_header_phi_infos(*header, loop.get_preheader(), body);
+    if (body == nullptr) {
+        body = latch;
+    }
+    if (body->get_instructions().empty() || latch->get_instructions().empty()) {
+        return false;
+    }
+    const auto phi_infos = collect_header_phi_infos(*header, loop.get_preheader(), latch);
     if (!phi_infos.has_value()) {
         return false;
     }
@@ -418,10 +435,20 @@ bool fully_unroll_small_loop(CoreIrFunction &function, const CoreIrLoopInfo &loo
         header->get_instructions().back().get());
     auto *body_jump = dynamic_cast<CoreIrJumpInst *>(
         body->get_instructions().back().get());
+    auto *latch_jump = dynamic_cast<CoreIrJumpInst *>(
+        latch->get_instructions().back().get());
     auto *preheader_jump = dynamic_cast<CoreIrJumpInst *>(
         loop.get_preheader()->get_instructions().back().get());
-    if (header_branch == nullptr || body_jump == nullptr || preheader_jump == nullptr ||
-        body_jump->get_target_block() != header || preheader_jump->get_target_block() != header) {
+    if (header_branch == nullptr || body_jump == nullptr || latch_jump == nullptr ||
+        preheader_jump == nullptr || preheader_jump->get_target_block() != header) {
+        return false;
+    }
+    if (body == latch) {
+        if (body_jump->get_target_block() != header) {
+            return false;
+        }
+    } else if (body_jump->get_target_block() != latch ||
+               latch_jump->get_target_block() != header) {
         return false;
     }
 
@@ -435,7 +462,8 @@ bool fully_unroll_small_loop(CoreIrFunction &function, const CoreIrLoopInfo &loo
         return false;
     }
 
-    const std::size_t body_instruction_count = count_unrollable_body_instructions(*body);
+    const std::size_t body_instruction_count =
+        count_unrollable_body_instructions({body, body == latch ? nullptr : latch});
     if (body_instruction_count == 0 ||
         body_instruction_count * *trip_count > 768) {
         return false;
@@ -452,16 +480,25 @@ bool fully_unroll_small_loop(CoreIrFunction &function, const CoreIrLoopInfo &loo
         return false;
     }
 
-    for (const auto &instruction_ptr : body->get_instructions()) {
-        CoreIrInstruction *instruction = instruction_ptr.get();
-        if (instruction == nullptr || instruction->get_is_terminator()) {
+    for (CoreIrBasicBlock *block : {body, body == latch ? nullptr : latch}) {
+        if (block == nullptr) {
             continue;
         }
-        if (!instruction_is_unrollable_body_instruction(*instruction)) {
+        if (block_has_phi(*block)) {
             return false;
         }
-        if (!instruction_has_only_unrollable_uses(*instruction, loop, header_phi_set)) {
-            return false;
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr || instruction->get_is_terminator()) {
+                continue;
+            }
+            if (!instruction_is_unrollable_body_instruction(*instruction)) {
+                return false;
+            }
+            if (!instruction_has_only_unrollable_uses(*instruction, loop,
+                                                      header_phi_set)) {
+                return false;
+            }
         }
     }
 
@@ -475,20 +512,26 @@ bool fully_unroll_small_loop(CoreIrFunction &function, const CoreIrLoopInfo &loo
             value_map.emplace(phi_info.phi, current_phi_values.at(phi_info.phi));
         }
 
-        for (const auto &instruction_ptr : body->get_instructions()) {
-            CoreIrInstruction *instruction = instruction_ptr.get();
-            if (instruction == nullptr || instruction->get_is_terminator()) {
+        for (CoreIrBasicBlock *block : {body, body == latch ? nullptr : latch}) {
+            if (block == nullptr) {
                 continue;
             }
-            CoreIrInstruction *clone =
-                clone_instruction(*instruction, core_ir_context, value_map);
-            if (clone == nullptr) {
-                return false;
+            for (const auto &instruction_ptr : block->get_instructions()) {
+                CoreIrInstruction *instruction = instruction_ptr.get();
+                if (instruction == nullptr || instruction->get_is_terminator()) {
+                    continue;
+                }
+                CoreIrInstruction *clone =
+                    clone_instruction(*instruction, core_ir_context, value_map);
+                if (clone == nullptr) {
+                    return false;
+                }
+                value_map.emplace(instruction, clone);
+                insert_instruction_before(
+                    *loop.get_preheader(),
+                    loop.get_preheader()->get_instructions().back().get(),
+                    std::unique_ptr<CoreIrInstruction>(clone));
             }
-            value_map.emplace(instruction, clone);
-            insert_instruction_before(*loop.get_preheader(),
-                                      loop.get_preheader()->get_instructions().back().get(),
-                                      std::unique_ptr<CoreIrInstruction>(clone));
         }
 
         for (const HeaderPhiInfo &phi_info : *phi_infos) {

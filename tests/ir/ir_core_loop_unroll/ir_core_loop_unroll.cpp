@@ -222,6 +222,58 @@ int main() {
     assert(entry_jump3->get_target_block() == exit3);
     assert(ret3->get_return_value() != sum3);
 
+    auto context3b = std::make_unique<CoreIrContext>();
+    auto *void_type3b = context3b->create_type<CoreIrVoidType>();
+    auto *i1_type3b = context3b->create_type<CoreIrIntegerType>(1);
+    auto *i32_type3b = context3b->create_type<CoreIrIntegerType>(32);
+    auto *function_type3b = context3b->create_type<CoreIrFunctionType>(
+        i32_type3b, std::vector<const CoreIrType *>{}, false);
+    auto *module3b = context3b->create_module<CoreIrModule>(
+        "ir_core_loop_unroll_split_latch");
+    auto *function3b =
+        module3b->create_function<CoreIrFunction>("main", function_type3b, false);
+    auto *entry3b = function3b->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header3b = function3b->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body3b = function3b->create_basic_block<CoreIrBasicBlock>("body");
+    auto *latch3b = function3b->create_basic_block<CoreIrBasicBlock>("latch");
+    auto *exit3b = function3b->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero3b = context3b->create_constant<CoreIrConstantInt>(i32_type3b, 0);
+    auto *one3b = context3b->create_constant<CoreIrConstantInt>(i32_type3b, 1);
+    auto *four3b = context3b->create_constant<CoreIrConstantInt>(i32_type3b, 4);
+
+    entry3b->create_instruction<CoreIrJumpInst>(void_type3b, header3b);
+    auto *iv3b = header3b->create_instruction<CoreIrPhiInst>(i32_type3b, "iv");
+    auto *sum3b = header3b->create_instruction<CoreIrPhiInst>(i32_type3b, "sum");
+    auto *cmp3b = header3b->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type3b, "cmp", iv3b, four3b);
+    header3b->create_instruction<CoreIrCondJumpInst>(void_type3b, cmp3b, body3b, exit3b);
+    auto *body_accum3b = body3b->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type3b, "body.accum", sum3b, iv3b);
+    body3b->create_instruction<CoreIrJumpInst>(void_type3b, latch3b);
+    auto *sum_next3b = latch3b->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type3b, "sum.next", body_accum3b, one3b);
+    auto *iv_next3b = latch3b->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type3b, "iv.next", iv3b, one3b);
+    latch3b->create_instruction<CoreIrJumpInst>(void_type3b, header3b);
+    auto *ret3b = exit3b->create_instruction<CoreIrReturnInst>(void_type3b, sum3b);
+    iv3b->add_incoming(entry3b, zero3b);
+    iv3b->add_incoming(latch3b, iv_next3b);
+    sum3b->add_incoming(entry3b, zero3b);
+    sum3b->add_incoming(latch3b, sum_next3b);
+
+    CompilerContext compiler_context3b;
+    compiler_context3b.set_core_ir_build_result(
+        std::make_unique<CoreIrBuildResult>(std::move(context3b), module3b));
+
+    CoreIrLoopUnrollPass split_latch_unroll_pass;
+    assert(split_latch_unroll_pass.Run(compiler_context3b).ok);
+
+    auto *entry_jump3b =
+        dynamic_cast<CoreIrJumpInst *>(entry3b->get_instructions().back().get());
+    assert(entry_jump3b != nullptr);
+    assert(entry_jump3b->get_target_block() == exit3b);
+    assert(ret3b->get_return_value() != sum3b);
+
     auto context4 = std::make_unique<CoreIrContext>();
     auto *void_type4 = context4->create_type<CoreIrVoidType>();
     auto *i1_type4 = context4->create_type<CoreIrIntegerType>(1);

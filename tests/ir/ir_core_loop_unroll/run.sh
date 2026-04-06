@@ -27,5 +27,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: LoopUnroll fully unrolls small constant-trip pure loops by cloning the body into the preheader"
-
+echo "verified: LoopUnroll fully unrolls small constant-trip loops across compact two-block and split-latch forms"
