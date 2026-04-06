@@ -76,6 +76,61 @@ std::size_t allocate_aggregate_value_slot(std::size_t &current_offset,
     return current_offset;
 }
 
+bool validate_function_lowering_readiness(const CoreIrFunction &function,
+                                          AArch64FunctionPlanningContext &context) {
+    if (!is_supported_native_value_type(
+            function.get_function_type()->get_return_type())) {
+        context.report_error(
+            "unsupported return type in AArch64 native backend for function '" +
+            function.get_name() + "'");
+        return false;
+    }
+    for (const auto &parameter : function.get_parameters()) {
+        if (!is_supported_native_value_type(parameter->get_type())) {
+            context.report_error(
+                "unsupported parameter type in AArch64 native backend for function '" +
+                function.get_name() + "'");
+            return false;
+        }
+    }
+    for (const auto &stack_slot : function.get_stack_slots()) {
+        if (!is_supported_object_type(stack_slot->get_allocated_type())) {
+            context.report_error(
+                "unsupported stack slot type in AArch64 native backend for function '" +
+                function.get_name() + "'");
+            return false;
+        }
+    }
+    return true;
+}
+
+void seed_incoming_stack_argument_offsets(
+    const CoreIrFunction &function, const AArch64FunctionAbiInfo &abi_info,
+    std::unordered_map<const CoreIrParameter *, std::size_t>
+        &incoming_stack_argument_offsets) {
+    for (std::size_t index = 0; index < function.get_parameters().size(); ++index) {
+        const AArch64AbiAssignment &assignment = abi_info.parameters[index];
+        if (!assignment.locations.empty() &&
+            assignment.locations.front().kind == AArch64AbiLocationKind::Stack) {
+            incoming_stack_argument_offsets.emplace(
+                function.get_parameters()[index].get(),
+                assignment.locations.front().stack_offset);
+        }
+    }
+}
+
+void layout_stack_slots(AArch64MachineFunction &machine_function,
+                        const CoreIrFunction &function,
+                        std::size_t &current_offset) {
+    for (const auto &stack_slot : function.get_stack_slots()) {
+        current_offset = align_to(current_offset,
+                                  get_type_alignment(stack_slot->get_allocated_type()));
+        current_offset += get_type_size(stack_slot->get_allocated_type());
+        machine_function.get_frame_info().set_stack_slot_offset(stack_slot.get(),
+                                                                current_offset);
+    }
+}
+
 bool seed_function_value_locations(
     const CoreIrFunction &function, AArch64MachineFunction &machine_function,
     std::unordered_map<const CoreIrValue *, AArch64ValueLocation> &value_locations,

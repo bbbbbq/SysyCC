@@ -640,31 +640,10 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         if (function.get_basic_blocks().empty()) {
             return true;
         }
-        if (!is_supported_native_value_type(
-                function.get_function_type()->get_return_type())) {
-            add_backend_error(
-                diagnostic_engine_,
-                "unsupported return type in AArch64 native backend for function '" +
-                    function.get_name() + "'");
+        FunctionPlanningContextAdapter planning_context(*this, abi_lowering_pass_);
+        if (!sysycc::validate_function_lowering_readiness(function,
+                                                          planning_context)) {
             return false;
-        }
-        for (const auto &parameter : function.get_parameters()) {
-            if (!is_supported_native_value_type(parameter->get_type())) {
-                add_backend_error(diagnostic_engine_,
-                                  "unsupported parameter type in AArch64 native "
-                                  "backend for function '" +
-                                      function.get_name() + "'");
-                return false;
-            }
-        }
-        for (const auto &stack_slot : function.get_stack_slots()) {
-            if (!is_supported_object_type(stack_slot->get_allocated_type())) {
-                add_backend_error(diagnostic_engine_,
-                                  "unsupported stack slot type in AArch64 native "
-                                  "backend for function '" +
-                                      function.get_name() + "'");
-                return false;
-            }
         }
 
         const std::string function_name = function.get_name();
@@ -679,30 +658,18 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         state.abi_info = abi_lowering_pass_.classify_function(function);
 
         std::size_t current_offset = 0;
-        for (std::size_t index = 0; index < function.get_parameters().size(); ++index) {
-            const AArch64AbiAssignment &assignment = state.abi_info.parameters[index];
-            if (!assignment.locations.empty() &&
-                assignment.locations.front().kind == AArch64AbiLocationKind::Stack) {
-                state.incoming_stack_argument_offsets.emplace(
-                    function.get_parameters()[index].get(),
-                    assignment.locations.front().stack_offset);
-            }
-        }
-        for (const auto &stack_slot : function.get_stack_slots()) {
-            current_offset = align_to(current_offset,
-                                      get_type_alignment(stack_slot->get_allocated_type()));
-            current_offset += get_type_size(stack_slot->get_allocated_type());
-            machine_function.get_frame_info().set_stack_slot_offset(stack_slot.get(),
-                                                                    current_offset);
-        }
+        sysycc::seed_incoming_stack_argument_offsets(
+            function, state.abi_info, state.incoming_stack_argument_offsets);
+        sysycc::layout_stack_slots(machine_function, function, current_offset);
 
         if (!seed_function_value_locations(function, state, current_offset)) {
             return false;
         }
-        FunctionPlanningContextAdapter planning_context(*this, abi_lowering_pass_);
+        FunctionPlanningContextAdapter copy_slot_planning_context(
+            *this, abi_lowering_pass_);
         sysycc::seed_call_argument_copy_slots(
             function, state.indirect_call_argument_copy_offsets, current_offset,
-            planning_context);
+            copy_slot_planning_context);
         const std::size_t frame_size = align_to(current_offset, 16);
         machine_function.get_frame_info().set_local_size(current_offset);
         machine_function.get_frame_info().set_frame_size(frame_size);
