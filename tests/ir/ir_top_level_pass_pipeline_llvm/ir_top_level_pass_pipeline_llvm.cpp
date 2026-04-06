@@ -85,9 +85,8 @@ int main(int argc, char **argv) {
         "  %t1.raw = icmp slt i32 %t0, 2\n"
         "  br i1 %t1.raw, label %if.then0, label %if.end0\n"
         "if.then0:\n"
-        "  %t2 = load i32, ptr %value.addr\n"
-        "  %t3 = add i32 %t2, 3\n"
-        "  ret i32 %t3\n"
+        "  %t2 = add i32 %t0, 3\n"
+        "  ret i32 %t2\n"
         "if.end0:\n"
         "  ret i32 0\n"
         "}\n";

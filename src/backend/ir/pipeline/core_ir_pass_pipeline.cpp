@@ -88,6 +88,8 @@ void append_post_ssa_fixed_point_pipeline(PassManager &pass_manager) {
     post_ssa_fixed_point_passes.push_back(
         std::make_unique<CoreIrInstCombinePass>());
     post_ssa_fixed_point_passes.push_back(
+        std::make_unique<CoreIrDeadStoreEliminationPass>());
+    post_ssa_fixed_point_passes.push_back(
         std::make_unique<CoreIrLocalCsePass>());
     post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrGvnPass>());
     post_ssa_fixed_point_passes.push_back(
