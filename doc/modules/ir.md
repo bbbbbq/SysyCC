@@ -428,12 +428,19 @@ LLVM IR lowering path:
 - staged top-level pointer globals can now lower constant address initializers
   such as `&g`, `&items[1]`, `&pair.right`, and null-pointer constants such as
   `(void*)0`
+- staged top-level pointer globals now also accept canonical array-decay plus
+  constant-offset forms such as `items + 1`, reusing the same constant-address
+  normalization path as explicit `&items[1]`
 - top-level aggregate initializers can now also carry nested pointer constants
   such as `{&g}` and `{&items[1]}`
 - top-level character arrays can now lower constant string-literal
   initializers into staged Core IR globals
 - local character arrays can now lower string-literal initializers into
   explicit staged element stores
+- local/global array and struct aggregate initializers now share the same
+  recursive initializer cursoring helpers inside `CoreIrBuilder`, so omitted
+  braces, nested aggregates, union-first-field packing, and zero-fill rules
+  stay aligned across store-sequence lowering and global-constant emission
 - function identifiers now lower through explicit `addr_of_function` values so
   local function-pointer initializers and indirect calls can flow through the
   same Core IR object model as other addresses
@@ -627,6 +634,9 @@ LLVM IR lowering path:
     `GnuFunctionAttributeLoweringHandler`, currently mapping semantic
     `AlwaysInline` to backend-independent `IRFunctionAttribute::AlwaysInline`
   - label creation, unconditional branches, and conditional branches
+  - direct scalar `&&`, `||`, and `?:` value merges through staged `phi`
+    nodes when the result is scalar-valued, instead of always round-tripping
+    through temporary stack slots
   - floating comparison lowering through `fcmp olt/ole/ogt/oge/oeq/une` across
     the currently supported floating family
   - floating truthiness lowering for `if (x)` / `while (x)` / `x ? a : b`
@@ -643,6 +653,9 @@ LLVM IR lowering path:
     `break`, and `continue`
   - `switch` compare chains over integer `case` labels with `default`
     fallthrough and `switch.end` exits for `break`
+  - wrapped `switch` bodies whose `case` / `default` entries are nested under
+    block wrappers or followed by trailing statements that still belong to the
+    active case entry
   - direct function calls with supported scalar parameters and supported
     scalar/aggregate return types
   - aggregate member-address lowering for `.` and `->`
