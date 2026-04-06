@@ -337,6 +337,14 @@ bool store_is_hoistable(const CoreIrStoreInst &store, const CoreIrLoopInfo &loop
                 alias_analysis.get_location_for_instruction(instruction);
             if (other_location == nullptr ||
                 other_location->root_kind == CoreIrMemoryLocationRootKind::Unknown) {
+                if (memory_behavior_writes(effect.memory_behavior)) {
+                    return false;
+                }
+                if (memory_behavior_reads(effect.memory_behavior) &&
+                    instruction_executes_after_store(store, *instruction,
+                                                     dominator_tree)) {
+                    continue;
+                }
                 return false;
             }
             if (alias_core_ir_memory_locations(*location, *other_location) ==

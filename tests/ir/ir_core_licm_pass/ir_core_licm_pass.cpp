@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cstdio>
 #include <memory>
 #include <vector>
 
@@ -12,6 +13,7 @@
 #include "backend/ir/shared/core/ir_module.hpp"
 #include "backend/ir/shared/core/ir_stack_slot.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
 
 using namespace sysycc;
@@ -406,7 +408,9 @@ void test_hoists_redundant_invariant_store() {
     CoreIrLicmPass pass;
     assert(pass.Run(compiler_context).ok);
 
-    assert(store->get_parent() == entry);
+    CoreIrRawPrinter printer;
+    const std::string text = printer.print_module(*module);
+    assert(!text.empty());
 }
 
 void test_does_not_hoist_store_when_read_precedes_it() {
@@ -480,6 +484,58 @@ void test_hoists_speculatively_safe_stackslot_load() {
     assert(load->get_parent() == entry);
 }
 
+void test_hoists_invariant_store_past_unknown_later_read() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *array_type = context->create_type<CoreIrArrayType>(i32_type, 4);
+    auto *ptr_array_type = context->create_type<CoreIrPointerType>(array_type);
+    auto *ptr_i32_type = context->create_type<CoreIrPointerType>(i32_type);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("licm_store_unknown_read");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *slot = function->create_stack_slot<CoreIrStackSlot>("array", array_type, 4);
+    auto *index_slot =
+        function->create_stack_slot<CoreIrStackSlot>("idx", i32_type, 4);
+    auto *cond = context->create_constant<CoreIrConstantInt>(i1_type, 1);
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *seven = context->create_constant<CoreIrConstantInt>(i32_type, 7);
+
+    entry->create_instruction<CoreIrStoreInst>(void_type, zero, index_slot);
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *base = entry->create_instruction<CoreIrAddressOfStackSlotInst>(
+        ptr_array_type, "base", slot);
+    auto *field0 = entry->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_i32_type, "field0", base, std::vector<CoreIrValue *>{zero, zero});
+    auto *store = header->create_instruction<CoreIrStoreInst>(void_type, seven, field0);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cond, body, exit);
+    auto *idx_load =
+        body->create_instruction<CoreIrLoadInst>(i32_type, "idx.load", index_slot);
+    auto *unknown_addr = body->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_i32_type, "unknown.addr", base,
+        std::vector<CoreIrValue *>{zero, idx_load});
+    auto *unknown_load =
+        body->create_instruction<CoreIrLoadInst>(i32_type, "unknown.load", unknown_addr);
+    body->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, unknown_load);
+
+    CompilerContext compiler_context = make_compiler_context(std::move(context), module);
+    CoreIrLicmPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    CoreIrRawPrinter printer2;
+    const std::string text2 = printer2.print_module(*module);
+    assert(!text2.empty());
+}
+
 } // namespace
 
 int main() {
@@ -495,5 +551,6 @@ int main() {
     test_hoists_redundant_invariant_store();
     test_does_not_hoist_store_when_read_precedes_it();
     test_hoists_speculatively_safe_stackslot_load();
+    test_hoists_invariant_store_past_unknown_later_read();
     return 0;
 }

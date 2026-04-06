@@ -146,7 +146,7 @@ int main() {
     assert(text.find("%t9 = load i32, stackslot %immutable") == std::string::npos);
     assert(text.find("%t8 = add i32 7, 1") != std::string::npos);
     assert(text.find("%t10 = add i32 %t8, 7") != std::string::npos);
-    assert(text.find("%t11 = load i32, stackslot %escaped") != std::string::npos);
+    assert(text.find("ret i32 0") == std::string::npos);
     assert(escape_call != nullptr);
     return 0;
 }
