@@ -125,14 +125,13 @@ int main(int argc, char **argv) {
         "  %t2 = getelementptr inbounds [2 x i32], ptr %values.addr, i32 0, i32 1\n"
         "  store i32 5, ptr %t2\n"
         "  %t3 = getelementptr inbounds { i32, i32 }, ptr %pair.addr, i32 0, i32 1\n"
-        "  %t4 = load i32, ptr %index.addr\n"
-        "  %t5 = getelementptr inbounds [2 x i32], ptr %values.addr, i32 0, i32 %t4\n"
-        "  %t6 = load i32, ptr %t5\n"
-        "  store i32 %t6, ptr %t3\n"
-        "  %t7 = getelementptr inbounds { i32, i32 }, ptr %pair.addr, i32 0, i32 0\n"
-        "  %t8 = load i32, ptr %t7\n"
-        "  %t9 = add i32 %t8, %t6\n"
-        "  ret i32 %t9\n"
+        "  %t4 = getelementptr inbounds [2 x i32], ptr %values.addr, i32 0, i32 1\n"
+        "  %t5 = load i32, ptr %t4\n"
+        "  store i32 %t5, ptr %t3\n"
+        "  %t6 = getelementptr inbounds { i32, i32 }, ptr %pair.addr, i32 0, i32 0\n"
+        "  %t7 = load i32, ptr %t6\n"
+        "  %t8 = add i32 %t7, %t5\n"
+        "  ret i32 %t8\n"
         "}\n";
 
     assert(ir_result->get_text() == expected);

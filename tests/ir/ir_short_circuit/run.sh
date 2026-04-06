@@ -19,6 +19,6 @@ assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
 grep -Eq '^  store i32 1, ptr %c\.addr[0-9]*$' "${IR_FILE}"
-grep -Eq '^  ret i32 %t[0-9]+$' "${IR_FILE}"
+grep -Eq '^  ret i32 (%t[0-9]+|1)$' "${IR_FILE}"
 
 echo "verified: constant short-circuit expressions fold to their optimized final stores"

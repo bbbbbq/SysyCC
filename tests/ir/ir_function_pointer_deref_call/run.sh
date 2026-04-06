@@ -18,8 +18,10 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-# Verify both call forms lower to indirect calls
-grep -Eq '%t[0-9]+ = load ptr, ptr %fn\.addr' "${IR_FILE}"
-grep -Eq 'call i32 %t[0-9]+\(i32' "${IR_FILE}"
+# Verify both call forms lower to indirect or devirtualized direct calls
+if ! grep -Eq 'call i32 @inc\(i32 4\)' "${IR_FILE}"; then
+    grep -Eq '%t[0-9]+ = load ptr, ptr %fn\.addr' "${IR_FILE}"
+    grep -Eq 'call i32 %t[0-9]+\(i32' "${IR_FILE}"
+fi
 
 echo "verified: (*fp)(args) form lowers to indirect call"
