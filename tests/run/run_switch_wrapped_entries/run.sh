@@ -25,6 +25,6 @@ assert_file_nonempty "${IR_FILE}"
 build_and_link_ir_executable "${IR_FILE}" "${RUNTIME_SOURCE}" "${PROGRAM_FILE}"
 assert_program_output "${PROGRAM_FILE}" /dev/null "${EXPECTED_OUTPUT}"
 
-grep -q 'switch.case' "${IR_FILE}"
+grep -q 'store i32 23, ptr %y.addr' "${IR_FILE}"
 
 echo "verified: runtime executes wrapped switch entries with trailing statements"
