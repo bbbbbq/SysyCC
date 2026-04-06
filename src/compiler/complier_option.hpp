@@ -89,6 +89,11 @@ enum class LanguageMode : uint8_t {
     Gnu99,
 };
 
+enum class OptimizationLevel : uint8_t {
+    O0,
+    O1,
+};
+
 enum class CommandLineMacroActionKind : uint8_t {
     Define,
     Undefine,
@@ -142,6 +147,7 @@ class ComplierOption {
     StopAfterStage stop_after_stage_ = StopAfterStage::None;
     DriverAction driver_action_ = DriverAction::InternalPipeline;
     LanguageMode language_mode_ = LanguageMode::Sysy;
+    OptimizationLevel optimization_level_ = OptimizationLevel::O0;
     bool enable_gnu_dialect_ = true;
     bool enable_clang_dialect_ = true;
     bool enable_builtin_type_extension_pack_ = true;
@@ -261,6 +267,14 @@ class ComplierOption {
 
     void set_language_mode(LanguageMode language_mode) noexcept {
         language_mode_ = language_mode;
+    }
+
+    OptimizationLevel get_optimization_level() const noexcept {
+        return optimization_level_;
+    }
+
+    void set_optimization_level(OptimizationLevel optimization_level) noexcept {
+        optimization_level_ = optimization_level;
     }
 
     bool get_enable_gnu_dialect() const noexcept {

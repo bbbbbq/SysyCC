@@ -15,7 +15,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 rm -f "${OUTPUT_FILE}"
 
 set +e
-STDOUT_CAPTURE="$("${BUILD_DIR}/SysyCC" \
+STDOUT_CAPTURE="$("${BUILD_DIR}/compiler" \
     -E \
     -DCLI_MACRO=9 \
     -include force.h \

@@ -22,6 +22,17 @@ std::string language_mode_name(sysycc::LanguageMode language_mode) {
     return "unknown";
 }
 
+std::string optimization_level_name(
+    sysycc::OptimizationLevel optimization_level) {
+    switch (optimization_level) {
+    case sysycc::OptimizationLevel::O0:
+        return "O0";
+    case sysycc::OptimizationLevel::O1:
+        return "O1";
+    }
+    return "unknown";
+}
+
 std::string driver_action_name(sysycc::DriverAction driver_action) {
     switch (driver_action) {
     case sysycc::DriverAction::InternalPipeline:
@@ -50,6 +61,9 @@ void print_verbose_configuration(const ClI::Cli &cli,
               << driver_action_name(option.get_driver_action()) << '\n';
     std::cerr << "language mode: "
               << language_mode_name(option.get_language_mode()) << '\n';
+    std::cerr << "optimization level: "
+              << optimization_level_name(option.get_optimization_level())
+              << '\n';
     std::cerr << "gnu extensions: "
               << (option.get_enable_gnu_dialect() ? "enabled" : "disabled")
               << '\n';
