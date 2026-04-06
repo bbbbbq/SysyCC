@@ -3,12 +3,14 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "backend/ir/analysis/alias_analysis.hpp"
 #include "backend/ir/analysis/analysis_manager.hpp"
 #include "backend/ir/analysis/function_effect_summary_analysis.hpp"
+#include "backend/ir/analysis/scalar_evolution_lite_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/analysis/memory_ssa_analysis.hpp"
 #include "backend/ir/analysis/dominator_tree_analysis.hpp"
@@ -192,6 +194,38 @@ bool load_has_invariant_address(const CoreIrLoadInst &load, const CoreIrLoopInfo
     return value_is_loop_invariant(load.get_address(), loop);
 }
 
+bool store_has_invariant_address(const CoreIrStoreInst &store, const CoreIrLoopInfo &loop) {
+    if (store.get_stack_slot() != nullptr) {
+        return true;
+    }
+    return value_is_loop_invariant(store.get_address(), loop);
+}
+
+bool instruction_precedes_in_block(const CoreIrInstruction &lhs,
+                                   const CoreIrInstruction &rhs) {
+    if (lhs.get_parent() == nullptr || lhs.get_parent() != rhs.get_parent()) {
+        return false;
+    }
+    for (const auto &instruction_ptr : lhs.get_parent()->get_instructions()) {
+        if (instruction_ptr.get() == &lhs) {
+            return true;
+        }
+        if (instruction_ptr.get() == &rhs) {
+            return false;
+        }
+    }
+    return false;
+}
+
+bool instruction_executes_after_store(
+    const CoreIrStoreInst &store, const CoreIrInstruction &instruction,
+    const CoreIrDominatorTreeAnalysisResult &dominator_tree) {
+    if (instruction.get_parent() == store.get_parent()) {
+        return instruction_precedes_in_block(store, instruction);
+    }
+    return dominator_tree.dominates(store.get_parent(), instruction.get_parent());
+}
+
 bool load_is_hoistable(const CoreIrLoadInst &load, const CoreIrLoopInfo &loop,
                        CoreIrModule *module,
                        CoreIrAnalysisManager &analysis_manager,
@@ -237,6 +271,93 @@ bool load_is_hoistable(const CoreIrLoadInst &load, const CoreIrLoopInfo &loop,
     return false;
 }
 
+bool load_is_speculatively_safe_to_hoist(
+    const CoreIrLoadInst &load, const CoreIrLoopInfo &loop,
+    const CoreIrDominatorTreeAnalysisResult &dominator_tree,
+    CoreIrFunction &function) {
+    CoreIrStackSlot *stack_slot = load.get_stack_slot();
+    CoreIrBasicBlock *header = loop.get_header();
+    if (stack_slot == nullptr || header == nullptr) {
+        return false;
+    }
+
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        if (block_ptr == nullptr || loop_contains_block(loop, block_ptr.get())) {
+            continue;
+        }
+        if (!dominator_tree.dominates(block_ptr.get(), header)) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block_ptr->get_instructions()) {
+            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+            if (store != nullptr && store->get_stack_slot() == stack_slot) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool store_is_hoistable(const CoreIrStoreInst &store, const CoreIrLoopInfo &loop,
+                        const CoreIrDominatorTreeAnalysisResult &dominator_tree,
+                        CoreIrModule *module,
+                        CoreIrAnalysisManager &analysis_manager,
+                        const CoreIrAliasAnalysisResult &alias_analysis,
+                        CoreIrFunction &function) {
+    if (!store_has_invariant_address(store, loop) ||
+        !value_is_loop_invariant(store.get_value(), loop)) {
+        return false;
+    }
+
+    const CoreIrMemoryLocation *location =
+        alias_analysis.get_location_for_instruction(&store);
+    if (location == nullptr ||
+        location->root_kind == CoreIrMemoryLocationRootKind::Unknown) {
+        return false;
+    }
+
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        if (block_ptr == nullptr || !loop_contains_block(loop, block_ptr.get())) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block_ptr->get_instructions()) {
+            const CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr || instruction == &store) {
+                continue;
+            }
+
+            const CoreIrEffectInfo effect =
+                get_instruction_effect(*instruction, module, analysis_manager);
+            if (!memory_behavior_reads(effect.memory_behavior) &&
+                !memory_behavior_writes(effect.memory_behavior)) {
+                continue;
+            }
+
+            const CoreIrMemoryLocation *other_location =
+                alias_analysis.get_location_for_instruction(instruction);
+            if (other_location == nullptr ||
+                other_location->root_kind == CoreIrMemoryLocationRootKind::Unknown) {
+                return false;
+            }
+            if (alias_core_ir_memory_locations(*location, *other_location) ==
+                CoreIrAliasKind::NoAlias) {
+                continue;
+            }
+
+            if (memory_behavior_writes(effect.memory_behavior)) {
+                return false;
+            }
+            if (memory_behavior_reads(effect.memory_behavior) &&
+                !instruction_executes_after_store(store, *instruction,
+                                                 dominator_tree)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 std::size_t count_loop_uses(const CoreIrInstruction &instruction,
                            const CoreIrLoopInfo &loop) {
     std::size_t use_count = 0;
@@ -266,9 +387,13 @@ const CoreIrInstruction *get_single_loop_user(const CoreIrInstruction &instructi
 }
 
 bool is_profitable_to_hoist(const CoreIrInstruction &instruction,
-                            const CoreIrLoopInfo &loop) {
+                            const CoreIrLoopInfo &loop,
+                            const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
     if (const auto *load = dynamic_cast<const CoreIrLoadInst *>(&instruction);
         load != nullptr) {
+        return true;
+    }
+    if (dynamic_cast<const CoreIrStoreInst *>(&instruction) != nullptr) {
         return true;
     }
 
@@ -289,6 +414,11 @@ bool is_profitable_to_hoist(const CoreIrInstruction &instruction,
 
     const std::size_t loop_uses = count_loop_uses(instruction, loop);
     if (loop_uses >= 2) {
+        return true;
+    }
+    const std::optional<std::uint64_t> trip_count =
+        scev.get_constant_trip_count(loop);
+    if (loop_uses >= 1 && trip_count.has_value() && *trip_count >= 2) {
         return true;
     }
     if (loop_uses != 1) {
@@ -313,15 +443,28 @@ bool is_safe_to_hoist(const CoreIrInstruction &instruction,
         instruction.get_opcode() == CoreIrOpcode::Phi) {
         return false;
     }
+
+    if (const auto *load = dynamic_cast<const CoreIrLoadInst *>(&instruction);
+        load != nullptr) {
+        if (!load_is_hoistable(*load, loop, module, analysis_manager,
+                               alias_analysis, memory_ssa, function)) {
+            return false;
+        }
+        return block_is_must_execute_in_loop(instruction.get_parent(), loop,
+                                             dominator_tree) ||
+               load_is_speculatively_safe_to_hoist(*load, loop, dominator_tree,
+                                                   function);
+    }
+
     if (!block_is_must_execute_in_loop(instruction.get_parent(), loop,
                                        dominator_tree)) {
         return false;
     }
 
-    if (const auto *load = dynamic_cast<const CoreIrLoadInst *>(&instruction);
-        load != nullptr) {
-        return load_is_hoistable(*load, loop, module, analysis_manager,
-                                 alias_analysis, memory_ssa, function);
+    if (const auto *store = dynamic_cast<const CoreIrStoreInst *>(&instruction);
+        store != nullptr) {
+        return store_is_hoistable(*store, loop, dominator_tree, module,
+                                  analysis_manager, alias_analysis, function);
     }
 
     if (!instruction_is_pure_licm_candidate(instruction, module, analysis_manager)) {
@@ -333,6 +476,7 @@ bool is_safe_to_hoist(const CoreIrInstruction &instruction,
 bool instruction_is_hoistable(const CoreIrInstruction &instruction,
                               const CoreIrLoopInfo &loop,
                               const CoreIrDominatorTreeAnalysisResult &dominator_tree,
+                              const CoreIrScalarEvolutionLiteAnalysisResult &scev,
                               CoreIrModule *module,
                               CoreIrAnalysisManager &analysis_manager,
                               const CoreIrAliasAnalysisResult &alias_analysis,
@@ -341,7 +485,7 @@ bool instruction_is_hoistable(const CoreIrInstruction &instruction,
     return is_safe_to_hoist(instruction, loop, dominator_tree, module,
                             analysis_manager, alias_analysis, memory_ssa,
                             function) &&
-           is_profitable_to_hoist(instruction, loop);
+           is_profitable_to_hoist(instruction, loop, scev);
 }
 
 bool move_instruction_to_preheader(CoreIrBasicBlock &source, std::size_t index,
@@ -373,6 +517,7 @@ bool move_instruction_to_preheader(CoreIrBasicBlock &source, std::size_t index,
 
 bool run_licm_on_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
                       const CoreIrDominatorTreeAnalysisResult &dominator_tree,
+                      const CoreIrScalarEvolutionLiteAnalysisResult &scev,
                       CoreIrModule *module,
                       CoreIrAnalysisManager &analysis_manager,
                       const CoreIrAliasAnalysisResult &alias_analysis,
@@ -403,7 +548,7 @@ bool run_licm_on_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
                 }
 
                 if (!instruction_is_hoistable(*instruction, loop, dominator_tree,
-                                              module,
+                                              scev, module,
                                               analysis_manager, alias_analysis,
                                               memory_ssa, function)) {
                     ++index;
@@ -452,6 +597,9 @@ PassResult CoreIrLicmPass::Run(CompilerContext &context) {
         if (loop_info.get_loops().empty()) {
             continue;
         }
+        const CoreIrScalarEvolutionLiteAnalysisResult &scev =
+            analysis_manager->get_or_compute<CoreIrScalarEvolutionLiteAnalysis>(
+                *function);
         const CoreIrDominatorTreeAnalysisResult &dominator_tree =
             analysis_manager->get_or_compute<CoreIrDominatorTreeAnalysis>(
                 *function);
@@ -482,7 +630,7 @@ PassResult CoreIrLicmPass::Run(CompilerContext &context) {
                 continue;
             }
             function_changed = run_licm_on_loop(
-                                   *function, *loop, dominator_tree, module,
+                                   *function, *loop, dominator_tree, scev, module,
                                    *analysis_manager, alias_analysis, memory_ssa) ||
                                function_changed;
         }

@@ -173,6 +173,7 @@ compiler2025_docker_run_script() {
         -w /workspace
         -e SYSYCC_COMPILER2025_BUILD_DIR=/workspace/build-docker
         -e SYSYCC_TEST_FORCE_CONFIGURE=1
+        -e SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS=1
     )
 
     for arg in "${COMPILER2025_DOCKER_EXTRA_MOUNTS[@]-}"; do

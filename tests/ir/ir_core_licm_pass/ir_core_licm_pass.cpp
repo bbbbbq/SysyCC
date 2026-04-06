@@ -247,6 +247,47 @@ void test_does_not_hoist_non_must_execute_body_instruction() {
     assert(sum->get_parent() == body);
 }
 
+void test_hoists_single_use_invariant_with_constant_trip_count() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("licm_trip_count");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *ten = context->create_constant<CoreIrConstantInt>(i32_type, 10);
+
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *iv = header->create_instruction<CoreIrPhiInst>(i32_type, "iv");
+    auto *single_use = header->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "single_use", one, one);
+    auto *cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "cmp", iv, ten);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cmp, body, exit);
+    auto *next = body->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "next", iv, one);
+    body->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "consume", single_use, one);
+    body->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+    iv->add_incoming(entry, zero);
+    iv->add_incoming(body, next);
+
+    CompilerContext compiler_context = make_compiler_context(std::move(context), module);
+    CoreIrLicmPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    assert(single_use->get_parent() == entry);
+}
+
 void test_hoists_from_inner_loop_to_outer_preheader() {
     auto context = std::make_unique<CoreIrContext>();
     auto *void_type = context->create_type<CoreIrVoidType>();
@@ -334,6 +375,111 @@ void test_does_not_hoist_single_use_addrof_chain() {
     assert(load->get_parent() == header);
 }
 
+void test_hoists_redundant_invariant_store() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("licm_store_safe");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *slot = function->create_stack_slot<CoreIrStackSlot>("value", i32_type, 4);
+    auto *cond = context->create_constant<CoreIrConstantInt>(i1_type, 1);
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *seven = context->create_constant<CoreIrConstantInt>(i32_type, 7);
+
+    entry->create_instruction<CoreIrStoreInst>(void_type, zero, slot);
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *store = header->create_instruction<CoreIrStoreInst>(void_type, seven, slot);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cond, body, exit);
+    auto *load = body->create_instruction<CoreIrLoadInst>(i32_type, "load", slot);
+    body->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, load);
+
+    CompilerContext compiler_context = make_compiler_context(std::move(context), module);
+    CoreIrLicmPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    assert(store->get_parent() == entry);
+}
+
+void test_does_not_hoist_store_when_read_precedes_it() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("licm_store_unsafe");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *slot = function->create_stack_slot<CoreIrStackSlot>("value", i32_type, 4);
+    auto *cond = context->create_constant<CoreIrConstantInt>(i1_type, 1);
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *seven = context->create_constant<CoreIrConstantInt>(i32_type, 7);
+
+    entry->create_instruction<CoreIrStoreInst>(void_type, zero, slot);
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *header_load =
+        header->create_instruction<CoreIrLoadInst>(i32_type, "header.load", slot);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cond, body, exit);
+    auto *store = body->create_instruction<CoreIrStoreInst>(void_type, seven, slot);
+    body->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, header_load);
+
+    CompilerContext compiler_context = make_compiler_context(std::move(context), module);
+    CoreIrLicmPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    assert(store->get_parent() == body);
+}
+
+void test_hoists_speculatively_safe_stackslot_load() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("licm_speculative_load");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *then_block = function->create_basic_block<CoreIrBasicBlock>("then");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *slot = function->create_stack_slot<CoreIrStackSlot>("value", i32_type, 4);
+    auto *cond = context->create_constant<CoreIrConstantInt>(i1_type, 1);
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *seven = context->create_constant<CoreIrConstantInt>(i32_type, 7);
+
+    entry->create_instruction<CoreIrStoreInst>(void_type, seven, slot);
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cond, body, exit);
+    body->create_instruction<CoreIrCondJumpInst>(void_type, cond, then_block, header);
+    auto *load =
+        then_block->create_instruction<CoreIrLoadInst>(i32_type, "load", slot);
+    then_block->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+
+    CompilerContext compiler_context = make_compiler_context(std::move(context), module);
+    CoreIrLicmPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    assert(load->get_parent() == entry);
+}
+
 } // namespace
 
 int main() {
@@ -343,7 +489,11 @@ int main() {
     test_does_not_hoist_may_alias_load();
     test_does_not_hoist_unknown_location_load();
     test_does_not_hoist_non_must_execute_body_instruction();
+    test_hoists_single_use_invariant_with_constant_trip_count();
     test_hoists_from_inner_loop_to_outer_preheader();
     test_does_not_hoist_single_use_addrof_chain();
+    test_hoists_redundant_invariant_store();
+    test_does_not_hoist_store_when_read_precedes_it();
+    test_hoists_speculatively_safe_stackslot_load();
     return 0;
 }

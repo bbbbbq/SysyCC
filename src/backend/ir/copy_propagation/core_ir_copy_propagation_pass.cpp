@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
@@ -61,6 +63,191 @@ bool erase_instruction(CoreIrBasicBlock &block, CoreIrInstruction *instruction) 
     (*it)->detach_operands();
     instructions.erase(it);
     return true;
+}
+
+bool instruction_precedes_in_block(const CoreIrInstruction &lhs,
+                                   const CoreIrInstruction &rhs) {
+    if (lhs.get_parent() == nullptr || lhs.get_parent() != rhs.get_parent()) {
+        return false;
+    }
+    for (const auto &instruction_ptr : lhs.get_parent()->get_instructions()) {
+        if (instruction_ptr.get() == &lhs) {
+            return true;
+        }
+        if (instruction_ptr.get() == &rhs) {
+            return false;
+        }
+    }
+    return false;
+}
+
+CoreIrStackSlot *trace_root_stack_slot(CoreIrValue *value) {
+    if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(value);
+        address != nullptr) {
+        return address->get_stack_slot();
+    }
+    auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(value);
+    if (gep == nullptr) {
+        return nullptr;
+    }
+    return trace_root_stack_slot(gep->get_base());
+}
+
+bool is_safe_address_user(CoreIrInstruction &user, std::size_t operand_index) {
+    if (auto *load = dynamic_cast<CoreIrLoadInst *>(&user); load != nullptr) {
+        return operand_index == 0 && load->get_address() != nullptr;
+    }
+    if (auto *store = dynamic_cast<CoreIrStoreInst *>(&user); store != nullptr) {
+        return operand_index == 1 && store->get_address() != nullptr;
+    }
+    if (dynamic_cast<CoreIrGetElementPtrInst *>(&user) != nullptr) {
+        return operand_index == 0;
+    }
+    return false;
+}
+
+void invalidate_available_loads_for_store(
+    const CoreIrStoreInst &store,
+    std::unordered_map<CoreIrStackSlot *, CoreIrValue *> &available_loads) {
+    if (store.get_stack_slot() != nullptr) {
+        available_loads.erase(store.get_stack_slot());
+        return;
+    }
+
+    CoreIrStackSlot *root_slot = trace_root_stack_slot(store.get_address());
+    if (root_slot != nullptr) {
+        available_loads.erase(root_slot);
+        return;
+    }
+
+    available_loads.clear();
+}
+
+struct ImmutableEntrySlotInfo {
+    CoreIrStoreInst *store = nullptr;
+    bool invalid = false;
+};
+
+bool propagate_immutable_entry_slots(CoreIrFunction &function) {
+    CoreIrBasicBlock *entry =
+        function.get_basic_blocks().empty() ? nullptr
+                                            : function.get_basic_blocks().front().get();
+    if (entry == nullptr) {
+        return false;
+    }
+
+    std::unordered_map<CoreIrStackSlot *, ImmutableEntrySlotInfo> slot_infos;
+    for (const auto &instruction_ptr : entry->get_instructions()) {
+        auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+        if (store == nullptr || store->get_stack_slot() == nullptr) {
+            continue;
+        }
+        ImmutableEntrySlotInfo &info = slot_infos[store->get_stack_slot()];
+        if (info.store != nullptr) {
+            info.invalid = true;
+        } else {
+            info.store = store;
+        }
+    }
+
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        CoreIrBasicBlock *block = block_ptr.get();
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr) {
+                continue;
+            }
+
+            if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(instruction);
+                address != nullptr) {
+                auto it = slot_infos.find(address->get_stack_slot());
+                if (it == slot_infos.end()) {
+                    continue;
+                }
+                for (const CoreIrUse &use : address->get_uses()) {
+                    if (use.get_user() == nullptr ||
+                        !is_safe_address_user(*use.get_user(), use.get_operand_index())) {
+                        it->second.invalid = true;
+                    }
+                }
+                continue;
+            }
+
+            if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(instruction);
+                gep != nullptr) {
+                if (CoreIrStackSlot *root_slot = trace_root_stack_slot(gep); root_slot != nullptr) {
+                    if (auto it = slot_infos.find(root_slot); it != slot_infos.end()) {
+                        for (const CoreIrUse &use : gep->get_uses()) {
+                            if (use.get_user() == nullptr ||
+                                !is_safe_address_user(*use.get_user(),
+                                                      use.get_operand_index())) {
+                                it->second.invalid = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction); store != nullptr) {
+                if (store->get_stack_slot() != nullptr) {
+                    auto it = slot_infos.find(store->get_stack_slot());
+                    if (it != slot_infos.end() && it->second.store != store) {
+                        it->second.invalid = true;
+                    }
+                } else if (CoreIrStackSlot *root_slot =
+                               trace_root_stack_slot(store->get_address());
+                           root_slot != nullptr) {
+                    if (auto it = slot_infos.find(root_slot); it != slot_infos.end()) {
+                        it->second.invalid = true;
+                    }
+                }
+                continue;
+            }
+
+            if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction); load != nullptr &&
+                load->get_address() != nullptr) {
+                if (CoreIrStackSlot *root_slot = trace_root_stack_slot(load->get_address());
+                    root_slot != nullptr) {
+                    if (auto it = slot_infos.find(root_slot); it != slot_infos.end()) {
+                        it->second.invalid = true;
+                    }
+                }
+            }
+        }
+    }
+
+    bool changed = false;
+    for (const auto &[slot, info] : slot_infos) {
+        if (slot == nullptr || info.invalid || info.store == nullptr ||
+            info.store->get_value() == nullptr) {
+            continue;
+        }
+        for (const auto &block_ptr : function.get_basic_blocks()) {
+            CoreIrBasicBlock *block = block_ptr.get();
+            if (block == nullptr) {
+                continue;
+            }
+            auto &instructions = block->get_instructions();
+            std::size_t index = 0;
+            while (index < instructions.size()) {
+                auto *load = dynamic_cast<CoreIrLoadInst *>(instructions[index].get());
+                if (load == nullptr || load->get_stack_slot() != slot ||
+                    (block == entry &&
+                     !instruction_precedes_in_block(*info.store, *load))) {
+                    ++index;
+                    continue;
+                }
+                load->replace_all_uses_with(info.store->get_value());
+                erase_instruction(*block, load);
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
 }
 
 bool propagate_address_value(CoreIrBasicBlock &block, CoreIrInstruction *instruction,
@@ -122,11 +309,7 @@ bool propagate_load_copies(CoreIrBasicBlock &block) {
         }
 
         if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction); store != nullptr) {
-            if (store->get_stack_slot() != nullptr) {
-                available_loads.erase(store->get_stack_slot());
-            } else {
-                available_loads.clear();
-            }
+            invalidate_available_loads_for_store(*store, available_loads);
             ++index;
             continue;
         }
@@ -156,6 +339,19 @@ bool propagate_load_copies(CoreIrBasicBlock &block) {
     return changed;
 }
 
+bool propagate_load_copies(CoreIrFunction &function) {
+    bool changed = propagate_immutable_entry_slots(function);
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        CoreIrBasicBlock *block = block_ptr.get();
+        if (block == nullptr) {
+            continue;
+        }
+        changed = propagate_load_copies(*block) || changed;
+    }
+
+    return changed;
+}
+
 } // namespace
 
 PassKind CoreIrCopyPropagationPass::Kind() const {
@@ -175,10 +371,7 @@ PassResult CoreIrCopyPropagationPass::Run(CompilerContext &context) {
 
     CoreIrPassEffects effects;
     for (const auto &function : module->get_functions()) {
-        bool function_changed = false;
-        for (const auto &block : function->get_basic_blocks()) {
-            function_changed = propagate_load_copies(*block) || function_changed;
-        }
+        const bool function_changed = propagate_load_copies(*function);
         if (function_changed) {
             effects.changed_functions.insert(function.get());
         }

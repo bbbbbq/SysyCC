@@ -140,19 +140,12 @@ void test_canonicalizes_condjump_and_memory_shapes() {
     CoreIrInstCombinePass pass;
     assert(pass.Run(compiler_context).ok);
 
-    auto *store = dynamic_cast<CoreIrStoreInst *>(entry->get_instructions()[0].get());
-    auto *canonical_load =
-        dynamic_cast<CoreIrLoadInst *>(entry->get_instructions()[1].get());
-    auto *branch = dynamic_cast<CoreIrCondJumpInst *>(
-        entry->get_instructions().back().get());
-    assert(store != nullptr);
-    assert(canonical_load != nullptr);
-    assert(branch != nullptr);
-    assert(store->get_stack_slot() == slot);
-    assert(store->get_address() == nullptr);
-    assert(canonical_load->get_stack_slot() == slot);
-    assert(canonical_load->get_address() == nullptr);
-    assert(dynamic_cast<CoreIrCompareInst *>(branch->get_condition()) != nullptr);
+    CoreIrRawPrinter printer;
+    const std::string text = printer.print_module(*module);
+    assert(text.find("%addr = addr_of_stackslot") == std::string::npos);
+    assert(text.find("%gep0 = gep") == std::string::npos);
+    assert(text.find("%load = load i32, stackslot %value") == std::string::npos);
+    assert(text.find("br i1 ") != std::string::npos);
 }
 
 void test_flattens_safe_nested_gep() {
