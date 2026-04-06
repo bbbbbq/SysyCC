@@ -741,10 +741,8 @@ CoreIrValue *materialize_access_path_address(CoreIrBasicBlock &block,
 
 void materialize_exit_store(CoreIrBasicBlock &exit_block, CoreIrContext &core_ir_context,
                             const UnitLoopAccessInfo &access_info,
-                            CoreIrValue *value, const CoreIrType *void_type) {
-    CoreIrInstruction *anchor = exit_block.get_instructions().empty()
-                                    ? nullptr
-                                    : exit_block.get_instructions().back().get();
+                            CoreIrValue *value, const CoreIrType *void_type,
+                            CoreIrInstruction *anchor) {
     if (access_info.kind == CoreIrPromotionUnitKind::WholeSlot) {
         auto store =
             std::make_unique<CoreIrStoreInst>(void_type, value, access_info.slot);
@@ -758,6 +756,26 @@ void materialize_exit_store(CoreIrBasicBlock &exit_block, CoreIrContext &core_ir
     insert_instruction_before(exit_block, anchor, std::move(store));
 }
 
+CoreIrInstruction *find_first_exit_block_access_clobber(
+    CoreIrBasicBlock &exit_block, const UnitLoopAccessInfo &access_info) {
+    for (const auto &instruction_ptr : exit_block.get_instructions()) {
+        CoreIrInstruction *instruction = instruction_ptr.get();
+        if (instruction == nullptr || dynamic_cast<CoreIrPhiInst *>(instruction) != nullptr) {
+            continue;
+        }
+        auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
+        if (store != nullptr && instruction_matches_access_info(*store, access_info)) {
+            return instruction;
+        }
+        if (instruction->get_is_terminator()) {
+            return instruction;
+        }
+    }
+    return exit_block.get_instructions().empty()
+               ? nullptr
+               : exit_block.get_instructions().back().get();
+}
+
 bool rewrite_exit_block_local_loads(CoreIrBasicBlock &exit_block,
                                     const UnitLoopAccessInfo &access_info,
                                     CoreIrValue *replacement) {
@@ -769,6 +787,11 @@ bool rewrite_exit_block_local_loads(CoreIrBasicBlock &exit_block,
         if (instruction == nullptr || instruction->get_is_terminator()) {
             ++index;
             continue;
+        }
+
+        auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
+        if (store != nullptr && instruction_matches_access_info(*store, access_info)) {
+            break;
         }
 
         auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
@@ -799,11 +822,13 @@ void materialize_exit_values(const CoreIrLoopInfo &loop,
         if (exit_block == nullptr || incomings.empty()) {
             continue;
         }
+        CoreIrInstruction *anchor =
+            find_first_exit_block_access_clobber(*exit_block, access_info);
         if (incomings.size() == 1) {
             rewrite_exit_block_local_loads(*exit_block, access_info,
                                            incomings.front().second);
             materialize_exit_store(*exit_block, core_ir_context, access_info,
-                                   incomings.front().second, void_type);
+                                   incomings.front().second, void_type, anchor);
             promotion_context.changed = true;
             continue;
         }
@@ -818,7 +843,7 @@ void materialize_exit_values(const CoreIrLoopInfo &loop,
         exit_block->insert_instruction_before_first_non_phi(std::move(phi));
         rewrite_exit_block_local_loads(*exit_block, access_info, phi_ptr);
         materialize_exit_store(*exit_block, core_ir_context, access_info, phi_ptr,
-                               void_type);
+                               void_type, anchor);
         promotion_context.changed = true;
     }
 }
@@ -848,6 +873,62 @@ bool unit_has_outside_accesses(const CoreIrFunction &function,
     return false;
 }
 
+bool unit_has_outside_store(const CoreIrFunction &function,
+                            const CoreIrLoopInfo &loop,
+                            const CoreIrPromotableStackSlotAnalysisResult &promotable_units,
+                            const UnitLoopAccessInfo &access_info) {
+    if (access_info.unit_info != nullptr) {
+        for (CoreIrStoreInst *store : access_info.unit_info->stores) {
+            if (store == nullptr ||
+                std::find(access_info.stores.begin(), access_info.stores.end(), store) !=
+                    access_info.stores.end()) {
+                continue;
+            }
+            return true;
+        }
+    }
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block == nullptr || loop_contains_block(loop, block.get())) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
+            if (store == nullptr) {
+                continue;
+            }
+            if (instruction_matches_access_info(*store, access_info)) {
+                return true;
+            }
+            if (promotable_units.find_unit_for_instruction(instruction) ==
+                access_info.unit_info) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool exit_blocks_contain_local_store_conflict(const CoreIrLoopInfo &loop,
+                                              const UnitLoopAccessInfo &access_info) {
+    for (CoreIrBasicBlock *exit_block : loop.get_exit_blocks()) {
+        if (exit_block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : exit_block->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr) {
+                continue;
+            }
+            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
+            if (store != nullptr && instruction_matches_access_info(*store, access_info)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool can_promote_slot_in_loop(const CoreIrFunction &function,
                               const CoreIrLoopInfo &loop,
                               const CoreIrPromotableStackSlotAnalysisResult &promotable_units,
@@ -855,6 +936,12 @@ bool can_promote_slot_in_loop(const CoreIrFunction &function,
     if (access_info.slot == nullptr || access_info.loads.empty() ||
         access_info.stores.empty() || access_info.value_type == nullptr ||
         loop.get_preheader() == nullptr) {
+        return false;
+    }
+    if (unit_has_outside_store(function, loop, promotable_units, access_info)) {
+        return false;
+    }
+    if (exit_blocks_contain_local_store_conflict(loop, access_info)) {
         return false;
     }
     if (find_initial_value_in_preheader(*loop.get_preheader(), access_info,
