@@ -27,6 +27,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_frame_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_float_helper_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_function_boundary_abi_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_function_planning_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_global_data_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_access_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_value_lowering_support.hpp"
@@ -315,26 +316,6 @@ struct AArch64BlockLiveness {
     std::vector<std::size_t> successors;
 };
 
-enum class AArch64ValueLocationKind : unsigned char {
-    VirtualReg,
-    MemoryAddress,
-    ConstantInt,
-    ConstantNull,
-    SymbolAddress,
-    StackSlotAddress,
-    None,
-};
-
-struct AArch64ValueLocation {
-    AArch64ValueLocationKind kind = AArch64ValueLocationKind::None;
-    AArch64VirtualReg virtual_reg;
-};
-
-bool is_supported_native_value_type(const CoreIrType *type) {
-    return is_void_type(type) || is_supported_scalar_storage_type(type) ||
-           is_supported_object_type(type);
-}
-
 class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                public AArch64ConstantMaterializationContext {
   private:
@@ -510,47 +491,6 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
             make_default_call_clobber_mask()));
     }
 
-    static bool instruction_has_canonical_vreg(const CoreIrInstruction &instruction) {
-        switch (instruction.get_opcode()) {
-        case CoreIrOpcode::Phi:
-        case CoreIrOpcode::Load:
-        case CoreIrOpcode::Binary:
-        case CoreIrOpcode::Unary:
-        case CoreIrOpcode::Compare:
-        case CoreIrOpcode::Cast:
-        case CoreIrOpcode::Call:
-            return !is_void_type(instruction.get_type());
-        case CoreIrOpcode::AddressOfStackSlot:
-        case CoreIrOpcode::AddressOfGlobal:
-        case CoreIrOpcode::AddressOfFunction:
-        case CoreIrOpcode::GetElementPtr:
-            return true;
-        case CoreIrOpcode::Store:
-        case CoreIrOpcode::Jump:
-        case CoreIrOpcode::CondJump:
-        case CoreIrOpcode::Return:
-            return false;
-        }
-        return false;
-    }
-
-    void assign_virtual_value_location(FunctionState &state,
-                                       const CoreIrValue *value,
-                                       AArch64VirtualReg vreg) const {
-        state.value_locations[value] =
-            AArch64ValueLocation{AArch64ValueLocationKind::VirtualReg, vreg};
-    }
-
-    void assign_memory_value_location(FunctionState &state,
-                                      const CoreIrValue *value,
-                                      AArch64VirtualReg address_vreg,
-                                      std::size_t offset) const {
-        state.value_locations[value] =
-            AArch64ValueLocation{AArch64ValueLocationKind::MemoryAddress,
-                                 address_vreg};
-        state.aggregate_value_offsets[value] = offset;
-    }
-
     const AArch64ValueLocation *
     lookup_value_location(const FunctionState &state,
                           const CoreIrValue *value) const {
@@ -601,65 +541,38 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         return true;
     }
 
-    std::size_t allocate_aggregate_value_slot(std::size_t &current_offset,
-                                              const CoreIrType *type) const {
-        current_offset = align_to(current_offset, get_type_alignment(type));
-        current_offset += get_type_size(type);
-        return current_offset;
-    }
-
     bool seed_function_value_locations(const CoreIrFunction &function,
                                        FunctionState &state,
                                        std::size_t &current_offset) {
-        for (const auto &parameter : function.get_parameters()) {
-            if (!is_supported_native_value_type(parameter->get_type())) {
-                add_backend_error(diagnostic_engine_,
-                                  "unsupported parameter type in AArch64 native "
-                                  "backend for function '" +
-                                      function.get_name() + "'");
-                return false;
-            }
-            if (is_aggregate_type(parameter->get_type())) {
-                assign_memory_value_location(
-                    state, parameter.get(),
-                    create_pointer_virtual_reg(*state.machine_function),
-                    allocate_aggregate_value_slot(current_offset,
-                                                  parameter->get_type()));
-            } else {
-                assign_virtual_value_location(
-                    state, parameter.get(),
-                    create_virtual_reg(*state.machine_function, parameter->get_type()));
-            }
-        }
+        class FunctionPlanningContext final
+            : public AArch64FunctionPlanningContext {
+          private:
+            AArch64LoweringSession &session_;
 
-        for (const auto &basic_block : function.get_basic_blocks()) {
-            for (const auto &instruction : basic_block->get_instructions()) {
-                if (!instruction_has_canonical_vreg(*instruction)) {
-                    continue;
-                }
-                if (!is_supported_native_value_type(instruction->get_type())) {
-                    add_backend_error(
-                        diagnostic_engine_,
-                        "unsupported Core IR value type in AArch64 native backend "
-                        "for function '" +
-                            function.get_name() + "'");
-                    return false;
-                }
-                if (is_aggregate_type(instruction->get_type())) {
-                    assign_memory_value_location(
-                        state, instruction.get(),
-                        create_pointer_virtual_reg(*state.machine_function),
-                        allocate_aggregate_value_slot(current_offset,
-                                                      instruction->get_type()));
-                } else {
-                    assign_virtual_value_location(
-                        state, instruction.get(),
-                        create_virtual_reg(*state.machine_function,
-                                           instruction->get_type()));
-                }
+          public:
+            explicit FunctionPlanningContext(AArch64LoweringSession &session)
+                : session_(session) {}
+
+            void report_error(const std::string &message) override {
+                add_backend_error(session_.diagnostic_engine_, message);
             }
-        }
-        return true;
+
+            AArch64VirtualReg
+            create_virtual_reg(AArch64MachineFunction &function,
+                               const CoreIrType *type) override {
+                return session_.create_virtual_reg(function, type);
+            }
+
+            AArch64VirtualReg
+            create_pointer_virtual_reg(AArch64MachineFunction &function) override {
+                return session_.create_pointer_virtual_reg(function);
+            }
+        };
+
+        FunctionPlanningContext planning_context(*this);
+        return sysycc::seed_function_value_locations(
+            function, *state.machine_function, state.value_locations,
+            state.aggregate_value_offsets, current_offset, planning_context);
     }
 
     std::vector<const CoreIrPhiInst *>
