@@ -8,6 +8,8 @@ namespace sysycc {
 
 class AstNode;
 class Expr;
+class SemanticModel;
+class SemanticType;
 
 namespace detail {
 
@@ -21,7 +23,11 @@ class ConstantEvaluator {
     get_integer_constant_value(const AstNode *node,
                                const SemanticContext &semantic_context) const;
     std::optional<long long> get_scalar_constant_value_as_integer(
-        const Expr *expr, const SemanticContext &semantic_context) const;
+        const Expr *expr, const SemanticType *target_type,
+        const SemanticContext &semantic_context) const;
+    std::optional<long long> get_scalar_constant_value_as_integer(
+        const Expr *expr, const SemanticType *target_type,
+        const SemanticModel &semantic_model) const;
     void bind_integer_constant_value(const AstNode *node, long long value,
                                      SemanticContext &semantic_context) const;
     bool is_integer_constant_expr(const Expr *expr,
@@ -35,6 +41,12 @@ class ConstantEvaluator {
     std::optional<long double>
     evaluate_scalar_numeric_expr(const Expr *expr,
                                  const SemanticContext &semantic_context) const;
+    std::optional<long double>
+    evaluate_scalar_numeric_expr(const Expr *expr,
+                                 const SemanticModel &semantic_model) const;
+    std::optional<long long>
+    convert_scalar_numeric_value_to_integer(long double value,
+                                            const SemanticType *target_type) const;
     std::optional<long long> parse_char_literal(
         const std::string &value_text) const;
 };
