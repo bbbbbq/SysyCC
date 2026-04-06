@@ -30,6 +30,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_global_data_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_access_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_value_lowering_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_phi_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_unary_lowering_support.hpp"
@@ -192,27 +193,6 @@ std::string zero_register_name(bool use_64bit) {
     return use_64bit ? "xzr" : "wzr";
 }
 
-std::string fp_move_mnemonic(AArch64VirtualRegKind kind) {
-    return kind == AArch64VirtualRegKind::Float128 ? "mov" : "fmov";
-}
-
-void append_register_copy(AArch64MachineBlock &machine_block,
-                          const AArch64VirtualReg &dst_reg,
-                          const AArch64VirtualReg &src_reg) {
-    if (dst_reg.get_id() == src_reg.get_id() &&
-        dst_reg.get_kind() == src_reg.get_kind()) {
-        return;
-    }
-    if (dst_reg.is_floating_point() && src_reg.is_floating_point()) {
-        machine_block.append_instruction(fp_move_mnemonic(dst_reg.get_kind()) + " " +
-                                         def_vreg(dst_reg) + ", " +
-                                         use_vreg_as_kind(src_reg, dst_reg.get_kind()));
-        return;
-    }
-    machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
-                                     use_vreg_as_kind(src_reg, dst_reg.get_kind()));
-}
-
 void append_copy_from_physical_reg(AArch64MachineBlock &machine_block,
                                    const AArch64VirtualReg &dst_reg,
                                    unsigned physical_reg,
@@ -348,36 +328,6 @@ enum class AArch64ValueLocationKind : unsigned char {
 struct AArch64ValueLocation {
     AArch64ValueLocationKind kind = AArch64ValueLocationKind::None;
     AArch64VirtualReg virtual_reg;
-};
-
-struct AArch64PhiEdgeKey {
-    const CoreIrBasicBlock *predecessor = nullptr;
-    const CoreIrBasicBlock *successor = nullptr;
-
-    bool operator==(const AArch64PhiEdgeKey &other) const noexcept {
-        return predecessor == other.predecessor && successor == other.successor;
-    }
-};
-
-struct AArch64PhiEdgeKeyHash {
-    std::size_t operator()(const AArch64PhiEdgeKey &key) const noexcept {
-        const std::size_t lhs =
-            std::hash<const CoreIrBasicBlock *>{}(key.predecessor);
-        const std::size_t rhs =
-            std::hash<const CoreIrBasicBlock *>{}(key.successor);
-        return lhs ^ (rhs + 0x9e3779b97f4a7c15ULL + (lhs << 6U) + (lhs >> 2U));
-    }
-};
-
-struct AArch64PhiCopyOp {
-    const CoreIrPhiInst *phi = nullptr;
-    const CoreIrValue *source_value = nullptr;
-};
-
-struct AArch64PhiEdgePlan {
-    AArch64PhiEdgeKey edge;
-    std::string edge_label;
-    std::vector<AArch64PhiCopyOp> copies;
 };
 
 bool is_supported_native_value_type(const CoreIrType *type) {
@@ -1288,107 +1238,53 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         return materialize_noncanonical_value(machine_block, value, out, state);
     }
 
-    bool emit_parallel_phi_copies(AArch64MachineBlock &machine_block,
-                                  const AArch64PhiEdgePlan &plan,
-                                  const FunctionState &state) {
-        struct PendingPhiCopy {
-            AArch64VirtualReg destination;
-            std::optional<AArch64VirtualReg> source_reg;
-            const CoreIrValue *source_value = nullptr;
-        };
-
-        std::vector<PendingPhiCopy> pending;
-        for (const AArch64PhiCopyOp &copy : plan.copies) {
-            if (copy.phi == nullptr || copy.source_value == nullptr) {
-                add_backend_error(
-                    diagnostic_engine_,
-                    "encountered malformed phi copy while lowering the AArch64 "
-                    "native backend");
-                return false;
-            }
-            AArch64VirtualReg destination;
-            if (!require_canonical_vreg(state, copy.phi, destination)) {
-                return false;
-            }
-            PendingPhiCopy pending_copy;
-            pending_copy.destination = destination;
-            pending_copy.source_value = copy.source_value;
-            if (const AArch64ValueLocation *location =
-                    lookup_value_location(state, copy.source_value);
-                location != nullptr &&
-                location->kind == AArch64ValueLocationKind::VirtualReg &&
-                location->virtual_reg.is_valid()) {
-                pending_copy.source_reg = location->virtual_reg;
-            }
-            if (pending_copy.source_reg.has_value() &&
-                pending_copy.source_reg->get_id() == pending_copy.destination.get_id() &&
-                pending_copy.source_reg->get_kind() ==
-                    pending_copy.destination.get_kind()) {
-                continue;
-            }
-            pending.push_back(std::move(pending_copy));
-        }
-
-        while (!pending.empty()) {
-            bool progressed = false;
-            std::unordered_set<std::size_t> pending_destinations;
-            for (const PendingPhiCopy &copy : pending) {
-                pending_destinations.insert(copy.destination.get_id());
-            }
-
-            for (auto it = pending.begin(); it != pending.end(); ++it) {
-                const bool source_is_blocked =
-                    it->source_reg.has_value() &&
-                    pending_destinations.find(it->source_reg->get_id()) !=
-                        pending_destinations.end();
-                if (source_is_blocked) {
-                    continue;
-                }
-                if (it->source_reg.has_value()) {
-                    append_register_copy(machine_block, it->destination,
-                                         *it->source_reg);
-                } else if (!materialize_value(machine_block, it->source_value,
-                                              it->destination, state)) {
-                    return false;
-                }
-                pending.erase(it);
-                progressed = true;
-                break;
-            }
-
-            if (progressed) {
-                continue;
-            }
-
-            PendingPhiCopy &cycle_head = pending.front();
-            if (!cycle_head.source_reg.has_value()) {
-                add_backend_error(
-                    diagnostic_engine_,
-                    "failed to schedule phi copies in the AArch64 native backend");
-                return false;
-            }
-            const AArch64VirtualReg saved_destination =
-                state.machine_function->create_virtual_reg(
-                    cycle_head.destination.get_kind());
-            append_register_copy(machine_block, saved_destination,
-                                 cycle_head.destination);
-            for (PendingPhiCopy &copy : pending) {
-                if (copy.source_reg.has_value() &&
-                    copy.source_reg->get_id() == cycle_head.destination.get_id()) {
-                    copy.source_reg = saved_destination;
-                }
-            }
-        }
-
-        return true;
-    }
-
     bool emit_phi_edge_block(AArch64MachineFunction &machine_function,
                              const AArch64PhiEdgePlan &plan,
                              const FunctionState &state) {
         AArch64MachineBlock &edge_block =
             machine_function.append_block(plan.edge_label);
-        if (!emit_parallel_phi_copies(edge_block, plan, state)) {
+        class PhiCopyContext final : public AArch64PhiCopyLoweringContext {
+          private:
+            AArch64LoweringSession &session_;
+            const FunctionState &state_;
+
+          public:
+            PhiCopyContext(AArch64LoweringSession &session, const FunctionState &state)
+                : session_(session), state_(state) {}
+
+            void report_error(const std::string &message) override {
+                add_backend_error(session_.diagnostic_engine_, message);
+            }
+
+            bool require_canonical_vreg(const CoreIrValue *value,
+                                        AArch64VirtualReg &out) const override {
+                return session_.require_canonical_vreg(state_, value, out);
+            }
+
+            bool try_get_value_vreg(const CoreIrValue *value,
+                                    AArch64VirtualReg &out) const override {
+                if (const AArch64ValueLocation *location =
+                        session_.lookup_value_location(state_, value);
+                    location != nullptr &&
+                    location->kind == AArch64ValueLocationKind::VirtualReg &&
+                    location->virtual_reg.is_valid()) {
+                    out = location->virtual_reg;
+                    return true;
+                }
+                return false;
+            }
+
+            bool materialize_value(AArch64MachineBlock &machine_block,
+                                   const CoreIrValue *value,
+                                   const AArch64VirtualReg &target_reg) override {
+                return session_.materialize_value(machine_block, value, target_reg,
+                                                 state_);
+            }
+        };
+
+        PhiCopyContext phi_context(*this, state);
+        if (!sysycc::emit_parallel_phi_copies(edge_block, plan, machine_function,
+                                              phi_context)) {
             return false;
         }
         edge_block.append_instruction("b " + block_labels_.at(plan.edge.successor));

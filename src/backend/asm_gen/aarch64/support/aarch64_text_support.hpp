@@ -21,6 +21,7 @@ parse_machine_instruction_text(std::string text);
 std::string render_physical_register(unsigned reg_number, AArch64VirtualRegKind kind);
 std::string render_physical_register(unsigned reg_number, bool use_64bit);
 std::string zero_register_name(bool use_64bit);
+std::string fp_move_mnemonic(AArch64VirtualRegKind kind);
 std::string use_vreg(const AArch64VirtualReg &reg);
 std::string def_vreg(const AArch64VirtualReg &reg);
 std::string use_vreg_as(const AArch64VirtualReg &reg, bool use_64bit);
@@ -29,6 +30,9 @@ std::string use_vreg_as_kind(const AArch64VirtualReg &reg,
                              AArch64VirtualRegKind kind);
 std::string def_vreg_as_kind(const AArch64VirtualReg &reg,
                              AArch64VirtualRegKind kind);
+void append_register_copy(AArch64MachineBlock &machine_block,
+                          const AArch64VirtualReg &dst_reg,
+                          const AArch64VirtualReg &src_reg);
 
 struct ParsedVirtualRegRef {
     std::size_t id = 0;

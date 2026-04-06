@@ -200,6 +200,27 @@ std::string def_vreg_as_kind(const AArch64VirtualReg &reg,
     return vreg_token_with_kind('d', reg, kind);
 }
 
+std::string fp_move_mnemonic(AArch64VirtualRegKind kind) {
+    return kind == AArch64VirtualRegKind::Float128 ? "mov" : "fmov";
+}
+
+void append_register_copy(AArch64MachineBlock &machine_block,
+                          const AArch64VirtualReg &dst_reg,
+                          const AArch64VirtualReg &src_reg) {
+    if (dst_reg.get_id() == src_reg.get_id() &&
+        dst_reg.get_kind() == src_reg.get_kind()) {
+        return;
+    }
+    if (dst_reg.is_floating_point() && src_reg.is_floating_point()) {
+        machine_block.append_instruction(fp_move_mnemonic(dst_reg.get_kind()) + " " +
+                                         def_vreg(dst_reg) + ", " +
+                                         use_vreg_as_kind(src_reg, dst_reg.get_kind()));
+        return;
+    }
+    machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
+                                     use_vreg_as_kind(src_reg, dst_reg.get_kind()));
+}
+
 std::vector<ParsedVirtualRegRef> parse_virtual_reg_refs(const std::string &text) {
     std::vector<ParsedVirtualRegRef> refs;
     for (std::size_t index = 0; index + 3 < text.size(); ++index) {
