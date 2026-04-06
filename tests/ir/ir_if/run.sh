@@ -18,9 +18,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^  br label %if\.then0$' "${IR_FILE}"
-grep -q '^if.then0:$' "${IR_FILE}"
-grep -Eq '^if\.end[0-9]+:$' "${IR_FILE}"
 grep -q '^  store i32 3, ptr %x.addr$' "${IR_FILE}"
+grep -Eq '^  ret i32 ' "${IR_FILE}"
 
-echo "verified: if/else lowers to compare and branch blocks"
+echo "verified: constant if/else collapses to the selected store in optimized LLVM IR"

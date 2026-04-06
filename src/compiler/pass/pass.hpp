@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <memory>
 #include <optional>
+#include <cstddef>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -106,6 +107,8 @@ enum class PassKind : uint8_t {
     CoreIrMem2Reg,
     CoreIrConstFold,
     CoreIrSccp,
+    CoreIrInstCombine,
+    CoreIrLicm,
     CoreIrGvn,
     CoreIrDce,
     LowerIr,
@@ -141,10 +144,22 @@ class Pass {
 // Owns pass objects and runs them in pipeline order.
 class PassManager {
   private:
-    std::vector<std::unique_ptr<Pass>> passes_;
+    struct FixedPointPassGroup {
+        std::vector<std::unique_ptr<Pass>> passes;
+        std::size_t max_iterations = 4;
+    };
+
+    struct PipelineEntry {
+        std::unique_ptr<Pass> pass;
+        std::optional<FixedPointPassGroup> fixed_point_group;
+    };
+
+    std::vector<PipelineEntry> entries_;
 
   public:
     void AddPass(std::unique_ptr<Pass> pass);
+    void AddCoreIrFixedPointGroup(std::vector<std::unique_ptr<Pass>> passes,
+                                  std::size_t max_iterations = 4);
     PassManager() = default;
     Pass *get_pass_by_kind(PassKind kind) const;
     PassResult Run(CompilerContext &context);

@@ -118,17 +118,21 @@ src/backend/ir/
 
 ## Current Design
 
-The current IR module is intentionally a skeleton:
+The current IR module is intentionally a staged optimization pipeline:
 
 - `BuildCoreIrPass`, `CoreIrCanonicalizePass`, `CoreIrSimplifyCfgPass`,
+  `CoreIrLoopSimplifyPass`, `CoreIrInstCombinePass`,
   `CoreIrStackSlotForwardPass`, `CoreIrDeadStoreEliminationPass`,
-  `CoreIrMem2RegPass`, `CoreIrCopyPropagationPass`, `CoreIrSccpPass`,
-  `CoreIrLocalCsePass`, `CoreIrGvnPass`, `CoreIrConstFoldPass`,
-  `CoreIrDcePass`, and `LowerIrPass` are connected to the main pipeline after
-  `SemanticPass`
+  `CoreIrMem2RegPass`, one post-SSA fixed-point group containing
+  `CoreIrCopyPropagationPass`, `CoreIrInstCombinePass`, `CoreIrSccpPass`,
+  `CoreIrSimplifyCfgPass`, `CoreIrLicmPass`, `CoreIrLocalCsePass`,
+  `CoreIrGvnPass`, `CoreIrConstFoldPass`, `CoreIrDcePass`, and a trailing
+  `CoreIrSimplifyCfgPass`, plus `LowerIrPass`, are connected to the main
+  pipeline after `SemanticPass`
 - `analysis/CoreIrAnalysisManager` now owns function-level Core IR analysis
-  caches for the current staged analyses and invalidates them conservatively
-  when transform passes mutate IR
+  caches for the current staged analyses, while the outer `PassManager` now
+  invalidates them from pass-reported `CoreIrPassEffects` /
+  `CoreIrPreservedAnalyses`
 - `analysis/CoreIrCfgAnalysis` now centralizes predecessor/successor and
   reachability facts for one `CoreIrFunction`
 - `analysis/CoreIrDominatorTreeAnalysis` now computes a first function-local
@@ -137,39 +141,39 @@ The current IR module is intentionally a skeleton:
   edges over that reachable CFG for SSA construction
 - `analysis/CoreIrPromotableStackSlotAnalysis` now classifies promotable
   whole-slot and constant-path stack-slot subobject units for `mem2reg`
-- `CoreIrCanonicalizePass` is no longer a placeholder check; its first
-  implementation now normalizes branch conditions into compare-driven forms,
-  simplifies local integer cast chains, and erases zero-index no-op GEP
-  wrappers before later optimization/lowering
-- `CoreIrCanonicalizePass` has since been extended to:
-  - collapse safe cast-/compare-wrapped branch conditions into direct `i1`
-    compare branches
-  - flatten only structurally-safe nested GEP chains while preserving unsafe
-    union/reinterpretation-style address paths
-  - simplify safe integer identity expressions and normalize compare operand
-    orientation
-  - rewrite plain `addr_of_stackslot`-based loads and stores into direct
-    stack-slot forms
+- `CoreIrCanonicalizePass` is now intentionally narrow and only preserves
+  pre-SSA structural invariants such as explicit `i1` branch conditions plus
+  direct stack-slot load/store address forms that later memory passes depend on
 - `CoreIrSimplifyCfgPass` now owns conservative CFG cleanup after shape
   canonicalization, including constant / redundant branch collapse, trampoline
   removal, unreachable-block cleanup, and single-predecessor linear block
-  merging
+  merging, and it now keeps successor `phi` nodes in sync when CFG edges or
+  blocks change
+- `CoreIrInstCombinePass` now acts as the value-level normalization center for
+  Core IR, folding trivial `phi`, cast, compare, boolean-wrapper, GEP, and
+  small algebraic patterns without changing CFG structure
 - `CoreIrStackSlotForwardPass` now forwards block-local direct stack-slot
   stores into later direct stack-slot loads until a conservative barrier is
   seen
 - `CoreIrCopyPropagationPass` now reuses duplicate block-local direct loads and
   duplicate address materializations so later passes see fewer redundant
-  temporaries, and it now also removes trivial/single-incoming `phi` nodes
-  plus identity casts after `mem2reg`
+  temporaries, but it now leaves trivial `phi` / identity-cast cleanup to
+  `CoreIrInstCombinePass`
 - `CoreIrSccpPass` now performs value-only sparse conditional constant
   propagation over SSA `phi`, `binary`, `unary`, `compare`, `cast`, and
   branch-condition users, leaving later CFG cleanup to `CoreIrConstFoldPass`
   and `CoreIrDcePass`
+- `CoreIrLicmPass` now performs hoist-only loop-invariant code motion over the
+  simplified SSA pipeline, moving pure invariant computations and
+  memory-safe invariant loads into loop preheaders
 - `CoreIrLocalCsePass` now acts as a cheap block-local cleanup lane ahead of
   global value numbering, still limited to pure `binary`, `unary`, `compare`,
   `cast`, and `gep` instructions
 - `CoreIrGvnPass` now reuses dominated pure SSA computations globally over the
   dominator tree for `binary`, `unary`, `compare`, `cast`, and `gep`
+- `CoreIrConstFoldPass` now only performs CFG-facing constant branch folding
+  plus successor-`phi` incoming cleanup, leaving pure value folding to
+  `CoreIrInstCombinePass`
 - `CoreIrDeadStoreEliminationPass` now removes overwritten direct stack-slot
   stores when no intervening read or barrier makes the older store observable
 - `shared/core/` now also supports `CoreIrPhiInst`, so staged Core IR can
@@ -277,50 +281,35 @@ LLVM IR lowering path:
 - `CoreIrBuildResult` now also owns one `CoreIrAnalysisManager` alongside the
   staged module/context so function analyses stay tied to one Core IR build
 - `CoreIrCanonicalizePass`, `CoreIrSimplifyCfgPass`,
+  `CoreIrLoopSimplifyPass`, `CoreIrInstCombinePass`,
   `CoreIrStackSlotForwardPass`, `CoreIrDeadStoreEliminationPass`,
-  `CoreIrMem2RegPass`, `CoreIrCopyPropagationPass`, `CoreIrSccpPass`,
-  `CoreIrLocalCsePass`, `CoreIrGvnPass`, `CoreIrConstFoldPass`,
-  `CoreIrDcePass`, and `LowerIrPass` now run as explicit top-level compiler
-  passes over one built Core IR module
+  `CoreIrMem2RegPass`, one post-SSA fixed-point group, and `LowerIrPass` now
+  run as explicit top-level compiler passes over one built Core IR module
 - `CoreIrCanonicalizePass` currently handles:
   - branch condition normalization for compare-like and integer-valued
-    `CondJump` conditions
-  - local integer `SignExtend` / `ZeroExtend` / `Truncate` chain cleanup
-  - zero-index `GetElementPtr` cleanup when it is a no-op wrapper
-  - safe compare/cast wrappers around boolean branch conditions
-  - safe nested `GetElementPtr` flattening for structural address chains
-    - including multidimensional array-style chains such as
-      `gep(gep(base, 0, i), j)` when they can be merged into one structural
-      index path
-    - including recursive array/struct chains such as
-      `gep(gep(gep(base, 0, i), 0, field), 0, j)` when each step remains a
-      structural member/element selection
-    - while still preserving non-structural aggregate pointer arithmetic such
-      as a follow-on `gep(ptr_to_struct, idx)` without a leading zero member
-      selection wrapper
+    `CondJump` conditions until every branch sees an explicit `i1` producer
   - direct stack-slot load/store canonicalization even when the address still
     carries a trivial zero-index `GEP` wrapper chain
-  - safe integer identity-expression cleanup and compare orientation
-    normalization
   - plain stack-slot address load/store canonicalization
-  - conservative commutative constant-to-rhs reordering for integer
-    `add/mul/and/or/xor`
-  - conservative self-op and neutral-element cleanup such as `x - x -> 0`,
-    `x ^ x -> 0`, `x | x -> x`, `x & x -> x`, `x & -1 -> x`, and shift-by-zero
-    elimination
 - post-canonicalization callers may now rely on these invariants:
   - every `CondJump` condition is an explicit `i1` SSA value
-  - integer, pointer, and floating truthiness tests are materialized before
-    target lowering instead of being deferred to the LLVM backend
-  - compare wrappers around boolean-producing values are collapsed before later
-    optimization stages
+  - stack-slot loads and stores no longer hide behind trivial address wrappers
 - `CoreIrSimplifyCfgPass` currently handles:
   - constant-condition branch collapse before later CFG cleanup
   - redundant `condbr x, B, B` collapse
   - non-entry unconditional jump trampoline elimination
   - non-entry unreachable block cleanup after branch simplification and target
-    rewrites
-  - conservative single-predecessor linear block merging
+    rewrites, including successor-`phi` incoming cleanup
+  - conservative single-predecessor linear block merging with trivial
+    single-predecessor `phi` elimination
+- `CoreIrInstCombinePass` currently handles:
+  - trivial `phi` cleanup such as `phi(x)` and `phi(x, x, ...)`
+  - identity-cast elimination and safe integer cast-chain collapse
+  - integer `binary`, `unary`, `compare`, and `cast` constant folding
+  - compare orientation normalization and boolean-wrapper cleanup
+  - zero-index GEP elimination and structurally-safe nested GEP flattening
+  - direct stack-slot load/store address-shape cleanup through trivial wrapper
+    addresses
 - `CoreIrStackSlotForwardPass` currently handles:
   - block-local forwarding from one direct stack-slot `store` into later direct
     stack-slot `load`
@@ -330,13 +319,19 @@ LLVM IR lowering path:
   - block-local duplicate direct-stack-slot load reuse
   - block-local duplicate `addr_of_function`, `addr_of_global`, and
     `addr_of_stackslot` reuse
-  - trivial-phi and single-incoming-phi elimination
-  - identity-cast elimination when operand and result types already match
 - `CoreIrSccpPass` currently handles:
   - SSA lattice propagation over `phi`, `binary`, `unary`, `compare`, and
     `cast`
   - executable-block and executable-edge discovery from branch conditions
   - replacement of constant SSA users, leaving CFG reshaping to later passes
+- `CoreIrLicmPass` currently handles:
+  - hoist-only loop-invariant code motion into loop preheaders
+  - pure `binary`, `unary`, `compare`, `cast`, `addr_of_*`, and `gep`
+    instructions once all operands are loop-invariant
+  - direct-stack-slot and address-based `load` hoisting only when the address
+    is loop-invariant, alias analysis can classify the location, `MemorySSA`
+    finds no loop-internal clobber, and loop-internal memory writers do not
+    alias the loaded location
 - `CoreIrLocalCsePass` currently handles:
   - block-local common-subexpression elimination for pure `binary`, `unary`,
     `compare`, `cast`, and `gep` instructions as a cheap pre-GVN cleanup
@@ -344,6 +339,9 @@ LLVM IR lowering path:
   - dominator-tree-scoped reuse of pure `binary`, `unary`, `compare`, `cast`,
     and `gep` instructions
   - conservative scope boundaries so non-dominating values are not reused
+- `CoreIrConstFoldPass` currently handles:
+  - constant `CondJump -> Jump` folding
+  - successor-`phi` incoming cleanup for the removed CFG edge
 - `CoreIrDeadStoreEliminationPass` currently handles:
   - conservative removal of overwritten direct stack-slot stores inside one
     block when no intervening read or barrier makes the older store observable

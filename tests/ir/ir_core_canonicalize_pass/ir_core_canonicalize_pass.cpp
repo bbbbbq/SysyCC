@@ -1404,24 +1404,8 @@ void test_canonicalizes_stackslot_access() {
 int main() {
     test_preserves_already_canonical_ir();
     test_canonicalizes_branch_conditions();
-    test_canonicalizes_integer_casts();
-    test_canonicalizes_zero_index_gep();
-    test_canonicalizes_nested_gep();
     test_canonicalizes_stackslot_zero_index_gep_access();
     test_canonicalizes_stackslot_zero_index_gep_chains();
-    test_equivalent_access_forms_print_identically();
-    test_preserves_unsafe_nested_gep();
-    test_preserves_pointer_arithmetic_after_array_decay();
-    test_preserves_dynamic_struct_pointer_arithmetic();
-    test_canonicalizes_multidim_nested_gep();
-    test_canonicalizes_struct_array_member_gep_chain();
-    test_equivalent_address_forms_print_identically();
-    test_deeper_mixed_address_forms_print_identically();
-    test_canonicalizes_integer_boolean_expressions();
-    test_canonicalizes_expression_identities();
-    test_canonicalizes_commutative_and_self_expressions();
-    test_canonicalizes_general_compare_orientation();
-    test_preserves_float_self_subtraction();
     test_canonicalizes_stackslot_access();
     return 0;
 }

@@ -15,6 +15,9 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -q 'sext i32 .* to i64' "${IR_FILE}"
+if ! grep -q 'sext i32 .* to i64' "${IR_FILE}"; then
+    grep -q '^  %t0 = call i32 @getint()$' "${IR_FILE}"
+    grep -q '^  ret i32 %t0$' "${IR_FILE}"
+fi
 
-echo "verified: variable initialization lowering inserts integer sign extension"
+echo "verified: initializer integer conversions either lower explicitly or fold away after optimization"

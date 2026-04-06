@@ -12,9 +12,12 @@
 #include "backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.hpp"
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
 #include "backend/ir/gvn/core_ir_gvn_pass.hpp"
+#include "backend/ir/instcombine/core_ir_instcombine_pass.hpp"
+#include "backend/ir/licm/core_ir_licm_pass.hpp"
 #include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
 #include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
 #include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
+#include "backend/ir/pipeline/core_ir_pass_pipeline.hpp"
 #include "backend/ir/sccp/core_ir_sccp_pass.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
@@ -65,20 +68,7 @@ void Complier::InitializePasses() {
     pass_manager_.AddPass(std::make_unique<ParserPass>());
     pass_manager_.AddPass(std::make_unique<AstPass>());
     pass_manager_.AddPass(std::make_unique<SemanticPass>());
-    pass_manager_.AddPass(std::make_unique<BuildCoreIrPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrCanonicalizePass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrLoopSimplifyPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrStackSlotForwardPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrDeadStoreEliminationPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrMem2RegPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrCopyPropagationPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrSccpPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrLocalCsePass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrGvnPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrConstFoldPass>());
-    pass_manager_.AddPass(std::make_unique<CoreIrDcePass>());
-    pass_manager_.AddPass(std::make_unique<LowerIrPass>());
+    append_default_core_ir_pipeline(pass_manager_);
     pass_manager_.AddPass(std::make_unique<AArch64AsmGenPass>());
     pipeline_initialized_ = true;
 }

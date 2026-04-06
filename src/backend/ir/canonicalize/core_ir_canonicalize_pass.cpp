@@ -19,12 +19,15 @@
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
+#include "backend/ir/shared/detail/core_ir_rewrite_utils.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
 
 namespace {
+
+using namespace detail;
 
 // 这些不变式会被后续的 Core IR pass 直接依赖：
 // - 每个 CondJump 条件都应显式变成 i1 SSA 值
@@ -43,226 +46,6 @@ PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name)
 
 std::string next_canonicalize_name(const std::string &prefix) {
     return prefix + std::to_string(g_canonicalize_temp_counter++);
-}
-
-// 下面这组工具函数负责做类型、常量和地址形状判断，
-// 让后面的规范化规则可以只关注“是否可安全改写”。
-const CoreIrIntegerType *as_integer_type(const CoreIrType *type) {
-    return dynamic_cast<const CoreIrIntegerType *>(type);
-}
-
-const CoreIrConstantInt *as_integer_constant(const CoreIrValue *value) {
-    return dynamic_cast<const CoreIrConstantInt *>(value);
-}
-
-bool is_zero_integer_constant(const CoreIrValue *value) {
-    const auto *constant = as_integer_constant(value);
-    return constant != nullptr && constant->get_value() == 0;
-}
-
-bool is_one_integer_constant(const CoreIrValue *value) {
-    const auto *constant = as_integer_constant(value);
-    return constant != nullptr && constant->get_value() == 1;
-}
-
-bool is_all_ones_integer_constant(const CoreIrValue *value) {
-    const auto *constant = as_integer_constant(value);
-    const auto *integer_type =
-        constant == nullptr ? nullptr : as_integer_type(constant->get_type());
-    if (integer_type == nullptr) {
-        return false;
-    }
-    const std::size_t bit_width = integer_type->get_bit_width();
-    const std::uint64_t all_ones =
-        bit_width >= 64 ? std::numeric_limits<std::uint64_t>::max()
-                        : ((std::uint64_t{1} << bit_width) - 1);
-    return constant->get_value() == all_ones;
-}
-
-std::optional<std::size_t> get_integer_bit_width(const CoreIrType *type) {
-    const auto *integer_type = as_integer_type(type);
-    if (integer_type == nullptr) {
-        return std::nullopt;
-    }
-    return integer_type->get_bit_width();
-}
-
-const CoreIrType *get_pointer_pointee_type(const CoreIrValue *value) {
-    if (value == nullptr) {
-        return nullptr;
-    }
-    const auto *pointer_type =
-        dynamic_cast<const CoreIrPointerType *>(value->get_type());
-    return pointer_type == nullptr ? nullptr : pointer_type->get_pointee_type();
-}
-
-const CoreIrType *get_gep_result_pointee_type(const CoreIrGetElementPtrInst &gep) {
-    const auto *pointer_type =
-        dynamic_cast<const CoreIrPointerType *>(gep.get_type());
-    return pointer_type == nullptr ? nullptr : pointer_type->get_pointee_type();
-}
-
-bool is_trivial_zero_index_gep(const CoreIrGetElementPtrInst &gep) {
-    return gep.get_index_count() == 1 && is_zero_integer_constant(gep.get_index(0)) &&
-           gep.get_base() != nullptr && gep.get_base()->get_type() == gep.get_type();
-}
-
-CoreIrValue *unwrap_trivial_zero_index_geps(CoreIrValue *value) {
-    CoreIrValue *current = value;
-    auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(current);
-    while (gep != nullptr && is_trivial_zero_index_gep(*gep)) {
-        current = gep->get_base();
-        gep = dynamic_cast<CoreIrGetElementPtrInst *>(current);
-    }
-    return current;
-}
-
-const CoreIrType *get_selected_gep_pointee_type(const CoreIrGetElementPtrInst &gep) {
-    const CoreIrType *current_type = get_pointer_pointee_type(gep.get_base());
-    if (current_type == nullptr) {
-        return nullptr;
-    }
-
-    std::size_t start_index = 0;
-    if (is_trivial_zero_index_gep(gep) ||
-        (gep.get_index_count() > 1 && is_zero_integer_constant(gep.get_index(0)))) {
-        start_index = 1;
-    }
-
-    for (std::size_t index = start_index; index < gep.get_index_count(); ++index) {
-        if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
-            array_type != nullptr) {
-            current_type = array_type->get_element_type();
-            continue;
-        }
-        if (const auto *struct_type =
-                dynamic_cast<const CoreIrStructType *>(current_type);
-            struct_type != nullptr) {
-            if (start_index == 0 && index == 0) {
-                return nullptr;
-            }
-            const auto *index_constant = as_integer_constant(gep.get_index(index));
-            if (index_constant == nullptr) {
-                return nullptr;
-            }
-            const std::uint64_t field_index = index_constant->get_value();
-            if (field_index >= struct_type->get_element_types().size()) {
-                return nullptr;
-            }
-            current_type = struct_type->get_element_types()[field_index];
-            continue;
-        }
-        return nullptr;
-    }
-
-    return current_type;
-}
-
-bool can_flatten_structural_gep(const CoreIrGetElementPtrInst &gep) {
-    return get_selected_gep_pointee_type(gep) == get_gep_result_pointee_type(gep);
-}
-
-bool collect_structural_gep_chain(const CoreIrGetElementPtrInst &gep,
-                                  CoreIrValue *&root_base,
-                                  std::vector<CoreIrValue *> &indices) {
-    if (!can_flatten_structural_gep(gep)) {
-        return false;
-    }
-
-    if (auto *inner_gep = dynamic_cast<CoreIrGetElementPtrInst *>(gep.get_base());
-        inner_gep != nullptr && collect_structural_gep_chain(*inner_gep, root_base, indices)) {
-        const bool drop_outer_leading_zero = is_zero_integer_constant(gep.get_index(0));
-        const std::size_t outer_start_index = drop_outer_leading_zero ? 1 : 0;
-        for (std::size_t index = outer_start_index; index < gep.get_index_count();
-             ++index) {
-            indices.push_back(gep.get_index(index));
-        }
-        return true;
-    }
-
-    root_base = unwrap_trivial_zero_index_geps(gep.get_base());
-    for (std::size_t index = 0; index < gep.get_index_count(); ++index) {
-        indices.push_back(gep.get_index(index));
-    }
-    return true;
-}
-
-bool is_supported_integer_cast_kind(CoreIrCastKind cast_kind) {
-    return cast_kind == CoreIrCastKind::SignExtend ||
-           cast_kind == CoreIrCastKind::ZeroExtend ||
-           cast_kind == CoreIrCastKind::Truncate;
-}
-
-bool preserves_integer_truthiness(CoreIrCastKind cast_kind) {
-    return cast_kind == CoreIrCastKind::SignExtend ||
-           cast_kind == CoreIrCastKind::ZeroExtend;
-}
-
-bool is_float_type(const CoreIrType *type) {
-    return type != nullptr && type->get_kind() == CoreIrTypeKind::Float;
-}
-
-bool is_pointer_type(const CoreIrType *type) {
-    return type != nullptr && type->get_kind() == CoreIrTypeKind::Pointer;
-}
-
-CoreIrInstruction *insert_instruction_before(
-    CoreIrBasicBlock &block, CoreIrInstruction *anchor,
-    std::unique_ptr<CoreIrInstruction> instruction) {
-    if (instruction == nullptr) {
-        return nullptr;
-    }
-
-    auto &instructions = block.get_instructions();
-    auto it = std::find_if(
-        instructions.begin(), instructions.end(),
-        [anchor](const std::unique_ptr<CoreIrInstruction> &candidate) {
-            return candidate.get() == anchor;
-        });
-    instruction->set_parent(&block);
-    CoreIrInstruction *instruction_ptr = instruction.get();
-    instructions.insert(it, std::move(instruction));
-    return instruction_ptr;
-}
-
-bool erase_instruction(CoreIrBasicBlock &block, CoreIrInstruction *instruction) {
-    auto &instructions = block.get_instructions();
-    auto it = std::find_if(
-        instructions.begin(), instructions.end(),
-        [instruction](const std::unique_ptr<CoreIrInstruction> &candidate) {
-            return candidate.get() == instruction;
-        });
-    if (it == instructions.end()) {
-        return false;
-    }
-    (*it)->detach_operands();
-    instructions.erase(it);
-    return true;
-}
-
-CoreIrInstruction *replace_instruction(CoreIrBasicBlock &block,
-                                       CoreIrInstruction *instruction,
-                                       std::unique_ptr<CoreIrInstruction> replacement) {
-    if (instruction == nullptr || replacement == nullptr) {
-        return nullptr;
-    }
-
-    auto &instructions = block.get_instructions();
-    auto it = std::find_if(
-        instructions.begin(), instructions.end(),
-        [instruction](const std::unique_ptr<CoreIrInstruction> &candidate) {
-            return candidate.get() == instruction;
-        });
-    if (it == instructions.end()) {
-        return nullptr;
-    }
-
-    replacement->set_parent(&block);
-    CoreIrInstruction *replacement_ptr = replacement.get();
-    instruction->replace_all_uses_with(replacement_ptr);
-    instruction->detach_operands();
-    *it = std::move(replacement);
-    return replacement_ptr;
 }
 
 bool erase_instruction_if_dead(CoreIrBasicBlock &block,
@@ -461,11 +244,13 @@ CoreIrCompareInst *canonicalize_branch_condition_value(CoreIrContext &context,
             match_boolean_compare(condition);
         match.has_value()) {
         auto *compare = match->compare;
+        if (compare == nullptr) {
+            return nullptr;
+        }
         const auto *compare_type =
-            compare == nullptr ? nullptr : as_integer_type(compare->get_type());
-        if (compare != nullptr && compare_type != nullptr &&
-            compare_type->get_bit_width() == 1 && !match->invert &&
-            compare == condition) {
+            as_integer_type(compare->get_type());
+        if (compare_type != nullptr && compare_type->get_bit_width() == 1 &&
+            !match->invert && compare == condition) {
             return compare;
         }
         changed = true;
@@ -947,7 +732,10 @@ bool canonicalize_stackslot_store(CoreIrBasicBlock &block,
 
 bool canonicalize_nonterminator_instructions(CoreIrContext &context,
                                              CoreIrBasicBlock &block) {
-    // 逐条扫非终结指令，必要时会删掉当前节点或替换成更规范的形状。
+    (void)context;
+    // 这里只保留 pre-SSA 必需的硬结构规整：
+    // - stack-slot 直接 load/store 形状
+    // 其他值级 fold / wrapper cleanup 交给 InstCombine。
     bool changed = false;
     auto &instructions = block.get_instructions();
     std::size_t index = 0;
@@ -964,30 +752,7 @@ bool canonicalize_nonterminator_instructions(CoreIrContext &context,
         }
 
         const std::size_t old_size = instructions.size();
-        if (auto *binary = dynamic_cast<CoreIrBinaryInst *>(instruction);
-            binary != nullptr) {
-            if (canonicalize_commutative_binary(block, *binary) ||
-                canonicalize_binary_identity(context, block, *binary)) {
-                changed = true;
-            }
-        } else if (auto *cast = dynamic_cast<CoreIrCastInst *>(instruction);
-            cast != nullptr) {
-            if (canonicalize_integer_cast(block, *cast)) {
-                changed = true;
-            }
-        } else if (auto *compare = dynamic_cast<CoreIrCompareInst *>(instruction);
-                   compare != nullptr) {
-            if (canonicalize_compare_boolean_wrapper(block, *compare) ||
-                canonicalize_compare_orientation(block, *compare)) {
-                changed = true;
-            }
-        } else if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(instruction);
-                   gep != nullptr) {
-            if (canonicalize_gep(block, *gep) ||
-                canonicalize_nested_gep(block, *gep)) {
-                changed = true;
-            }
-        } else if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
+        if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
                    load != nullptr) {
             if (canonicalize_stackslot_load(block, *load)) {
                 changed = true;

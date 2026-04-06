@@ -63,44 +63,6 @@ bool erase_instruction(CoreIrBasicBlock &block, CoreIrInstruction *instruction) 
     return true;
 }
 
-bool simplify_trivial_phi(CoreIrBasicBlock &block, CoreIrPhiInst &phi) {
-    if (phi.get_incoming_count() == 0) {
-        return false;
-    }
-
-    CoreIrValue *replacement = nullptr;
-    for (std::size_t index = 0; index < phi.get_incoming_count(); ++index) {
-        CoreIrValue *incoming_value = phi.get_incoming_value(index);
-        if (incoming_value == nullptr) {
-            return false;
-        }
-        if (replacement == nullptr) {
-            replacement = incoming_value;
-            continue;
-        }
-        if (replacement != incoming_value) {
-            return false;
-        }
-    }
-
-    if (replacement == nullptr) {
-        return false;
-    }
-    phi.replace_all_uses_with(replacement);
-    erase_instruction(block, &phi);
-    return true;
-}
-
-bool simplify_identity_cast(CoreIrBasicBlock &block, CoreIrCastInst &cast) {
-    CoreIrValue *operand = cast.get_operand();
-    if (operand == nullptr || operand->get_type() != cast.get_type()) {
-        return false;
-    }
-    cast.replace_all_uses_with(operand);
-    erase_instruction(block, &cast);
-    return true;
-}
-
 bool propagate_address_value(CoreIrBasicBlock &block, CoreIrInstruction *instruction,
                              std::unordered_map<AddressValueKey, CoreIrInstruction *,
                                                 AddressValueKeyHash> &available_addresses) {
@@ -152,22 +114,6 @@ bool propagate_load_copies(CoreIrBasicBlock &block) {
             instructions.erase(instructions.begin() + index);
             changed = true;
             continue;
-        }
-
-        if (auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction); phi != nullptr) {
-            if (simplify_trivial_phi(block, *phi)) {
-                changed = true;
-                continue;
-            }
-            ++index;
-            continue;
-        }
-
-        if (auto *cast = dynamic_cast<CoreIrCastInst *>(instruction); cast != nullptr) {
-            if (simplify_identity_cast(block, *cast)) {
-                changed = true;
-                continue;
-            }
         }
 
         if (propagate_address_value(block, instruction, available_addresses)) {

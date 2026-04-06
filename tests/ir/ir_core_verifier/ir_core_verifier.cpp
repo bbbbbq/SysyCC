@@ -15,6 +15,28 @@ using namespace sysycc;
 
 namespace {
 
+void test_valid_module_passes_verification() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("valid_module");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *seven = context->create_constant<CoreIrConstantInt>(i32_type, 7);
+    entry->create_instruction<CoreIrReturnInst>(void_type, seven);
+
+    CoreIrVerifier verifier;
+    const CoreIrVerifyResult module_result = verifier.verify_module(*module);
+    const CoreIrVerifyResult function_result = verifier.verify_function(*function);
+    assert(module_result.ok);
+    assert(module_result.issues.empty());
+    assert(function_result.ok);
+    assert(function_result.issues.empty());
+}
+
 void test_invalid_terminator_layout() {
     auto context = std::make_unique<CoreIrContext>();
     auto *void_type = context->create_type<CoreIrVoidType>();
@@ -104,8 +126,8 @@ void test_dangling_use_def() {
     auto *two = context->create_constant<CoreIrConstantInt>(i32_type, 2);
     auto *sum = entry->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type, "sum", one, two);
-    auto *ret = entry->create_instruction<CoreIrReturnInst>(void_type, sum);
-    one->add_use(ret, 0);
+    entry->create_instruction<CoreIrReturnInst>(void_type, sum);
+    one->remove_use(sum, 0);
 
     CoreIrVerifier verifier;
     const CoreIrVerifyResult result = verifier.verify_module(*module);
@@ -135,6 +157,7 @@ void test_invalid_parent_pointer() {
 } // namespace
 
 int main() {
+    test_valid_module_passes_verification();
     test_invalid_terminator_layout();
     test_invalid_phi_position();
     test_phi_predecessor_mismatch();

@@ -18,10 +18,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^logic\.true[0-9]+:$' "${IR_FILE}"
-grep -Eq '^logic\.end[0-9]+:$' "${IR_FILE}"
-grep -Eq '^  br label %logic\.true[0-9]+$' "${IR_FILE}"
 grep -Eq '^  store i32 1, ptr %c\.addr[0-9]*$' "${IR_FILE}"
 grep -Eq '^  ret i32 %t[0-9]+$' "${IR_FILE}"
 
-echo "verified: logical && and || lower to canonical short-circuit control-flow blocks"
+echo "verified: constant short-circuit expressions fold to their optimized final stores"

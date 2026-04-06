@@ -12,13 +12,17 @@
 #include "backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.hpp"
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
 #include "backend/ir/gvn/core_ir_gvn_pass.hpp"
+#include "backend/ir/instcombine/core_ir_instcombine_pass.hpp"
+#include "backend/ir/licm/core_ir_licm_pass.hpp"
 #include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
 #include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
 #include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
+#include "backend/ir/pipeline/core_ir_pass_pipeline.hpp"
 #include "backend/ir/sccp/core_ir_sccp_pass.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
+#include "backend/ir/verify/core_ir_verifier.hpp"
 #include "compiler/complier.hpp"
 #include "frontend/ast/ast_pass.hpp"
 #include "frontend/lexer/lexer.hpp"
@@ -129,6 +133,24 @@ CoreIrCfgAnalysisResult::get_predecessors(const CoreIrBasicBlock *) const {
     return empty;
 }
 
+CoreIrVerifyResult CoreIrVerifier::verify_module(const CoreIrModule &) const {
+    return {};
+}
+
+CoreIrVerifyResult CoreIrVerifier::verify_function(
+    const CoreIrFunction &, const CoreIrCfgAnalysisResult *) const {
+    return {};
+}
+
+bool emit_core_ir_verify_result(CompilerContext &, const CoreIrVerifyResult &,
+                                const char *) {
+    return true;
+}
+
+void append_default_core_ir_pipeline(PassManager &pass_manager) {
+    pass_manager.AddPass(std::make_unique<BuildCoreIrPass>());
+}
+
 PassKind CoreIrCanonicalizePass::Kind() const {
     return PassKind::CoreIrCanonicalize;
 }
@@ -214,6 +236,26 @@ PassKind CoreIrSccpPass::Kind() const { return PassKind::CoreIrSccp; }
 const char *CoreIrSccpPass::Name() const { return "CoreIrSccpPass"; }
 
 PassResult CoreIrSccpPass::Run(CompilerContext &) {
+    return no_op_core_ir_transform_result();
+}
+
+PassKind CoreIrInstCombinePass::Kind() const {
+    return PassKind::CoreIrInstCombine;
+}
+
+const char *CoreIrInstCombinePass::Name() const {
+    return "CoreIrInstCombinePass";
+}
+
+PassResult CoreIrInstCombinePass::Run(CompilerContext &) {
+    return no_op_core_ir_transform_result();
+}
+
+PassKind CoreIrLicmPass::Kind() const { return PassKind::CoreIrLicm; }
+
+const char *CoreIrLicmPass::Name() const { return "CoreIrLicmPass"; }
+
+PassResult CoreIrLicmPass::Run(CompilerContext &) {
     return no_op_core_ir_transform_result();
 }
 
