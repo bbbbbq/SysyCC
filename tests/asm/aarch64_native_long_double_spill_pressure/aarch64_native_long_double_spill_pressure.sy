@@ -1,0 +1,26 @@
+long double bump(long double x) {
+    return x + (long double)1;
+}
+
+int main() {
+    long double a;
+    long double b;
+    long double c;
+    long double d;
+    long double e;
+    long double f;
+    long double g;
+    long double keep;
+
+    a = (long double)1;
+    b = (long double)2;
+    c = (long double)3;
+    d = (long double)4;
+    e = (long double)5;
+    f = (long double)6;
+    g = (long double)7;
+
+    keep = bump(a) + b + c + d + e + f + g;
+    putint((int)keep);
+    return 0;
+}

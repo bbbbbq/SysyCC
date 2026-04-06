@@ -25,13 +25,39 @@ void putch(int value) { putchar(value); }
 
 long double __addtf3(long double lhs, long double rhs) { return lhs + rhs; }
 
+long double __subtf3(long double lhs, long double rhs) { return lhs - rhs; }
+
+long double __multf3(long double lhs, long double rhs) { return lhs * rhs; }
+
+long double __divtf3(long double lhs, long double rhs) { return lhs / rhs; }
+
+long double __extendsftf2(float value) { return (long double)value; }
+
 long double __extenddftf2(double value) { return (long double)value; }
 
 long double __floatsitf(int value) { return (long double)value; }
 
+long double __floatunsitf(unsigned int value) { return (long double)value; }
+
+long double __floatditf(long long value) { return (long double)value; }
+
+long double __floatunditf(unsigned long long value) {
+    return (long double)value;
+}
+
 int __fixtfsi(long double value) { return (int)value; }
 
+unsigned int __fixunstfsi(long double value) { return (unsigned int)value; }
+
+long long __fixtfdi(long double value) { return (long long)value; }
+
+unsigned long long __fixunstfdi(long double value) {
+    return (unsigned long long)value;
+}
+
 double __trunctfdf2(long double value) { return (double)value; }
+
+float __trunctfsf2(long double value) { return (float)value; }
 
 int __unordtf2(long double lhs, long double rhs) {
     return isnan(lhs) || isnan(rhs);

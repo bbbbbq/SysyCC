@@ -128,6 +128,204 @@ build_and_link_ir_executable() {
     clang "${ir_file}" "${runtime_source}" -fno-builtin -o "${output_binary}"
 }
 
+find_aarch64_sysroot() {
+    local candidate=""
+
+    if [[ -n "${SYSYCC_AARCH64_SYSROOT:-}" ]] &&
+        [[ -d "${SYSYCC_AARCH64_SYSROOT}" ]]; then
+        printf '%s\n' "${SYSYCC_AARCH64_SYSROOT}"
+        return 0
+    fi
+
+    if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+        candidate="$(aarch64-linux-gnu-gcc -print-sysroot 2>/dev/null || true)"
+        if [[ -n "${candidate}" ]] && [[ "${candidate}" != "/" ]] &&
+            [[ -d "${candidate}" ]]; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    fi
+
+    for candidate in \
+        /usr/aarch64-linux-gnu \
+        /usr/aarch64-linux-gnu/libc \
+        /usr/local/aarch64-linux-gnu \
+        /opt/aarch64-linux-gnu \
+        /opt/homebrew/aarch64-linux-gnu \
+        /opt/homebrew/opt/aarch64-linux-gnu-toolchain/aarch64-linux-gnu/sysroot \
+        /opt/homebrew/opt/aarch64-unknown-linux-gnu \
+        /opt/homebrew/opt/aarch64-linux-gnu-toolchain/aarch64-unknown-linux-gnu/sysroot; do
+        if [[ -d "${candidate}" ]]; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+find_aarch64_cc() {
+    if [[ -n "${SYSYCC_AARCH64_CC:-}" ]] &&
+        command -v "${SYSYCC_AARCH64_CC}" >/dev/null 2>&1; then
+        printf '%s\n' "$(command -v "${SYSYCC_AARCH64_CC}")"
+        return 0
+    fi
+
+    if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+        command -v aarch64-linux-gnu-gcc
+        return 0
+    fi
+
+    if command -v clang >/dev/null 2>&1; then
+        command -v clang
+        return 0
+    fi
+
+    return 1
+}
+
+find_qemu_aarch64() {
+    if [[ -n "${SYSYCC_QEMU_AARCH64:-}" ]] &&
+        command -v "${SYSYCC_QEMU_AARCH64}" >/dev/null 2>&1; then
+        printf '%s\n' "$(command -v "${SYSYCC_QEMU_AARCH64}")"
+        return 0
+    fi
+
+    command -v qemu-aarch64 >/dev/null 2>&1 || return 1
+    command -v qemu-aarch64
+}
+
+run_aarch64_cc() {
+    local cc="$1"
+    shift
+
+    if [[ "$(basename "${cc}")" == "clang" ]]; then
+        local sysroot=""
+        sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+        if [[ -n "${sysroot}" ]]; then
+            "${cc}" --target=aarch64-unknown-linux-gnu --sysroot="${sysroot}" "$@"
+            return
+        fi
+        "${cc}" --target=aarch64-unknown-linux-gnu "$@"
+        return
+    fi
+
+    local sysroot=""
+    sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+    if [[ -n "${sysroot}" ]]; then
+        "${cc}" --sysroot="${sysroot}" "$@"
+        return
+    fi
+    "${cc}" "$@"
+}
+
+build_aarch64_native_object() {
+    local asm_file="$1"
+    local output_object="$2"
+    local cc=""
+
+    cc="$(find_aarch64_cc 2>/dev/null || true)"
+    if [[ -z "${cc}" ]]; then
+        return 125
+    fi
+
+    mkdir -p "$(dirname "${output_object}")"
+    run_aarch64_cc "${cc}" -c "${asm_file}" -o "${output_object}"
+}
+
+link_aarch64_native_smoke_binary() {
+    local input_object="$1"
+    local runtime_source="$2"
+    local output_binary="$3"
+    local cc=""
+    local sysroot=""
+
+    if [[ "${input_object}" == *.bin ]] && [[ "${runtime_source}" == *.o ]]; then
+        output_binary="${input_object}"
+        input_object="${runtime_source}"
+        runtime_source="$3"
+    fi
+
+    cc="$(find_aarch64_cc 2>/dev/null || true)"
+    sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+    if [[ -z "${cc}" ]] || [[ -z "${sysroot}" ]]; then
+        return 125
+    fi
+
+    mkdir -p "$(dirname "${output_binary}")"
+    run_aarch64_cc "${cc}" "${input_object}" "${runtime_source}" \
+        -fno-builtin -o "${output_binary}"
+}
+
+run_aarch64_native_smoke_if_available() {
+    local input_binary="$1"
+    local expected_output="$2"
+    local input_payload="${3:-}"
+    local qemu=""
+    local sysroot=""
+    local output=""
+
+    qemu="$(find_qemu_aarch64 2>/dev/null || true)"
+    sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+    if [[ -z "${qemu}" ]] || [[ -z "${sysroot}" ]]; then
+        return 125
+    fi
+
+    if [[ -n "${input_payload}" ]]; then
+        output="$(printf '%s' "${input_payload}" | \
+            QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${input_binary}")"
+    else
+        output="$(QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${input_binary}")"
+    fi
+
+    if [[ "${output}" != "${expected_output}" ]]; then
+        echo "unexpected AArch64 smoke output: expected '${expected_output}', got '${output}'" >&2
+        return 1
+    fi
+}
+
+have_aarch64_native_smoke_toolchain() {
+    find_aarch64_cc >/dev/null 2>&1 && find_aarch64_sysroot >/dev/null 2>&1
+}
+
+find_aarch64_readelf() {
+    if command -v readelf >/dev/null 2>&1; then
+        command -v readelf
+        return 0
+    fi
+    if command -v llvm-readelf >/dev/null 2>&1; then
+        command -v llvm-readelf
+        return 0
+    fi
+    return 1
+}
+
+assert_aarch64_relocations() {
+    local object_file="$1"
+    local symbol_pattern="$2"
+    local readelf_tool
+    local objdump_tool
+    local dump_output=""
+
+    readelf_tool="$(find_aarch64_readelf 2>/dev/null || true)"
+    if [[ -n "${readelf_tool}" ]]; then
+        if dump_output="$("${readelf_tool}" -r "${object_file}" 2>/dev/null)"; then
+            grep -Eq "${symbol_pattern}" <<<"${dump_output}"
+            return
+        fi
+    fi
+
+    objdump_tool="$(command -v llvm-objdump 2>/dev/null || true)"
+    if [[ -n "${objdump_tool}" ]]; then
+        if dump_output="$("${objdump_tool}" -dr "${object_file}" 2>/dev/null)"; then
+            grep -Eq "${symbol_pattern}" <<<"${dump_output}"
+            return
+        fi
+    fi
+
+    echo "skipped: no target-capable readelf/objdump tool available for relocation inspection"
+}
+
 copy_basic_frontend_outputs() {
     local build_dir="$1"
     local test_name="$2"
@@ -164,6 +362,27 @@ assert_file_nonempty() {
 
     if [[ ! -s "${file_path}" ]]; then
         echo "empty file: ${file_path}" >&2
+        return 1
+    fi
+}
+
+assert_no_illegal_aarch64_index_forms() {
+    local asm_file="$1"
+
+    if grep -Eq '^[[:space:]]*sxtw w[0-9]+, w[0-9]+$' "${asm_file}"; then
+        echo "found illegal AArch64 sign-extension into a w register in ${asm_file}" >&2
+        return 1
+    fi
+    if grep -Eq '^[[:space:]]*add x[0-9]+, x[0-9]+, w[0-9]+, lsl #[0-9]+$' "${asm_file}"; then
+        echo "found illegal mixed-width scaled add in ${asm_file}" >&2
+        return 1
+    fi
+    if grep -Eq '^[[:space:]]*mul w[0-9]+, w[0-9]+, x[0-9]+$' "${asm_file}"; then
+        echo "found illegal mixed-width multiply in ${asm_file}" >&2
+        return 1
+    fi
+    if grep -Eq '^[[:space:]]*add x[0-9]+, x[0-9]+, w[0-9]+$' "${asm_file}"; then
+        echo "found illegal mixed-width add in ${asm_file}" >&2
         return 1
     fi
 }
