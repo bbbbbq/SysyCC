@@ -20,6 +20,7 @@ std::pair<std::string, std::vector<AArch64MachineOperand>>
 parse_machine_instruction_text(std::string text);
 std::string render_physical_register(unsigned reg_number, AArch64VirtualRegKind kind);
 std::string render_physical_register(unsigned reg_number, bool use_64bit);
+std::string zero_register_name(bool use_64bit);
 std::string use_vreg(const AArch64VirtualReg &reg);
 std::string def_vreg(const AArch64VirtualReg &reg);
 std::string use_vreg_as(const AArch64VirtualReg &reg, bool use_64bit);

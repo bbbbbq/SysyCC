@@ -153,6 +153,10 @@ std::string render_physical_register(unsigned reg_number, bool use_64bit) {
                               : AArch64VirtualRegKind::General32);
 }
 
+std::string zero_register_name(bool use_64bit) {
+    return use_64bit ? "xzr" : "wzr";
+}
+
 namespace {
 
 std::string vreg_token(char role, const AArch64VirtualReg &reg) {
