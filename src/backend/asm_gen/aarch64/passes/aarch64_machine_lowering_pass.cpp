@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "backend/asm_gen/aarch64/passes/aarch64_abi_lowering_pass.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_address_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_aggregate_abi_move_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_call_abi_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
@@ -323,63 +324,6 @@ std::optional<long long> get_signed_integer_constant(const CoreIrConstant *const
         return static_cast<long long>(masked);
     }
     return static_cast<long long>(masked | ~mask);
-}
-
-struct AArch64IntegerConstantValue {
-    std::uint64_t unsigned_value = 0;
-    std::uint64_t magnitude = 0;
-    bool is_negative = false;
-};
-
-std::optional<AArch64IntegerConstantValue>
-get_integer_constant_value(const CoreIrConstant *constant) {
-    const auto *int_constant = dynamic_cast<const CoreIrConstantInt *>(constant);
-    if (int_constant == nullptr) {
-        return std::nullopt;
-    }
-    const auto *integer_type = as_integer_type(constant->get_type());
-    if (integer_type == nullptr) {
-        return std::nullopt;
-    }
-    const std::size_t bit_width = integer_type->get_bit_width();
-    if (bit_width == 0 || bit_width > 64) {
-        return std::nullopt;
-    }
-
-    const std::uint64_t mask =
-        bit_width == 64 ? ~0ULL : ((1ULL << bit_width) - 1ULL);
-    const std::uint64_t masked = int_constant->get_value() & mask;
-    AArch64IntegerConstantValue result;
-    result.unsigned_value = masked;
-
-    if (!integer_type->get_is_signed()) {
-        result.magnitude = masked;
-        return result;
-    }
-
-    const std::uint64_t sign_bit = 1ULL << (bit_width - 1);
-    if ((masked & sign_bit) == 0) {
-        result.magnitude = masked;
-        return result;
-    }
-
-    result.is_negative = true;
-    result.magnitude = (~masked + 1ULL) & mask;
-    return result;
-}
-
-std::optional<AArch64IntegerConstantValue>
-scale_integer_constant_value(const AArch64IntegerConstantValue &value,
-                             std::size_t scale) {
-    const unsigned __int128 scaled =
-        static_cast<unsigned __int128>(value.magnitude) * scale;
-    if (scaled > std::numeric_limits<std::uint64_t>::max()) {
-        return std::nullopt;
-    }
-    return AArch64IntegerConstantValue{
-        .unsigned_value = static_cast<std::uint64_t>(scaled),
-        .magnitude = static_cast<std::uint64_t>(scaled),
-        .is_negative = value.is_negative};
 }
 
 void add_backend_error(DiagnosticEngine &diagnostic_engine,
@@ -1700,6 +1644,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                         const CoreIrValue *value,
                                         const AArch64VirtualReg &target_reg,
                                         const FunctionState &state) {
+        AddressMaterializationContext address_context(*this, state);
         if (value == nullptr) {
             add_backend_error(diagnostic_engine_,
                               "encountered null Core IR value during AArch64 lowering");
@@ -1730,8 +1675,9 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         if (const auto *global_address =
                 dynamic_cast<const CoreIrConstantGlobalAddress *>(value);
             global_address != nullptr) {
-            return materialize_global_address(
-                machine_block, global_address->get_global()->get_name(), target_reg,
+            return sysycc::materialize_global_address(
+                machine_block, address_context,
+                global_address->get_global()->get_name(), target_reg,
                 AArch64SymbolKind::Object);
         }
         if (const auto *gep_constant =
@@ -1744,14 +1690,14 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                   "unsupported constant gep base in AArch64 native backend");
                 return false;
             }
-            return materialize_gep_value(
-                machine_block, gep_constant->get_base(),
+            return sysycc::materialize_gep_value(
+                machine_block, address_context, gep_constant->get_base(),
                 base_pointer_type->get_pointee_type(),
                 gep_constant->get_indices().size(),
                 [&gep_constant](std::size_t index) -> CoreIrValue * {
                     return const_cast<CoreIrConstant *>(gep_constant->get_indices()[index]);
                 },
-                target_reg, state);
+                target_reg, *state.machine_function);
         }
         if (const auto *address_of_stack_slot =
                 dynamic_cast<const CoreIrAddressOfStackSlotInst *>(value);
@@ -1766,16 +1712,18 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         if (const auto *address_of_global =
                 dynamic_cast<const CoreIrAddressOfGlobalInst *>(value);
             address_of_global != nullptr) {
-            return materialize_global_address(
-                machine_block, address_of_global->get_global()->get_name(),
-                target_reg, AArch64SymbolKind::Object);
+            return sysycc::materialize_global_address(
+                machine_block, address_context,
+                address_of_global->get_global()->get_name(), target_reg,
+                AArch64SymbolKind::Object);
         }
         if (const auto *address_of_function =
                 dynamic_cast<const CoreIrAddressOfFunctionInst *>(value);
             address_of_function != nullptr) {
-            return materialize_global_address(
-                machine_block, address_of_function->get_function()->get_name(),
-                target_reg, AArch64SymbolKind::Function);
+            return sysycc::materialize_global_address(
+                machine_block, address_context,
+                address_of_function->get_function()->get_name(), target_reg,
+                AArch64SymbolKind::Function);
         }
         if (const auto *gep_instruction =
                 dynamic_cast<const CoreIrGetElementPtrInst *>(value);
@@ -1787,14 +1735,14 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                   "unsupported gep base in AArch64 native backend");
                 return false;
             }
-            return materialize_gep_value(
-                machine_block, gep_instruction->get_base(),
+            return sysycc::materialize_gep_value(
+                machine_block, address_context, gep_instruction->get_base(),
                 base_pointer_type->get_pointee_type(),
                 gep_instruction->get_index_count(),
                 [&gep_instruction](std::size_t index) -> CoreIrValue * {
                     return gep_instruction->get_index(index);
                 },
-                target_reg, state);
+                target_reg, *state.machine_function);
         }
 
         add_backend_error(diagnostic_engine_,
@@ -2115,6 +2063,87 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         }
     };
 
+    class AddressMaterializationContext final
+        : public AArch64AddressMaterializationContext {
+      private:
+        AArch64LoweringSession &session_;
+        const FunctionState &state_;
+
+      public:
+        AddressMaterializationContext(AArch64LoweringSession &session,
+                                      const FunctionState &state)
+            : session_(session), state_(state) {}
+
+        AArch64VirtualReg
+        create_pointer_virtual_reg(AArch64MachineFunction &function) override {
+            return session_.create_pointer_virtual_reg(function);
+        }
+
+        const CoreIrType *create_fake_pointer_type() const override {
+            return session_.create_fake_pointer_type();
+        }
+
+        bool ensure_value_in_vreg(AArch64MachineBlock &machine_block,
+                                  const CoreIrValue *value,
+                                  AArch64VirtualReg &out) override {
+            return session_.ensure_value_in_vreg(machine_block, value, state_, out);
+        }
+
+        bool materialize_integer_constant(AArch64MachineBlock &machine_block,
+                                          const CoreIrType *type,
+                                          std::uint64_t value,
+                                          const AArch64VirtualReg &target_reg,
+                                          AArch64MachineFunction &function) override {
+            return sysycc::materialize_integer_constant(machine_block, session_, type,
+                                                        value, target_reg);
+        }
+
+        bool add_constant_offset(AArch64MachineBlock &machine_block,
+                                 const AArch64VirtualReg &base_reg,
+                                 long long offset,
+                                 AArch64MachineFunction &function) override {
+            return session_.add_constant_offset(machine_block, base_reg, offset,
+                                                function);
+        }
+
+        void apply_sign_extend_to_virtual_reg(AArch64MachineBlock &machine_block,
+                                              const AArch64VirtualReg &dst_reg,
+                                              const CoreIrType *source_type,
+                                              const CoreIrType *target_type) override {
+            session_.apply_sign_extend_to_virtual_reg(machine_block, dst_reg,
+                                                      source_type, target_type);
+        }
+
+        void apply_zero_extend_to_virtual_reg(AArch64MachineBlock &machine_block,
+                                              const AArch64VirtualReg &dst_reg,
+                                              const CoreIrType *source_type,
+                                              const CoreIrType *target_type) override {
+            session_.apply_zero_extend_to_virtual_reg(machine_block, dst_reg,
+                                                      source_type, target_type);
+        }
+
+        void record_symbol_reference(const std::string &name,
+                                     AArch64SymbolKind kind) override {
+            session_.record_symbol_reference(name, kind);
+        }
+
+        bool is_position_independent() const override {
+            return session_.backend_options_.get_position_independent();
+        }
+
+        bool is_nonpreemptible_global_symbol(const std::string &name) const override {
+            return session_.is_nonpreemptible_global_symbol(name);
+        }
+
+        bool is_nonpreemptible_function_symbol(const std::string &name) const override {
+            return session_.is_nonpreemptible_function_symbol(name);
+        }
+
+        void report_error(const std::string &message) override {
+            add_backend_error(session_.diagnostic_engine_, message);
+        }
+    };
+
     std::string load_mnemonic_for_type(const CoreIrType *type) const {
         return sysycc::load_mnemonic_for_type(type);
     }
@@ -2324,32 +2353,6 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         }
     }
 
-    bool materialize_global_address(AArch64MachineBlock &machine_block,
-                                    const std::string &symbol_name,
-                                    const AArch64VirtualReg &target_reg,
-                                    AArch64SymbolKind symbol_kind =
-                                        AArch64SymbolKind::Object) {
-        record_symbol_reference(symbol_name, symbol_kind);
-        const bool is_nonpreemptible =
-            symbol_kind == AArch64SymbolKind::Function
-                ? is_nonpreemptible_function_symbol(symbol_name)
-                : is_nonpreemptible_global_symbol(symbol_name);
-        if (backend_options_.get_position_independent() && !is_nonpreemptible) {
-            machine_block.append_instruction("adrp " + def_vreg(target_reg) + ", :got:" +
-                                             symbol_name);
-            machine_block.append_instruction("ldr " + def_vreg(target_reg) + ", [" +
-                                             use_vreg(target_reg) + ", :got_lo12:" +
-                                             symbol_name + "]");
-            return true;
-        }
-        machine_block.append_instruction("adrp " + def_vreg(target_reg) + ", " +
-                                         symbol_name);
-        machine_block.append_instruction("add " + def_vreg(target_reg) + ", " +
-                                         use_vreg(target_reg) + ", :lo12:" +
-                                         symbol_name);
-        return true;
-    }
-
     void append_frame_address(AArch64MachineBlock &machine_block,
                               const AArch64VirtualReg &target_reg,
                               std::size_t offset,
@@ -2405,279 +2408,6 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                    function);
     }
 
-    bool materialize_index_as_pointer_offset(
-        AArch64MachineBlock &machine_block, const CoreIrValue *index_value,
-        const FunctionState &state, AArch64VirtualReg &out) {
-        AArch64VirtualReg index_reg;
-        if (!ensure_value_in_vreg(machine_block, index_value, state, index_reg)) {
-            return false;
-        }
-
-        out = create_pointer_virtual_reg(*state.machine_function);
-        if (const auto *index_integer_type = as_integer_type(index_value->get_type());
-            index_integer_type != nullptr) {
-            const unsigned bit_width = index_integer_type->get_bit_width();
-            if (bit_width == 64) {
-                machine_block.append_instruction("mov " + def_vreg(out) + ", " +
-                                                 use_vreg_as(index_reg, true));
-                return true;
-            }
-            if (bit_width > 64) {
-                add_backend_error(diagnostic_engine_,
-                                  "unsupported integer index width in AArch64 native backend");
-                return false;
-            }
-            machine_block.append_instruction("mov " + def_vreg_as(out, false) + ", " +
-                                             use_vreg_as(index_reg, false));
-            if (index_integer_type->get_is_signed()) {
-                apply_sign_extend_to_virtual_reg(machine_block, out,
-                                                 index_value->get_type(),
-                                                 create_fake_pointer_type());
-            } else {
-                apply_zero_extend_to_virtual_reg(machine_block, out,
-                                                 index_value->get_type(),
-                                                 create_fake_pointer_type());
-            }
-            return true;
-        }
-
-        if (is_pointer_type(index_value->get_type())) {
-            machine_block.append_instruction("mov " + def_vreg(out) + ", " +
-                                             use_vreg_as(index_reg, true));
-            return true;
-        }
-
-        add_backend_error(diagnostic_engine_,
-                          "unsupported dynamic index type in AArch64 native backend");
-        return false;
-    }
-
-    bool add_scaled_index(AArch64MachineBlock &machine_block,
-                          const AArch64VirtualReg &base_reg,
-                          const CoreIrValue *index_value,
-                          std::size_t scale,
-                          const FunctionState &state) {
-        AArch64VirtualReg index_reg;
-        if (!materialize_index_as_pointer_offset(machine_block, index_value, state,
-                                                 index_reg)) {
-            return false;
-        }
-
-        if (scale == 1) {
-            machine_block.append_instruction("add " + def_vreg(base_reg) + ", " +
-                                             use_vreg(base_reg) + ", " +
-                                             use_vreg(index_reg));
-            return true;
-        }
-
-        const bool power_of_two = scale != 0 && (scale & (scale - 1)) == 0;
-        if (power_of_two) {
-            std::size_t shift = 0;
-            std::size_t remaining = scale;
-            while (remaining > 1) {
-                remaining >>= 1U;
-                ++shift;
-            }
-            machine_block.append_instruction("add " + def_vreg(base_reg) + ", " +
-                                             use_vreg(base_reg) + ", " +
-                                             use_vreg(index_reg) + ", lsl #" +
-                                             std::to_string(shift));
-            return true;
-        }
-
-        const AArch64VirtualReg scale_reg =
-            create_pointer_virtual_reg(*state.machine_function);
-        if (!sysycc::materialize_integer_constant(machine_block, *this,
-                                                  create_fake_pointer_type(),
-                                                  static_cast<std::uint64_t>(scale),
-                                                  scale_reg)) {
-            return false;
-        }
-        machine_block.append_instruction("mul " + def_vreg(index_reg) + ", " +
-                                         use_vreg(index_reg) + ", " +
-                                         use_vreg(scale_reg));
-        machine_block.append_instruction("add " + def_vreg(base_reg) + ", " +
-                                         use_vreg(base_reg) + ", " +
-                                         use_vreg(index_reg));
-        return true;
-    }
-
-    bool apply_constant_gep_index(
-        AArch64MachineBlock &machine_block, const AArch64VirtualReg &target_reg,
-        const AArch64IntegerConstantValue &index, const CoreIrType *current_type,
-        std::size_t index_position, const FunctionState &state,
-        const CoreIrType *&next_type) {
-        if (index_position == 0) {
-            const auto scaled =
-                scale_integer_constant_value(index, get_type_size(current_type));
-            if (!scaled.has_value()) {
-                return false;
-            }
-            return add_constant_offset(machine_block, target_reg, scaled->magnitude,
-                                       scaled->is_negative,
-                                       *state.machine_function);
-        }
-
-        if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
-            array_type != nullptr) {
-            const auto scaled = scale_integer_constant_value(
-                index, get_type_size(array_type->get_element_type()));
-            if (!scaled.has_value() ||
-                !add_constant_offset(machine_block, target_reg, scaled->magnitude,
-                                     scaled->is_negative,
-                                     *state.machine_function)) {
-                return false;
-            }
-            next_type = array_type->get_element_type();
-            return true;
-        }
-
-        if (const auto *struct_type = dynamic_cast<const CoreIrStructType *>(current_type);
-            struct_type != nullptr) {
-            if (index.is_negative ||
-                static_cast<std::size_t>(index.unsigned_value) >=
-                    struct_type->get_element_types().size()) {
-                add_backend_error(diagnostic_engine_,
-                                  "unsupported gep struct index in AArch64 native backend");
-                return false;
-            }
-            if (!add_constant_offset(
-                    machine_block, target_reg,
-                    static_cast<long long>(get_struct_member_offset(
-                        struct_type, static_cast<std::size_t>(index.unsigned_value))),
-                    *state.machine_function)) {
-                return false;
-            }
-            next_type = struct_type->get_element_types()
-                            [static_cast<std::size_t>(index.unsigned_value)];
-            return true;
-        }
-
-        if (const auto *pointer_type =
-                dynamic_cast<const CoreIrPointerType *>(current_type);
-            pointer_type != nullptr) {
-            const auto scaled = scale_integer_constant_value(
-                index, get_type_size(pointer_type->get_pointee_type()));
-            if (!scaled.has_value() ||
-                !add_constant_offset(machine_block, target_reg, scaled->magnitude,
-                                     scaled->is_negative,
-                                     *state.machine_function)) {
-                return false;
-            }
-            next_type = pointer_type->get_pointee_type();
-            return true;
-        }
-
-        add_backend_error(
-            diagnostic_engine_,
-            "invalid constant gep index into non-aggregate type in the AArch64 "
-            "native backend");
-        return false;
-    }
-
-    bool apply_dynamic_gep_index(AArch64MachineBlock &machine_block,
-                                 const AArch64VirtualReg &target_reg,
-                                 const CoreIrValue *index_value,
-                                 const CoreIrType *current_type,
-                                 std::size_t index_position,
-                                 const FunctionState &state,
-                                 const CoreIrType *&next_type) {
-        if (index_position == 0) {
-            return add_scaled_index(machine_block, target_reg, index_value,
-                                    get_type_size(current_type), state);
-        }
-
-        if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
-            array_type != nullptr) {
-            if (!add_scaled_index(machine_block, target_reg, index_value,
-                                  get_type_size(array_type->get_element_type()),
-                                  state)) {
-                return false;
-            }
-            next_type = array_type->get_element_type();
-            return true;
-        }
-
-        if (const auto *pointer_type =
-                dynamic_cast<const CoreIrPointerType *>(current_type);
-            pointer_type != nullptr) {
-            if (!add_scaled_index(machine_block, target_reg, index_value,
-                                  get_type_size(pointer_type->get_pointee_type()),
-                                  state)) {
-                return false;
-            }
-            next_type = pointer_type->get_pointee_type();
-            return true;
-        }
-
-        if (dynamic_cast<const CoreIrStructType *>(current_type) != nullptr) {
-            add_backend_error(diagnostic_engine_,
-                              "dynamic struct index is not supported in the "
-                              "AArch64 native backend");
-            return false;
-        }
-
-        add_backend_error(
-            diagnostic_engine_,
-            "invalid dynamic gep index into non-aggregate type in the AArch64 "
-            "native backend");
-        return false;
-    }
-
-    bool materialize_gep_value(
-        AArch64MachineBlock &machine_block, const CoreIrValue *base_value,
-        const CoreIrType *base_type, std::size_t index_count,
-        const std::function<CoreIrValue *(std::size_t)> &get_index_value,
-        const AArch64VirtualReg &target_reg, const FunctionState &state) {
-        AArch64VirtualReg base_reg;
-        if (!ensure_value_in_vreg(machine_block, base_value, state, base_reg)) {
-            return false;
-        }
-        if (base_reg.get_id() != target_reg.get_id()) {
-            machine_block.append_instruction("mov " + def_vreg(target_reg) + ", " +
-                                             use_vreg(base_reg));
-        }
-
-        const CoreIrType *current_type = base_type;
-        for (std::size_t index_position = 0; index_position < index_count;
-             ++index_position) {
-            CoreIrValue *index_value = get_index_value(index_position);
-            if (index_value == nullptr) {
-                add_backend_error(diagnostic_engine_,
-                                  "encountered null gep index in AArch64 native backend");
-                return false;
-            }
-
-            if (const auto *index_constant =
-                    dynamic_cast<const CoreIrConstantInt *>(index_value);
-                index_constant != nullptr) {
-                const std::optional<AArch64IntegerConstantValue> index =
-                    get_integer_constant_value(index_constant);
-                if (!index.has_value()) {
-                    return false;
-                }
-                const CoreIrType *next_type = current_type;
-                if (!apply_constant_gep_index(machine_block, target_reg, *index,
-                                              current_type, index_position, state,
-                                              next_type)) {
-                    return false;
-                }
-                current_type = next_type;
-                continue;
-            }
-
-            const CoreIrType *next_type = current_type;
-            if (!apply_dynamic_gep_index(machine_block, target_reg, index_value,
-                                         current_type, index_position, state,
-                                         next_type)) {
-                return false;
-            }
-            current_type = next_type;
-        }
-
-        return true;
-    }
-
     bool emit_address_of_stack_slot(AArch64MachineBlock &machine_block,
                                     const CoreIrAddressOfStackSlotInst &address_of_stack_slot,
                                     const FunctionState &state) {
@@ -2696,30 +2426,34 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
     bool emit_address_of_global(AArch64MachineBlock &machine_block,
                                 const CoreIrAddressOfGlobalInst &address_of_global,
                                 const FunctionState &state) {
+        AddressMaterializationContext address_context(*this, state);
         AArch64VirtualReg target_reg;
         if (!require_canonical_vreg(state, &address_of_global, target_reg)) {
             return false;
         }
-        return materialize_global_address(machine_block,
-                                          address_of_global.get_global()->get_name(),
-                                          target_reg);
+        return sysycc::materialize_global_address(
+            machine_block, address_context, address_of_global.get_global()->get_name(),
+            target_reg);
     }
 
     bool emit_address_of_function(AArch64MachineBlock &machine_block,
                                   const CoreIrAddressOfFunctionInst &address_of_function,
                                   const FunctionState &state) {
+        AddressMaterializationContext address_context(*this, state);
         AArch64VirtualReg target_reg;
         if (!require_canonical_vreg(state, &address_of_function, target_reg)) {
             return false;
         }
-        return materialize_global_address(machine_block,
-                                          address_of_function.get_function()->get_name(),
-                                          target_reg);
+        return sysycc::materialize_global_address(
+            machine_block, address_context,
+            address_of_function.get_function()->get_name(), target_reg,
+            AArch64SymbolKind::Function);
     }
 
     bool emit_getelementptr(AArch64MachineBlock &machine_block,
                             const CoreIrGetElementPtrInst &gep,
                             const FunctionState &state) {
+        AddressMaterializationContext address_context(*this, state);
         AArch64VirtualReg target_reg;
         if (!require_canonical_vreg(state, &gep, target_reg)) {
             return false;
@@ -2731,11 +2465,12 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                               "unsupported gep base in AArch64 native backend");
             return false;
         }
-        return materialize_gep_value(
-            machine_block, gep.get_base(), base_pointer_type->get_pointee_type(),
+        return sysycc::materialize_gep_value(
+            machine_block, address_context, gep.get_base(),
+            base_pointer_type->get_pointee_type(),
             gep.get_index_count(),
             [&gep](std::size_t index) -> CoreIrValue * { return gep.get_index(index); },
-            target_reg, state);
+            target_reg, *state.machine_function);
     }
 
     bool emit_load(AArch64MachineBlock &machine_block, const CoreIrLoadInst &load,

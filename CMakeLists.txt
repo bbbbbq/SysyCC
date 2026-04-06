@@ -53,6 +53,7 @@ add_executable(${PROJECT_NAME}
     src/backend/asm_gen/aarch64/passes/aarch64_spill_rewrite_pass.cpp
     src/backend/asm_gen/aarch64/support/aarch64_frame_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_aggregate_abi_move_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_address_materialization_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_call_abi_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_function_boundary_abi_support.cpp
