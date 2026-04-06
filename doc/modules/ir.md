@@ -317,6 +317,8 @@ LLVM IR lowering path:
     unknown-address stores
 - `CoreIrCopyPropagationPass` currently handles:
   - block-local duplicate direct-stack-slot load reuse
+  - block-local forwarding and duplicate-load reuse for exact constant-path
+    local addresses built from `addr_of_stackslot` plus constant `gep`
   - block-local duplicate `addr_of_function`, `addr_of_global`, and
     `addr_of_stackslot` reuse
 - `CoreIrSccpPass` currently handles:
@@ -339,6 +341,16 @@ LLVM IR lowering path:
     preheader
   - exit-block SSA rematerialization back into memory through exit `phi` and
     store repair
+- `CoreIrLoopIdiomPass` currently handles:
+  - counted additive reductions with loop-invariant step values
+  - counted bitwise `and/or/xor` reductions with loop-invariant operands
+  - preheader arithmetic replacement plus LCSSA exit rewrite for the folded
+    result
+- `CoreIrLoopUnrollPass` currently handles:
+  - full unrolling of small constant-trip counted loops
+  - canonical two-block loops where the body is also the latch
+  - compact split-latch loops where the body feeds one dedicated latch block
+    before the backedge
 - `CoreIrLicmPass` currently handles:
   - hoist-only loop-invariant code motion into loop preheaders
   - pure `binary`, `unary`, `compare`, `cast`, `addr_of_*`, and `gep`
