@@ -60,6 +60,7 @@ add_executable(${PROJECT_NAME}
     src/backend/asm_gen/aarch64/support/aarch64_memory_access_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_text_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_type_layout_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_value_conversion_support.cpp
     src/backend/ir/analysis/analysis_manager.cpp
     src/backend/ir/analysis/alias_analysis.cpp
     src/backend/ir/analysis/cfg_analysis.cpp
