@@ -51,12 +51,60 @@ enum class AArch64PhysicalReg : unsigned {
     X28 = 28,
     X29 = 29,
     X30 = 30,
+    V0 = 100,
+    V1 = 101,
+    V2 = 102,
+    V3 = 103,
+    V4 = 104,
+    V5 = 105,
+    V6 = 106,
+    V7 = 107,
+    V8 = 108,
+    V9 = 109,
+    V10 = 110,
+    V11 = 111,
+    V12 = 112,
+    V13 = 113,
+    V14 = 114,
+    V15 = 115,
+    V16 = 116,
+    V17 = 117,
+    V18 = 118,
+    V19 = 119,
+    V20 = 120,
+    V21 = 121,
+    V22 = 122,
+    V23 = 123,
+    V24 = 124,
+    V25 = 125,
+    V26 = 126,
+    V27 = 127,
+    V28 = 128,
+    V29 = 129,
+    V30 = 130,
+    V31 = 131,
+};
+
+enum class AArch64RegBank : unsigned char {
+    General,
+    FloatingPoint,
+};
+
+enum class AArch64VirtualRegKind : unsigned char {
+    General32,
+    General64,
+    Float16,
+    Float32,
+    Float64,
+    Float128,
 };
 
 enum class AArch64RegClass {
     CallerSavedGeneral,
     CalleeSavedGeneral,
     SpillScratchGeneral,
+    CallerSavedFloat,
+    CalleeSavedFloat,
 };
 
 class AArch64CallClobberMask {
@@ -81,15 +129,38 @@ struct AArch64InstructionFlags {
 class AArch64VirtualReg {
   private:
     std::size_t id_ = 0;
-    bool use_64bit_ = false;
+    AArch64VirtualRegKind kind_ = AArch64VirtualRegKind::General32;
 
   public:
     AArch64VirtualReg() = default;
-    AArch64VirtualReg(std::size_t id, bool use_64bit)
-        : id_(id), use_64bit_(use_64bit) {}
+    AArch64VirtualReg(std::size_t id, AArch64VirtualRegKind kind)
+        : id_(id), kind_(kind) {}
 
     std::size_t get_id() const noexcept { return id_; }
-    bool get_use_64bit() const noexcept { return use_64bit_; }
+    AArch64VirtualRegKind get_kind() const noexcept { return kind_; }
+    AArch64RegBank get_bank() const noexcept {
+        switch (kind_) {
+        case AArch64VirtualRegKind::General32:
+        case AArch64VirtualRegKind::General64:
+            return AArch64RegBank::General;
+        case AArch64VirtualRegKind::Float16:
+        case AArch64VirtualRegKind::Float32:
+        case AArch64VirtualRegKind::Float64:
+        case AArch64VirtualRegKind::Float128:
+            return AArch64RegBank::FloatingPoint;
+        }
+        return AArch64RegBank::General;
+    }
+    bool is_general() const noexcept {
+        return get_bank() == AArch64RegBank::General;
+    }
+    bool is_floating_point() const noexcept {
+        return get_bank() == AArch64RegBank::FloatingPoint;
+    }
+    bool get_use_64bit() const noexcept {
+        return kind_ == AArch64VirtualRegKind::General64 ||
+               kind_ == AArch64VirtualRegKind::Float64;
+    }
     bool is_valid() const noexcept { return id_ != 0; }
 };
 
@@ -232,7 +303,7 @@ class AArch64MachineFunction {
     AArch64FunctionFrameInfo frame_info_;
     std::vector<AArch64MachineBlock> blocks_;
     std::size_t next_virtual_reg_id_ = 1;
-    std::unordered_map<std::size_t, bool> virtual_reg_widths_;
+    std::unordered_map<std::size_t, AArch64VirtualRegKind> virtual_reg_kinds_;
     std::unordered_map<std::size_t, unsigned> virtual_reg_allocation_;
 
   public:
@@ -261,20 +332,31 @@ class AArch64MachineFunction {
         return blocks_.back();
     }
 
-    AArch64VirtualReg create_virtual_reg(bool use_64bit) {
+    AArch64VirtualReg create_virtual_reg(AArch64VirtualRegKind kind) {
         const std::size_t id = next_virtual_reg_id_++;
-        virtual_reg_widths_[id] = use_64bit;
-        return AArch64VirtualReg(id, use_64bit);
+        virtual_reg_kinds_[id] = kind;
+        return AArch64VirtualReg(id, kind);
+    }
+
+    AArch64VirtualReg create_virtual_reg(bool use_64bit) {
+        return create_virtual_reg(use_64bit ? AArch64VirtualRegKind::General64
+                                            : AArch64VirtualRegKind::General32);
+    }
+
+    AArch64VirtualRegKind
+    get_virtual_reg_kind(std::size_t id) const noexcept {
+        const auto it = virtual_reg_kinds_.find(id);
+        return it != virtual_reg_kinds_.end() ? it->second
+                                              : AArch64VirtualRegKind::General32;
     }
 
     bool get_virtual_reg_use_64bit(std::size_t id) const noexcept {
-        const auto it = virtual_reg_widths_.find(id);
-        return it != virtual_reg_widths_.end() ? it->second : false;
+        return get_virtual_reg_kind(id) == AArch64VirtualRegKind::General64;
     }
 
-    const std::unordered_map<std::size_t, bool> &
-    get_virtual_reg_widths() const noexcept {
-        return virtual_reg_widths_;
+    const std::unordered_map<std::size_t, AArch64VirtualRegKind> &
+    get_virtual_reg_kinds() const noexcept {
+        return virtual_reg_kinds_;
     }
 
     void set_virtual_reg_allocation(std::size_t id, unsigned physical_reg) {

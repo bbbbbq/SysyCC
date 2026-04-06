@@ -544,28 +544,53 @@ class CoreIrBuildSession {
             type_cache_[cache_key] = void_type_;
             return void_type_;
         }
-        if (name == "char" || name == "signed char" || name == "unsigned char") {
-            const auto *type = core_ir_context_->create_type<CoreIrIntegerType>(8);
+        if (name == "char" || name == "signed char") {
+            const auto *type =
+                core_ir_context_->create_type<CoreIrIntegerType>(8, true);
             type_cache_[cache_key] = type;
             return type;
         }
-        if (name == "short" || name == "unsigned short") {
+        if (name == "unsigned char") {
             const auto *type =
-                core_ir_context_->create_type<CoreIrIntegerType>(16);
+                core_ir_context_->create_type<CoreIrIntegerType>(8, false);
             type_cache_[cache_key] = type;
             return type;
         }
-        if (name == "int" || name == "unsigned int") {
+        if (name == "short") {
             const auto *type =
-                core_ir_context_->create_type<CoreIrIntegerType>(32);
+                core_ir_context_->create_type<CoreIrIntegerType>(16, true);
             type_cache_[cache_key] = type;
             return type;
         }
-        if (name == "long int" || name == "unsigned long" ||
-            name == "long long int" || name == "unsigned long long" ||
-            name == "ptrdiff_t" || name == "size_t") {
+        if (name == "unsigned short") {
             const auto *type =
-                core_ir_context_->create_type<CoreIrIntegerType>(64);
+                core_ir_context_->create_type<CoreIrIntegerType>(16, false);
+            type_cache_[cache_key] = type;
+            return type;
+        }
+        if (name == "int") {
+            const auto *type =
+                core_ir_context_->create_type<CoreIrIntegerType>(32, true);
+            type_cache_[cache_key] = type;
+            return type;
+        }
+        if (name == "unsigned int") {
+            const auto *type =
+                core_ir_context_->create_type<CoreIrIntegerType>(32, false);
+            type_cache_[cache_key] = type;
+            return type;
+        }
+        if (name == "long int" || name == "long long int" ||
+            name == "ptrdiff_t") {
+            const auto *type =
+                core_ir_context_->create_type<CoreIrIntegerType>(64, true);
+            type_cache_[cache_key] = type;
+            return type;
+        }
+        if (name == "unsigned long" || name == "unsigned long long" ||
+            name == "size_t") {
+            const auto *type =
+                core_ir_context_->create_type<CoreIrIntegerType>(64, false);
             type_cache_[cache_key] = type;
             return type;
         }
@@ -690,7 +715,7 @@ class CoreIrBuildSession {
         }
         case SemanticTypeKind::Enum: {
             const auto *core_type =
-                core_ir_context_->create_type<CoreIrIntegerType>(32);
+                core_ir_context_->create_type<CoreIrIntegerType>(32, true);
             type_cache_[type] = core_type;
             return core_type;
         }
@@ -1781,7 +1806,9 @@ class CoreIrBuildSession {
             return true;
         case CoreIrTypeKind::Integer:
             return static_cast<const CoreIrIntegerType *>(lhs)->get_bit_width() ==
-                   static_cast<const CoreIrIntegerType *>(rhs)->get_bit_width();
+                       static_cast<const CoreIrIntegerType *>(rhs)->get_bit_width() &&
+                   static_cast<const CoreIrIntegerType *>(lhs)->get_is_signed() ==
+                       static_cast<const CoreIrIntegerType *>(rhs)->get_is_signed();
         case CoreIrTypeKind::Float:
             return static_cast<const CoreIrFloatType *>(lhs)->get_float_kind() ==
                    static_cast<const CoreIrFloatType *>(rhs)->get_float_kind();
@@ -1875,7 +1902,13 @@ class CoreIrBuildSession {
                                 ? CoreIrCastKind::ZeroExtend
                                 : CoreIrCastKind::SignExtend;
             } else {
-                return value;
+                if (source_integer_type->get_is_signed() ==
+                    target_integer_type->get_is_signed()) {
+                    return value;
+                }
+                cast_kind = target_integer_type->get_is_signed()
+                                ? CoreIrCastKind::SignExtend
+                                : CoreIrCastKind::ZeroExtend;
             }
         } else if (is_integer_semantic_type(source_semantic_type) &&
                    is_float_semantic_type(target_semantic_type)) {
