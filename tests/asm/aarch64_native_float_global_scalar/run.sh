@@ -5,9 +5,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
+TEST_BUILD_DIR="${SCRIPT_DIR}/build"
 TEST_NAME="$(basename "${SCRIPT_DIR}")"
 INPUT_FILE="${SCRIPT_DIR}/${TEST_NAME}.sy"
-TEST_BUILD_DIR="${SCRIPT_DIR}/build"
 TEST_SOURCE="${SCRIPT_DIR}/${TEST_NAME}.cpp"
 TEST_BINARY="${TEST_BUILD_DIR}/${TEST_NAME}"
 
@@ -17,6 +17,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 mkdir -p "${TEST_BUILD_DIR}"
 
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse
+
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 
 OBJECT_FILES=()
@@ -31,4 +32,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}" -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: native AArch64 backend still fails fast on non-zero float128 global initializers"
+echo "verified: native AArch64 asm emits exact f16/f32/f64 scalar global bit patterns"

@@ -5,11 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
-TEST_NAME="$(basename "${SCRIPT_DIR}")"
-INPUT_FILE="${SCRIPT_DIR}/${TEST_NAME}.sy"
 TEST_BUILD_DIR="${SCRIPT_DIR}/build"
+TEST_NAME="$(basename "${SCRIPT_DIR}")"
 TEST_SOURCE="${SCRIPT_DIR}/${TEST_NAME}.cpp"
 TEST_BINARY="${TEST_BUILD_DIR}/${TEST_NAME}"
+INPUT_FILE="${SCRIPT_DIR}/${TEST_NAME}.sy"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
@@ -31,4 +31,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}" -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: native AArch64 backend still fails fast on non-zero float128 global initializers"
+echo "verified: native AArch64 backend lowers loop-header phi backedges through dedicated edge blocks"
