@@ -92,10 +92,136 @@ void test_folds_counted_additive_reduction() {
     assert(has_final_add);
 }
 
+void test_folds_counted_bitwise_or_reduction() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("loop_idiom_or");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *three = context->create_constant<CoreIrConstantInt>(i32_type, 3);
+    auto *mask = context->create_constant<CoreIrConstantInt>(i32_type, 12);
+
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *iv = header->create_instruction<CoreIrPhiInst>(i32_type, "iv");
+    auto *bits = header->create_instruction<CoreIrPhiInst>(i32_type, "bits");
+    auto *cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "cmp", iv, three);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cmp, body, exit);
+    auto *next_iv = body->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "iv.next", iv, one);
+    auto *next_bits = body->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Or, i32_type, "bits.next", bits, mask);
+    body->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *lcssa_use = exit->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "use", bits, zero);
+    exit->create_instruction<CoreIrReturnInst>(void_type, lcssa_use);
+
+    iv->add_incoming(entry, zero);
+    iv->add_incoming(body, next_iv);
+    bits->add_incoming(entry, one);
+    bits->add_incoming(body, next_bits);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrLcssaPass lcssa;
+    assert(lcssa.Run(compiler_context).ok);
+    CoreIrLoopIdiomPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    auto *entry_jump =
+        dynamic_cast<CoreIrJumpInst *>(entry->get_instructions().back().get());
+    assert(entry_jump != nullptr);
+    assert(entry_jump->get_target_block() == exit);
+
+    bool has_or = false;
+    for (const auto &instruction : entry->get_instructions()) {
+        auto *binary = dynamic_cast<CoreIrBinaryInst *>(instruction.get());
+        if (binary == nullptr) {
+            continue;
+        }
+        has_or = has_or || binary->get_binary_opcode() == CoreIrBinaryOpcode::Or;
+    }
+    assert(has_or);
+}
+
+void test_folds_counted_bitwise_xor_reduction_with_odd_trip_count() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("loop_idiom_xor");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *three = context->create_constant<CoreIrConstantInt>(i32_type, 3);
+    auto *mask = context->create_constant<CoreIrConstantInt>(i32_type, 5);
+
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *iv = header->create_instruction<CoreIrPhiInst>(i32_type, "iv");
+    auto *bits = header->create_instruction<CoreIrPhiInst>(i32_type, "bits");
+    auto *cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "cmp", iv, three);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cmp, body, exit);
+    auto *next_iv = body->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "iv.next", iv, one);
+    auto *next_bits = body->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Xor, i32_type, "bits.next", bits, mask);
+    body->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *lcssa_use = exit->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "use", bits, zero);
+    exit->create_instruction<CoreIrReturnInst>(void_type, lcssa_use);
+
+    iv->add_incoming(entry, zero);
+    iv->add_incoming(body, next_iv);
+    bits->add_incoming(entry, one);
+    bits->add_incoming(body, next_bits);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrLcssaPass lcssa;
+    assert(lcssa.Run(compiler_context).ok);
+    CoreIrLoopIdiomPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    auto *entry_jump =
+        dynamic_cast<CoreIrJumpInst *>(entry->get_instructions().back().get());
+    assert(entry_jump != nullptr);
+    assert(entry_jump->get_target_block() == exit);
+
+    bool has_xor = false;
+    for (const auto &instruction : entry->get_instructions()) {
+        auto *binary = dynamic_cast<CoreIrBinaryInst *>(instruction.get());
+        if (binary == nullptr) {
+            continue;
+        }
+        has_xor =
+            has_xor || binary->get_binary_opcode() == CoreIrBinaryOpcode::Xor;
+    }
+    assert(has_xor);
+}
+
 } // namespace
 
 int main() {
     test_folds_counted_additive_reduction();
+    test_folds_counted_bitwise_or_reduction();
+    test_folds_counted_bitwise_xor_reduction_with_odd_trip_count();
     return 0;
 }
-

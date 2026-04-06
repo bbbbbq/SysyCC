@@ -27,5 +27,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: LoopIdiom folds simple counted additive reduction loops into preheader arithmetic"
-
+echo "verified: LoopIdiom folds counted additive and bitwise reduction loops into preheader arithmetic"
