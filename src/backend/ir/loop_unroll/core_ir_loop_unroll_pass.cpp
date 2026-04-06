@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <string_view>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -13,7 +12,6 @@
 #include "backend/ir/analysis/induction_var_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/analysis/scalar_evolution_lite_analysis.hpp"
-#include "backend/ir/effect/core_ir_effect.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -36,29 +34,6 @@ PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name)
         std::string(pass_name) + " requires a built core ir result";
     context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler, message);
     return PassResult::Failure(message);
-}
-
-std::optional<std::int64_t> as_constant_int(CoreIrValue *value) {
-    auto *constant = dynamic_cast<CoreIrConstantInt *>(value);
-    if (constant == nullptr) {
-        return std::nullopt;
-    }
-    const auto *integer_type =
-        dynamic_cast<const CoreIrIntegerType *>(constant->get_type());
-    if (integer_type == nullptr) {
-        return std::nullopt;
-    }
-    const std::size_t bit_width = integer_type->get_bit_width();
-    const std::uint64_t raw = constant->get_value();
-    if (bit_width == 0 || bit_width >= 64) {
-        return static_cast<std::int64_t>(raw);
-    }
-    const std::uint64_t sign_bit = std::uint64_t{1} << (bit_width - 1);
-    if ((raw & sign_bit) == 0) {
-        return static_cast<std::int64_t>(raw);
-    }
-    const std::uint64_t mask = (~std::uint64_t{0}) << bit_width;
-    return static_cast<std::int64_t>(raw | mask);
 }
 
 bool loop_contains_block(const CoreIrLoopInfo &loop,
@@ -391,7 +366,8 @@ bool rewrite_exit_lcssa_phis(CoreIrBasicBlock &exit_block, const CoreIrLoopInfo 
     return true;
 }
 
-bool fully_unroll_small_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
+bool fully_unroll_small_loop(CoreIrFunction &,
+                             const CoreIrLoopInfo &loop,
                              const CoreIrCanonicalInductionVarInfo &iv,
                              const CoreIrScalarEvolutionLiteAnalysisResult &scev,
                              CoreIrContext &core_ir_context) {

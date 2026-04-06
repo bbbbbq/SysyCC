@@ -266,7 +266,7 @@ CoreIrInstruction *insert_binary_before_terminator(CoreIrBasicBlock &block,
                                      std::move(instruction));
 }
 
-bool fold_counted_additive_reduction(CoreIrFunction &function,
+bool fold_counted_additive_reduction(CoreIrFunction &,
                                      const CoreIrLoopInfo &loop,
                                      const CoreIrCanonicalInductionVarInfo &iv,
                                      const AdditiveReductionInfo &reduction,
@@ -337,7 +337,7 @@ bool fold_counted_additive_reduction(CoreIrFunction &function,
     return true;
 }
 
-bool fold_counted_bitwise_reduction(CoreIrFunction &function,
+bool fold_counted_bitwise_reduction(CoreIrFunction &,
                                     const CoreIrLoopInfo &loop,
                                     const CoreIrCanonicalInductionVarInfo &iv,
                                     const BitwiseReductionInfo &reduction,
