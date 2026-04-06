@@ -277,18 +277,61 @@ void test_hoists_from_inner_loop_to_outer_preheader() {
     inner_preheader->create_instruction<CoreIrJumpInst>(void_type, inner_header);
     auto *sum = inner_header->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type, "sum", one, two);
+    auto *doubled = inner_header->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Mul, i32_type, "doubled", sum, two);
     inner_header->create_instruction<CoreIrCondJumpInst>(void_type, cond, inner_body,
                                                          outer_latch);
     inner_body->create_instruction<CoreIrJumpInst>(void_type, inner_header);
     outer_latch->create_instruction<CoreIrCondJumpInst>(void_type, cond, outer_header,
                                                         exit);
-    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+    exit->create_instruction<CoreIrReturnInst>(void_type, doubled);
 
     CompilerContext compiler_context = make_compiler_context(std::move(context), module);
     CoreIrLicmPass pass;
     assert(pass.Run(compiler_context).ok);
 
     assert(sum->get_parent() == entry);
+    assert(doubled->get_parent() == inner_header);
+}
+
+void test_does_not_hoist_single_use_addrof_chain() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *ptr_i32_type = context->create_type<CoreIrPointerType>(i32_type);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module =
+        context->create_module<CoreIrModule>("licm_addrof_profitability");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *slot = function->create_stack_slot<CoreIrStackSlot>("value", i32_type, 4);
+    auto *cond = context->create_constant<CoreIrConstantInt>(i1_type, 1);
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *seven = context->create_constant<CoreIrConstantInt>(i32_type, 7);
+
+    entry->create_instruction<CoreIrStoreInst>(void_type, seven, slot);
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *addr = header->create_instruction<CoreIrAddressOfStackSlotInst>(
+        ptr_i32_type, "addr", slot);
+    auto *load =
+        header->create_instruction<CoreIrLoadInst>(i32_type, "load", addr);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cond, body, exit);
+    body->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, load);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrLicmPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    assert(addr->get_parent() == header);
+    assert(load->get_parent() == header);
 }
 
 } // namespace
@@ -301,5 +344,6 @@ int main() {
     test_does_not_hoist_unknown_location_load();
     test_does_not_hoist_non_must_execute_body_instruction();
     test_hoists_from_inner_loop_to_outer_preheader();
+    test_does_not_hoist_single_use_addrof_chain();
     return 0;
 }

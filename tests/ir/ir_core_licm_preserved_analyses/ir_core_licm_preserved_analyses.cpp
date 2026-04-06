@@ -37,11 +37,13 @@ int main() {
     auto *two = context->create_constant<CoreIrConstantInt>(i32_type, 2);
 
     entry->create_instruction<CoreIrJumpInst>(void_type, header);
-    header->create_instruction<CoreIrBinaryInst>(CoreIrBinaryOpcode::Add, i32_type,
-                                                 "sum", one, two);
+    auto *sum = header->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "sum", one, two);
+    auto *doubled = header->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Mul, i32_type, "doubled", sum, two);
     header->create_instruction<CoreIrCondJumpInst>(void_type, cond, body, exit);
     body->create_instruction<CoreIrJumpInst>(void_type, header);
-    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+    exit->create_instruction<CoreIrReturnInst>(void_type, doubled);
 
     CompilerContext compiler_context;
     compiler_context.set_core_ir_build_result(

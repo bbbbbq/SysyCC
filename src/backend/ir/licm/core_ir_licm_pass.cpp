@@ -237,14 +237,78 @@ bool load_is_hoistable(const CoreIrLoadInst &load, const CoreIrLoopInfo &loop,
     return false;
 }
 
-bool instruction_is_hoistable(const CoreIrInstruction &instruction,
-                              const CoreIrLoopInfo &loop,
-                              const CoreIrDominatorTreeAnalysisResult &dominator_tree,
-                              CoreIrModule *module,
-                              CoreIrAnalysisManager &analysis_manager,
-                              const CoreIrAliasAnalysisResult &alias_analysis,
-                              const CoreIrMemorySSAAnalysisResult &memory_ssa,
-                              CoreIrFunction &function) {
+std::size_t count_loop_uses(const CoreIrInstruction &instruction,
+                           const CoreIrLoopInfo &loop) {
+    std::size_t use_count = 0;
+    for (const CoreIrUse &use : instruction.get_uses()) {
+        const CoreIrInstruction *user = use.get_user();
+        if (user != nullptr && loop_contains_block(loop, user->get_parent())) {
+            ++use_count;
+        }
+    }
+    return use_count;
+}
+
+const CoreIrInstruction *get_single_loop_user(const CoreIrInstruction &instruction,
+                                              const CoreIrLoopInfo &loop) {
+    const CoreIrInstruction *loop_user = nullptr;
+    for (const CoreIrUse &use : instruction.get_uses()) {
+        const CoreIrInstruction *user = use.get_user();
+        if (user == nullptr || !loop_contains_block(loop, user->get_parent())) {
+            continue;
+        }
+        if (loop_user != nullptr && loop_user != user) {
+            return nullptr;
+        }
+        loop_user = user;
+    }
+    return loop_user;
+}
+
+bool is_profitable_to_hoist(const CoreIrInstruction &instruction,
+                            const CoreIrLoopInfo &loop) {
+    if (const auto *load = dynamic_cast<const CoreIrLoadInst *>(&instruction);
+        load != nullptr) {
+        return true;
+    }
+
+    switch (instruction.get_opcode()) {
+    case CoreIrOpcode::AddressOfFunction:
+    case CoreIrOpcode::AddressOfGlobal:
+    case CoreIrOpcode::AddressOfStackSlot:
+        return false;
+    case CoreIrOpcode::Binary:
+    case CoreIrOpcode::Unary:
+    case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Cast:
+    case CoreIrOpcode::GetElementPtr:
+        break;
+    default:
+        return false;
+    }
+
+    const std::size_t loop_uses = count_loop_uses(instruction, loop);
+    if (loop_uses >= 2) {
+        return true;
+    }
+    if (loop_uses != 1) {
+        return false;
+    }
+
+    const CoreIrInstruction *single_user = get_single_loop_user(instruction, loop);
+    return single_user != nullptr &&
+           !single_user->get_is_terminator() &&
+           single_user->get_opcode() != CoreIrOpcode::Phi;
+}
+
+bool is_safe_to_hoist(const CoreIrInstruction &instruction,
+                      const CoreIrLoopInfo &loop,
+                      const CoreIrDominatorTreeAnalysisResult &dominator_tree,
+                      CoreIrModule *module,
+                      CoreIrAnalysisManager &analysis_manager,
+                      const CoreIrAliasAnalysisResult &alias_analysis,
+                      const CoreIrMemorySSAAnalysisResult &memory_ssa,
+                      CoreIrFunction &function) {
     if (instruction.get_is_terminator() ||
         instruction.get_opcode() == CoreIrOpcode::Phi) {
         return false;
@@ -264,6 +328,20 @@ bool instruction_is_hoistable(const CoreIrInstruction &instruction,
         return false;
     }
     return instruction_operands_are_loop_invariant(instruction, loop);
+}
+
+bool instruction_is_hoistable(const CoreIrInstruction &instruction,
+                              const CoreIrLoopInfo &loop,
+                              const CoreIrDominatorTreeAnalysisResult &dominator_tree,
+                              CoreIrModule *module,
+                              CoreIrAnalysisManager &analysis_manager,
+                              const CoreIrAliasAnalysisResult &alias_analysis,
+                              const CoreIrMemorySSAAnalysisResult &memory_ssa,
+                              CoreIrFunction &function) {
+    return is_safe_to_hoist(instruction, loop, dominator_tree, module,
+                            analysis_manager, alias_analysis, memory_ssa,
+                            function) &&
+           is_profitable_to_hoist(instruction, loop);
 }
 
 bool move_instruction_to_preheader(CoreIrBasicBlock &source, std::size_t index,
