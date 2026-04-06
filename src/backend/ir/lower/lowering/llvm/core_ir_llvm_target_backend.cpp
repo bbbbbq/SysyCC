@@ -712,6 +712,23 @@ bool CoreIrLlvmTargetBackend::append_instruction(
                 instruction.get_source_span());
             return false;
         }
+        const auto *source_integer_type =
+            dynamic_cast<const CoreIrIntegerType *>(source_type);
+        const auto *target_integer_type =
+            dynamic_cast<const CoreIrIntegerType *>(target_type);
+        if (source_integer_type != nullptr && target_integer_type != nullptr &&
+            source_integer_type->get_bit_width() ==
+                target_integer_type->get_bit_width() &&
+            (cast_instruction.get_cast_kind() == CoreIrCastKind::SignExtend ||
+             cast_instruction.get_cast_kind() == CoreIrCastKind::ZeroExtend ||
+             cast_instruction.get_cast_kind() == CoreIrCastKind::Truncate)) {
+            text += "  %" + get_emitted_value_name(&cast_instruction) + " = or ";
+            text += format_type(target_type);
+            text += " ";
+            text += format_value_ref(cast_instruction.get_operand());
+            text += ", 0\n";
+            return true;
+        }
         std::string cast_opcode;
         switch (cast_instruction.get_cast_kind()) {
         case CoreIrCastKind::SignExtend:

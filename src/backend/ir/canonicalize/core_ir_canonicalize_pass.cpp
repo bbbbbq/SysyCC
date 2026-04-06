@@ -360,9 +360,16 @@ bool canonicalize_integer_cast(CoreIrBasicBlock &block, CoreIrCastInst &cast) {
     }
 
     if (*operand_width == *cast_width) {
-        cast.replace_all_uses_with(operand);
-        erase_instruction(block, &cast);
-        return true;
+        const auto *operand_integer_type = as_integer_type(operand->get_type());
+        const auto *cast_integer_type = as_integer_type(cast.get_type());
+        if (operand_integer_type == nullptr || cast_integer_type == nullptr ||
+            operand_integer_type->get_is_signed() ==
+                cast_integer_type->get_is_signed()) {
+            cast.replace_all_uses_with(operand);
+            erase_instruction(block, &cast);
+            return true;
+        }
+        return false;
     }
 
     auto *inner_cast = dynamic_cast<CoreIrCastInst *>(operand);

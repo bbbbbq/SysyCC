@@ -1,9 +1,12 @@
 #include "backend/asm_gen/aarch64/aarch64_asm_backend.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -43,6 +46,30 @@ constexpr unsigned kCalleeSavedAllocatablePhysicalRegs[] = {
     static_cast<unsigned>(AArch64PhysicalReg::X22),
     static_cast<unsigned>(AArch64PhysicalReg::X23),
 };
+constexpr unsigned kCallerSavedAllocatableFloatPhysicalRegs[] = {
+    static_cast<unsigned>(AArch64PhysicalReg::V16),
+    static_cast<unsigned>(AArch64PhysicalReg::V17),
+    static_cast<unsigned>(AArch64PhysicalReg::V18),
+    static_cast<unsigned>(AArch64PhysicalReg::V19),
+    static_cast<unsigned>(AArch64PhysicalReg::V20),
+    static_cast<unsigned>(AArch64PhysicalReg::V21),
+    static_cast<unsigned>(AArch64PhysicalReg::V22),
+    static_cast<unsigned>(AArch64PhysicalReg::V23),
+    static_cast<unsigned>(AArch64PhysicalReg::V24),
+    static_cast<unsigned>(AArch64PhysicalReg::V25),
+    static_cast<unsigned>(AArch64PhysicalReg::V26),
+    static_cast<unsigned>(AArch64PhysicalReg::V27),
+};
+constexpr unsigned kCalleeSavedAllocatableFloatPhysicalRegs[] = {
+    static_cast<unsigned>(AArch64PhysicalReg::V8),
+    static_cast<unsigned>(AArch64PhysicalReg::V9),
+    static_cast<unsigned>(AArch64PhysicalReg::V10),
+    static_cast<unsigned>(AArch64PhysicalReg::V11),
+    static_cast<unsigned>(AArch64PhysicalReg::V12),
+    static_cast<unsigned>(AArch64PhysicalReg::V13),
+    static_cast<unsigned>(AArch64PhysicalReg::V14),
+    static_cast<unsigned>(AArch64PhysicalReg::V15),
+};
 constexpr unsigned kSpillScratchPhysicalRegs[] = {
     static_cast<unsigned>(AArch64PhysicalReg::X24),
     static_cast<unsigned>(AArch64PhysicalReg::X25),
@@ -51,6 +78,17 @@ constexpr unsigned kSpillScratchPhysicalRegs[] = {
 };
 constexpr unsigned kSpillAddressPhysicalReg =
     static_cast<unsigned>(AArch64PhysicalReg::X28);
+constexpr unsigned kSpillScratchFloatPhysicalRegs[] = {
+    static_cast<unsigned>(AArch64PhysicalReg::V28),
+    static_cast<unsigned>(AArch64PhysicalReg::V29),
+    static_cast<unsigned>(AArch64PhysicalReg::V30),
+    static_cast<unsigned>(AArch64PhysicalReg::V31),
+};
+
+bool is_float_physical_reg(unsigned reg) {
+    return reg >= static_cast<unsigned>(AArch64PhysicalReg::V0) &&
+           reg <= static_cast<unsigned>(AArch64PhysicalReg::V31);
+}
 
 bool is_callee_saved_allocatable_physical_reg(unsigned reg) {
     return std::find(std::begin(kCalleeSavedAllocatablePhysicalRegs),
@@ -58,9 +96,28 @@ bool is_callee_saved_allocatable_physical_reg(unsigned reg) {
                      reg) != std::end(kCalleeSavedAllocatablePhysicalRegs);
 }
 
+bool is_callee_saved_allocatable_float_physical_reg(unsigned reg) {
+    return std::find(std::begin(kCalleeSavedAllocatableFloatPhysicalRegs),
+                     std::end(kCalleeSavedAllocatableFloatPhysicalRegs),
+                     reg) != std::end(kCalleeSavedAllocatableFloatPhysicalRegs);
+}
+
 AArch64CallClobberMask make_default_call_clobber_mask() {
-    return AArch64CallClobberMask({0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-                                   13, 14, 15, 16, 17});
+    std::set<unsigned> regs = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                               13, 14, 15, 16, 17};
+    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V0));
+    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V1));
+    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V2));
+    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V3));
+    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V4));
+    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V5));
+    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V6));
+    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V7));
+    regs.insert(std::begin(kCallerSavedAllocatableFloatPhysicalRegs),
+                std::end(kCallerSavedAllocatableFloatPhysicalRegs));
+    regs.insert(std::begin(kSpillScratchFloatPhysicalRegs),
+                std::end(kSpillScratchFloatPhysicalRegs));
+    return AArch64CallClobberMask(std::move(regs));
 }
 
 std::size_t align_to(std::size_t value, std::size_t alignment) {
@@ -98,6 +155,10 @@ bool is_pointer_type(const CoreIrType *type) {
     return type != nullptr && type->get_kind() == CoreIrTypeKind::Pointer;
 }
 
+bool is_float_type(const CoreIrType *type) {
+    return type != nullptr && type->get_kind() == CoreIrTypeKind::Float;
+}
+
 bool is_void_type(const CoreIrType *type) {
     return type != nullptr && type->get_kind() == CoreIrTypeKind::Void;
 }
@@ -107,6 +168,146 @@ const CoreIrIntegerType *as_integer_type(const CoreIrType *type) {
         return nullptr;
     }
     return static_cast<const CoreIrIntegerType *>(type);
+}
+
+const CoreIrFloatType *as_float_type(const CoreIrType *type) {
+    if (!is_float_type(type)) {
+        return nullptr;
+    }
+    return static_cast<const CoreIrFloatType *>(type);
+}
+
+bool type_contains_float_kind(const CoreIrType *type, CoreIrFloatKind float_kind) {
+    if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+        return float_type->get_float_kind() == float_kind;
+    }
+    if (const auto *pointer_type = dynamic_cast<const CoreIrPointerType *>(type);
+        pointer_type != nullptr) {
+        return type_contains_float_kind(pointer_type->get_pointee_type(), float_kind);
+    }
+    if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
+        array_type != nullptr) {
+        return type_contains_float_kind(array_type->get_element_type(), float_kind);
+    }
+    if (const auto *struct_type = dynamic_cast<const CoreIrStructType *>(type);
+        struct_type != nullptr) {
+        for (const CoreIrType *element_type : struct_type->get_element_types()) {
+            if (type_contains_float_kind(element_type, float_kind)) {
+                return true;
+            }
+        }
+    }
+    if (const auto *function_type = dynamic_cast<const CoreIrFunctionType *>(type);
+        function_type != nullptr) {
+        if (type_contains_float_kind(function_type->get_return_type(), float_kind)) {
+            return true;
+        }
+        for (const CoreIrType *parameter_type : function_type->get_parameter_types()) {
+            if (type_contains_float_kind(parameter_type, float_kind)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+AArch64VirtualRegKind classify_float_reg_kind(CoreIrFloatKind float_kind) {
+    switch (float_kind) {
+    case CoreIrFloatKind::Float16:
+        return AArch64VirtualRegKind::Float16;
+    case CoreIrFloatKind::Float32:
+        return AArch64VirtualRegKind::Float32;
+    case CoreIrFloatKind::Float64:
+        return AArch64VirtualRegKind::Float64;
+    case CoreIrFloatKind::Float128:
+        return AArch64VirtualRegKind::Float128;
+    }
+    return AArch64VirtualRegKind::Float32;
+}
+
+AArch64VirtualRegKind classify_virtual_reg_kind(const CoreIrType *type) {
+    if (is_pointer_type(type)) {
+        return AArch64VirtualRegKind::General64;
+    }
+    if (const auto *integer_type = as_integer_type(type); integer_type != nullptr) {
+        return integer_type->get_bit_width() > 32 ? AArch64VirtualRegKind::General64
+                                                  : AArch64VirtualRegKind::General32;
+    }
+    if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+        return classify_float_reg_kind(float_type->get_float_kind());
+    }
+    return AArch64VirtualRegKind::General32;
+}
+
+bool uses_general_64bit_register(const CoreIrType *type) {
+    return classify_virtual_reg_kind(type) == AArch64VirtualRegKind::General64;
+}
+
+bool uses_general_64bit_register(AArch64VirtualRegKind kind) {
+    return kind == AArch64VirtualRegKind::General64;
+}
+
+bool uses_64bit_register(const CoreIrType *type) {
+    return uses_general_64bit_register(type);
+}
+
+char virtual_reg_suffix(AArch64VirtualRegKind kind) {
+    switch (kind) {
+    case AArch64VirtualRegKind::General32:
+        return 'w';
+    case AArch64VirtualRegKind::General64:
+        return 'x';
+    case AArch64VirtualRegKind::Float16:
+        return 'h';
+    case AArch64VirtualRegKind::Float32:
+        return 's';
+    case AArch64VirtualRegKind::Float64:
+        return 'd';
+    case AArch64VirtualRegKind::Float128:
+        return 'q';
+    }
+    return 'w';
+}
+
+AArch64VirtualRegKind virtual_reg_kind_from_suffix(char suffix) {
+    switch (suffix) {
+    case 'x':
+        return AArch64VirtualRegKind::General64;
+    case 'h':
+        return AArch64VirtualRegKind::Float16;
+    case 's':
+        return AArch64VirtualRegKind::Float32;
+    case 'd':
+        return AArch64VirtualRegKind::Float64;
+    case 'q':
+        return AArch64VirtualRegKind::Float128;
+    case 'w':
+    default:
+        return AArch64VirtualRegKind::General32;
+    }
+}
+
+std::size_t virtual_reg_size(AArch64VirtualRegKind kind) {
+    switch (kind) {
+    case AArch64VirtualRegKind::General32:
+    case AArch64VirtualRegKind::Float32:
+        return 4;
+    case AArch64VirtualRegKind::General64:
+    case AArch64VirtualRegKind::Float64:
+        return 8;
+    case AArch64VirtualRegKind::Float16:
+        return 2;
+    case AArch64VirtualRegKind::Float128:
+        return 16;
+    }
+    return 4;
+}
+
+bool is_live_across_call_callee_saved_capable(AArch64VirtualRegKind kind) {
+    if (kind == AArch64VirtualRegKind::Float128) {
+        return false;
+    }
+    return true;
 }
 
 bool is_narrow_integer_type(const CoreIrType *type) {
@@ -121,6 +322,15 @@ bool is_narrow_integer_type(const CoreIrType *type) {
 bool is_supported_scalar_storage_type(const CoreIrType *type) {
     if (is_pointer_type(type)) {
         return true;
+    }
+    if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+        switch (float_type->get_float_kind()) {
+        case CoreIrFloatKind::Float16:
+        case CoreIrFloatKind::Float32:
+        case CoreIrFloatKind::Float64:
+        case CoreIrFloatKind::Float128:
+            return true;
+        }
     }
     const auto *integer_type = as_integer_type(type);
     if (integer_type == nullptr) {
@@ -174,6 +384,18 @@ bool is_byte_string_global(const CoreIrGlobal &global) {
 std::size_t get_storage_size(const CoreIrType *type) {
     if (is_pointer_type(type)) {
         return 8;
+    }
+    if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+        switch (float_type->get_float_kind()) {
+        case CoreIrFloatKind::Float16:
+            return 2;
+        case CoreIrFloatKind::Float32:
+            return 4;
+        case CoreIrFloatKind::Float64:
+            return 8;
+        case CoreIrFloatKind::Float128:
+            return 16;
+        }
     }
     const auto *integer_type = as_integer_type(type);
     if (integer_type == nullptr) {
@@ -266,18 +488,44 @@ std::size_t get_struct_member_offset(const CoreIrStructType *struct_type,
                     get_type_alignment(struct_type->get_element_types()[index]));
 }
 
-bool uses_64bit_register(const CoreIrType *type) {
-    return is_pointer_type(type) ||
-           (as_integer_type(type) != nullptr &&
-            as_integer_type(type)->get_bit_width() > 32);
-}
-
 std::string general_register_name(unsigned index, bool use_64bit) {
     return std::string(use_64bit ? "x" : "w") + std::to_string(index);
 }
 
+std::string floating_register_name(unsigned index, AArch64VirtualRegKind kind) {
+    return std::string(1, virtual_reg_suffix(kind)) + std::to_string(index);
+}
+
 std::string zero_register_name(bool use_64bit) {
     return use_64bit ? "xzr" : "wzr";
+}
+
+std::string render_physical_register(unsigned reg_number, AArch64VirtualRegKind kind);
+std::string def_vreg(const AArch64VirtualReg &reg);
+std::string use_vreg(const AArch64VirtualReg &reg);
+std::string use_vreg_as_kind(const AArch64VirtualReg &reg,
+                             AArch64VirtualRegKind kind);
+
+std::string float_condition_code(CoreIrComparePredicate predicate) {
+    switch (predicate) {
+    case CoreIrComparePredicate::Equal:
+        return "eq";
+    case CoreIrComparePredicate::NotEqual:
+        return "ne";
+    case CoreIrComparePredicate::SignedLess:
+    case CoreIrComparePredicate::UnsignedLess:
+        return "lt";
+    case CoreIrComparePredicate::SignedLessEqual:
+    case CoreIrComparePredicate::UnsignedLessEqual:
+        return "le";
+    case CoreIrComparePredicate::SignedGreater:
+    case CoreIrComparePredicate::UnsignedGreater:
+        return "gt";
+    case CoreIrComparePredicate::SignedGreaterEqual:
+    case CoreIrComparePredicate::UnsignedGreaterEqual:
+        return "ge";
+    }
+    return "eq";
 }
 
 std::string condition_code(CoreIrComparePredicate predicate) {
@@ -304,6 +552,61 @@ std::string condition_code(CoreIrComparePredicate predicate) {
         return "hs";
     }
     return "eq";
+}
+
+std::string fp_move_mnemonic(AArch64VirtualRegKind kind) {
+    return kind == AArch64VirtualRegKind::Float128 ? "mov" : "fmov";
+}
+
+void append_register_copy(AArch64MachineBlock &machine_block,
+                          const AArch64VirtualReg &dst_reg,
+                          const AArch64VirtualReg &src_reg) {
+    if (dst_reg.get_id() == src_reg.get_id() &&
+        dst_reg.get_kind() == src_reg.get_kind()) {
+        return;
+    }
+    if (dst_reg.is_floating_point() && src_reg.is_floating_point()) {
+        machine_block.append_instruction(fp_move_mnemonic(dst_reg.get_kind()) + " " +
+                                         def_vreg(dst_reg) + ", " +
+                                         use_vreg_as_kind(src_reg, dst_reg.get_kind()));
+        return;
+    }
+    machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
+                                     use_vreg_as_kind(src_reg, dst_reg.get_kind()));
+}
+
+void append_copy_from_physical_reg(AArch64MachineBlock &machine_block,
+                                   const AArch64VirtualReg &dst_reg,
+                                   unsigned physical_reg,
+                                   AArch64VirtualRegKind physical_kind) {
+    const std::string physical_name =
+        render_physical_register(physical_reg, physical_kind);
+    if (dst_reg.is_floating_point()) {
+        machine_block.append_instruction(fp_move_mnemonic(dst_reg.get_kind()) + " " +
+                                         def_vreg(dst_reg) + ", " + physical_name);
+        return;
+    }
+    machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
+                                     physical_name);
+}
+
+void append_copy_to_physical_reg(AArch64MachineBlock &machine_block,
+                                 unsigned physical_reg,
+                                 AArch64VirtualRegKind physical_kind,
+                                 const AArch64VirtualReg &src_reg) {
+    const std::string physical_name =
+        render_physical_register(physical_reg, physical_kind);
+    if (src_reg.is_floating_point()) {
+        machine_block.append_instruction(fp_move_mnemonic(src_reg.get_kind()) + " " +
+                                         physical_name + ", " + use_vreg(src_reg));
+        return;
+    }
+    machine_block.append_instruction("mov " + physical_name + ", " +
+                                     use_vreg_as_kind(
+                                         src_reg,
+                                         uses_general_64bit_register(physical_kind)
+                                             ? AArch64VirtualRegKind::General64
+                                             : AArch64VirtualRegKind::General32));
 }
 
 std::string scalar_directive(const CoreIrType *type) {
@@ -346,6 +649,121 @@ std::optional<long long> get_signed_integer_constant(const CoreIrConstant *const
     return static_cast<long long>(masked | ~mask);
 }
 
+struct AArch64IntegerConstantValue {
+    std::uint64_t unsigned_value = 0;
+    std::uint64_t magnitude = 0;
+    bool is_negative = false;
+};
+
+std::optional<AArch64IntegerConstantValue>
+get_integer_constant_value(const CoreIrConstant *constant) {
+    const auto *int_constant = dynamic_cast<const CoreIrConstantInt *>(constant);
+    if (int_constant == nullptr) {
+        return std::nullopt;
+    }
+    const auto *integer_type = as_integer_type(constant->get_type());
+    if (integer_type == nullptr) {
+        return std::nullopt;
+    }
+    const std::size_t bit_width = integer_type->get_bit_width();
+    if (bit_width == 0 || bit_width > 64) {
+        return std::nullopt;
+    }
+
+    const std::uint64_t mask =
+        bit_width == 64 ? ~0ULL : ((1ULL << bit_width) - 1ULL);
+    const std::uint64_t masked = int_constant->get_value() & mask;
+    AArch64IntegerConstantValue result;
+    result.unsigned_value = masked;
+
+    if (!integer_type->get_is_signed()) {
+        result.magnitude = masked;
+        return result;
+    }
+
+    const std::uint64_t sign_bit = 1ULL << (bit_width - 1);
+    if ((masked & sign_bit) == 0) {
+        result.magnitude = masked;
+        return result;
+    }
+
+    result.is_negative = true;
+    result.magnitude = (~masked + 1ULL) & mask;
+    return result;
+}
+
+std::optional<AArch64IntegerConstantValue>
+scale_integer_constant_value(const AArch64IntegerConstantValue &value,
+                             std::size_t scale) {
+    const unsigned __int128 scaled =
+        static_cast<unsigned __int128>(value.magnitude) * scale;
+    if (scaled > std::numeric_limits<std::uint64_t>::max()) {
+        return std::nullopt;
+    }
+    return AArch64IntegerConstantValue{
+        .unsigned_value = static_cast<std::uint64_t>(scaled),
+        .magnitude = static_cast<std::uint64_t>(scaled),
+        .is_negative = value.is_negative};
+}
+
+std::string strip_floating_literal_suffix(std::string value_text) {
+    while (!value_text.empty()) {
+        const char last = value_text.back();
+        if (last == 'f' || last == 'F' || last == 'l' || last == 'L') {
+            value_text.pop_back();
+            continue;
+        }
+        break;
+    }
+    return value_text;
+}
+
+bool float128_literal_is_supported_by_helper_path(const std::string &literal_text) {
+    if (literal_text.find("0x") != std::string::npos ||
+        literal_text.find("0X") != std::string::npos ||
+        literal_text.find('e') != std::string::npos ||
+        literal_text.find('E') != std::string::npos ||
+        literal_text.find('p') != std::string::npos ||
+        literal_text.find('P') != std::string::npos) {
+        return false;
+    }
+
+    std::string normalized = literal_text;
+    if (!normalized.empty() &&
+        (normalized.front() == '+' || normalized.front() == '-')) {
+        normalized.erase(normalized.begin());
+    }
+    if (normalized.empty()) {
+        return false;
+    }
+
+    const std::size_t dot = normalized.find('.');
+    std::string integral_text = normalized;
+    if (dot != std::string::npos) {
+        integral_text = normalized.substr(0, dot);
+        const std::string fractional_text = normalized.substr(dot + 1);
+        if (fractional_text.empty()) {
+            return false;
+        }
+        if (fractional_text.find_first_not_of('0') != std::string::npos) {
+            return false;
+        }
+    }
+    if (integral_text.empty()) {
+        integral_text = "0";
+    }
+    if (integral_text.find_first_not_of("0123456789") != std::string::npos) {
+        return false;
+    }
+
+    char *value_end = nullptr;
+    const long double value = std::strtold(integral_text.c_str(), &value_end);
+    if (value_end == nullptr || *value_end != '\0' || !std::isfinite(value)) {
+        return false;
+    }
+    return std::fabs(value) <= 9007199254740992.0L;
+}
+
 void add_backend_error(DiagnosticEngine &diagnostic_engine,
                        const std::string &message) {
     diagnostic_engine.add_error(DiagnosticStage::Compiler, message);
@@ -385,19 +803,30 @@ parse_machine_instruction_text(std::string text) {
     return {std::move(mnemonic), std::move(operands)};
 }
 
+std::string render_physical_register(unsigned reg_number, AArch64VirtualRegKind kind) {
+    if (is_float_physical_reg(reg_number)) {
+        return std::string(1, virtual_reg_suffix(kind)) + std::to_string(
+                   reg_number - static_cast<unsigned>(AArch64PhysicalReg::V0));
+    }
+    return std::string(uses_general_64bit_register(kind) ? "x" : "w") +
+           std::to_string(reg_number);
+}
+
 std::string render_physical_register(unsigned reg_number, bool use_64bit) {
-    return std::string(use_64bit ? "x" : "w") + std::to_string(reg_number);
+    return render_physical_register(
+        reg_number, use_64bit ? AArch64VirtualRegKind::General64
+                              : AArch64VirtualRegKind::General32);
 }
 
 std::string vreg_token(char role, const AArch64VirtualReg &reg) {
     return "%" + std::string(1, role) + std::to_string(reg.get_id()) +
-           (reg.get_use_64bit() ? "x" : "w");
+           virtual_reg_suffix(reg.get_kind());
 }
 
-std::string vreg_token_with_width(char role, const AArch64VirtualReg &reg,
-                                  bool use_64bit) {
+std::string vreg_token_with_kind(char role, const AArch64VirtualReg &reg,
+                                 AArch64VirtualRegKind kind) {
     return "%" + std::string(1, role) + std::to_string(reg.get_id()) +
-           (use_64bit ? "x" : "w");
+           virtual_reg_suffix(kind);
 }
 
 std::string use_vreg(const AArch64VirtualReg &reg) {
@@ -409,16 +838,32 @@ std::string def_vreg(const AArch64VirtualReg &reg) {
 }
 
 std::string use_vreg_as(const AArch64VirtualReg &reg, bool use_64bit) {
-    return vreg_token_with_width('u', reg, use_64bit);
+    return vreg_token_with_kind(
+        'u', reg,
+        use_64bit ? AArch64VirtualRegKind::General64
+                  : AArch64VirtualRegKind::General32);
 }
 
 std::string def_vreg_as(const AArch64VirtualReg &reg, bool use_64bit) {
-    return vreg_token_with_width('d', reg, use_64bit);
+    return vreg_token_with_kind(
+        'd', reg,
+        use_64bit ? AArch64VirtualRegKind::General64
+                  : AArch64VirtualRegKind::General32);
+}
+
+std::string use_vreg_as_kind(const AArch64VirtualReg &reg,
+                             AArch64VirtualRegKind kind) {
+    return vreg_token_with_kind('u', reg, kind);
+}
+
+std::string def_vreg_as_kind(const AArch64VirtualReg &reg,
+                             AArch64VirtualRegKind kind) {
+    return vreg_token_with_kind('d', reg, kind);
 }
 
 struct ParsedVirtualRegRef {
     std::size_t id = 0;
-    bool use_64bit = false;
+    AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
     bool is_def = false;
     std::size_t offset = 0;
     std::size_t length = 0;
@@ -440,10 +885,13 @@ std::vector<ParsedVirtualRegRef> parse_virtual_reg_refs(const std::string &text)
             id = (id * 10) + static_cast<std::size_t>(text[cursor] - '0');
             ++cursor;
         }
-        if (cursor >= text.size() || (text[cursor] != 'x' && text[cursor] != 'w')) {
+        if (cursor >= text.size() ||
+            (text[cursor] != 'x' && text[cursor] != 'w' && text[cursor] != 'h' &&
+             text[cursor] != 's' && text[cursor] != 'd' && text[cursor] != 'q')) {
             continue;
         }
-        refs.push_back({id, text[cursor] == 'x', text[index + 1] == 'd', index,
+        refs.push_back({id, virtual_reg_kind_from_suffix(text[cursor]),
+                        text[index + 1] == 'd', index,
                         cursor - index + 1});
         index = cursor;
     }
@@ -747,15 +1195,30 @@ AArch64InterferenceGraph build_interference_graph(
     const AArch64MachineFunction &function,
     const AArch64LivenessInfo &liveness_info) {
     AArch64InterferenceGraph graph;
-    for (const auto &[virtual_reg_id, _] : function.get_virtual_reg_widths()) {
+    for (const auto &[virtual_reg_id, _] : function.get_virtual_reg_kinds()) {
         graph.add_node(virtual_reg_id);
     }
+
+    const auto add_bank_cliques = [&graph, &function](
+                                      const std::unordered_set<std::size_t> &live_set) {
+        std::unordered_set<std::size_t> general_live;
+        std::unordered_set<std::size_t> float_live;
+        for (std::size_t id : live_set) {
+            if (AArch64VirtualReg(id, function.get_virtual_reg_kind(id)).is_floating_point()) {
+                float_live.insert(id);
+            } else {
+                general_live.insert(id);
+            }
+        }
+        graph.add_clique(general_live);
+        graph.add_clique(float_live);
+    };
 
     const auto &block_info = liveness_info.get_blocks();
     for (std::size_t block_index = 0; block_index < block_info.size(); ++block_index) {
         const AArch64BlockLiveness &info = block_info[block_index];
         std::unordered_set<std::size_t> live = info.live_out;
-        graph.add_clique(live);
+        add_bank_cliques(live);
 
         for (std::size_t instruction_index = info.instructions.size();
              instruction_index > 0; --instruction_index) {
@@ -764,6 +1227,14 @@ AArch64InterferenceGraph build_interference_graph(
             for (std::size_t def : instruction_liveness.defs) {
                 graph.add_node(def);
                 for (std::size_t live_virtual_reg : live) {
+                    if (AArch64VirtualReg(def, function.get_virtual_reg_kind(def))
+                            .get_bank() !=
+                        AArch64VirtualReg(
+                            live_virtual_reg,
+                            function.get_virtual_reg_kind(live_virtual_reg))
+                            .get_bank()) {
+                        continue;
+                    }
                     graph.add_edge(def, live_virtual_reg);
                 }
             }
@@ -772,15 +1243,19 @@ AArch64InterferenceGraph build_interference_graph(
             }
             live.insert(instruction_liveness.uses.begin(),
                         instruction_liveness.uses.end());
-            graph.add_clique(live);
+            add_bank_cliques(live);
         }
-        graph.add_clique(info.live_in);
+        add_bank_cliques(info.live_in);
     }
 
     return graph;
 }
 
-std::string load_mnemonic_for_width(bool use_64bit, std::size_t size) {
+std::string load_mnemonic_for_kind(AArch64VirtualRegKind kind, std::size_t size) {
+    if (AArch64VirtualReg(1, kind).is_floating_point()) {
+        return "ldr";
+    }
+    const bool use_64bit = uses_general_64bit_register(kind);
     if (use_64bit || size == 8) {
         return "ldr";
     }
@@ -793,7 +1268,11 @@ std::string load_mnemonic_for_width(bool use_64bit, std::size_t size) {
     return "ldr";
 }
 
-std::string store_mnemonic_for_width(bool use_64bit, std::size_t size) {
+std::string store_mnemonic_for_kind(AArch64VirtualRegKind kind, std::size_t size) {
+    if (AArch64VirtualReg(1, kind).is_floating_point()) {
+        return "str";
+    }
+    const bool use_64bit = uses_general_64bit_register(kind);
     if (use_64bit || size == 8) {
         return "str";
     }
@@ -828,16 +1307,38 @@ struct AArch64SpillRewriteOperand {
     bool has_def = false;
 };
 
+enum class AArch64SpillScratchClass : unsigned char {
+    GeneralValue,
+    FloatingValue,
+};
+
 struct AArch64ScratchAssignment {
     std::size_t virtual_reg_id = 0;
     unsigned physical_reg = 0;
-    bool use_64bit = false;
+    AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
 };
 
-struct AArch64SpillRewritePlan {
+struct AArch64SpillRewriteStep {
+    enum class Kind : unsigned char {
+        LoadUse,
+        EmitInstruction,
+        StoreDef,
+    };
+
+    Kind kind = Kind::EmitInstruction;
+    std::size_t virtual_reg_id = 0;
+    unsigned physical_reg = 0;
+    AArch64VirtualRegKind virtual_reg_kind = AArch64VirtualRegKind::General32;
+    AArch64SpillScratchClass scratch_class = AArch64SpillScratchClass::GeneralValue;
+    std::optional<AArch64MachineInstr> instruction;
+};
+
+struct AArch64InstructionRewritePlan {
     std::vector<AArch64SpillRewriteOperand> operands;
     std::vector<AArch64ScratchAssignment> assignments;
     bool needs_address_scratch = false;
+    std::vector<AArch64SpillRewriteStep> steps;
+    std::vector<AArch64SpillRewriteOperand> unassigned_operands;
 };
 
 void append_materialize_physical_integer_constant(
@@ -880,11 +1381,11 @@ void append_frame_address_into_physical_reg(
 }
 
 void append_physical_frame_load(std::vector<AArch64MachineInstr> &instructions,
-                                unsigned value_reg, bool use_64bit,
+                                unsigned value_reg, AArch64VirtualRegKind kind,
                                 std::size_t size, std::size_t offset,
                                 unsigned address_temp_reg) {
-    const std::string reg = render_physical_register(value_reg, use_64bit);
-    const std::string mnemonic = load_mnemonic_for_width(use_64bit, size);
+    const std::string reg = render_physical_register(value_reg, kind);
+    const std::string mnemonic = load_mnemonic_for_kind(kind, size);
     if (offset <= 255) {
         instructions.emplace_back(mnemonic + " " + reg + ", [x29, #-" +
                                   std::to_string(offset) + "]");
@@ -896,11 +1397,11 @@ void append_physical_frame_load(std::vector<AArch64MachineInstr> &instructions,
 }
 
 void append_physical_frame_store(std::vector<AArch64MachineInstr> &instructions,
-                                 unsigned value_reg, bool use_64bit,
+                                 unsigned value_reg, AArch64VirtualRegKind kind,
                                  std::size_t size, std::size_t offset,
                                  unsigned address_temp_reg) {
-    const std::string reg = render_physical_register(value_reg, use_64bit);
-    const std::string mnemonic = store_mnemonic_for_width(use_64bit, size);
+    const std::string reg = render_physical_register(value_reg, kind);
+    const std::string mnemonic = store_mnemonic_for_kind(kind, size);
     if (offset <= 255) {
         instructions.emplace_back(mnemonic + " " + reg + ", [x29, #-" +
                                   std::to_string(offset) + "]");
@@ -911,28 +1412,33 @@ void append_physical_frame_store(std::vector<AArch64MachineInstr> &instructions,
                               render_physical_register(address_temp_reg, true) + "]");
 }
 
-std::vector<ParsedVirtualRegRef>
-collect_instruction_spilled_virtual_refs(const AArch64MachineInstr &instruction,
-                                         const AArch64MachineFunction &function) {
-    std::vector<ParsedVirtualRegRef> spilled;
-    std::unordered_set<std::size_t> seen;
-    for (const AArch64MachineOperand &operand : instruction.get_operands()) {
-        for (const ParsedVirtualRegRef &ref :
-             collect_spilled_virtual_refs(operand, function)) {
-            if (seen.find(ref.id) != seen.end()) {
-                continue;
-            }
-            seen.insert(ref.id);
-            spilled.push_back(ref);
-        }
-    }
-    return spilled;
+bool spill_slot_requires_address_scratch(std::size_t offset) {
+    return offset > 255;
 }
 
-AArch64SpillRewritePlan
-build_spill_rewrite_plan(const AArch64MachineInstr &instruction,
-                         const AArch64MachineFunction &function) {
-    AArch64SpillRewritePlan plan;
+const AArch64ScratchAssignment *
+find_spill_assignment(const AArch64InstructionRewritePlan &plan,
+                      std::size_t virtual_reg_id) {
+    for (const AArch64ScratchAssignment &assignment : plan.assignments) {
+        if (assignment.virtual_reg_id == virtual_reg_id) {
+            return &assignment;
+        }
+    }
+    return nullptr;
+}
+
+std::string substitute_spilled_virtuals(const std::string &text,
+                                        const std::unordered_map<std::size_t, unsigned> &mapping,
+                                        const AArch64MachineFunction &function);
+
+std::string substitute_spilled_virtuals(
+    const std::string &text, const std::unordered_map<std::size_t, unsigned> &mapping,
+    const AArch64MachineFunction &function);
+
+AArch64InstructionRewritePlan
+build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
+                               const AArch64MachineFunction &function) {
+    AArch64InstructionRewritePlan plan;
     std::unordered_map<std::size_t, std::size_t> operand_indices;
 
     for (const AArch64MachineOperand &operand : instruction.get_operands()) {
@@ -954,28 +1460,137 @@ build_spill_rewrite_plan(const AArch64MachineInstr &instruction,
         }
     }
 
-    plan.needs_address_scratch = false;
+    std::vector<const AArch64SpillRewriteOperand *> large_general_operands;
+    std::vector<const AArch64SpillRewriteOperand *> small_general_operands;
+    std::vector<const AArch64SpillRewriteOperand *> float_operands;
+
     for (const AArch64SpillRewriteOperand &operand : plan.operands) {
         const auto maybe_offset =
             function.get_frame_info().get_virtual_reg_spill_offset(operand.ref.id);
-        if (maybe_offset.has_value() && *maybe_offset > 255) {
-            plan.needs_address_scratch = true;
-            break;
+        if (!maybe_offset.has_value()) {
+            continue;
         }
+        if (spill_slot_requires_address_scratch(*maybe_offset)) {
+            plan.needs_address_scratch = true;
+        }
+        if (AArch64VirtualReg(operand.ref.id, operand.ref.kind).is_floating_point()) {
+            float_operands.push_back(&operand);
+            continue;
+        }
+        if (spill_slot_requires_address_scratch(*maybe_offset)) {
+            large_general_operands.push_back(&operand);
+            continue;
+        }
+        small_general_operands.push_back(&operand);
     }
 
-    std::vector<unsigned> available_value_scratch_regs(
-        std::begin(kSpillScratchPhysicalRegs), std::end(kSpillScratchPhysicalRegs));
-    if (!plan.needs_address_scratch) {
-        available_value_scratch_regs.push_back(kSpillAddressPhysicalReg);
+    if (large_general_operands.size() + small_general_operands.size() >
+            std::size(kSpillScratchPhysicalRegs) ||
+        float_operands.size() > std::size(kSpillScratchFloatPhysicalRegs)) {
+        plan.unassigned_operands = plan.operands;
+        return plan;
     }
 
-    for (std::size_t index = 0;
-         index < plan.operands.size() && index < available_value_scratch_regs.size();
-         ++index) {
+    std::size_t next_general_scratch = 0;
+    auto assign_general_operand =
+        [&](const AArch64SpillRewriteOperand &operand, unsigned physical_reg) {
+            plan.assignments.push_back(AArch64ScratchAssignment{
+                operand.ref.id, physical_reg, operand.ref.kind});
+        };
+
+    for (const AArch64SpillRewriteOperand *operand : large_general_operands) {
+        assign_general_operand(*operand,
+                               kSpillScratchPhysicalRegs[next_general_scratch++]);
+    }
+    for (const AArch64SpillRewriteOperand *operand : small_general_operands) {
+        assign_general_operand(*operand,
+                               kSpillScratchPhysicalRegs[next_general_scratch++]);
+    }
+    for (std::size_t index = 0; index < float_operands.size(); ++index) {
         plan.assignments.push_back(AArch64ScratchAssignment{
-            plan.operands[index].ref.id, available_value_scratch_regs[index],
-            plan.operands[index].ref.use_64bit});
+            float_operands[index]->ref.id, kSpillScratchFloatPhysicalRegs[index],
+            float_operands[index]->ref.kind});
+    }
+
+    std::unordered_map<std::size_t, unsigned> spill_mapping;
+    for (const AArch64ScratchAssignment &assignment : plan.assignments) {
+        spill_mapping.emplace(assignment.virtual_reg_id, assignment.physical_reg);
+    }
+
+    auto append_use_step = [&](const AArch64SpillRewriteOperand &operand) {
+        const AArch64ScratchAssignment *assignment =
+            find_spill_assignment(plan, operand.ref.id);
+        if (assignment == nullptr || !operand.has_use) {
+            return;
+        }
+        const AArch64SpillScratchClass scratch_class =
+            AArch64VirtualReg(operand.ref.id, operand.ref.kind).is_floating_point()
+                ? AArch64SpillScratchClass::FloatingValue
+                : AArch64SpillScratchClass::GeneralValue;
+        plan.steps.push_back(AArch64SpillRewriteStep{
+            AArch64SpillRewriteStep::Kind::LoadUse,
+            operand.ref.id,
+            assignment->physical_reg,
+            operand.ref.kind,
+            scratch_class,
+            std::nullopt});
+    };
+
+    auto append_def_step = [&](const AArch64SpillRewriteOperand &operand) {
+        const AArch64ScratchAssignment *assignment =
+            find_spill_assignment(plan, operand.ref.id);
+        if (assignment == nullptr || !operand.has_def) {
+            return;
+        }
+        const AArch64SpillScratchClass scratch_class =
+            AArch64VirtualReg(operand.ref.id, operand.ref.kind).is_floating_point()
+                ? AArch64SpillScratchClass::FloatingValue
+                : AArch64SpillScratchClass::GeneralValue;
+        plan.steps.push_back(AArch64SpillRewriteStep{
+            AArch64SpillRewriteStep::Kind::StoreDef,
+            operand.ref.id,
+            assignment->physical_reg,
+            operand.ref.kind,
+            scratch_class,
+            std::nullopt});
+    };
+
+    for (const AArch64SpillRewriteOperand *operand : large_general_operands) {
+        append_use_step(*operand);
+    }
+    for (const AArch64SpillRewriteOperand *operand : small_general_operands) {
+        append_use_step(*operand);
+    }
+    for (const AArch64SpillRewriteOperand *operand : float_operands) {
+        append_use_step(*operand);
+    }
+
+    std::vector<AArch64MachineOperand> operands;
+    operands.reserve(instruction.get_operands().size());
+    for (const AArch64MachineOperand &operand : instruction.get_operands()) {
+        operands.emplace_back(
+            substitute_spilled_virtuals(operand.get_text(), spill_mapping, function));
+    }
+    plan.steps.push_back(AArch64SpillRewriteStep{
+        AArch64SpillRewriteStep::Kind::EmitInstruction,
+        0,
+        0,
+        AArch64VirtualRegKind::General32,
+        AArch64SpillScratchClass::GeneralValue,
+        AArch64MachineInstr(instruction.get_mnemonic(), std::move(operands),
+                            instruction.get_flags(),
+                            instruction.get_implicit_defs(),
+                            instruction.get_implicit_uses(),
+                            instruction.get_call_clobber_mask())});
+
+    for (const AArch64SpillRewriteOperand *operand : large_general_operands) {
+        append_def_step(*operand);
+    }
+    for (const AArch64SpillRewriteOperand *operand : small_general_operands) {
+        append_def_step(*operand);
+    }
+    for (const AArch64SpillRewriteOperand *operand : float_operands) {
+        append_def_step(*operand);
     }
     return plan;
 }
@@ -995,7 +1610,7 @@ std::string substitute_spilled_virtuals(const std::string &text,
             continue;
         }
         const std::string reg_name =
-            render_physical_register(it->second, ref.use_64bit);
+            render_physical_register(it->second, ref.kind);
         rendered.replace(ref.offset + delta, ref.length, reg_name);
         delta += reg_name.size() - ref.length;
     }
@@ -1007,81 +1622,78 @@ bool rewrite_spilled_virtual_registers(AArch64MachineFunction &function,
     for (AArch64MachineBlock &block : function.get_blocks()) {
         std::vector<AArch64MachineInstr> rewritten;
         for (AArch64MachineInstr &instruction : block.get_instructions()) {
-            const AArch64SpillRewritePlan rewrite_plan =
-                build_spill_rewrite_plan(instruction, function);
-            if (rewrite_plan.operands.size() > std::size(kSpillScratchPhysicalRegs)) {
+            const AArch64InstructionRewritePlan rewrite_plan =
+                build_instruction_rewrite_plan(instruction, function);
+            if (!rewrite_plan.unassigned_operands.empty()) {
+                bool requires_general_split = false;
+                bool requires_float_split = false;
+                for (const AArch64SpillRewriteOperand &operand :
+                     rewrite_plan.unassigned_operands) {
+                    if (AArch64VirtualReg(operand.ref.id, operand.ref.kind)
+                            .is_floating_point()) {
+                        requires_float_split = true;
+                    } else {
+                        requires_general_split = true;
+                    }
+                }
                 add_backend_error(
                     diagnostic_engine,
-                    "AArch64 spill rewrite cannot assign enough value scratch registers for instruction '" +
+                    "AArch64 spill rewrite exhausted the fixed " +
+                        std::string(requires_general_split && !requires_float_split
+                                        ? "general"
+                                        : !requires_general_split && requires_float_split
+                                              ? "floating-point"
+                                              : "mixed-bank") +
+                        " scratch budget while rewriting instruction '" +
                         instruction.get_mnemonic() + "'");
                 return false;
             }
 
-            std::unordered_map<std::size_t, unsigned> spill_mapping;
             for (const AArch64ScratchAssignment &assignment : rewrite_plan.assignments) {
-                spill_mapping.emplace(assignment.virtual_reg_id, assignment.physical_reg);
-                function.get_frame_info().mark_saved_physical_reg(
-                    assignment.physical_reg);
+                if (!is_float_physical_reg(assignment.physical_reg)) {
+                    function.get_frame_info().mark_saved_physical_reg(
+                        assignment.physical_reg);
+                }
             }
             if (rewrite_plan.needs_address_scratch) {
                 function.get_frame_info().mark_saved_physical_reg(
                     kSpillAddressPhysicalReg);
             }
 
-            std::unordered_set<std::size_t> loaded_ids;
-            for (const AArch64SpillRewriteOperand &operand_plan : rewrite_plan.operands) {
-                if (!operand_plan.has_use) {
-                    continue;
+            for (const AArch64SpillRewriteStep &step : rewrite_plan.steps) {
+                switch (step.kind) {
+                case AArch64SpillRewriteStep::Kind::LoadUse: {
+                    const auto maybe_offset =
+                        function.get_frame_info().get_virtual_reg_spill_offset(
+                            step.virtual_reg_id);
+                    if (!maybe_offset.has_value()) {
+                        break;
+                    }
+                    append_physical_frame_load(
+                        rewritten, step.physical_reg, step.virtual_reg_kind,
+                        virtual_reg_size(step.virtual_reg_kind), *maybe_offset,
+                        kSpillAddressPhysicalReg);
+                    break;
                 }
-                const std::size_t id = operand_plan.ref.id;
-                const unsigned physical_reg = spill_mapping.at(id);
-                const auto maybe_offset =
-                    function.get_frame_info().get_virtual_reg_spill_offset(id);
-                if (!maybe_offset.has_value()) {
-                    continue;
+                case AArch64SpillRewriteStep::Kind::EmitInstruction:
+                    if (step.instruction.has_value()) {
+                        rewritten.push_back(*step.instruction);
+                    }
+                    break;
+                case AArch64SpillRewriteStep::Kind::StoreDef: {
+                    const auto maybe_offset =
+                        function.get_frame_info().get_virtual_reg_spill_offset(
+                            step.virtual_reg_id);
+                    if (!maybe_offset.has_value()) {
+                        break;
+                    }
+                    append_physical_frame_store(
+                        rewritten, step.physical_reg, step.virtual_reg_kind,
+                        virtual_reg_size(step.virtual_reg_kind), *maybe_offset,
+                        kSpillAddressPhysicalReg);
+                    break;
                 }
-                if (loaded_ids.find(id) != loaded_ids.end()) {
-                    continue;
                 }
-                append_physical_frame_load(
-                    rewritten, physical_reg, operand_plan.ref.use_64bit,
-                    operand_plan.ref.use_64bit ? 8 : 4, *maybe_offset,
-                    kSpillAddressPhysicalReg);
-                loaded_ids.insert(id);
-            }
-
-            std::vector<AArch64MachineOperand> operands;
-            operands.reserve(instruction.get_operands().size());
-            for (const AArch64MachineOperand &operand : instruction.get_operands()) {
-                operands.emplace_back(
-                    substitute_spilled_virtuals(operand.get_text(), spill_mapping, function));
-            }
-            rewritten.emplace_back(instruction.get_mnemonic(), std::move(operands),
-                                   instruction.get_flags(),
-                                   instruction.get_implicit_defs(),
-                                   instruction.get_implicit_uses(),
-                                   instruction.get_call_clobber_mask());
-
-            std::unordered_set<std::size_t> stored_ids;
-            for (const AArch64SpillRewriteOperand &operand_plan : rewrite_plan.operands) {
-                if (!operand_plan.has_def) {
-                    continue;
-                }
-                const std::size_t id = operand_plan.ref.id;
-                const unsigned physical_reg = spill_mapping.at(id);
-                const auto maybe_offset =
-                    function.get_frame_info().get_virtual_reg_spill_offset(id);
-                if (!maybe_offset.has_value()) {
-                    continue;
-                }
-                if (stored_ids.find(id) != stored_ids.end()) {
-                    continue;
-                }
-                append_physical_frame_store(
-                    rewritten, physical_reg, operand_plan.ref.use_64bit,
-                    operand_plan.ref.use_64bit ? 8 : 4, *maybe_offset,
-                    kSpillAddressPhysicalReg);
-                stored_ids.insert(id);
             }
         }
         block.get_instructions() = std::move(rewritten);
@@ -1105,14 +1717,20 @@ void allocate_saved_physical_reg_slots(AArch64MachineFunction &function) {
 
 void append_saved_reg_store(std::vector<AArch64MachineInstr> &instructions,
                             unsigned physical_reg, std::size_t offset) {
-    append_physical_frame_store(instructions, physical_reg, true, 8, offset,
-                                static_cast<unsigned>(AArch64PhysicalReg::X9));
+    append_physical_frame_store(
+        instructions, physical_reg,
+        is_float_physical_reg(physical_reg) ? AArch64VirtualRegKind::Float64
+                                            : AArch64VirtualRegKind::General64,
+        8, offset, static_cast<unsigned>(AArch64PhysicalReg::X9));
 }
 
 void append_saved_reg_load(std::vector<AArch64MachineInstr> &instructions,
                            unsigned physical_reg, std::size_t offset) {
-    append_physical_frame_load(instructions, physical_reg, true, 8, offset,
-                               static_cast<unsigned>(AArch64PhysicalReg::X9));
+    append_physical_frame_load(
+        instructions, physical_reg,
+        is_float_physical_reg(physical_reg) ? AArch64VirtualRegKind::Float64
+                                            : AArch64VirtualRegKind::General64,
+        8, offset, static_cast<unsigned>(AArch64PhysicalReg::X9));
 }
 
 void rebuild_function_entry_exit(AArch64MachineFunction &function) {
@@ -1181,14 +1799,25 @@ bool allocate_virtual_registers(AArch64MachineFunction &function,
     };
 
     std::vector<SimplifyNode> simplify_stack;
-    const std::size_t color_count =
-        std::size(kCallerSavedAllocatablePhysicalRegs) +
-        std::size(kCalleeSavedAllocatablePhysicalRegs);
-
     while (!working_graph.empty()) {
         std::optional<SimplifyNode> low_degree_choice;
         std::optional<SimplifyNode> spill_choice;
         for (const auto &[virtual_reg_id, neighbors] : working_graph) {
+            const AArch64VirtualRegKind kind =
+                function.get_virtual_reg_kind(virtual_reg_id);
+            const std::size_t color_count =
+                AArch64VirtualReg(virtual_reg_id, kind).is_floating_point()
+                    ? (liveness.get_live_across_call().find(virtual_reg_id) !=
+                               liveness.get_live_across_call().end() &&
+                           is_live_across_call_callee_saved_capable(kind)
+                           ? std::size(kCalleeSavedAllocatableFloatPhysicalRegs)
+                           : std::size(kCallerSavedAllocatableFloatPhysicalRegs) +
+                                 std::size(kCalleeSavedAllocatableFloatPhysicalRegs))
+                    : (liveness.get_live_across_call().find(virtual_reg_id) !=
+                               liveness.get_live_across_call().end()
+                           ? std::size(kCalleeSavedAllocatablePhysicalRegs)
+                           : std::size(kCallerSavedAllocatablePhysicalRegs) +
+                                 std::size(kCalleeSavedAllocatablePhysicalRegs));
             const SimplifyNode candidate{
                 virtual_reg_id, neighbors.size(),
                 liveness.get_live_across_call().find(virtual_reg_id) !=
@@ -1235,7 +1864,32 @@ bool allocate_virtual_registers(AArch64MachineFunction &function,
         simplify_stack.pop_back();
 
         std::set<unsigned> available;
-        if (node.live_across_call) {
+        const AArch64VirtualRegKind kind =
+            function.get_virtual_reg_kind(node.virtual_reg_id);
+        if (kind == AArch64VirtualRegKind::Float128) {
+            const std::size_t spill_size = virtual_reg_size(kind);
+            std::size_t local_size = function.get_frame_info().get_local_size();
+            local_size = align_to(local_size, spill_size);
+            local_size += spill_size;
+            function.get_frame_info().set_virtual_reg_spill_offset(
+                node.virtual_reg_id, local_size);
+            function.get_frame_info().set_local_size(local_size);
+            function.get_frame_info().set_frame_size(align_to(local_size, 16));
+            continue;
+        }
+        if (AArch64VirtualReg(node.virtual_reg_id, kind).is_floating_point()) {
+            if (node.live_across_call) {
+                if (is_live_across_call_callee_saved_capable(kind)) {
+                    available.insert(std::begin(kCalleeSavedAllocatableFloatPhysicalRegs),
+                                     std::end(kCalleeSavedAllocatableFloatPhysicalRegs));
+                }
+            } else {
+                available.insert(std::begin(kCallerSavedAllocatableFloatPhysicalRegs),
+                                 std::end(kCallerSavedAllocatableFloatPhysicalRegs));
+                available.insert(std::begin(kCalleeSavedAllocatableFloatPhysicalRegs),
+                                 std::end(kCalleeSavedAllocatableFloatPhysicalRegs));
+            }
+        } else if (node.live_across_call) {
             available.insert(std::begin(kCalleeSavedAllocatablePhysicalRegs),
                              std::end(kCalleeSavedAllocatablePhysicalRegs));
         } else {
@@ -1255,14 +1909,15 @@ bool allocate_virtual_registers(AArch64MachineFunction &function,
         if (!available.empty()) {
             const unsigned chosen_reg = *available.begin();
             function.set_virtual_reg_allocation(node.virtual_reg_id, chosen_reg);
-            if (is_callee_saved_allocatable_physical_reg(chosen_reg)) {
+            if (is_callee_saved_allocatable_physical_reg(chosen_reg) ||
+                is_callee_saved_allocatable_float_physical_reg(chosen_reg)) {
                 function.get_frame_info().mark_saved_physical_reg(chosen_reg);
             }
             continue;
         }
 
         const std::size_t spill_size =
-            function.get_virtual_reg_use_64bit(node.virtual_reg_id) ? 8 : 4;
+            virtual_reg_size(function.get_virtual_reg_kind(node.virtual_reg_id));
         const std::size_t spill_alignment = spill_size;
         std::size_t local_size = function.get_frame_info().get_local_size();
         local_size = align_to(local_size, spill_alignment);
@@ -1292,15 +1947,46 @@ std::string substitute_virtual_registers(const std::string &text,
             continue;
         }
         const std::string reg_name =
-            render_physical_register(*physical_reg, ref.use_64bit);
+            render_physical_register(*physical_reg, ref.kind);
         rendered.replace(ref.offset + delta, ref.length, reg_name);
         delta += reg_name.size() - ref.length;
     }
     return rendered;
 }
 
+std::string render_vector_move_operand(const std::string &text) {
+    std::string rendered;
+    rendered.reserve(text.size() + 4);
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        if (text[index] != 'q' || index + 1 >= text.size() ||
+            !std::isdigit(static_cast<unsigned char>(text[index + 1]))) {
+            rendered.push_back(text[index]);
+            continue;
+        }
+        if (index > 0) {
+            const char previous = text[index - 1];
+            if (std::isalnum(static_cast<unsigned char>(previous)) != 0 ||
+                previous == '%' || previous == '.') {
+                rendered.push_back(text[index]);
+                continue;
+            }
+        }
+        std::size_t cursor = index + 1;
+        std::string reg_number;
+        while (cursor < text.size() &&
+               std::isdigit(static_cast<unsigned char>(text[cursor])) != 0) {
+            reg_number.push_back(text[cursor]);
+            ++cursor;
+        }
+        rendered += "v" + reg_number + ".16b";
+        index = cursor - 1;
+    }
+    return rendered;
+}
+
 enum class AArch64ValueLocationKind : unsigned char {
     VirtualReg,
+    MemoryAddress,
     ConstantInt,
     ConstantNull,
     SymbolAddress,
@@ -1313,6 +1999,338 @@ struct AArch64ValueLocation {
     AArch64VirtualReg virtual_reg;
 };
 
+bool is_supported_native_value_type(const CoreIrType *type) {
+    return is_void_type(type) || is_supported_scalar_storage_type(type) ||
+           is_supported_object_type(type);
+}
+
+bool is_aggregate_type(const CoreIrType *type) {
+    return type != nullptr &&
+           (type->get_kind() == CoreIrTypeKind::Array ||
+            type->get_kind() == CoreIrTypeKind::Struct);
+}
+
+struct AArch64HfaInfo {
+    AArch64VirtualRegKind element_kind = AArch64VirtualRegKind::Float32;
+    std::vector<std::size_t> member_offsets;
+};
+
+std::optional<AArch64HfaInfo>
+classify_hfa(const CoreIrType *type, std::size_t base_offset = 0) {
+    if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+        return AArch64HfaInfo{classify_float_reg_kind(float_type->get_float_kind()),
+                              {base_offset}};
+    }
+    if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
+        array_type != nullptr) {
+        auto element_hfa = classify_hfa(array_type->get_element_type(), base_offset);
+        if (!element_hfa.has_value()) {
+            return std::nullopt;
+        }
+        AArch64HfaInfo result;
+        result.element_kind = element_hfa->element_kind;
+        const std::size_t stride = get_type_size(array_type->get_element_type());
+        for (std::size_t index = 0; index < array_type->get_element_count(); ++index) {
+            auto nested = classify_hfa(array_type->get_element_type(),
+                                       base_offset + (index * stride));
+            if (!nested.has_value() || nested->element_kind != result.element_kind) {
+                return std::nullopt;
+            }
+            result.member_offsets.insert(result.member_offsets.end(),
+                                         nested->member_offsets.begin(),
+                                         nested->member_offsets.end());
+        }
+        if (result.member_offsets.empty() || result.member_offsets.size() > 4) {
+            return std::nullopt;
+        }
+        return result;
+    }
+    if (const auto *struct_type = dynamic_cast<const CoreIrStructType *>(type);
+        struct_type != nullptr) {
+        AArch64HfaInfo result;
+        bool initialized = false;
+        std::size_t running_offset = 0;
+        for (const CoreIrType *element_type : struct_type->get_element_types()) {
+            const std::size_t alignment = get_type_alignment(element_type);
+            running_offset = align_to(running_offset, alignment);
+            auto nested = classify_hfa(element_type, base_offset + running_offset);
+            if (!nested.has_value()) {
+                return std::nullopt;
+            }
+            if (!initialized) {
+                result.element_kind = nested->element_kind;
+                initialized = true;
+            } else if (nested->element_kind != result.element_kind) {
+                return std::nullopt;
+            }
+            result.member_offsets.insert(result.member_offsets.end(),
+                                         nested->member_offsets.begin(),
+                                         nested->member_offsets.end());
+            running_offset += get_type_size(element_type);
+        }
+        if (!initialized || result.member_offsets.empty() ||
+            result.member_offsets.size() > 4) {
+            return std::nullopt;
+        }
+        return result;
+    }
+    return std::nullopt;
+}
+
+enum class AArch64AbiValueClass : unsigned char {
+    GeneralScalar,
+    FloatingScalar,
+    GeneralComposite,
+    HfaComposite,
+    IndirectComposite,
+    Void,
+};
+
+enum class AArch64AbiLocationKind : unsigned char {
+    GeneralRegister,
+    FloatingRegister,
+    Stack,
+    IndirectResultRegister,
+};
+
+struct AArch64AbiLocation {
+    AArch64AbiLocationKind kind = AArch64AbiLocationKind::Stack;
+    unsigned physical_reg = 0;
+    std::size_t stack_offset = 0;
+    std::size_t source_offset = 0;
+    std::size_t size = 0;
+    AArch64VirtualRegKind reg_kind = AArch64VirtualRegKind::General32;
+};
+
+struct AArch64AbiAssignment {
+    AArch64AbiValueClass value_class = AArch64AbiValueClass::Void;
+    const CoreIrType *type = nullptr;
+    std::vector<AArch64AbiLocation> locations;
+    std::size_t stack_size = 0;
+    bool is_indirect = false;
+};
+
+struct AArch64FunctionAbiInfo {
+    AArch64AbiAssignment return_value;
+    std::vector<AArch64AbiAssignment> parameters;
+};
+
+std::size_t get_stack_abi_alignment(const CoreIrType *type) {
+    return std::max<std::size_t>(8, std::min<std::size_t>(16, get_type_alignment(type)));
+}
+
+std::size_t get_stack_abi_size(const CoreIrType *type) {
+    return align_to(get_type_size(type), 8);
+}
+
+AArch64AbiAssignment classify_return_abi(const CoreIrType *type) {
+    AArch64AbiAssignment assignment;
+    assignment.type = type;
+    if (is_void_type(type)) {
+        assignment.value_class = AArch64AbiValueClass::Void;
+        return assignment;
+    }
+    if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+        assignment.value_class = AArch64AbiValueClass::FloatingScalar;
+        assignment.locations.push_back(AArch64AbiLocation{
+            AArch64AbiLocationKind::FloatingRegister,
+            static_cast<unsigned>(AArch64PhysicalReg::V0),
+            0,
+            0,
+            get_storage_size(type),
+            classify_float_reg_kind(float_type->get_float_kind())});
+        return assignment;
+    }
+    if (is_supported_scalar_storage_type(type) && !is_aggregate_type(type)) {
+        assignment.value_class = AArch64AbiValueClass::GeneralScalar;
+        assignment.locations.push_back(AArch64AbiLocation{
+            AArch64AbiLocationKind::GeneralRegister,
+            static_cast<unsigned>(AArch64PhysicalReg::X0),
+            0,
+            0,
+            get_storage_size(type),
+            classify_virtual_reg_kind(type)});
+        return assignment;
+    }
+    if (const auto hfa = classify_hfa(type); hfa.has_value()) {
+        assignment.value_class = AArch64AbiValueClass::HfaComposite;
+        for (std::size_t index = 0; index < hfa->member_offsets.size(); ++index) {
+            assignment.locations.push_back(AArch64AbiLocation{
+                AArch64AbiLocationKind::FloatingRegister,
+                static_cast<unsigned>(AArch64PhysicalReg::V0) +
+                    static_cast<unsigned>(index),
+                0,
+                hfa->member_offsets[index],
+                virtual_reg_size(hfa->element_kind),
+                hfa->element_kind});
+        }
+        return assignment;
+    }
+    if (is_aggregate_type(type) && get_type_size(type) <= 16) {
+        assignment.value_class = AArch64AbiValueClass::GeneralComposite;
+        std::size_t remaining = get_type_size(type);
+        for (std::size_t index = 0; remaining > 0; ++index) {
+            const std::size_t part_size = std::min<std::size_t>(8, remaining);
+            assignment.locations.push_back(AArch64AbiLocation{
+                AArch64AbiLocationKind::GeneralRegister,
+                static_cast<unsigned>(AArch64PhysicalReg::X0) +
+                    static_cast<unsigned>(index),
+                0,
+                index * 8,
+                part_size,
+                AArch64VirtualRegKind::General64});
+            remaining -= part_size;
+        }
+        return assignment;
+    }
+    assignment.value_class = AArch64AbiValueClass::IndirectComposite;
+    assignment.is_indirect = true;
+    assignment.locations.push_back(AArch64AbiLocation{
+        AArch64AbiLocationKind::IndirectResultRegister,
+        static_cast<unsigned>(AArch64PhysicalReg::X8),
+        0,
+        0,
+        8,
+        AArch64VirtualRegKind::General64});
+    return assignment;
+}
+
+AArch64AbiAssignment classify_parameter_abi(const CoreIrType *type,
+                                            unsigned &next_gpr,
+                                            unsigned &next_fpr,
+                                            std::size_t &next_stack_offset) {
+    AArch64AbiAssignment assignment;
+    assignment.type = type;
+    if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+        assignment.value_class = AArch64AbiValueClass::FloatingScalar;
+        const AArch64VirtualRegKind reg_kind =
+            classify_float_reg_kind(float_type->get_float_kind());
+        if (next_fpr < 8) {
+            assignment.locations.push_back(AArch64AbiLocation{
+                AArch64AbiLocationKind::FloatingRegister,
+                static_cast<unsigned>(AArch64PhysicalReg::V0) + next_fpr,
+                0,
+                0,
+                get_storage_size(type),
+                reg_kind});
+            ++next_fpr;
+            return assignment;
+        }
+    } else if (is_supported_scalar_storage_type(type) && !is_aggregate_type(type)) {
+        assignment.value_class = AArch64AbiValueClass::GeneralScalar;
+        if (next_gpr < 8) {
+            assignment.locations.push_back(AArch64AbiLocation{
+                AArch64AbiLocationKind::GeneralRegister,
+                static_cast<unsigned>(AArch64PhysicalReg::X0) + next_gpr,
+                0,
+                0,
+                get_storage_size(type),
+                classify_virtual_reg_kind(type)});
+            ++next_gpr;
+            return assignment;
+        }
+    } else if (const auto hfa = classify_hfa(type); hfa.has_value()) {
+        assignment.value_class = AArch64AbiValueClass::HfaComposite;
+        if (next_fpr + hfa->member_offsets.size() <= 8) {
+            for (std::size_t index = 0; index < hfa->member_offsets.size(); ++index) {
+                assignment.locations.push_back(AArch64AbiLocation{
+                    AArch64AbiLocationKind::FloatingRegister,
+                    static_cast<unsigned>(AArch64PhysicalReg::V0) + next_fpr +
+                        static_cast<unsigned>(index),
+                    0,
+                    hfa->member_offsets[index],
+                    virtual_reg_size(hfa->element_kind),
+                    hfa->element_kind});
+            }
+            next_fpr += static_cast<unsigned>(hfa->member_offsets.size());
+            return assignment;
+        }
+    } else if (is_aggregate_type(type) && get_type_size(type) <= 16) {
+        assignment.value_class = AArch64AbiValueClass::GeneralComposite;
+        const std::size_t chunk_count = align_to(get_type_size(type), 8) / 8;
+        if (next_gpr + chunk_count <= 8) {
+            std::size_t remaining = get_type_size(type);
+            for (std::size_t index = 0; index < chunk_count; ++index) {
+                const std::size_t part_size = std::min<std::size_t>(8, remaining);
+                assignment.locations.push_back(AArch64AbiLocation{
+                    AArch64AbiLocationKind::GeneralRegister,
+                    static_cast<unsigned>(AArch64PhysicalReg::X0) + next_gpr +
+                        static_cast<unsigned>(index),
+                    0,
+                    index * 8,
+                    part_size,
+                    AArch64VirtualRegKind::General64});
+                remaining = remaining > part_size ? remaining - part_size : 0;
+            }
+            next_gpr += static_cast<unsigned>(chunk_count);
+            return assignment;
+        }
+    } else if (is_aggregate_type(type)) {
+        assignment.value_class = AArch64AbiValueClass::IndirectComposite;
+        assignment.is_indirect = true;
+        if (next_gpr < 8) {
+            assignment.locations.push_back(AArch64AbiLocation{
+                AArch64AbiLocationKind::GeneralRegister,
+                static_cast<unsigned>(AArch64PhysicalReg::X0) + next_gpr,
+                0,
+                0,
+                8,
+                AArch64VirtualRegKind::General64});
+            ++next_gpr;
+            return assignment;
+        }
+    }
+
+    const std::size_t stack_alignment = get_stack_abi_alignment(type);
+    next_stack_offset = align_to(next_stack_offset, stack_alignment);
+    assignment.stack_size = get_stack_abi_size(type);
+    assignment.locations.push_back(AArch64AbiLocation{
+        AArch64AbiLocationKind::Stack,
+        0,
+        next_stack_offset,
+        0,
+        get_type_size(type),
+        classify_virtual_reg_kind(type)});
+    next_stack_offset += assignment.stack_size;
+    return assignment;
+}
+
+AArch64FunctionAbiInfo classify_function_abi(const CoreIrFunction &function) {
+    AArch64FunctionAbiInfo abi_info;
+    abi_info.return_value =
+        classify_return_abi(function.get_function_type()->get_return_type());
+
+    unsigned next_gpr = 0;
+    unsigned next_fpr = 0;
+    std::size_t next_stack_offset = 16;
+    for (const auto &parameter : function.get_parameters()) {
+        abi_info.parameters.push_back(classify_parameter_abi(
+            parameter->get_type(), next_gpr, next_fpr, next_stack_offset));
+    }
+    return abi_info;
+}
+
+AArch64FunctionAbiInfo classify_call_abi(const CoreIrCallInst &call) {
+    AArch64FunctionAbiInfo abi_info;
+    const CoreIrFunctionType *callee_type = call.get_callee_type();
+    abi_info.return_value =
+        classify_return_abi(call.get_type());
+    if (callee_type == nullptr) {
+        return abi_info;
+    }
+
+    unsigned next_gpr = 0;
+    unsigned next_fpr = 0;
+    std::size_t next_stack_offset = 0;
+    const auto &arguments = call.get_operands();
+    for (std::size_t index = call.get_argument_begin_index(); index < arguments.size();
+         ++index) {
+        abi_info.parameters.push_back(classify_parameter_abi(
+            arguments[index]->get_type(), next_gpr, next_fpr, next_stack_offset));
+    }
+    return abi_info;
+}
+
 class AArch64LoweringSession {
   private:
     const CoreIrModule &module_;
@@ -1323,9 +2341,14 @@ class AArch64LoweringSession {
 
     struct FunctionState {
         AArch64MachineFunction *machine_function = nullptr;
+        AArch64FunctionAbiInfo abi_info;
+        AArch64VirtualReg indirect_result_address;
         std::unordered_map<const CoreIrParameter *, std::size_t>
             incoming_stack_argument_offsets;
         std::unordered_map<const CoreIrValue *, AArch64ValueLocation> value_locations;
+        std::unordered_map<const CoreIrValue *, std::size_t> aggregate_value_offsets;
+        std::unordered_map<const CoreIrCallInst *, std::vector<std::size_t>>
+            indirect_call_argument_copy_offsets;
         std::unordered_set<const CoreIrStackSlot *> promoted_stack_slots;
         std::unordered_map<const CoreIrStackSlot *, AArch64VirtualReg>
             promoted_stack_slot_values;
@@ -1350,7 +2373,9 @@ class AArch64LoweringSession {
         }
 
         AArch64MachineModule machine_module;
-        machine_module.append_global_line(".arch armv8-a");
+        machine_module.append_global_line(module_uses_float16()
+                                              ? ".arch armv8.2-a+fp16"
+                                              : ".arch armv8-a");
 
         if (!append_globals(machine_module) || !append_functions(machine_module)) {
             return nullptr;
@@ -1361,14 +2386,61 @@ class AArch64LoweringSession {
     }
 
   private:
+    bool module_uses_float16() const {
+        for (const auto &global : module_.get_globals()) {
+            if (type_contains_float_kind(global->get_type(), CoreIrFloatKind::Float16) ||
+                (global->get_initializer() != nullptr &&
+                 type_contains_float_kind(global->get_initializer()->get_type(),
+                                          CoreIrFloatKind::Float16))) {
+                return true;
+            }
+        }
+        for (const auto &function : module_.get_functions()) {
+            if (type_contains_float_kind(function->get_function_type(),
+                                         CoreIrFloatKind::Float16)) {
+                return true;
+            }
+            for (const auto &stack_slot : function->get_stack_slots()) {
+                if (type_contains_float_kind(stack_slot->get_allocated_type(),
+                                             CoreIrFloatKind::Float16)) {
+                    return true;
+                }
+            }
+            for (const auto &basic_block : function->get_basic_blocks()) {
+                for (const auto &instruction : basic_block->get_instructions()) {
+                    if (type_contains_float_kind(instruction->get_type(),
+                                                 CoreIrFloatKind::Float16)) {
+                        return true;
+                    }
+                    for (CoreIrValue *operand : instruction->get_operands()) {
+                        if (operand != nullptr &&
+                            type_contains_float_kind(operand->get_type(),
+                                                     CoreIrFloatKind::Float16)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     AArch64VirtualReg create_virtual_reg(AArch64MachineFunction &function,
                                          const CoreIrType *type) const {
-        return function.create_virtual_reg(uses_64bit_register(type));
+        return function.create_virtual_reg(classify_virtual_reg_kind(type));
     }
 
     AArch64VirtualReg create_pointer_virtual_reg(
         AArch64MachineFunction &function) const {
-        return function.create_virtual_reg(true);
+        return function.create_virtual_reg(AArch64VirtualRegKind::General64);
+    }
+
+    void append_helper_call(AArch64MachineBlock &machine_block,
+                            const std::string &symbol_name) {
+        machine_block.append_instruction(AArch64MachineInstr(
+            "bl", {AArch64MachineOperand(symbol_name)},
+            AArch64InstructionFlags{.is_call = true}, {}, {},
+            make_default_call_clobber_mask()));
     }
 
     static bool instruction_has_canonical_vreg(const CoreIrInstruction &instruction) {
@@ -1402,6 +2474,16 @@ class AArch64LoweringSession {
             AArch64ValueLocation{AArch64ValueLocationKind::VirtualReg, vreg};
     }
 
+    void assign_memory_value_location(FunctionState &state,
+                                      const CoreIrValue *value,
+                                      AArch64VirtualReg address_vreg,
+                                      std::size_t offset) const {
+        state.value_locations[value] =
+            AArch64ValueLocation{AArch64ValueLocationKind::MemoryAddress,
+                                 address_vreg};
+        state.aggregate_value_offsets[value] = offset;
+    }
+
     const AArch64ValueLocation *
     lookup_value_location(const FunctionState &state,
                           const CoreIrValue *value) const {
@@ -1427,19 +2509,60 @@ class AArch64LoweringSession {
         return true;
     }
 
+    bool require_canonical_memory_address(const FunctionState &state,
+                                          const CoreIrValue *value,
+                                          AArch64VirtualReg &out,
+                                          std::size_t &offset) const {
+        const AArch64ValueLocation *location = lookup_value_location(state, value);
+        if (location == nullptr ||
+            location->kind != AArch64ValueLocationKind::MemoryAddress ||
+            !location->virtual_reg.is_valid()) {
+            add_backend_error(
+                diagnostic_engine_,
+                "missing canonical AArch64 aggregate memory location for Core IR value");
+            return false;
+        }
+        const auto offset_it = state.aggregate_value_offsets.find(value);
+        if (offset_it == state.aggregate_value_offsets.end()) {
+            add_backend_error(
+                diagnostic_engine_,
+                "missing frame offset for canonical AArch64 aggregate value");
+            return false;
+        }
+        out = location->virtual_reg;
+        offset = offset_it->second;
+        return true;
+    }
+
+    std::size_t allocate_aggregate_value_slot(std::size_t &current_offset,
+                                              const CoreIrType *type) const {
+        current_offset = align_to(current_offset, get_type_alignment(type));
+        current_offset += get_type_size(type);
+        return current_offset;
+    }
+
     bool seed_function_value_locations(const CoreIrFunction &function,
-                                       FunctionState &state) {
+                                       FunctionState &state,
+                                       std::size_t &current_offset) {
         for (const auto &parameter : function.get_parameters()) {
-            if (!is_supported_value_type(parameter->get_type())) {
+            if (!is_supported_native_value_type(parameter->get_type())) {
                 add_backend_error(diagnostic_engine_,
                                   "unsupported parameter type in AArch64 native "
                                   "backend for function '" +
                                       function.get_name() + "'");
                 return false;
             }
-            assign_virtual_value_location(
-                state, parameter.get(),
-                create_virtual_reg(*state.machine_function, parameter->get_type()));
+            if (is_aggregate_type(parameter->get_type())) {
+                assign_memory_value_location(
+                    state, parameter.get(),
+                    create_pointer_virtual_reg(*state.machine_function),
+                    allocate_aggregate_value_slot(current_offset,
+                                                  parameter->get_type()));
+            } else {
+                assign_virtual_value_location(
+                    state, parameter.get(),
+                    create_virtual_reg(*state.machine_function, parameter->get_type()));
+            }
         }
 
         for (const auto &basic_block : function.get_basic_blocks()) {
@@ -1447,7 +2570,7 @@ class AArch64LoweringSession {
                 if (!instruction_has_canonical_vreg(*instruction)) {
                     continue;
                 }
-                if (!is_supported_value_type(instruction->get_type())) {
+                if (!is_supported_native_value_type(instruction->get_type())) {
                     add_backend_error(
                         diagnostic_engine_,
                         "unsupported Core IR value type in AArch64 native backend "
@@ -1455,12 +2578,51 @@ class AArch64LoweringSession {
                             function.get_name() + "'");
                     return false;
                 }
-                assign_virtual_value_location(
-                    state, instruction.get(),
-                    create_virtual_reg(*state.machine_function, instruction->get_type()));
+                if (is_aggregate_type(instruction->get_type())) {
+                    assign_memory_value_location(
+                        state, instruction.get(),
+                        create_pointer_virtual_reg(*state.machine_function),
+                        allocate_aggregate_value_slot(current_offset,
+                                                      instruction->get_type()));
+                } else {
+                    assign_virtual_value_location(
+                        state, instruction.get(),
+                        create_virtual_reg(*state.machine_function,
+                                           instruction->get_type()));
+                }
             }
         }
         return true;
+    }
+
+    void seed_call_argument_copy_slots(const CoreIrFunction &function,
+                                       FunctionState &state,
+                                       std::size_t &current_offset) {
+        for (const auto &basic_block : function.get_basic_blocks()) {
+            for (const auto &instruction : basic_block->get_instructions()) {
+                const auto *call =
+                    dynamic_cast<const CoreIrCallInst *>(instruction.get());
+                if (call == nullptr) {
+                    continue;
+                }
+                const AArch64FunctionAbiInfo abi_info = classify_call_abi(*call);
+                std::vector<std::size_t> offsets;
+                offsets.resize(abi_info.parameters.size(), 0);
+                for (std::size_t index = 0; index < abi_info.parameters.size(); ++index) {
+                    if (!abi_info.parameters[index].is_indirect) {
+                        continue;
+                    }
+                    offsets[index] = allocate_aggregate_value_slot(
+                        current_offset,
+                        call->get_operands()[call->get_argument_begin_index() + index]
+                            ->get_type());
+                }
+                if (!offsets.empty()) {
+                    state.indirect_call_argument_copy_offsets.emplace(call,
+                                                                      std::move(offsets));
+                }
+            }
+        }
     }
 
     void seed_promoted_stack_slots(const CoreIrFunction &function,
@@ -1783,14 +2945,8 @@ class AArch64LoweringSession {
         if (function.get_basic_blocks().empty()) {
             return true;
         }
-        if (function.get_is_variadic()) {
-            add_backend_error(diagnostic_engine_,
-                              "variadic functions are not supported by the "
-                              "AArch64 native backend: " +
-                                  function.get_name());
-            return false;
-        }
-        if (!is_supported_value_type(function.get_function_type()->get_return_type())) {
+        if (!is_supported_native_value_type(
+                function.get_function_type()->get_return_type())) {
             add_backend_error(
                 diagnostic_engine_,
                 "unsupported return type in AArch64 native backend for function '" +
@@ -1798,7 +2954,7 @@ class AArch64LoweringSession {
             return false;
         }
         for (const auto &parameter : function.get_parameters()) {
-            if (!is_supported_value_type(parameter->get_type())) {
+            if (!is_supported_native_value_type(parameter->get_type())) {
                 add_backend_error(diagnostic_engine_,
                                   "unsupported parameter type in AArch64 native "
                                   "backend for function '" +
@@ -1822,14 +2978,16 @@ class AArch64LoweringSession {
             ".L" + sanitize_label_fragment(function_name) + "_epilogue");
         FunctionState state;
         state.machine_function = &machine_function;
+        state.abi_info = classify_function_abi(function);
 
         std::size_t current_offset = 0;
-        if (function.get_parameters().size() > 8) {
-            for (std::size_t index = 8; index < function.get_parameters().size();
-                 ++index) {
+        for (std::size_t index = 0; index < function.get_parameters().size(); ++index) {
+            const AArch64AbiAssignment &assignment = state.abi_info.parameters[index];
+            if (!assignment.locations.empty() &&
+                assignment.locations.front().kind == AArch64AbiLocationKind::Stack) {
                 state.incoming_stack_argument_offsets.emplace(
                     function.get_parameters()[index].get(),
-                    16 + ((index - 8) * 8));
+                    assignment.locations.front().stack_offset);
             }
         }
         for (const auto &stack_slot : function.get_stack_slots()) {
@@ -1840,13 +2998,13 @@ class AArch64LoweringSession {
                                                                     current_offset);
         }
 
+        if (!seed_function_value_locations(function, state, current_offset)) {
+            return false;
+        }
+        seed_call_argument_copy_slots(function, state, current_offset);
         const std::size_t frame_size = align_to(current_offset, 16);
         machine_function.get_frame_info().set_local_size(current_offset);
         machine_function.get_frame_info().set_frame_size(frame_size);
-
-        if (!seed_function_value_locations(function, state)) {
-            return false;
-        }
         seed_promoted_stack_slots(function, state);
 
         block_labels_.clear();
@@ -1877,26 +3035,49 @@ class AArch64LoweringSession {
                 "sub sp, sp, #" +
                 std::to_string(machine_function.get_frame_info().get_frame_size()));
         }
+        if (state.abi_info.return_value.is_indirect) {
+            state.indirect_result_address =
+                create_pointer_virtual_reg(machine_function);
+            append_copy_from_physical_reg(
+                prologue_block, state.indirect_result_address,
+                static_cast<unsigned>(AArch64PhysicalReg::X8),
+                AArch64VirtualRegKind::General64);
+        }
 
         for (std::size_t index = 0; index < function.get_parameters().size(); ++index) {
             const CoreIrParameter *parameter = function.get_parameters()[index].get();
+            const AArch64AbiAssignment &assignment = state.abi_info.parameters[index];
+            if (assignment.locations.empty()) {
+                add_backend_error(diagnostic_engine_,
+                                  "missing AArch64 ABI parameter assignment");
+                return false;
+            }
+            if (is_aggregate_type(parameter->get_type())) {
+                AArch64VirtualReg parameter_address;
+                if (!materialize_canonical_memory_address(prologue_block, state,
+                                                          parameter, parameter_address) ||
+                    !copy_aggregate_from_assignment_to_memory(
+                        prologue_block, assignment, parameter->get_type(),
+                        parameter_address, *state.machine_function)) {
+                    return false;
+                }
+                continue;
+            }
             AArch64VirtualReg parameter_reg;
             if (!require_canonical_vreg(state, parameter, parameter_reg)) {
                 return false;
             }
-            if (index < 8) {
-                prologue_block.append_instruction(
-                    "mov " + def_vreg(parameter_reg) + ", " +
-                    general_register_name(static_cast<unsigned>(index),
-                                          uses_64bit_register(parameter->get_type())));
-                apply_truncate_to_virtual_reg(prologue_block, parameter_reg,
-                                              parameter->get_type());
-                continue;
+            const AArch64AbiLocation &location = assignment.locations.front();
+            if (location.kind == AArch64AbiLocationKind::GeneralRegister ||
+                location.kind == AArch64AbiLocationKind::FloatingRegister) {
+                append_copy_from_physical_reg(prologue_block, parameter_reg,
+                                              location.physical_reg,
+                                              location.reg_kind);
+            } else {
+                append_load_from_incoming_stack_arg(
+                    prologue_block, parameter->get_type(), parameter_reg,
+                    location.stack_offset, *state.machine_function);
             }
-            append_load_from_incoming_stack_arg(
-                prologue_block, parameter->get_type(), parameter_reg,
-                state.incoming_stack_argument_offsets.at(parameter),
-                *state.machine_function);
             apply_truncate_to_virtual_reg(prologue_block, parameter_reg,
                                           parameter->get_type());
         }
@@ -2028,6 +3209,12 @@ class AArch64LoweringSession {
             return materialize_integer_constant(machine_block, value->get_type(),
                                                 int_constant->get_value(), target_reg);
         }
+        if (const auto *float_constant =
+                dynamic_cast<const CoreIrConstantFloat *>(value);
+            float_constant != nullptr) {
+            return materialize_float_constant(machine_block, *float_constant,
+                                              target_reg, *state.machine_function);
+        }
         if (dynamic_cast<const CoreIrConstantNull *>(value) != nullptr ||
             dynamic_cast<const CoreIrConstantZeroInitializer *>(value) != nullptr) {
             machine_block.append_instruction("mov " + def_vreg(target_reg) + ", " +
@@ -2136,6 +3323,9 @@ class AArch64LoweringSession {
     }
 
     std::string load_mnemonic_for_type(const CoreIrType *type) const {
+        if (is_float_type(type)) {
+            return "ldr";
+        }
         if (is_pointer_type(type) || get_storage_size(type) == 8) {
             return "ldr";
         }
@@ -2149,6 +3339,9 @@ class AArch64LoweringSession {
     }
 
     std::string store_mnemonic_for_type(const CoreIrType *type) const {
+        if (is_float_type(type)) {
+            return "str";
+        }
         if (is_pointer_type(type) || get_storage_size(type) == 8) {
             return "str";
         }
@@ -2235,9 +3428,9 @@ class AArch64LoweringSession {
                                 std::size_t offset,
                                 AArch64MachineFunction &function) {
         std::string mnemonic = "ldur";
-        if (get_storage_size(type) == 2) {
+        if (!is_float_type(type) && get_storage_size(type) == 2) {
             mnemonic = "ldurh";
-        } else if (get_storage_size(type) == 1) {
+        } else if (!is_float_type(type) && get_storage_size(type) == 1) {
             mnemonic = "ldurb";
         }
         if (offset <= 255) {
@@ -2259,9 +3452,9 @@ class AArch64LoweringSession {
                                std::size_t offset,
                                AArch64MachineFunction &function) {
         std::string mnemonic = "stur";
-        if (get_storage_size(type) == 2) {
+        if (!is_float_type(type) && get_storage_size(type) == 2) {
             mnemonic = "sturh";
-        } else if (get_storage_size(type) == 1) {
+        } else if (!is_float_type(type) && get_storage_size(type) == 1) {
             mnemonic = "sturb";
         }
         if (offset <= 255) {
@@ -2295,6 +3488,292 @@ class AArch64LoweringSession {
         machine_block.append_instruction(load_mnemonic_for_type(type) + " " +
                                          def_vreg(target_reg) + ", [" +
                                          use_vreg(address_reg) + "]");
+    }
+
+    bool append_load_from_address(AArch64MachineBlock &machine_block,
+                                  const CoreIrType *type,
+                                  const AArch64VirtualReg &target_reg,
+                                  const AArch64VirtualReg &address_reg,
+                                  std::size_t offset,
+                                  AArch64MachineFunction &function) {
+        if (offset <= 4095) {
+            machine_block.append_instruction(load_mnemonic_for_type(type) + " " +
+                                             def_vreg(target_reg) + ", [" +
+                                             use_vreg(address_reg) + ", #" +
+                                             std::to_string(offset) + "]");
+            return true;
+        }
+        const AArch64VirtualReg offset_address_reg =
+            create_pointer_virtual_reg(function);
+        machine_block.append_instruction("mov " + def_vreg(offset_address_reg) + ", " +
+                                         use_vreg(address_reg));
+        if (!add_constant_offset(machine_block, offset_address_reg,
+                                 static_cast<long long>(offset), function)) {
+            return false;
+        }
+        machine_block.append_instruction(load_mnemonic_for_type(type) + " " +
+                                         def_vreg(target_reg) + ", [" +
+                                         use_vreg(offset_address_reg) + "]");
+        return true;
+    }
+
+    bool append_store_to_address(AArch64MachineBlock &machine_block,
+                                 const CoreIrType *type,
+                                 const AArch64VirtualReg &source_reg,
+                                 const AArch64VirtualReg &address_reg,
+                                 std::size_t offset,
+                                 AArch64MachineFunction &function) {
+        return append_memory_store(machine_block, type, use_vreg(source_reg), address_reg,
+                                   offset, function);
+    }
+
+    bool emit_memory_copy(AArch64MachineBlock &machine_block,
+                          const AArch64VirtualReg &destination_address,
+                          const AArch64VirtualReg &source_address,
+                          const CoreIrType *type,
+                          AArch64MachineFunction &function) {
+        std::size_t remaining = get_type_size(type);
+        std::size_t offset = 0;
+        while (remaining >= 8) {
+            const AArch64VirtualReg temp =
+                function.create_virtual_reg(AArch64VirtualRegKind::General64);
+            if (!append_load_from_address(machine_block, create_fake_pointer_type(), temp,
+                                          source_address, offset, function) ||
+                !append_store_to_address(machine_block, create_fake_pointer_type(), temp,
+                                         destination_address, offset, function)) {
+                return false;
+            }
+            remaining -= 8;
+            offset += 8;
+        }
+        if (remaining >= 4) {
+            static CoreIrIntegerType i32_type(32);
+            const AArch64VirtualReg temp =
+                function.create_virtual_reg(AArch64VirtualRegKind::General32);
+            if (!append_load_from_address(machine_block, &i32_type, temp, source_address,
+                                          offset, function) ||
+                !append_store_to_address(machine_block, &i32_type, temp,
+                                         destination_address, offset, function)) {
+                return false;
+            }
+            remaining -= 4;
+            offset += 4;
+        }
+        if (remaining >= 2) {
+            static CoreIrIntegerType i16_type(16);
+            const AArch64VirtualReg temp =
+                function.create_virtual_reg(AArch64VirtualRegKind::General32);
+            if (!append_load_from_address(machine_block, &i16_type, temp, source_address,
+                                          offset, function) ||
+                !append_store_to_address(machine_block, &i16_type, temp,
+                                         destination_address, offset, function)) {
+                return false;
+            }
+            remaining -= 2;
+            offset += 2;
+        }
+        if (remaining >= 1) {
+            static CoreIrIntegerType i8_type(8);
+            const AArch64VirtualReg temp =
+                function.create_virtual_reg(AArch64VirtualRegKind::General32);
+            if (!append_load_from_address(machine_block, &i8_type, temp, source_address,
+                                          offset, function) ||
+                !append_store_to_address(machine_block, &i8_type, temp,
+                                         destination_address, offset, function)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool materialize_canonical_memory_address(AArch64MachineBlock &machine_block,
+                                              const FunctionState &state,
+                                              const CoreIrValue *value,
+                                              AArch64VirtualReg &address_reg) {
+        std::size_t offset = 0;
+        if (!require_canonical_memory_address(state, value, address_reg, offset)) {
+            return false;
+        }
+        append_frame_address(machine_block, address_reg, offset, *state.machine_function);
+        return true;
+    }
+
+    bool ensure_value_in_memory_address(AArch64MachineBlock &machine_block,
+                                        const CoreIrValue *value,
+                                        const FunctionState &state,
+                                        AArch64VirtualReg &address_reg) {
+        if (value == nullptr) {
+            add_backend_error(diagnostic_engine_,
+                              "encountered null aggregate Core IR value during AArch64 lowering");
+            return false;
+        }
+        if (const AArch64ValueLocation *location =
+                lookup_value_location(state, value);
+            location != nullptr &&
+            location->kind == AArch64ValueLocationKind::MemoryAddress) {
+            address_reg = location->virtual_reg;
+            return true;
+        }
+        add_backend_error(
+            diagnostic_engine_,
+            "aggregate Core IR value does not have a canonical memory location in "
+            "the AArch64 native backend");
+        return false;
+    }
+
+    const CoreIrType *type_for_abi_location(const AArch64AbiLocation &location) const {
+        static CoreIrIntegerType i8_type(8);
+        static CoreIrIntegerType i16_type(16);
+        static CoreIrIntegerType i32_type(32);
+        static CoreIrIntegerType i64_type(64);
+        static CoreIrFloatType f16_type(CoreIrFloatKind::Float16);
+        static CoreIrFloatType f32_type(CoreIrFloatKind::Float32);
+        static CoreIrFloatType f64_type(CoreIrFloatKind::Float64);
+        static CoreIrFloatType f128_type(CoreIrFloatKind::Float128);
+
+        switch (location.reg_kind) {
+        case AArch64VirtualRegKind::Float16:
+            return &f16_type;
+        case AArch64VirtualRegKind::Float32:
+            return &f32_type;
+        case AArch64VirtualRegKind::Float64:
+            return &f64_type;
+        case AArch64VirtualRegKind::Float128:
+            return &f128_type;
+        case AArch64VirtualRegKind::General64:
+            if (location.size >= 8) {
+                return &i64_type;
+            }
+            [[fallthrough]];
+        case AArch64VirtualRegKind::General32:
+            if (location.size <= 1) {
+                return &i8_type;
+            }
+            if (location.size <= 2) {
+                return &i16_type;
+            }
+            if (location.size <= 4) {
+                return &i32_type;
+            }
+            return &i64_type;
+        }
+        return &i64_type;
+    }
+
+    bool copy_aggregate_from_assignment_to_memory(
+        AArch64MachineBlock &machine_block, const AArch64AbiAssignment &assignment,
+        const CoreIrType *value_type, const AArch64VirtualReg &destination_address,
+        AArch64MachineFunction &function) {
+        if (assignment.is_indirect) {
+            const AArch64AbiLocation &location = assignment.locations.front();
+            AArch64VirtualReg source_address = create_pointer_virtual_reg(function);
+            if (location.kind == AArch64AbiLocationKind::GeneralRegister) {
+                append_copy_from_physical_reg(machine_block, source_address,
+                                              location.physical_reg, location.reg_kind);
+            } else if (location.kind == AArch64AbiLocationKind::Stack) {
+                append_load_from_incoming_stack_arg(machine_block,
+                                                    create_fake_pointer_type(),
+                                                    source_address,
+                                                    location.stack_offset, function);
+            } else {
+                add_backend_error(diagnostic_engine_,
+                                  "unsupported indirect aggregate ABI source");
+                return false;
+            }
+            return emit_memory_copy(machine_block, destination_address, source_address,
+                                    value_type, function);
+        }
+        for (const AArch64AbiLocation &location : assignment.locations) {
+            if (location.kind == AArch64AbiLocationKind::Stack) {
+                AArch64VirtualReg source_address = create_pointer_virtual_reg(function);
+                machine_block.append_instruction("mov " + def_vreg(source_address) +
+                                                 ", x29");
+                if (!add_constant_offset(machine_block, source_address,
+                                         static_cast<long long>(location.stack_offset),
+                                         function) ||
+                    !emit_memory_copy(machine_block, destination_address, source_address,
+                                      value_type, function)) {
+                    return false;
+                }
+                continue;
+            }
+            AArch64VirtualReg temp =
+                function.create_virtual_reg(location.reg_kind);
+            append_copy_from_physical_reg(machine_block, temp, location.physical_reg,
+                                          location.reg_kind);
+            if (!append_store_to_address(machine_block, type_for_abi_location(location), temp,
+                                         destination_address, location.source_offset,
+                                         function)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool copy_aggregate_from_memory_to_assignment(
+        AArch64MachineBlock &machine_block, const AArch64AbiAssignment &assignment,
+        const CoreIrType *value_type, const AArch64VirtualReg &source_address,
+        AArch64MachineFunction &function, const FunctionState &state,
+        const AArch64VirtualReg *stack_base_address = nullptr,
+        const CoreIrCallInst *call = nullptr, std::size_t argument_index = 0) {
+        if (assignment.is_indirect) {
+            const auto call_it =
+                call == nullptr
+                    ? state.indirect_call_argument_copy_offsets.end()
+                    : state.indirect_call_argument_copy_offsets.find(call);
+            if (call_it == state.indirect_call_argument_copy_offsets.end() ||
+                argument_index >= call_it->second.size() ||
+                call_it->second[argument_index] == 0) {
+                add_backend_error(diagnostic_engine_,
+                                  "missing aggregate call copy slot for indirect "
+                                  "AArch64 argument");
+                return false;
+            }
+            AArch64VirtualReg copy_address = create_pointer_virtual_reg(function);
+            append_frame_address(machine_block, copy_address,
+                                 call_it->second[argument_index], function);
+            if (!emit_memory_copy(machine_block, copy_address, source_address, value_type,
+                                  function)) {
+                return false;
+            }
+            const AArch64AbiLocation &location = assignment.locations.front();
+            if (location.kind == AArch64AbiLocationKind::GeneralRegister) {
+                append_copy_to_physical_reg(machine_block, location.physical_reg,
+                                            location.reg_kind, copy_address);
+                return true;
+            }
+            if (location.kind == AArch64AbiLocationKind::Stack &&
+                stack_base_address != nullptr) {
+                return append_store_to_address(machine_block, create_fake_pointer_type(),
+                                               copy_address, *stack_base_address,
+                                               location.stack_offset, function);
+            }
+            add_backend_error(diagnostic_engine_,
+                              "stack-indirect aggregate call arguments are not yet "
+                              "supported by the AArch64 native backend");
+            return false;
+        }
+        for (const AArch64AbiLocation &location : assignment.locations) {
+            AArch64VirtualReg temp = function.create_virtual_reg(location.reg_kind);
+            if (!append_load_from_address(machine_block, type_for_abi_location(location),
+                                          temp, source_address, location.source_offset,
+                                          function)) {
+                return false;
+            }
+            if (location.kind == AArch64AbiLocationKind::GeneralRegister ||
+                location.kind == AArch64AbiLocationKind::FloatingRegister) {
+                append_copy_to_physical_reg(machine_block, location.physical_reg,
+                                            location.reg_kind, temp);
+                continue;
+            }
+            if (stack_base_address == nullptr ||
+                !append_store_to_address(machine_block, type_for_abi_location(location),
+                                         temp, *stack_base_address,
+                                         location.stack_offset, function)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     void apply_truncate_to_virtual_reg(AArch64MachineBlock &machine_block,
@@ -2420,6 +3899,112 @@ class AArch64LoweringSession {
         return true;
     }
 
+    bool materialize_float_constant(AArch64MachineBlock &machine_block,
+                                    const CoreIrConstantFloat &constant,
+                                    const AArch64VirtualReg &target_reg,
+                                    AArch64MachineFunction &function) {
+        const auto *float_type = as_float_type(constant.get_type());
+        if (float_type == nullptr) {
+            return false;
+        }
+
+        const std::string literal_text =
+            strip_floating_literal_suffix(constant.get_literal_text());
+        try {
+            switch (float_type->get_float_kind()) {
+            case CoreIrFloatKind::Float16: {
+                static CoreIrIntegerType i32_type(32);
+                const float parsed = std::stof(literal_text);
+                std::uint32_t bits = 0;
+                std::memcpy(&bits, &parsed, sizeof(bits));
+                const AArch64VirtualReg temp_bits =
+                    function.create_virtual_reg(AArch64VirtualRegKind::General32);
+                const AArch64VirtualReg temp_float =
+                    function.create_virtual_reg(AArch64VirtualRegKind::Float32);
+                if (!materialize_integer_constant(machine_block, &i32_type, bits,
+                                                 temp_bits)) {
+                    return false;
+                }
+                machine_block.append_instruction("fmov " + def_vreg(temp_float) + ", " +
+                                                 use_vreg(temp_bits));
+                demote_float32_to_float16(machine_block, temp_float, target_reg);
+                return true;
+            }
+            case CoreIrFloatKind::Float32: {
+                static CoreIrIntegerType i32_type(32);
+                const float parsed = std::stof(literal_text);
+                std::uint32_t bits = 0;
+                std::memcpy(&bits, &parsed, sizeof(bits));
+                const AArch64VirtualReg temp =
+                    function.create_virtual_reg(AArch64VirtualRegKind::General32);
+                if (!materialize_integer_constant(machine_block, &i32_type, bits, temp)) {
+                    return false;
+                }
+                machine_block.append_instruction("fmov " + def_vreg(target_reg) + ", " +
+                                                 use_vreg(temp));
+                return true;
+            }
+            case CoreIrFloatKind::Float64: {
+                static CoreIrIntegerType i64_type(64);
+                const double parsed = std::stod(literal_text);
+                std::uint64_t bits = 0;
+                std::memcpy(&bits, &parsed, sizeof(bits));
+                const AArch64VirtualReg temp =
+                    function.create_virtual_reg(AArch64VirtualRegKind::General64);
+                if (!materialize_integer_constant(machine_block, &i64_type, bits, temp)) {
+                    return false;
+                }
+                machine_block.append_instruction("fmov " + def_vreg(target_reg) + ", " +
+                                                 use_vreg(temp));
+                return true;
+            }
+            case CoreIrFloatKind::Float128: {
+                if (!float128_literal_is_supported_by_helper_path(literal_text)) {
+                    add_backend_error(
+                        diagnostic_engine_,
+                        "float128 literal is not exactly representable by the current "
+                        "AArch64 helper-based materialization path");
+                    return false;
+                }
+                static CoreIrIntegerType i64_type(64);
+                const double parsed = std::stod(literal_text);
+                std::uint64_t bits = 0;
+                std::memcpy(&bits, &parsed, sizeof(bits));
+                const AArch64VirtualReg temp_double =
+                    function.create_virtual_reg(AArch64VirtualRegKind::Float64);
+                const AArch64VirtualReg temp_bits =
+                    function.create_virtual_reg(AArch64VirtualRegKind::General64);
+                if (!materialize_integer_constant(machine_block, &i64_type, bits,
+                                                 temp_bits)) {
+                    return false;
+                }
+                machine_block.append_instruction("fmov " + def_vreg(temp_double) + ", " +
+                                                 use_vreg(temp_bits));
+                append_copy_to_physical_reg(
+                    machine_block, static_cast<unsigned>(AArch64PhysicalReg::V0),
+                    AArch64VirtualRegKind::Float64, temp_double);
+                append_helper_call(machine_block, "__extenddftf2");
+                append_copy_from_physical_reg(
+                    machine_block, target_reg,
+                    static_cast<unsigned>(AArch64PhysicalReg::V0),
+                    AArch64VirtualRegKind::Float128);
+                return true;
+            }
+                add_backend_error(
+                    diagnostic_engine_,
+                    "failed to materialize floating constant in the "
+                    "AArch64 native backend");
+                return false;
+            }
+        } catch (...) {
+            add_backend_error(
+                diagnostic_engine_,
+                "failed to parse floating literal for the AArch64 native backend");
+            return false;
+        }
+        return false;
+    }
+
     bool materialize_global_address(AArch64MachineBlock &machine_block,
                                     const std::string &symbol_name,
                                     const AArch64VirtualReg &target_reg) {
@@ -2448,29 +4033,87 @@ class AArch64LoweringSession {
     }
 
     bool add_constant_offset(AArch64MachineBlock &machine_block,
-                             const AArch64VirtualReg &base_reg, long long offset,
+                             const AArch64VirtualReg &base_reg,
+                             std::uint64_t magnitude, bool is_negative,
                              AArch64MachineFunction &function) {
-        if (offset == 0) {
+        if (magnitude == 0) {
             return true;
         }
-        const long long absolute_offset = offset >= 0 ? offset : -offset;
-        if (absolute_offset <= 4095) {
+        if (magnitude <= 4095) {
             machine_block.append_instruction(
-                std::string(offset >= 0 ? "add " : "sub ") + def_vreg(base_reg) +
+                std::string(is_negative ? "sub " : "add ") + def_vreg(base_reg) +
                 ", " + use_vreg(base_reg) + ", #" +
-                std::to_string(absolute_offset));
+                std::to_string(magnitude));
             return true;
         }
         const AArch64VirtualReg offset_reg = create_pointer_virtual_reg(function);
         if (!materialize_integer_constant(machine_block, create_fake_pointer_type(),
-                                          static_cast<std::uint64_t>(absolute_offset),
+                                          magnitude,
                                           offset_reg)) {
             return false;
         }
         machine_block.append_instruction(
-            std::string(offset >= 0 ? "add " : "sub ") + def_vreg(base_reg) +
+            std::string(is_negative ? "sub " : "add ") + def_vreg(base_reg) +
             ", " + use_vreg(base_reg) + ", " + use_vreg(offset_reg));
         return true;
+    }
+
+    bool add_constant_offset(AArch64MachineBlock &machine_block,
+                             const AArch64VirtualReg &base_reg, long long offset,
+                             AArch64MachineFunction &function) {
+        const bool is_negative = offset < 0;
+        const std::uint64_t magnitude =
+            is_negative ? static_cast<std::uint64_t>(-(offset + 1)) + 1ULL
+                        : static_cast<std::uint64_t>(offset);
+        return add_constant_offset(machine_block, base_reg, magnitude, is_negative,
+                                   function);
+    }
+
+    bool materialize_index_as_pointer_offset(
+        AArch64MachineBlock &machine_block, const CoreIrValue *index_value,
+        const FunctionState &state, AArch64VirtualReg &out) {
+        AArch64VirtualReg index_reg;
+        if (!ensure_value_in_vreg(machine_block, index_value, state, index_reg)) {
+            return false;
+        }
+
+        out = create_pointer_virtual_reg(*state.machine_function);
+        if (const auto *index_integer_type = as_integer_type(index_value->get_type());
+            index_integer_type != nullptr) {
+            const unsigned bit_width = index_integer_type->get_bit_width();
+            if (bit_width == 64) {
+                machine_block.append_instruction("mov " + def_vreg(out) + ", " +
+                                                 use_vreg_as(index_reg, true));
+                return true;
+            }
+            if (bit_width > 64) {
+                add_backend_error(diagnostic_engine_,
+                                  "unsupported integer index width in AArch64 native backend");
+                return false;
+            }
+            machine_block.append_instruction("mov " + def_vreg_as(out, false) + ", " +
+                                             use_vreg_as(index_reg, false));
+            if (index_integer_type->get_is_signed()) {
+                apply_sign_extend_to_virtual_reg(machine_block, out,
+                                                 index_value->get_type(),
+                                                 create_fake_pointer_type());
+            } else {
+                apply_zero_extend_to_virtual_reg(machine_block, out,
+                                                 index_value->get_type(),
+                                                 create_fake_pointer_type());
+            }
+            return true;
+        }
+
+        if (is_pointer_type(index_value->get_type())) {
+            machine_block.append_instruction("mov " + def_vreg(out) + ", " +
+                                             use_vreg_as(index_reg, true));
+            return true;
+        }
+
+        add_backend_error(diagnostic_engine_,
+                          "unsupported dynamic index type in AArch64 native backend");
+        return false;
     }
 
     bool add_scaled_index(AArch64MachineBlock &machine_block,
@@ -2478,15 +4121,10 @@ class AArch64LoweringSession {
                           const CoreIrValue *index_value,
                           std::size_t scale,
                           const FunctionState &state) {
-        const AArch64VirtualReg index_reg =
-            create_virtual_reg(*state.machine_function, index_value->get_type());
-        if (!materialize_value(machine_block, index_value, index_reg, state)) {
+        AArch64VirtualReg index_reg;
+        if (!materialize_index_as_pointer_offset(machine_block, index_value, state,
+                                                 index_reg)) {
             return false;
-        }
-        const auto *index_integer_type = as_integer_type(index_value->get_type());
-        if (index_integer_type != nullptr && index_integer_type->get_bit_width() <= 32) {
-            machine_block.append_instruction("sxtw " + def_vreg(index_reg) + ", " +
-                                             use_vreg(index_reg));
         }
 
         if (scale == 1) {
@@ -2554,15 +4192,17 @@ class AArch64LoweringSession {
             if (const auto *index_constant =
                     dynamic_cast<const CoreIrConstantInt *>(index_value);
                 index_constant != nullptr) {
-                const std::optional<long long> index =
-                    get_signed_integer_constant(index_constant);
+                const std::optional<AArch64IntegerConstantValue> index =
+                    get_integer_constant_value(index_constant);
                 if (!index.has_value()) {
                     return false;
                 }
                 if (index_position == 0) {
-                    if (!add_constant_offset(machine_block, target_reg,
-                                             *index * static_cast<long long>(
-                                                          get_type_size(current_type)),
+                    const auto scaled =
+                        scale_integer_constant_value(*index, get_type_size(current_type));
+                    if (!scaled.has_value() ||
+                        !add_constant_offset(machine_block, target_reg,
+                                             scaled->magnitude, scaled->is_negative,
                                              *state.machine_function)) {
                         return false;
                     }
@@ -2571,11 +4211,12 @@ class AArch64LoweringSession {
                 if (const auto *array_type =
                         dynamic_cast<const CoreIrArrayType *>(current_type);
                     array_type != nullptr) {
-                    if (!add_constant_offset(
-                            machine_block, target_reg,
-                            *index * static_cast<long long>(
-                                         get_type_size(array_type->get_element_type())),
-                            *state.machine_function)) {
+                    const auto scaled = scale_integer_constant_value(
+                        *index, get_type_size(array_type->get_element_type()));
+                    if (!scaled.has_value() ||
+                        !add_constant_offset(machine_block, target_reg,
+                                             scaled->magnitude, scaled->is_negative,
+                                             *state.machine_function)) {
                         return false;
                     }
                     current_type = array_type->get_element_type();
@@ -2584,8 +4225,8 @@ class AArch64LoweringSession {
                 if (const auto *struct_type =
                         dynamic_cast<const CoreIrStructType *>(current_type);
                     struct_type != nullptr) {
-                    if (*index < 0 ||
-                        static_cast<std::size_t>(*index) >=
+                    if (index->is_negative ||
+                        static_cast<std::size_t>(index->unsigned_value) >=
                             struct_type->get_element_types().size()) {
                         add_backend_error(diagnostic_engine_,
                                           "unsupported gep struct index in AArch64 native backend");
@@ -2595,22 +4236,25 @@ class AArch64LoweringSession {
                             machine_block, target_reg,
                             static_cast<long long>(
                                 get_struct_member_offset(
-                                    struct_type, static_cast<std::size_t>(*index))),
+                                    struct_type,
+                                    static_cast<std::size_t>(index->unsigned_value))),
                             *state.machine_function)) {
                         return false;
                     }
                     current_type =
-                        struct_type->get_element_types()[static_cast<std::size_t>(*index)];
+                        struct_type->get_element_types()[static_cast<std::size_t>(
+                            index->unsigned_value)];
                     continue;
                 }
                 if (const auto *pointer_type =
                         dynamic_cast<const CoreIrPointerType *>(current_type);
                     pointer_type != nullptr) {
-                    if (!add_constant_offset(
-                            machine_block, target_reg,
-                            *index * static_cast<long long>(
-                                         get_type_size(pointer_type->get_pointee_type())),
-                            *state.machine_function)) {
+                    const auto scaled = scale_integer_constant_value(
+                        *index, get_type_size(pointer_type->get_pointee_type()));
+                    if (!scaled.has_value() ||
+                        !add_constant_offset(machine_block, target_reg,
+                                             scaled->magnitude, scaled->is_negative,
+                                             *state.machine_function)) {
                         return false;
                     }
                     current_type = pointer_type->get_pointee_type();
@@ -2719,6 +4363,28 @@ class AArch64LoweringSession {
 
     bool emit_load(AArch64MachineBlock &machine_block, const CoreIrLoadInst &load,
                    const FunctionState &state) {
+        if (is_aggregate_type(load.get_type())) {
+            AArch64VirtualReg destination_address;
+            if (!materialize_canonical_memory_address(machine_block, state, &load,
+                                                      destination_address)) {
+                return false;
+            }
+            AArch64VirtualReg source_address = create_pointer_virtual_reg(*state.machine_function);
+            if (load.get_stack_slot() != nullptr) {
+                append_frame_address(
+                    machine_block, source_address,
+                    state.machine_function->get_frame_info().get_stack_slot_offset(
+                        load.get_stack_slot()),
+                    *state.machine_function);
+            } else {
+                if (!ensure_value_in_vreg(machine_block, load.get_address(), state,
+                                          source_address)) {
+                    return false;
+                }
+            }
+            return emit_memory_copy(machine_block, destination_address, source_address,
+                                    load.get_type(), *state.machine_function);
+        }
         AArch64VirtualReg value_reg;
         if (!require_canonical_vreg(state, &load, value_reg)) {
             return false;
@@ -2733,9 +4399,8 @@ class AArch64LoweringSession {
                         "promoted stack slot loaded before it has a canonical value");
                     return false;
                 }
-                if (value_it->second.get_id() != value_reg.get_id()) {
-                    machine_block.append_instruction("mov " + def_vreg(value_reg) + ", " +
-                                                     use_vreg(value_it->second));
+            if (value_it->second.get_id() != value_reg.get_id()) {
+                    append_register_copy(machine_block, value_reg, value_it->second);
                 }
                 return true;
             }
@@ -2791,6 +4456,31 @@ class AArch64LoweringSession {
                                   *state.machine_function);
         }
 
+        if (is_aggregate_type(store.get_value()->get_type())) {
+            AArch64VirtualReg source_address;
+            if (!ensure_value_in_memory_address(machine_block, store.get_value(), state,
+                                                source_address)) {
+                return false;
+            }
+            AArch64VirtualReg destination_address =
+                create_pointer_virtual_reg(*state.machine_function);
+            if (store.get_stack_slot() != nullptr) {
+                append_frame_address(
+                    machine_block, destination_address,
+                    state.machine_function->get_frame_info().get_stack_slot_offset(
+                        store.get_stack_slot()),
+                    *state.machine_function);
+            } else {
+                if (!ensure_value_in_vreg(machine_block, store.get_address(), state,
+                                          destination_address)) {
+                    return false;
+                }
+            }
+            return emit_memory_copy(machine_block, destination_address, source_address,
+                                    store.get_value()->get_type(),
+                                    *state.machine_function);
+        }
+
         AArch64VirtualReg value_reg;
         if (!ensure_value_in_vreg(machine_block, store.get_value(), state, value_reg)) {
             return false;
@@ -2814,6 +4504,294 @@ class AArch64LoweringSession {
         return true;
     }
 
+    bool emit_float128_binary_helper(AArch64MachineBlock &machine_block,
+                                     CoreIrBinaryOpcode opcode,
+                                     const AArch64VirtualReg &lhs_reg,
+                                     const AArch64VirtualReg &rhs_reg,
+                                     const AArch64VirtualReg &dst_reg) {
+        std::string helper_name;
+        switch (opcode) {
+        case CoreIrBinaryOpcode::Add:
+            helper_name = "__addtf3";
+            break;
+        case CoreIrBinaryOpcode::Sub:
+            helper_name = "__subtf3";
+            break;
+        case CoreIrBinaryOpcode::Mul:
+            helper_name = "__multf3";
+            break;
+        case CoreIrBinaryOpcode::SDiv:
+        case CoreIrBinaryOpcode::UDiv:
+            helper_name = "__divtf3";
+            break;
+        default:
+            add_backend_error(
+                diagnostic_engine_,
+                "unsupported float128 binary opcode in the AArch64 native backend");
+            return false;
+        }
+        append_copy_to_physical_reg(machine_block,
+                                    static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                    AArch64VirtualRegKind::Float128, lhs_reg);
+        append_copy_to_physical_reg(machine_block,
+                                    static_cast<unsigned>(AArch64PhysicalReg::V1),
+                                    AArch64VirtualRegKind::Float128, rhs_reg);
+        append_helper_call(machine_block, helper_name);
+        append_copy_from_physical_reg(machine_block, dst_reg,
+                                      static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                      AArch64VirtualRegKind::Float128);
+        return true;
+    }
+
+    bool emit_float128_compare_helper(AArch64MachineBlock &machine_block,
+                                      CoreIrComparePredicate predicate,
+                                      const AArch64VirtualReg &lhs_reg,
+                                      const AArch64VirtualReg &rhs_reg,
+                                      const AArch64VirtualReg &dst_reg,
+                                      AArch64MachineFunction &function) {
+        const AArch64VirtualReg unordered_reg =
+            function.create_virtual_reg(AArch64VirtualRegKind::General32);
+        const AArch64VirtualReg compare_reg =
+            function.create_virtual_reg(AArch64VirtualRegKind::General32);
+        const AArch64VirtualReg unordered_value_reg =
+            function.create_virtual_reg(AArch64VirtualRegKind::General32);
+        const bool unordered_result =
+            predicate == CoreIrComparePredicate::NotEqual;
+        std::string helper_name;
+        std::string condition;
+        switch (predicate) {
+        case CoreIrComparePredicate::Equal:
+            helper_name = "__eqtf2";
+            condition = "eq";
+            break;
+        case CoreIrComparePredicate::NotEqual:
+            helper_name = "__eqtf2";
+            condition = "ne";
+            break;
+        case CoreIrComparePredicate::SignedLess:
+        case CoreIrComparePredicate::UnsignedLess:
+            helper_name = "__lttf2";
+            condition = "lt";
+            break;
+        case CoreIrComparePredicate::SignedLessEqual:
+        case CoreIrComparePredicate::UnsignedLessEqual:
+            helper_name = "__getf2";
+            condition = "le";
+            break;
+        case CoreIrComparePredicate::SignedGreater:
+        case CoreIrComparePredicate::UnsignedGreater:
+            helper_name = "__getf2";
+            condition = "gt";
+            break;
+        case CoreIrComparePredicate::SignedGreaterEqual:
+        case CoreIrComparePredicate::UnsignedGreaterEqual:
+            helper_name = "__getf2";
+            condition = "ge";
+            break;
+        }
+
+        append_copy_to_physical_reg(machine_block,
+                                    static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                    AArch64VirtualRegKind::Float128, lhs_reg);
+        append_copy_to_physical_reg(machine_block,
+                                    static_cast<unsigned>(AArch64PhysicalReg::V1),
+                                    AArch64VirtualRegKind::Float128, rhs_reg);
+        append_helper_call(machine_block, "__unordtf2");
+        machine_block.append_instruction("mov " + def_vreg(unordered_reg) + ", w0");
+
+        append_copy_to_physical_reg(machine_block,
+                                    static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                    AArch64VirtualRegKind::Float128, lhs_reg);
+        append_copy_to_physical_reg(machine_block,
+                                    static_cast<unsigned>(AArch64PhysicalReg::V1),
+                                    AArch64VirtualRegKind::Float128, rhs_reg);
+        append_helper_call(machine_block, helper_name);
+        machine_block.append_instruction("mov " + def_vreg(compare_reg) + ", w0");
+
+        machine_block.append_instruction("cmp " + use_vreg(compare_reg) + ", #0");
+        machine_block.append_instruction("cset " + def_vreg(dst_reg) + ", " + condition);
+        machine_block.append_instruction("mov " + def_vreg(unordered_value_reg) + ", #" +
+                                         std::string(unordered_result ? "1" : "0"));
+        machine_block.append_instruction("cmp " + use_vreg(unordered_reg) + ", #0");
+        machine_block.append_instruction("csel " + def_vreg(dst_reg) + ", " +
+                                         use_vreg(unordered_value_reg) + ", " +
+                                         use_vreg(dst_reg) + ", ne");
+        return true;
+    }
+
+    bool prepare_integer_value_for_runtime_helper(AArch64MachineBlock &machine_block,
+                                                  const CoreIrType *source_type,
+                                                  CoreIrCastKind cast_kind,
+                                                  const AArch64VirtualReg &source_reg,
+                                                  const AArch64VirtualReg &prepared_reg) {
+        append_register_copy(machine_block, prepared_reg, source_reg);
+        if (cast_kind == CoreIrCastKind::SignedIntToFloat) {
+            apply_sign_extend_to_virtual_reg(machine_block, prepared_reg, source_type,
+                                             prepared_reg.get_kind() ==
+                                                     AArch64VirtualRegKind::General64
+                                                 ? create_fake_pointer_type()
+                                                 : source_type);
+        } else {
+            apply_zero_extend_to_virtual_reg(machine_block, prepared_reg, source_type,
+                                             prepared_reg.get_kind() ==
+                                                     AArch64VirtualRegKind::General64
+                                                 ? create_fake_pointer_type()
+                                                 : source_type);
+        }
+        return true;
+    }
+
+    bool emit_float128_cast_helper(AArch64MachineBlock &machine_block,
+                                   const CoreIrCastInst &cast,
+                                   const AArch64VirtualReg &operand_reg,
+                                   const AArch64VirtualReg &dst_reg,
+                                   AArch64MachineFunction &function) {
+        switch (cast.get_cast_kind()) {
+        case CoreIrCastKind::SignedIntToFloat:
+        case CoreIrCastKind::UnsignedIntToFloat: {
+            const bool operand_is_64bit =
+                uses_64bit_register(cast.get_operand()->get_type());
+            const AArch64VirtualReg prepared_reg = function.create_virtual_reg(
+                operand_is_64bit ? AArch64VirtualRegKind::General64
+                                 : AArch64VirtualRegKind::General32);
+            prepare_integer_value_for_runtime_helper(machine_block,
+                                                     cast.get_operand()->get_type(),
+                                                     cast.get_cast_kind(), operand_reg,
+                                                     prepared_reg);
+            const std::string helper_name =
+                operand_is_64bit
+                    ? (cast.get_cast_kind() == CoreIrCastKind::SignedIntToFloat
+                           ? "__floatditf"
+                           : "__floatunditf")
+                    : (cast.get_cast_kind() == CoreIrCastKind::SignedIntToFloat
+                           ? "__floatsitf"
+                           : "__floatunsitf");
+            append_copy_to_physical_reg(machine_block,
+                                        static_cast<unsigned>(AArch64PhysicalReg::X0),
+                                        operand_is_64bit
+                                            ? AArch64VirtualRegKind::General64
+                                            : AArch64VirtualRegKind::General32,
+                                        prepared_reg);
+            append_helper_call(machine_block, helper_name);
+            append_copy_from_physical_reg(machine_block, dst_reg,
+                                          static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                          AArch64VirtualRegKind::Float128);
+            return true;
+        }
+        case CoreIrCastKind::FloatToSignedInt:
+        case CoreIrCastKind::FloatToUnsignedInt: {
+            const bool target_is_64bit = uses_64bit_register(cast.get_type());
+            const std::string helper_name =
+                target_is_64bit
+                    ? (cast.get_cast_kind() == CoreIrCastKind::FloatToSignedInt
+                           ? "__fixtfdi"
+                           : "__fixunstfdi")
+                    : (cast.get_cast_kind() == CoreIrCastKind::FloatToSignedInt
+                           ? "__fixtfsi"
+                           : "__fixunstfsi");
+            append_copy_to_physical_reg(machine_block,
+                                        static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                        AArch64VirtualRegKind::Float128, operand_reg);
+            append_helper_call(machine_block, helper_name);
+            append_copy_from_physical_reg(machine_block, dst_reg,
+                                          static_cast<unsigned>(AArch64PhysicalReg::X0),
+                                          target_is_64bit
+                                              ? AArch64VirtualRegKind::General64
+                                              : AArch64VirtualRegKind::General32);
+            apply_truncate_to_virtual_reg(machine_block, dst_reg, cast.get_type());
+            return true;
+        }
+        case CoreIrCastKind::FloatExtend: {
+            if (dst_reg.get_kind() != AArch64VirtualRegKind::Float128) {
+                return false;
+            }
+            if (const auto *float_constant =
+                    dynamic_cast<const CoreIrConstantFloat *>(cast.get_operand());
+                float_constant != nullptr) {
+                const std::string literal_text = float_constant->get_literal_text();
+                const bool had_long_double_suffix =
+                    !literal_text.empty() &&
+                    (literal_text.back() == 'l' || literal_text.back() == 'L');
+                if (had_long_double_suffix &&
+                    !float128_literal_is_supported_by_helper_path(
+                        strip_floating_literal_suffix(literal_text))) {
+                    add_backend_error(
+                        diagnostic_engine_,
+                        "float128 literal is not exactly representable by the current "
+                        "AArch64 helper-based materialization path");
+                    return false;
+                }
+            }
+            AArch64VirtualReg helper_operand = operand_reg;
+            if (operand_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                helper_operand =
+                    promote_float16_to_float32(machine_block, operand_reg, function);
+            }
+            const std::string helper_name =
+                helper_operand.get_kind() == AArch64VirtualRegKind::Float32
+                    ? "__extendsftf2"
+                    : "__extenddftf2";
+            append_copy_to_physical_reg(machine_block,
+                                        static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                        helper_operand.get_kind(), helper_operand);
+            append_helper_call(machine_block, helper_name);
+            append_copy_from_physical_reg(machine_block, dst_reg,
+                                          static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                          AArch64VirtualRegKind::Float128);
+            return true;
+        }
+        case CoreIrCastKind::FloatTruncate: {
+            if (operand_reg.get_kind() != AArch64VirtualRegKind::Float128) {
+                return false;
+            }
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                const AArch64VirtualReg narrowed =
+                    function.create_virtual_reg(AArch64VirtualRegKind::Float32);
+                append_copy_to_physical_reg(machine_block,
+                                            static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                            AArch64VirtualRegKind::Float128, operand_reg);
+                append_helper_call(machine_block, "__trunctfsf2");
+                append_copy_from_physical_reg(machine_block, narrowed,
+                                              static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                              AArch64VirtualRegKind::Float32);
+                demote_float32_to_float16(machine_block, narrowed, dst_reg);
+                return true;
+            }
+            const std::string helper_name =
+                dst_reg.get_kind() == AArch64VirtualRegKind::Float32
+                    ? "__trunctfsf2"
+                    : "__trunctfdf2";
+            append_copy_to_physical_reg(machine_block,
+                                        static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                        AArch64VirtualRegKind::Float128, operand_reg);
+            append_helper_call(machine_block, helper_name);
+            append_copy_from_physical_reg(machine_block, dst_reg,
+                                          static_cast<unsigned>(AArch64PhysicalReg::V0),
+                                          dst_reg.get_kind());
+            return true;
+        }
+        default:
+            return false;
+        }
+    }
+
+    AArch64VirtualReg promote_float16_to_float32(AArch64MachineBlock &machine_block,
+                                                 const AArch64VirtualReg &source_reg,
+                                                 AArch64MachineFunction &function) {
+        const AArch64VirtualReg promoted =
+            function.create_virtual_reg(AArch64VirtualRegKind::Float32);
+        machine_block.append_instruction("fcvt " + def_vreg(promoted) + ", " +
+                                         use_vreg(source_reg));
+        return promoted;
+    }
+
+    void demote_float32_to_float16(AArch64MachineBlock &machine_block,
+                                   const AArch64VirtualReg &source_reg,
+                                   const AArch64VirtualReg &target_reg) {
+        machine_block.append_instruction("fcvt " + def_vreg(target_reg) + ", " +
+                                         use_vreg(source_reg));
+    }
+
     bool emit_binary(AArch64MachineBlock &machine_block,
                      const CoreIrBinaryInst &binary, const FunctionState &state) {
         AArch64VirtualReg lhs_reg;
@@ -2825,6 +4803,80 @@ class AArch64LoweringSession {
             return false;
         }
         std::string opcode;
+        if (is_float_type(binary.get_type())) {
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                return emit_float128_binary_helper(machine_block,
+                                                   binary.get_binary_opcode(), lhs_reg,
+                                                   rhs_reg, dst_reg);
+            }
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                const AArch64VirtualReg lhs32 =
+                    promote_float16_to_float32(machine_block, lhs_reg,
+                                               *state.machine_function);
+                const AArch64VirtualReg rhs32 =
+                    promote_float16_to_float32(machine_block, rhs_reg,
+                                               *state.machine_function);
+                const AArch64VirtualReg result32 =
+                    state.machine_function->create_virtual_reg(
+                        AArch64VirtualRegKind::Float32);
+                switch (binary.get_binary_opcode()) {
+                case CoreIrBinaryOpcode::Add:
+                    opcode = "fadd";
+                    break;
+                case CoreIrBinaryOpcode::Sub:
+                    opcode = "fsub";
+                    break;
+                case CoreIrBinaryOpcode::Mul:
+                    opcode = "fmul";
+                    break;
+                case CoreIrBinaryOpcode::SDiv:
+                case CoreIrBinaryOpcode::UDiv:
+                    opcode = "fdiv";
+                    break;
+                default:
+                    add_backend_error(
+                        diagnostic_engine_,
+                        "unsupported _Float16 binary opcode in the AArch64 native backend");
+                    return false;
+                }
+                machine_block.append_instruction(opcode + " " + def_vreg(result32) + ", " +
+                                                 use_vreg(lhs32) + ", " +
+                                                 use_vreg(rhs32));
+                demote_float32_to_float16(machine_block, result32, dst_reg);
+                return true;
+            }
+            switch (binary.get_binary_opcode()) {
+            case CoreIrBinaryOpcode::Add:
+                opcode = "fadd";
+                break;
+            case CoreIrBinaryOpcode::Sub:
+                opcode = "fsub";
+                break;
+            case CoreIrBinaryOpcode::Mul:
+                opcode = "fmul";
+                break;
+            case CoreIrBinaryOpcode::SDiv:
+            case CoreIrBinaryOpcode::UDiv:
+                opcode = "fdiv";
+                break;
+            case CoreIrBinaryOpcode::And:
+            case CoreIrBinaryOpcode::Or:
+            case CoreIrBinaryOpcode::Xor:
+            case CoreIrBinaryOpcode::Shl:
+            case CoreIrBinaryOpcode::LShr:
+            case CoreIrBinaryOpcode::AShr:
+            case CoreIrBinaryOpcode::SRem:
+            case CoreIrBinaryOpcode::URem:
+                add_backend_error(
+                    diagnostic_engine_,
+                    "unsupported floating-point binary opcode in the AArch64 native backend");
+                return false;
+            }
+            machine_block.append_instruction(opcode + " " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(lhs_reg) + ", " +
+                                             use_vreg(rhs_reg));
+            return true;
+        }
         switch (binary.get_binary_opcode()) {
         case CoreIrBinaryOpcode::Add:
             opcode = "add";
@@ -2918,15 +4970,82 @@ class AArch64LoweringSession {
         }
         switch (unary.get_unary_opcode()) {
         case CoreIrUnaryOpcode::Negate:
-            machine_block.append_instruction("neg " + def_vreg(dst_reg) + ", " +
-                                             use_vreg(operand_reg));
+            if (is_float_type(unary.get_type())) {
+                if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                    static CoreIrFloatType float128_type(CoreIrFloatKind::Float128);
+                    const CoreIrConstantFloat zero_constant(&float128_type, "0.0");
+                    const AArch64VirtualReg zero_reg =
+                        state.machine_function->create_virtual_reg(
+                            AArch64VirtualRegKind::Float128);
+                    if (!materialize_float_constant(machine_block, zero_constant, zero_reg,
+                                                   *state.machine_function) ||
+                        !emit_float128_binary_helper(machine_block,
+                                                     CoreIrBinaryOpcode::Sub, zero_reg,
+                                                     operand_reg, dst_reg)) {
+                        return false;
+                    }
+                    break;
+                }
+                if (dst_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                    const AArch64VirtualReg promoted =
+                        promote_float16_to_float32(machine_block, operand_reg,
+                                                   *state.machine_function);
+                    const AArch64VirtualReg negated =
+                        state.machine_function->create_virtual_reg(
+                            AArch64VirtualRegKind::Float32);
+                    machine_block.append_instruction("fneg " + def_vreg(negated) + ", " +
+                                                     use_vreg(promoted));
+                    demote_float32_to_float16(machine_block, negated, dst_reg);
+                } else {
+                    machine_block.append_instruction("fneg " + def_vreg(dst_reg) + ", " +
+                                                     use_vreg(operand_reg));
+                }
+            } else {
+                machine_block.append_instruction("neg " + def_vreg(dst_reg) + ", " +
+                                                 use_vreg(operand_reg));
+            }
             break;
         case CoreIrUnaryOpcode::BitwiseNot:
+            if (is_float_type(unary.get_type())) {
+                add_backend_error(
+                    diagnostic_engine_,
+                    "bitwise-not on floating-point values is not supported by the "
+                    "AArch64 native backend");
+                return false;
+            }
             machine_block.append_instruction("mvn " + def_vreg(dst_reg) + ", " +
                                              use_vreg(operand_reg));
             break;
         case CoreIrUnaryOpcode::LogicalNot:
-            machine_block.append_instruction("cmp " + use_vreg(operand_reg) + ", #0");
+            if (is_float_type(unary.get_operand()->get_type())) {
+                if (operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                    static CoreIrFloatType float128_type(CoreIrFloatKind::Float128);
+                    const CoreIrConstantFloat zero_constant(&float128_type, "0.0");
+                    const AArch64VirtualReg zero_reg =
+                        state.machine_function->create_virtual_reg(
+                            AArch64VirtualRegKind::Float128);
+                    if (!materialize_float_constant(machine_block, zero_constant, zero_reg,
+                                                   *state.machine_function) ||
+                        !emit_float128_compare_helper(
+                            machine_block, CoreIrComparePredicate::Equal, operand_reg,
+                            zero_reg, dst_reg, *state.machine_function)) {
+                        return false;
+                    }
+                    break;
+                }
+                if (operand_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                    const AArch64VirtualReg promoted =
+                        promote_float16_to_float32(machine_block, operand_reg,
+                                                   *state.machine_function);
+                    machine_block.append_instruction("fcmp " + use_vreg(promoted) +
+                                                     ", #0.0");
+                } else {
+                    machine_block.append_instruction("fcmp " + use_vreg(operand_reg) +
+                                                     ", #0.0");
+                }
+            } else {
+                machine_block.append_instruction("cmp " + use_vreg(operand_reg) + ", #0");
+            }
             machine_block.append_instruction("cset " + def_vreg(dst_reg) + ", eq");
             break;
         }
@@ -2944,10 +5063,36 @@ class AArch64LoweringSession {
             !require_canonical_vreg(state, &compare, dst_reg)) {
             return false;
         }
-        machine_block.append_instruction("cmp " + use_vreg(lhs_reg) + ", " +
-                                         use_vreg(rhs_reg));
+        if (lhs_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+            return emit_float128_compare_helper(machine_block,
+                                                compare.get_predicate(), lhs_reg,
+                                                rhs_reg, dst_reg,
+                                                *state.machine_function);
+        }
+        if (is_float_type(compare.get_lhs()->get_type())) {
+            if (lhs_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                const AArch64VirtualReg lhs32 =
+                    promote_float16_to_float32(machine_block, lhs_reg,
+                                               *state.machine_function);
+                const AArch64VirtualReg rhs32 =
+                    promote_float16_to_float32(machine_block, rhs_reg,
+                                               *state.machine_function);
+                machine_block.append_instruction("fcmp " + use_vreg(lhs32) + ", " +
+                                                 use_vreg(rhs32));
+            } else {
+                machine_block.append_instruction("fcmp " + use_vreg(lhs_reg) + ", " +
+                                                 use_vreg(rhs_reg));
+            }
+        } else {
+            machine_block.append_instruction("cmp " + use_vreg(lhs_reg) + ", " +
+                                             use_vreg(rhs_reg));
+        }
         machine_block.append_instruction("cset " + def_vreg(dst_reg) + ", " +
-                                         condition_code(compare.get_predicate()));
+                                         (is_float_type(compare.get_lhs()->get_type())
+                                              ? float_condition_code(
+                                                    compare.get_predicate())
+                                              : condition_code(
+                                                    compare.get_predicate())));
         return true;
     }
 
@@ -3010,69 +5155,246 @@ class AArch64LoweringSession {
             }
             break;
         case CoreIrCastKind::SignedIntToFloat:
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128 ||
+                operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                return emit_float128_cast_helper(machine_block, cast, operand_reg,
+                                                 dst_reg, *state.machine_function);
+            }
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                const AArch64VirtualReg widened =
+                    state.machine_function->create_virtual_reg(
+                        AArch64VirtualRegKind::Float32);
+                machine_block.append_instruction("scvtf " + def_vreg(widened) + ", " +
+                                                 use_vreg_as(
+                                                     operand_reg,
+                                                     uses_64bit_register(
+                                                         cast.get_operand()->get_type())));
+                demote_float32_to_float16(machine_block, widened, dst_reg);
+                break;
+            }
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                add_backend_error(diagnostic_engine_,
+                                  "float128 integer-to-float casts are not yet "
+                                  "supported by the AArch64 native backend");
+                return false;
+            }
+            machine_block.append_instruction("scvtf " + def_vreg(dst_reg) + ", " +
+                                             use_vreg_as(
+                                                 operand_reg,
+                                                 uses_64bit_register(
+                                                     cast.get_operand()->get_type())));
+            break;
         case CoreIrCastKind::UnsignedIntToFloat:
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128 ||
+                operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                return emit_float128_cast_helper(machine_block, cast, operand_reg,
+                                                 dst_reg, *state.machine_function);
+            }
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                const AArch64VirtualReg widened =
+                    state.machine_function->create_virtual_reg(
+                        AArch64VirtualRegKind::Float32);
+                machine_block.append_instruction("ucvtf " + def_vreg(widened) + ", " +
+                                                 use_vreg_as(
+                                                     operand_reg,
+                                                     uses_64bit_register(
+                                                         cast.get_operand()->get_type())));
+                demote_float32_to_float16(machine_block, widened, dst_reg);
+                break;
+            }
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                add_backend_error(diagnostic_engine_,
+                                  "float128 integer-to-float casts are not yet "
+                                  "supported by the AArch64 native backend");
+                return false;
+            }
+            machine_block.append_instruction("ucvtf " + def_vreg(dst_reg) + ", " +
+                                             use_vreg_as(
+                                                 operand_reg,
+                                                 uses_64bit_register(
+                                                     cast.get_operand()->get_type())));
+            break;
         case CoreIrCastKind::FloatToSignedInt:
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128 ||
+                operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                return emit_float128_cast_helper(machine_block, cast, operand_reg,
+                                                 dst_reg, *state.machine_function);
+            }
+            if (operand_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                const AArch64VirtualReg widened =
+                    promote_float16_to_float32(machine_block, operand_reg,
+                                               *state.machine_function);
+                machine_block.append_instruction("fcvtzs " +
+                                                 def_vreg_as(dst_reg,
+                                                             uses_64bit_register(cast.get_type())) +
+                                                 ", " + use_vreg(widened));
+                apply_truncate_to_virtual_reg(machine_block, dst_reg, cast.get_type());
+                break;
+            }
+            if (operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                add_backend_error(diagnostic_engine_,
+                                  "float128 float-to-integer casts are not yet "
+                                  "supported by the AArch64 native backend");
+                return false;
+            }
+            machine_block.append_instruction("fcvtzs " +
+                                             def_vreg_as(dst_reg,
+                                                         uses_64bit_register(cast.get_type())) +
+                                             ", " + use_vreg(operand_reg));
+            apply_truncate_to_virtual_reg(machine_block, dst_reg, cast.get_type());
+            break;
         case CoreIrCastKind::FloatToUnsignedInt:
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128 ||
+                operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                return emit_float128_cast_helper(machine_block, cast, operand_reg,
+                                                 dst_reg, *state.machine_function);
+            }
+            if (operand_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                const AArch64VirtualReg widened =
+                    promote_float16_to_float32(machine_block, operand_reg,
+                                               *state.machine_function);
+                machine_block.append_instruction("fcvtzu " +
+                                                 def_vreg_as(dst_reg,
+                                                             uses_64bit_register(cast.get_type())) +
+                                                 ", " + use_vreg(widened));
+                apply_truncate_to_virtual_reg(machine_block, dst_reg, cast.get_type());
+                break;
+            }
+            if (operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                add_backend_error(diagnostic_engine_,
+                                  "float128 float-to-integer casts are not yet "
+                                  "supported by the AArch64 native backend");
+                return false;
+            }
+            machine_block.append_instruction("fcvtzu " +
+                                             def_vreg_as(dst_reg,
+                                                         uses_64bit_register(cast.get_type())) +
+                                             ", " + use_vreg(operand_reg));
+            apply_truncate_to_virtual_reg(machine_block, dst_reg, cast.get_type());
+            break;
         case CoreIrCastKind::FloatExtend:
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128 ||
+                operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                return emit_float128_cast_helper(machine_block, cast, operand_reg,
+                                                 dst_reg, *state.machine_function);
+            }
+            if (operand_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                const AArch64VirtualReg widened =
+                    promote_float16_to_float32(machine_block, operand_reg,
+                                               *state.machine_function);
+                if (dst_reg.get_kind() == AArch64VirtualRegKind::Float32) {
+                    append_register_copy(machine_block, dst_reg, widened);
+                } else {
+                    machine_block.append_instruction("fcvt " + def_vreg(dst_reg) + ", " +
+                                                     use_vreg(widened));
+                }
+                break;
+            }
+            machine_block.append_instruction("fcvt " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(operand_reg));
+            break;
         case CoreIrCastKind::FloatTruncate:
-            add_backend_error(diagnostic_engine_,
-                              "floating-point casts are not supported by the "
-                              "AArch64 native backend");
-            return false;
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128 ||
+                operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                return emit_float128_cast_helper(machine_block, cast, operand_reg,
+                                                 dst_reg, *state.machine_function);
+            }
+            if (dst_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                if (operand_reg.get_kind() == AArch64VirtualRegKind::Float32) {
+                    demote_float32_to_float16(machine_block, operand_reg, dst_reg);
+                } else {
+                    const AArch64VirtualReg narrowed =
+                        state.machine_function->create_virtual_reg(
+                            AArch64VirtualRegKind::Float32);
+                    machine_block.append_instruction("fcvt " + def_vreg(narrowed) + ", " +
+                                                     use_vreg(operand_reg));
+                    demote_float32_to_float16(machine_block, narrowed, dst_reg);
+                }
+                break;
+            }
+            machine_block.append_instruction("fcvt " + def_vreg(dst_reg) + ", " +
+                                             use_vreg(operand_reg));
+            break;
         }
         return true;
     }
 
     bool emit_call(AArch64MachineBlock &machine_block, const CoreIrCallInst &call,
                    const FunctionState &state) {
-        if (call.get_callee_type() != nullptr && call.get_callee_type()->get_is_variadic()) {
-            add_backend_error(diagnostic_engine_,
-                              "variadic calls are not supported by the AArch64 "
-                              "native backend");
-            return false;
-        }
-
+        const AArch64FunctionAbiInfo abi_info = classify_call_abi(call);
         const auto &arguments = call.get_operands();
-        const std::size_t argument_count =
-            arguments.size() - call.get_argument_begin_index();
-        const std::size_t stack_arg_bytes =
-            argument_count > 8 ? align_to((argument_count - 8) * 8, 16) : 0;
+        std::size_t stack_arg_bytes = 0;
+        for (const AArch64AbiAssignment &assignment : abi_info.parameters) {
+            for (const AArch64AbiLocation &location : assignment.locations) {
+                if (location.kind != AArch64AbiLocationKind::Stack) {
+                    continue;
+                }
+                stack_arg_bytes = std::max(
+                    stack_arg_bytes,
+                    align_to(location.stack_offset + assignment.stack_size, 16));
+            }
+        }
         if (stack_arg_bytes > 0) {
             machine_block.append_instruction(
                 "sub sp, sp, #" + std::to_string(stack_arg_bytes));
         }
+        std::optional<AArch64VirtualReg> stack_base_address;
+        if (stack_arg_bytes > 0) {
+            stack_base_address = create_pointer_virtual_reg(*state.machine_function);
+            machine_block.append_instruction("mov " + def_vreg(*stack_base_address) +
+                                             ", sp");
+        }
+        if (abi_info.return_value.is_indirect && !is_void_type(call.get_type())) {
+            AArch64VirtualReg result_address;
+            if (!materialize_canonical_memory_address(machine_block, state, &call,
+                                                      result_address)) {
+                return false;
+            }
+            append_copy_to_physical_reg(
+                machine_block, static_cast<unsigned>(AArch64PhysicalReg::X8),
+                AArch64VirtualRegKind::General64, result_address);
+        }
         for (std::size_t index = call.get_argument_begin_index();
              index < arguments.size(); ++index) {
             CoreIrValue *argument = arguments[index];
-            if (!is_supported_value_type(argument->get_type())) {
+            if (!is_supported_native_value_type(argument->get_type())) {
                 add_backend_error(diagnostic_engine_,
                                   "unsupported call argument type in the "
                                   "AArch64 native backend");
                 return false;
             }
-            const std::size_t argument_index =
-                index - call.get_argument_begin_index();
-            if (argument_index < 8) {
-                AArch64VirtualReg arg_value;
-                if (!ensure_value_in_vreg(machine_block, argument, state, arg_value)) {
+            const AArch64AbiAssignment &assignment =
+                abi_info.parameters[index - call.get_argument_begin_index()];
+            if (is_aggregate_type(argument->get_type())) {
+                AArch64VirtualReg argument_address;
+                if (!ensure_value_in_memory_address(machine_block, argument, state,
+                                                    argument_address) ||
+                    !copy_aggregate_from_memory_to_assignment(
+                        machine_block, assignment, argument->get_type(),
+                        argument_address, *state.machine_function, state,
+                        stack_base_address.has_value() ? &*stack_base_address
+                                                       : nullptr,
+                        &call, index - call.get_argument_begin_index())) {
                     return false;
                 }
-                machine_block.append_instruction(
-                    "mov " +
-                    general_register_name(static_cast<unsigned>(argument_index),
-                                          uses_64bit_register(argument->get_type())) +
-                    ", " + use_vreg(arg_value));
                 continue;
             }
             AArch64VirtualReg arg_value;
             if (!ensure_value_in_vreg(machine_block, argument, state, arg_value)) {
                 return false;
             }
-            const std::size_t stack_slot_offset = (argument_index - 8) * 8;
-            machine_block.append_instruction(
-                store_mnemonic_for_type(argument->get_type()) + " " +
-                use_vreg(arg_value) +
-                ", [sp, #" + std::to_string(stack_slot_offset) + "]");
+            const AArch64AbiLocation &location = assignment.locations.front();
+            if (location.kind == AArch64AbiLocationKind::GeneralRegister ||
+                location.kind == AArch64AbiLocationKind::FloatingRegister) {
+                append_copy_to_physical_reg(machine_block, location.physical_reg,
+                                            location.reg_kind, arg_value);
+                continue;
+            }
+            if (!append_store_to_address(machine_block, argument->get_type(), arg_value,
+                                         *stack_base_address, location.stack_offset,
+                                         *state.machine_function)) {
+                return false;
+            }
         }
         if (!call.get_is_direct_call()) {
             AArch64VirtualReg callee_reg;
@@ -3096,13 +5418,28 @@ class AArch64LoweringSession {
                 "add sp, sp, #" + std::to_string(stack_arg_bytes));
         }
         if (!is_void_type(call.get_type())) {
-            AArch64VirtualReg result_reg;
-            if (!require_canonical_vreg(state, &call, result_reg)) {
-                return false;
+            if (is_aggregate_type(call.get_type())) {
+                if (!abi_info.return_value.is_indirect) {
+                    AArch64VirtualReg result_address;
+                    if (!materialize_canonical_memory_address(machine_block, state, &call,
+                                                              result_address) ||
+                        !copy_aggregate_from_assignment_to_memory(
+                            machine_block, abi_info.return_value, call.get_type(),
+                            result_address, *state.machine_function)) {
+                        return false;
+                    }
+                }
+            } else {
+                AArch64VirtualReg result_reg;
+                if (!require_canonical_vreg(state, &call, result_reg)) {
+                    return false;
+                }
+                const AArch64AbiLocation &return_location =
+                    abi_info.return_value.locations.front();
+                append_copy_from_physical_reg(machine_block, result_reg,
+                                              return_location.physical_reg,
+                                              return_location.reg_kind);
             }
-            machine_block.append_instruction("mov " + def_vreg(result_reg) + ", " +
-                                             general_register_name(
-                                                 0, uses_64bit_register(call.get_type())));
         }
         return true;
     }
@@ -3128,15 +5465,46 @@ class AArch64LoweringSession {
                      const CoreIrReturnInst &return_inst,
                      const FunctionState &state) {
         if (return_inst.get_return_value() != nullptr) {
+            if (is_aggregate_type(return_inst.get_return_value()->get_type())) {
+                AArch64VirtualReg return_address;
+                if (!ensure_value_in_memory_address(machine_block,
+                                                    return_inst.get_return_value(), state,
+                                                    return_address)) {
+                    return false;
+                }
+                if (state.abi_info.return_value.is_indirect) {
+                    if (!state.indirect_result_address.is_valid() ||
+                        !emit_memory_copy(machine_block, state.indirect_result_address,
+                                          return_address,
+                                          return_inst.get_return_value()->get_type(),
+                                          *state.machine_function)) {
+                        return false;
+                    }
+                } else if (!copy_aggregate_from_memory_to_assignment(
+                               machine_block, state.abi_info.return_value,
+                               return_inst.get_return_value()->get_type(),
+                               return_address, *state.machine_function, state)) {
+                    return false;
+                }
+                machine_block.append_instruction(
+                    "b " + machine_function.get_epilogue_label());
+                return true;
+            }
             AArch64VirtualReg return_reg;
             if (!ensure_value_in_vreg(machine_block, return_inst.get_return_value(),
                                       state, return_reg)) {
                 return false;
             }
-            const bool use_64bit =
-                uses_64bit_register(return_inst.get_return_value()->get_type());
-            machine_block.append_instruction("mov " + general_register_name(0, use_64bit) +
-                                             ", " + use_vreg(return_reg));
+            if (state.abi_info.return_value.locations.size() != 1) {
+                add_backend_error(diagnostic_engine_,
+                                  "aggregate function return ABI lowering is not wired "
+                                  "yet in this native backend path");
+                return false;
+            }
+            const AArch64AbiLocation &return_location =
+                state.abi_info.return_value.locations.front();
+            append_copy_to_physical_reg(machine_block, return_location.physical_reg,
+                                        return_location.reg_kind, return_reg);
         }
         machine_block.append_instruction("b " + machine_function.get_epilogue_label());
         return true;
@@ -3200,8 +5568,12 @@ AArch64AsmPrinter::print_module(const AArch64MachineModule &module) const {
                         if (index > 0) {
                             output << ", ";
                         }
-                        output << substitute_virtual_registers(
+                        std::string rendered_operand = substitute_virtual_registers(
                             instruction.get_operands()[index].get_text(), function);
+                        if (instruction.get_mnemonic() == "mov") {
+                            rendered_operand = render_vector_move_operand(rendered_operand);
+                        }
+                        output << rendered_operand;
                     }
                 }
                 output << "\n";
