@@ -351,6 +351,8 @@ LLVM IR lowering path:
   - canonical two-block loops where the body is also the latch
   - compact split-latch loops where the body feeds one dedicated latch block
     before the backedge
+  - stricter profitability limits on split-latch forms so larger hot loops do
+    not bloat into slow paths
 - `CoreIrLicmPass` currently handles:
   - hoist-only loop-invariant code motion into loop preheaders
   - pure `binary`, `unary`, `compare`, `cast`, `addr_of_*`, and `gep`
