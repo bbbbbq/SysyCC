@@ -444,6 +444,10 @@ bool fully_unroll_small_loop(CoreIrFunction &,
         body_instruction_count * *trip_count > 768) {
         return false;
     }
+    if (body != latch &&
+        (*trip_count > 16 || body_instruction_count * *trip_count > 128)) {
+        return false;
+    }
 
     for (const auto &instruction_ptr : header->get_instructions()) {
         CoreIrInstruction *instruction = instruction_ptr.get();
