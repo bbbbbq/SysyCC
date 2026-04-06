@@ -2253,29 +2253,27 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         }
         switch (unary.get_unary_opcode()) {
         case CoreIrUnaryOpcode::Negate:
-            if (is_float_type(unary.get_type())) {
-                if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128) {
-                    static CoreIrFloatType float128_type(CoreIrFloatKind::Float128);
-                    const CoreIrConstantFloat zero_constant(&float128_type, "0.0");
-                    const AArch64VirtualReg zero_reg =
-                        state.machine_function->create_virtual_reg(
-                            AArch64VirtualRegKind::Float128);
-                    if (!sysycc::materialize_float_constant(
-                            machine_block, *this, zero_constant, zero_reg,
-                            *state.machine_function) ||
-                        !emit_float128_binary_helper(machine_block,
-                                                     CoreIrBinaryOpcode::Sub, zero_reg,
-                                                     operand_reg, dst_reg)) {
-                        return false;
-                    }
-                    break;
+            if (is_float_type(unary.get_type()) &&
+                dst_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                static CoreIrFloatType float128_type(CoreIrFloatKind::Float128);
+                const CoreIrConstantFloat zero_constant(&float128_type, "0.0");
+                const AArch64VirtualReg zero_reg =
+                    state.machine_function->create_virtual_reg(
+                        AArch64VirtualRegKind::Float128);
+                if (!sysycc::materialize_float_constant(
+                        machine_block, *this, zero_constant, zero_reg,
+                        *state.machine_function) ||
+                    !emit_float128_binary_helper(machine_block,
+                                                 CoreIrBinaryOpcode::Sub, zero_reg,
+                                                 operand_reg, dst_reg)) {
+                    return false;
                 }
-                return sysycc::emit_non_float128_unary(machine_block, unary,
-                                                       operand_reg, dst_reg,
-                                                       *state.machine_function,
-                                                       diagnostic_engine_);
+                break;
             }
-            break;
+            return sysycc::emit_non_float128_unary(machine_block, unary, operand_reg,
+                                                   dst_reg,
+                                                   *state.machine_function,
+                                                   diagnostic_engine_);
         case CoreIrUnaryOpcode::BitwiseNot:
         case CoreIrUnaryOpcode::LogicalNot:
             if (unary.get_unary_opcode() == CoreIrUnaryOpcode::LogicalNot &&
@@ -2300,7 +2298,6 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                                    dst_reg,
                                                    *state.machine_function,
                                                    diagnostic_engine_);
-            break;
         }
         return true;
     }
