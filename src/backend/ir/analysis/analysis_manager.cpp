@@ -33,6 +33,8 @@ CoreIrAnalysisManager::get_or_compute_cfg(CoreIrFunction &function) {
         cache_entry.dominator_tree_analysis.reset();
         cache_entry.dominance_frontier_analysis.reset();
         cache_entry.loop_info_analysis.reset();
+        cache_entry.induction_var_analysis.reset();
+        cache_entry.scalar_evolution_lite_analysis.reset();
         cache_entry.memory_ssa_analysis.reset();
         bump_compute_count(compute_counts_, function, CoreIrAnalysisKind::Cfg);
     }
@@ -50,6 +52,8 @@ CoreIrAnalysisManager::get_or_compute_dominator_tree(CoreIrFunction &function) {
                 analysis.Run(function, cfg_analysis));
         cache_entry.dominance_frontier_analysis.reset();
         cache_entry.loop_info_analysis.reset();
+        cache_entry.induction_var_analysis.reset();
+        cache_entry.scalar_evolution_lite_analysis.reset();
         cache_entry.memory_ssa_analysis.reset();
         bump_compute_count(compute_counts_, function,
                            CoreIrAnalysisKind::DominatorTree);
@@ -101,9 +105,51 @@ CoreIrAnalysisManager::get_or_compute_loop_info(CoreIrFunction &function) {
         cache_entry.loop_info_analysis =
             std::make_unique<CoreIrLoopInfoAnalysisResult>(
                 analysis.Run(function, cfg_analysis, dominator_tree));
+        cache_entry.induction_var_analysis.reset();
+        cache_entry.scalar_evolution_lite_analysis.reset();
         bump_compute_count(compute_counts_, function, CoreIrAnalysisKind::LoopInfo);
     }
     return *cache_entry.loop_info_analysis;
+}
+
+const CoreIrInductionVarAnalysisResult &
+CoreIrAnalysisManager::get_or_compute_induction_vars(CoreIrFunction &function) {
+    CachedFunctionAnalyses &cache_entry = get_or_create_cache_entry(function);
+    if (cache_entry.induction_var_analysis == nullptr) {
+        const CoreIrCfgAnalysisResult &cfg_analysis = get_or_compute_cfg(function);
+        const CoreIrDominatorTreeAnalysisResult &dominator_tree =
+            get_or_compute_dominator_tree(function);
+        const CoreIrLoopInfoAnalysisResult &loop_info =
+            get_or_compute_loop_info(function);
+        CoreIrInductionVarAnalysis analysis;
+        cache_entry.induction_var_analysis =
+            std::make_unique<CoreIrInductionVarAnalysisResult>(
+                analysis.Run(function, cfg_analysis, dominator_tree, loop_info));
+        cache_entry.scalar_evolution_lite_analysis.reset();
+        bump_compute_count(compute_counts_, function,
+                           CoreIrAnalysisKind::InductionVar);
+    }
+    return *cache_entry.induction_var_analysis;
+}
+
+const CoreIrScalarEvolutionLiteAnalysisResult &
+CoreIrAnalysisManager::get_or_compute_scalar_evolution_lite(
+    CoreIrFunction &function) {
+    CachedFunctionAnalyses &cache_entry = get_or_create_cache_entry(function);
+    if (cache_entry.scalar_evolution_lite_analysis == nullptr) {
+        const CoreIrCfgAnalysisResult &cfg_analysis = get_or_compute_cfg(function);
+        const CoreIrLoopInfoAnalysisResult &loop_info =
+            get_or_compute_loop_info(function);
+        const CoreIrInductionVarAnalysisResult &induction_vars =
+            get_or_compute_induction_vars(function);
+        CoreIrScalarEvolutionLiteAnalysis analysis;
+        cache_entry.scalar_evolution_lite_analysis =
+            std::make_unique<CoreIrScalarEvolutionLiteAnalysisResult>(
+                analysis.Run(function, cfg_analysis, loop_info, induction_vars));
+        bump_compute_count(compute_counts_, function,
+                           CoreIrAnalysisKind::ScalarEvolutionLite);
+    }
+    return *cache_entry.scalar_evolution_lite_analysis;
 }
 
 const CoreIrFunctionEffectSummaryAnalysisResult &
@@ -175,12 +221,16 @@ void CoreIrAnalysisManager::invalidate(CoreIrAnalysisKind kind) noexcept {
             it->second.dominance_frontier_analysis.reset();
             it->second.promotable_stack_slot_analysis.reset();
             it->second.loop_info_analysis.reset();
+            it->second.induction_var_analysis.reset();
+            it->second.scalar_evolution_lite_analysis.reset();
             it->second.memory_ssa_analysis.reset();
             break;
         case CoreIrAnalysisKind::DominatorTree:
             it->second.dominator_tree_analysis.reset();
             it->second.dominance_frontier_analysis.reset();
             it->second.loop_info_analysis.reset();
+            it->second.induction_var_analysis.reset();
+            it->second.scalar_evolution_lite_analysis.reset();
             it->second.memory_ssa_analysis.reset();
             break;
         case CoreIrAnalysisKind::DominanceFrontier:
@@ -191,6 +241,15 @@ void CoreIrAnalysisManager::invalidate(CoreIrAnalysisKind kind) noexcept {
             break;
         case CoreIrAnalysisKind::LoopInfo:
             it->second.loop_info_analysis.reset();
+            it->second.induction_var_analysis.reset();
+            it->second.scalar_evolution_lite_analysis.reset();
+            break;
+        case CoreIrAnalysisKind::InductionVar:
+            it->second.induction_var_analysis.reset();
+            it->second.scalar_evolution_lite_analysis.reset();
+            break;
+        case CoreIrAnalysisKind::ScalarEvolutionLite:
+            it->second.scalar_evolution_lite_analysis.reset();
             break;
         case CoreIrAnalysisKind::AliasAnalysis:
             it->second.alias_analysis.reset();
@@ -211,6 +270,8 @@ void CoreIrAnalysisManager::invalidate(CoreIrAnalysisKind kind) noexcept {
             it->second.dominance_frontier_analysis == nullptr &&
             it->second.promotable_stack_slot_analysis == nullptr &&
             it->second.loop_info_analysis == nullptr &&
+            it->second.induction_var_analysis == nullptr &&
+            it->second.scalar_evolution_lite_analysis == nullptr &&
             it->second.alias_analysis == nullptr &&
             it->second.memory_ssa_analysis == nullptr &&
             it->second.function_effect_summary == nullptr) {
@@ -235,12 +296,16 @@ void CoreIrAnalysisManager::invalidate(CoreIrFunction &function,
         it->second.dominance_frontier_analysis.reset();
         it->second.promotable_stack_slot_analysis.reset();
         it->second.loop_info_analysis.reset();
+        it->second.induction_var_analysis.reset();
+        it->second.scalar_evolution_lite_analysis.reset();
         it->second.memory_ssa_analysis.reset();
         break;
     case CoreIrAnalysisKind::DominatorTree:
         it->second.dominator_tree_analysis.reset();
         it->second.dominance_frontier_analysis.reset();
         it->second.loop_info_analysis.reset();
+        it->second.induction_var_analysis.reset();
+        it->second.scalar_evolution_lite_analysis.reset();
         it->second.memory_ssa_analysis.reset();
         break;
     case CoreIrAnalysisKind::DominanceFrontier:
@@ -251,6 +316,15 @@ void CoreIrAnalysisManager::invalidate(CoreIrFunction &function,
         break;
     case CoreIrAnalysisKind::LoopInfo:
         it->second.loop_info_analysis.reset();
+        it->second.induction_var_analysis.reset();
+        it->second.scalar_evolution_lite_analysis.reset();
+        break;
+    case CoreIrAnalysisKind::InductionVar:
+        it->second.induction_var_analysis.reset();
+        it->second.scalar_evolution_lite_analysis.reset();
+        break;
+    case CoreIrAnalysisKind::ScalarEvolutionLite:
+        it->second.scalar_evolution_lite_analysis.reset();
         break;
     case CoreIrAnalysisKind::AliasAnalysis:
         it->second.alias_analysis.reset();
@@ -271,6 +345,8 @@ void CoreIrAnalysisManager::invalidate(CoreIrFunction &function,
         it->second.dominance_frontier_analysis == nullptr &&
         it->second.promotable_stack_slot_analysis == nullptr &&
         it->second.loop_info_analysis == nullptr &&
+        it->second.induction_var_analysis == nullptr &&
+        it->second.scalar_evolution_lite_analysis == nullptr &&
         it->second.alias_analysis == nullptr &&
         it->second.memory_ssa_analysis == nullptr &&
         it->second.function_effect_summary == nullptr) {

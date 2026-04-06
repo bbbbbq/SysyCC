@@ -50,9 +50,11 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/analysis/dominance_frontier_analysis.cpp
     src/backend/ir/analysis/dominator_tree_analysis.cpp
     src/backend/ir/analysis/function_effect_summary_analysis.cpp
+    src/backend/ir/analysis/induction_var_analysis.cpp
     src/backend/ir/analysis/loop_info_analysis.cpp
     src/backend/ir/analysis/memory_ssa_analysis.cpp
     src/backend/ir/analysis/promotable_stack_slot_analysis.cpp
+    src/backend/ir/analysis/scalar_evolution_lite_analysis.cpp
     src/backend/ir/effect/core_ir_effect.cpp
     src/backend/ir/effect/core_ir_memory_location.cpp
     src/backend/ir/shared/core/core_ir_builder.cpp
@@ -68,13 +70,21 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/dce/core_ir_dce_pass.cpp
     src/backend/ir/gvn/core_ir_gvn_pass.cpp
     src/backend/ir/instcombine/core_ir_instcombine_pass.cpp
+    src/backend/ir/indvar_simplify/core_ir_indvar_simplify_pass.cpp
+    src/backend/ir/lcssa/core_ir_lcssa_pass.cpp
     src/backend/ir/licm/core_ir_licm_pass.cpp
     src/backend/ir/local_cse/core_ir_local_cse_pass.cpp
+    src/backend/ir/loop_idiom/core_ir_loop_idiom_pass.cpp
+    src/backend/ir/loop_memory_promotion/core_ir_loop_memory_promotion_pass.cpp
+    src/backend/ir/loop_rotate/core_ir_loop_rotate_pass.cpp
     src/backend/ir/loop_simplify/core_ir_loop_simplify_pass.cpp
+    src/backend/ir/loop_unroll/core_ir_loop_unroll_pass.cpp
     src/backend/ir/mem2reg/core_ir_mem2reg_pass.cpp
     src/backend/ir/pipeline/core_ir_pass_pipeline.cpp
     src/backend/ir/sccp/core_ir_sccp_pass.cpp
+    src/backend/ir/simple_loop_unswitch/core_ir_simple_loop_unswitch_pass.cpp
     src/backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.cpp
+    src/backend/ir/sroa/core_ir_sroa_pass.cpp
     src/backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.cpp
     src/backend/ir/verify/core_ir_verifier.cpp
     src/backend/ir/lower/legacy/gnu_function_attribute_lowering_handler.cpp

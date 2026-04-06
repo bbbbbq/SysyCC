@@ -10,6 +10,8 @@ enum class CoreIrAnalysisKind : uint8_t {
     DominanceFrontier,
     PromotableStackSlot,
     LoopInfo,
+    InductionVar,
+    ScalarEvolutionLite,
     AliasAnalysis,
     MemorySSA,
     FunctionEffectSummary,

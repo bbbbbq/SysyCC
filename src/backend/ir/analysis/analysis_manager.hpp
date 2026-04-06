@@ -9,9 +9,11 @@
 #include "backend/ir/analysis/dominance_frontier_analysis.hpp"
 #include "backend/ir/analysis/dominator_tree_analysis.hpp"
 #include "backend/ir/analysis/function_effect_summary_analysis.hpp"
+#include "backend/ir/analysis/induction_var_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/analysis/memory_ssa_analysis.hpp"
 #include "backend/ir/analysis/promotable_stack_slot_analysis.hpp"
+#include "backend/ir/analysis/scalar_evolution_lite_analysis.hpp"
 
 namespace sysycc {
 
@@ -28,6 +30,9 @@ class CoreIrAnalysisManager {
         std::unique_ptr<CoreIrPromotableStackSlotAnalysisResult>
             promotable_stack_slot_analysis;
         std::unique_ptr<CoreIrLoopInfoAnalysisResult> loop_info_analysis;
+        std::unique_ptr<CoreIrInductionVarAnalysisResult> induction_var_analysis;
+        std::unique_ptr<CoreIrScalarEvolutionLiteAnalysisResult>
+            scalar_evolution_lite_analysis;
         std::unique_ptr<CoreIrAliasAnalysisResult> alias_analysis;
         std::unique_ptr<CoreIrMemorySSAAnalysisResult> memory_ssa_analysis;
         std::unique_ptr<CoreIrFunctionEffectSummaryAnalysisResult>
@@ -48,6 +53,10 @@ class CoreIrAnalysisManager {
     const CoreIrPromotableStackSlotAnalysisResult &
     get_or_compute_promotable_stack_slots(CoreIrFunction &function);
     const CoreIrLoopInfoAnalysisResult &get_or_compute_loop_info(CoreIrFunction &function);
+    const CoreIrInductionVarAnalysisResult &
+    get_or_compute_induction_vars(CoreIrFunction &function);
+    const CoreIrScalarEvolutionLiteAnalysisResult &
+    get_or_compute_scalar_evolution_lite(CoreIrFunction &function);
     const CoreIrAliasAnalysisResult &get_or_compute_alias_analysis(CoreIrFunction &function);
     const CoreIrMemorySSAAnalysisResult &get_or_compute_memory_ssa(CoreIrFunction &function);
     const CoreIrFunctionEffectSummaryAnalysisResult &
@@ -98,6 +107,20 @@ inline const CoreIrLoopInfoAnalysisResult &
 CoreIrAnalysisManager::get_or_compute<CoreIrLoopInfoAnalysis>(
     CoreIrFunction &function) {
     return get_or_compute_loop_info(function);
+}
+
+template <>
+inline const CoreIrInductionVarAnalysisResult &
+CoreIrAnalysisManager::get_or_compute<CoreIrInductionVarAnalysis>(
+    CoreIrFunction &function) {
+    return get_or_compute_induction_vars(function);
+}
+
+template <>
+inline const CoreIrScalarEvolutionLiteAnalysisResult &
+CoreIrAnalysisManager::get_or_compute<CoreIrScalarEvolutionLiteAnalysis>(
+    CoreIrFunction &function) {
+    return get_or_compute_scalar_evolution_lite(function);
 }
 
 template <>
