@@ -13,6 +13,9 @@ tools/csmith/
 tests/compiler2025/*
 !tests/compiler2025/run_functional.sh
 !tests/compiler2025/run_functional_in_docker.sh
+!tests/compiler2025/compiler2025_arm_common.sh
+!tests/compiler2025/run_arm_functional.sh
+!tests/compiler2025/run_arm_performance.sh
 !tests/compiler2025/runtime_builtin_compat.c
 !tests/compiler2025/sylib.c
 !tests/compiler2025/sylib.h
