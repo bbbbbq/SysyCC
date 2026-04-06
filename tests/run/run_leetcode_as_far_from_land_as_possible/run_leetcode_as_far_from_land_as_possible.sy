@@ -1,0 +1,86 @@
+// Source: LeetCode 1162. As Far from Land as Possible
+// Problem: https://leetcode.com/problems/as-far-from-land-as-possible/
+// Adapted for SysyCC runtime regression: read n and a 0/1 grid, then print the
+// farthest water-cell distance from any land using multi-source BFS.
+
+int grid_values[8][8];
+int row_queue[64];
+int col_queue[64];
+int dist_queue[64];
+
+int main() {
+    int size = 0;
+    int head = 0;
+    int tail = 0;
+    int row = 0;
+    int col = 0;
+    int dist = 0;
+    int best = -1;
+    int i = 0;
+    int j = 0;
+
+    size = getint();
+
+    i = 0;
+    while (i < size) {
+        j = 0;
+        while (j < size) {
+            grid_values[i][j] = getint();
+            if (grid_values[i][j] == 1) {
+                row_queue[tail] = i;
+                col_queue[tail] = j;
+                dist_queue[tail] = 0;
+                tail = tail + 1;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    if (tail == 0 || tail == size * size) {
+        putint(-1);
+        putch(10);
+        return 0;
+    }
+
+    while (head < tail) {
+        row = row_queue[head];
+        col = col_queue[head];
+        dist = dist_queue[head];
+        head = head + 1;
+        best = dist;
+
+        if (row > 0 && grid_values[row - 1][col] == 0) {
+            grid_values[row - 1][col] = 1;
+            row_queue[tail] = row - 1;
+            col_queue[tail] = col;
+            dist_queue[tail] = dist + 1;
+            tail = tail + 1;
+        }
+        if (row + 1 < size && grid_values[row + 1][col] == 0) {
+            grid_values[row + 1][col] = 1;
+            row_queue[tail] = row + 1;
+            col_queue[tail] = col;
+            dist_queue[tail] = dist + 1;
+            tail = tail + 1;
+        }
+        if (col > 0 && grid_values[row][col - 1] == 0) {
+            grid_values[row][col - 1] = 1;
+            row_queue[tail] = row;
+            col_queue[tail] = col - 1;
+            dist_queue[tail] = dist + 1;
+            tail = tail + 1;
+        }
+        if (col + 1 < size && grid_values[row][col + 1] == 0) {
+            grid_values[row][col + 1] = 1;
+            row_queue[tail] = row;
+            col_queue[tail] = col + 1;
+            dist_queue[tail] = dist + 1;
+            tail = tail + 1;
+        }
+    }
+
+    putint(best);
+    putch(10);
+    return 0;
+}

@@ -1,0 +1,81 @@
+// Source: LeetCode 1091. Shortest Path in Binary Matrix
+// Problem: https://leetcode.com/problems/shortest-path-in-binary-matrix/
+// Adapted for SysyCC runtime regression: read n and a binary grid, then print
+// the shortest 8-direction path length from top-left to bottom-right.
+
+int grid_values[8][8];
+int row_queue[64];
+int col_queue[64];
+int dist_queue[64];
+
+int main() {
+    int size = 0;
+    int head = 0;
+    int tail = 0;
+    int row = 0;
+    int col = 0;
+    int dist = 0;
+    int i = 0;
+    int j = 0;
+    int nr = 0;
+    int nc = 0;
+
+    size = getint();
+    i = 0;
+    while (i < size) {
+        j = 0;
+        while (j < size) {
+            grid_values[i][j] = getint();
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    if (grid_values[0][0] != 0 || grid_values[size - 1][size - 1] != 0) {
+        putint(-1);
+        putch(10);
+        return 0;
+    }
+
+    row_queue[tail] = 0;
+    col_queue[tail] = 0;
+    dist_queue[tail] = 1;
+    tail = tail + 1;
+    grid_values[0][0] = 1;
+
+    while (head < tail) {
+        row = row_queue[head];
+        col = col_queue[head];
+        dist = dist_queue[head];
+        head = head + 1;
+
+        if (row == size - 1 && col == size - 1) {
+            putint(dist);
+            putch(10);
+            return 0;
+        }
+
+        nr = row - 1;
+        while (nr <= row + 1) {
+            nc = col - 1;
+            while (nc <= col + 1) {
+                if (!(nr == row && nc == col) &&
+                    nr >= 0 && nr < size &&
+                    nc >= 0 && nc < size &&
+                    grid_values[nr][nc] == 0) {
+                    grid_values[nr][nc] = 1;
+                    row_queue[tail] = nr;
+                    col_queue[tail] = nc;
+                    dist_queue[tail] = dist + 1;
+                    tail = tail + 1;
+                }
+                nc = nc + 1;
+            }
+            nr = nr + 1;
+        }
+    }
+
+    putint(-1);
+    putch(10);
+    return 0;
+}

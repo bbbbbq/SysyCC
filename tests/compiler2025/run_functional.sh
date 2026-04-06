@@ -5,14 +5,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${SYSYCC_COMPILER2025_BUILD_DIR:-${PROJECT_ROOT}/build}"
-IR_OUTPUT_DIR="${SYSYCC_COMPILER2025_IR_OUTPUT_DIR:-${PROJECT_ROOT}/build/intermediate_results}"
 CASE_BUILD_ROOT_BASE="${SCRIPT_DIR}/build"
 COMPILER_BIN="${BUILD_DIR}/compiler"
+RUNTIME_HEADER="${SCRIPT_DIR}/sylib.h"
 RUNTIME_SOURCE="${SCRIPT_DIR}/sylib.c"
-RUNTIME_BUILTIN_STUB="${PROJECT_ROOT}/tests/run/support/runtime_builtin_stub.ll"
 RUNTIME_COMPAT_SOURCE="${SCRIPT_DIR}/runtime_builtin_compat.c"
-RUNTIME_IR_FILE="${IR_OUTPUT_DIR}/sylib.ll"
+RUNTIME_OBJECT_FILE="${CASE_BUILD_ROOT_BASE}/compiler2025_runtime.o"
+RUNTIME_COMPAT_OBJECT_FILE="${CASE_BUILD_ROOT_BASE}/compiler2025_runtime_compat.o"
 RUNTIME_COMPILE_LOG="${CASE_BUILD_ROOT_BASE}/compiler2025_runtime_compile.log"
+RUNTIME_COMPAT_COMPILE_LOG="${CASE_BUILD_ROOT_BASE}/compiler2025_runtime_compat_compile.log"
 RUN_STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
 usage() {
@@ -132,9 +133,15 @@ write_report_summary() {
 }
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
+source "${SCRIPT_DIR}/compiler2025_arm_common.sh"
 
 if [[ ! -f "${RUNTIME_SOURCE}" ]]; then
     echo "missing runtime source: ${RUNTIME_SOURCE}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${RUNTIME_HEADER}" ]]; then
+    echo "missing runtime header: ${RUNTIME_HEADER}" >&2
     exit 1
 fi
 
@@ -197,18 +204,20 @@ if [[ -z "${REPORT_FILE}" ]]; then
 fi
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
-
-if ! "${COMPILER_BIN}" "${RUNTIME_SOURCE}" --dump-ir >"${RUNTIME_COMPILE_LOG}" 2>&1; then
-    echo "failed to compile compiler2025 runtime with compiler, see ${RUNTIME_COMPILE_LOG}" >&2
-    exit 1
-fi
-
-if [[ ! -f "${RUNTIME_IR_FILE}" || ! -s "${RUNTIME_IR_FILE}" ]]; then
-    echo "missing runtime IR output: ${RUNTIME_IR_FILE}" >&2
-    exit 1
-fi
-
+compiler2025_require_aarch64_execution_stack
 mkdir -p "${CASE_BUILD_ROOT_BASE}"
+
+if ! compiler2025_compile_aarch64_c_object \
+    "${RUNTIME_SOURCE}" "${RUNTIME_OBJECT_FILE}" "${RUNTIME_COMPILE_LOG}"; then
+    exit 1
+fi
+
+if ! compiler2025_compile_aarch64_c_object \
+    "${RUNTIME_COMPAT_SOURCE}" "${RUNTIME_COMPAT_OBJECT_FILE}" \
+    "${RUNTIME_COMPAT_COMPILE_LOG}"; then
+    exit 1
+fi
+
 write_report_header
 
 total_cases=0
@@ -249,11 +258,13 @@ for suite_name in "${SUITES_TO_RUN[@]}"; do
         test_name="$(basename "${source_file}" .sy)"
         input_file="${case_root}/${test_name}.in"
         expected_output_file="${case_root}/${test_name}.out"
-        ir_file="${IR_OUTPUT_DIR}/${test_name}.ll"
         case_dir="${case_build_root}/${test_name}"
+        asm_file="${case_dir}/${test_name}.s"
+        object_file="${case_dir}/${test_name}.o"
         program_binary="${case_dir}/${test_name}.bin"
         actual_output_file="${case_dir}/${test_name}.actual.out"
         compiler_log_file="${case_dir}/${test_name}.compile.log"
+        assemble_log_file="${case_dir}/${test_name}.assemble.log"
         link_log_file="${case_dir}/${test_name}.link.log"
         stderr_log_file="${case_dir}/${test_name}.stderr.log"
         diff_log_file="${case_dir}/${test_name}.diff"
@@ -266,7 +277,13 @@ for suite_name in "${SUITES_TO_RUN[@]}"; do
         mkdir -p "${case_dir}"
 
         echo "==> [${suite_name}/${test_name}] compiling"
-        if ! "${COMPILER_BIN}" "${source_file}" --dump-ir >"${compiler_log_file}" 2>&1; then
+        if ! "${COMPILER_BIN}" \
+            -include "${RUNTIME_HEADER}" \
+            -S \
+            --backend=aarch64-native \
+            --target=aarch64-unknown-linux-gnu \
+            -o "${asm_file}" \
+            "${source_file}" >"${compiler_log_file}" 2>&1; then
             echo "[FAIL] ${suite_name}/${test_name}: compiler failed" >&2
             append_result_row "${suite_name}" "${test_name}" \
                 "SYSYCC_COMPILE_FAIL" "$(basename "${compiler_log_file}")"
@@ -282,46 +299,44 @@ for suite_name in "${SUITES_TO_RUN[@]}"; do
             continue
         fi
 
-        if [[ ! -f "${ir_file}" || ! -s "${ir_file}" ]]; then
-            echo "[FAIL] ${suite_name}/${test_name}: missing IR output" >&2
+        if [[ ! -f "${asm_file}" || ! -s "${asm_file}" ]]; then
+            echo "[FAIL] ${suite_name}/${test_name}: missing asm output" >&2
             append_result_row "${suite_name}" "${test_name}" \
-                "MISSING_IR" "$(basename "${ir_file}")"
+                "MISSING_ASM" "$(basename "${asm_file}")"
             failed_cases=$((failed_cases + 1))
             continue
         fi
 
-        if ! clang "${ir_file}" "${RUNTIME_IR_FILE}" "${RUNTIME_COMPAT_SOURCE}" \
-            "${RUNTIME_BUILTIN_STUB}" -fno-builtin -o "${program_binary}" \
-            >"${link_log_file}" 2>&1; then
-            echo "[FAIL] ${suite_name}/${test_name}: IR link failed" >&2
+        if ! build_aarch64_native_object "${asm_file}" "${object_file}" \
+            >"${assemble_log_file}" 2>&1; then
+            echo "[FAIL] ${suite_name}/${test_name}: asm assemble failed" >&2
+            append_result_row "${suite_name}" "${test_name}" \
+                "SYSYCC_ASSEMBLE_FAIL" "$(basename "${assemble_log_file}")"
+            failed_cases=$((failed_cases + 1))
+            continue
+        fi
+
+        if ! run_aarch64_cc "$(find_aarch64_cc)" \
+            "${object_file}" \
+            "${RUNTIME_OBJECT_FILE}" \
+            "${RUNTIME_COMPAT_OBJECT_FILE}" \
+            -fno-builtin -o "${program_binary}" >"${link_log_file}" 2>&1; then
+            echo "[FAIL] ${suite_name}/${test_name}: AArch64 link failed" >&2
             append_result_row "${suite_name}" "${test_name}" \
                 "SYSYCC_LINK_FAIL" "$(basename "${link_log_file}")"
             failed_cases=$((failed_cases + 1))
             continue
         fi
 
-        set +e
-        if [[ -f "${input_file}" ]]; then
-            "${program_binary}" <"${input_file}" >"${actual_output_file}" \
-                2>"${stderr_log_file}"
-        else
-            "${program_binary}" >"${actual_output_file}" 2>"${stderr_log_file}"
+        if ! compiler2025_run_aarch64_binary_capture \
+            "${program_binary}" "${input_file}" "${actual_output_file}" \
+            "${stderr_log_file}"; then
+            echo "[FAIL] ${suite_name}/${test_name}: AArch64 execution failed" >&2
+            append_result_row "${suite_name}" "${test_name}" \
+                "SYSYCC_RUN_FAIL" "$(basename "${stderr_log_file}")"
+            failed_cases=$((failed_cases + 1))
+            continue
         fi
-        program_exit_code=$?
-        set -e
-
-        python3 - "${actual_output_file}" "${program_exit_code}" <<'PY'
-from pathlib import Path
-import sys
-
-output_path = Path(sys.argv[1])
-exit_code = sys.argv[2]
-content = output_path.read_text()
-if content and not content.endswith("\n"):
-    content += "\n"
-content += f"{exit_code}\n"
-output_path.write_text(content)
-PY
 
         if ! python3 - "${expected_output_file}" "${actual_output_file}" \
             >"${diff_log_file}" 2>&1 <<'PY'
@@ -333,7 +348,11 @@ expected_path = Path(sys.argv[1])
 actual_path = Path(sys.argv[2])
 expected = expected_path.read_text(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
 actual = actual_path.read_text(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
-if expected != actual:
+
+expected_compare = expected.rstrip("\n")
+actual_compare = actual.rstrip("\n")
+
+if expected_compare != actual_compare:
     diff = difflib.unified_diff(
         expected.splitlines(True),
         actual.splitlines(True),

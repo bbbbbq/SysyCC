@@ -128,6 +128,85 @@ compiler2025_compile_runtime_ir() {
     printf '%s\n' "${runtime_ir_file}"
 }
 
+compiler2025_require_aarch64_execution_stack() {
+    local cc=""
+    local qemu=""
+    local sysroot=""
+
+    cc="$(find_aarch64_cc 2>/dev/null || true)"
+    if [[ -z "${cc}" ]]; then
+        echo "missing AArch64 cross compiler; set SYSYCC_AARCH64_CC or install a supported toolchain" >&2
+        return 1
+    fi
+
+    sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+    if [[ -z "${sysroot}" ]]; then
+        echo "missing AArch64 sysroot; set SYSYCC_AARCH64_SYSROOT or install a supported sysroot" >&2
+        return 1
+    fi
+
+    qemu="$(find_qemu_aarch64 2>/dev/null || true)"
+    if [[ -z "${qemu}" ]]; then
+        echo "missing qemu-aarch64; set SYSYCC_QEMU_AARCH64 or install qemu user-mode" >&2
+        return 1
+    fi
+}
+
+compiler2025_compile_aarch64_c_object() {
+    local source_file="$1"
+    local object_file="$2"
+    local compile_log_file="$3"
+    local cc=""
+
+    cc="$(find_aarch64_cc 2>/dev/null || true)"
+    if [[ -z "${cc}" ]]; then
+        echo "missing AArch64 cross compiler" >&2
+        return 1
+    fi
+
+    mkdir -p "$(dirname "${object_file}")"
+    if ! run_aarch64_cc "${cc}" -c "${source_file}" -fno-builtin -o "${object_file}" \
+        >"${compile_log_file}" 2>&1; then
+        echo "failed to compile support object ${source_file}, see ${compile_log_file}" >&2
+        return 1
+    fi
+
+    if [[ ! -f "${object_file}" || ! -s "${object_file}" ]]; then
+        echo "missing AArch64 support object: ${object_file}" >&2
+        return 1
+    fi
+}
+
+compiler2025_run_aarch64_binary_capture() {
+    local program_binary="$1"
+    local input_file="$2"
+    local actual_output_file="$3"
+    local stderr_log_file="$4"
+    local qemu=""
+    local sysroot=""
+
+    qemu="$(find_qemu_aarch64 2>/dev/null || true)"
+    sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+    if [[ -z "${qemu}" || -z "${sysroot}" ]]; then
+        echo "missing qemu/sysroot for AArch64 execution" >&2
+        return 1
+    fi
+
+    set +e
+    if [[ -n "${input_file}" && -f "${input_file}" ]]; then
+        QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${program_binary}" \
+            <"${input_file}" >"${actual_output_file}" 2>"${stderr_log_file}"
+    else
+        QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${program_binary}" \
+            >"${actual_output_file}" 2>"${stderr_log_file}"
+    fi
+    COMPILER2025_LAST_EXIT_CODE=$?
+    set -e
+
+    compiler2025_append_exit_code "${actual_output_file}" \
+        "${COMPILER2025_LAST_EXIT_CODE}"
+}
+
 compiler2025_measure_binary_runtime() {
     local program_binary="$1"
     local input_file="$2"

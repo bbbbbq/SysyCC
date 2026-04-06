@@ -1,0 +1,218 @@
+// Source: LeetCode 2402. Meeting Rooms III
+// Problem: https://leetcode.com/problems/meeting-rooms-iii/
+// Adapted for SysyCC runtime regression: read room count and meeting intervals,
+// then print the most-booked room index using available-room and busy-room
+// heaps plus delay propagation.
+
+int start_values[32];
+int end_values[32];
+int room_use_count[16];
+
+int available_heap[16];
+int busy_end[64];
+int busy_room[64];
+
+void swap_available(int lhs, int rhs) {
+    int temp = available_heap[lhs];
+    available_heap[lhs] = available_heap[rhs];
+    available_heap[rhs] = temp;
+}
+
+void available_sift_up(int index) {
+    int parent = 0;
+    while (index > 0) {
+        parent = (index - 1) / 2;
+        if (available_heap[parent] <= available_heap[index]) {
+            return;
+        }
+        swap_available(parent, index);
+        index = parent;
+    }
+}
+
+void available_sift_down(int count, int index) {
+    int child = 0;
+    int best = 0;
+    while (1) {
+        child = index * 2 + 1;
+        if (child >= count) {
+            return;
+        }
+        best = child;
+        if (child + 1 < count && available_heap[child + 1] < available_heap[child]) {
+            best = child + 1;
+        }
+        if (available_heap[index] <= available_heap[best]) {
+            return;
+        }
+        swap_available(index, best);
+        index = best;
+    }
+}
+
+void push_available(int *count, int room) {
+    available_heap[*count] = room;
+    *count = *count + 1;
+    available_sift_up(*count - 1);
+}
+
+int pop_available(int *count) {
+    int result = available_heap[0];
+    *count = *count - 1;
+    available_heap[0] = available_heap[*count];
+    available_sift_down(*count, 0);
+    return result;
+}
+
+void swap_busy(int lhs, int rhs) {
+    int temp_end = busy_end[lhs];
+    int temp_room = busy_room[lhs];
+    busy_end[lhs] = busy_end[rhs];
+    busy_room[lhs] = busy_room[rhs];
+    busy_end[rhs] = temp_end;
+    busy_room[rhs] = temp_room;
+}
+
+int busy_less(int lhs, int rhs) {
+    if (busy_end[lhs] != busy_end[rhs]) {
+        return busy_end[lhs] < busy_end[rhs];
+    }
+    return busy_room[lhs] < busy_room[rhs];
+}
+
+void busy_sift_up(int index) {
+    int parent = 0;
+    while (index > 0) {
+        parent = (index - 1) / 2;
+        if (busy_less(parent, index)) {
+            return;
+        }
+        swap_busy(parent, index);
+        index = parent;
+    }
+}
+
+void busy_sift_down(int count, int index) {
+    int child = 0;
+    int best = 0;
+    while (1) {
+        child = index * 2 + 1;
+        if (child >= count) {
+            return;
+        }
+        best = child;
+        if (child + 1 < count && busy_less(child + 1, child)) {
+            best = child + 1;
+        }
+        if (busy_less(index, best)) {
+            return;
+        }
+        swap_busy(index, best);
+        index = best;
+    }
+}
+
+void push_busy(int *count, int end_time, int room) {
+    busy_end[*count] = end_time;
+    busy_room[*count] = room;
+    *count = *count + 1;
+    busy_sift_up(*count - 1);
+}
+
+void pop_busy(int *count) {
+    *count = *count - 1;
+    busy_end[0] = busy_end[*count];
+    busy_room[0] = busy_room[*count];
+    busy_sift_down(*count, 0);
+}
+
+void swap_meeting(int lhs, int rhs) {
+    int temp_start = start_values[lhs];
+    int temp_end = end_values[lhs];
+    start_values[lhs] = start_values[rhs];
+    end_values[lhs] = end_values[rhs];
+    start_values[rhs] = temp_start;
+    end_values[rhs] = temp_end;
+}
+
+void sort_meetings(int count) {
+    int i = 0;
+    int j = 0;
+    i = 0;
+    while (i < count) {
+        j = i + 1;
+        while (j < count) {
+            if (start_values[j] < start_values[i]) {
+                swap_meeting(i, j);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
+int main() {
+    int room_count = 0;
+    int meeting_count = 0;
+    int available_count = 0;
+    int busy_count = 0;
+    int i = 0;
+    int room = 0;
+    int duration = 0;
+    int best_room = 0;
+
+    room_count = getint();
+    meeting_count = getint();
+
+    i = 0;
+    while (i < meeting_count) {
+        start_values[i] = getint();
+        end_values[i] = getint();
+        i = i + 1;
+    }
+    sort_meetings(meeting_count);
+
+    i = 0;
+    while (i < room_count) {
+        room_use_count[i] = 0;
+        push_available(&available_count, i);
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < meeting_count) {
+        while (busy_count > 0 && busy_end[0] <= start_values[i]) {
+            room = busy_room[0];
+            pop_busy(&busy_count);
+            push_available(&available_count, room);
+        }
+
+        if (available_count > 0) {
+            room = pop_available(&available_count);
+            room_use_count[room] = room_use_count[room] + 1;
+            push_busy(&busy_count, end_values[i], room);
+        } else {
+            room = busy_room[0];
+            duration = end_values[i] - start_values[i];
+            start_values[i] = busy_end[0];
+            end_values[i] = start_values[i] + duration;
+            pop_busy(&busy_count);
+            room_use_count[room] = room_use_count[room] + 1;
+            push_busy(&busy_count, end_values[i], room);
+        }
+        i = i + 1;
+    }
+
+    best_room = 0;
+    i = 1;
+    while (i < room_count) {
+        if (room_use_count[i] > room_use_count[best_room]) {
+            best_room = i;
+        }
+        i = i + 1;
+    }
+
+    putint(best_room);
+    putch(10);
+    return 0;
+}

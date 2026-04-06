@@ -1,0 +1,104 @@
+// Source: LeetCode 994. Rotting Oranges
+// Problem: https://leetcode.com/problems/rotting-oranges/
+// Adapted for SysyCC runtime regression: read rows, cols, and a grid, then
+// print the minimum minutes needed to rot all oranges, or -1.
+
+int grid[8][8];
+int row_queue[64];
+int col_queue[64];
+
+void push_cell(int *tail, int row, int col) {
+    row_queue[*tail] = row;
+    col_queue[*tail] = col;
+    *tail = *tail + 1;
+}
+
+int main() {
+    int rows = 0;
+    int cols = 0;
+    int fresh = 0;
+    int head = 0;
+    int tail = 0;
+    int minutes = 0;
+    int layer_size = 0;
+    int row = 0;
+    int col = 0;
+    int i = 0;
+    int j = 0;
+    int index = 0;
+    int nr = 0;
+    int nc = 0;
+
+    rows = getint();
+    cols = getint();
+
+    i = 0;
+    while (i < rows) {
+        j = 0;
+        while (j < cols) {
+            grid[i][j] = getint();
+            if (grid[i][j] == 2) {
+                push_cell(&tail, i, j);
+            } else {
+                if (grid[i][j] == 1) {
+                    fresh = fresh + 1;
+                }
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    while (head < tail && fresh > 0) {
+        layer_size = tail - head;
+        index = 0;
+        while (index < layer_size) {
+            row = row_queue[head];
+            col = col_queue[head];
+            head = head + 1;
+
+            nr = row + 1;
+            nc = col;
+            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && grid[nr][nc] == 1) {
+                grid[nr][nc] = 2;
+                fresh = fresh - 1;
+                push_cell(&tail, nr, nc);
+            }
+
+            nr = row - 1;
+            nc = col;
+            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && grid[nr][nc] == 1) {
+                grid[nr][nc] = 2;
+                fresh = fresh - 1;
+                push_cell(&tail, nr, nc);
+            }
+
+            nr = row;
+            nc = col + 1;
+            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && grid[nr][nc] == 1) {
+                grid[nr][nc] = 2;
+                fresh = fresh - 1;
+                push_cell(&tail, nr, nc);
+            }
+
+            nr = row;
+            nc = col - 1;
+            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols && grid[nr][nc] == 1) {
+                grid[nr][nc] = 2;
+                fresh = fresh - 1;
+                push_cell(&tail, nr, nc);
+            }
+
+            index = index + 1;
+        }
+        minutes = minutes + 1;
+    }
+
+    if (fresh > 0) {
+        putint(-1);
+    } else {
+        putint(minutes);
+    }
+    putch(10);
+    return 0;
+}
