@@ -206,6 +206,13 @@ reset_sysycc_test_binary_wrapper_state() {
         rm -f "${real_binary_path}"
     fi
 
+    if is_sysycc_test_wrapper_file "${wrapper_path}" && [[ -e "${real_binary_path}" ]] &&
+       ! is_sysycc_test_wrapper_file "${real_binary_path}"; then
+        rm -f "${wrapper_path}"
+        mv "${real_binary_path}" "${wrapper_path}"
+        return 0
+    fi
+
     if is_sysycc_test_wrapper_file "${wrapper_path}" && [[ ! -e "${real_binary_path}" ]]; then
         rm -f "${wrapper_path}"
     fi
