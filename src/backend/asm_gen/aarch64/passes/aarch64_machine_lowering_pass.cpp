@@ -32,6 +32,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_memory_value_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_unary_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_value_conversion_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_value_materialization_support.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
@@ -2373,68 +2374,36 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                     }
                     break;
                 }
-                if (dst_reg.get_kind() == AArch64VirtualRegKind::Float16) {
-                    const AArch64VirtualReg promoted =
-                        promote_float16_to_float32(machine_block, operand_reg,
-                                                   *state.machine_function);
-                    const AArch64VirtualReg negated =
-                        state.machine_function->create_virtual_reg(
-                            AArch64VirtualRegKind::Float32);
-                    machine_block.append_instruction("fneg " + def_vreg(negated) + ", " +
-                                                     use_vreg(promoted));
-                    demote_float32_to_float16(machine_block, negated, dst_reg);
-                } else {
-                    machine_block.append_instruction("fneg " + def_vreg(dst_reg) + ", " +
-                                                     use_vreg(operand_reg));
-                }
-            } else {
-                machine_block.append_instruction("neg " + def_vreg(dst_reg) + ", " +
-                                                 use_vreg(operand_reg));
+                return sysycc::emit_non_float128_unary(machine_block, unary,
+                                                       operand_reg, dst_reg,
+                                                       *state.machine_function,
+                                                       diagnostic_engine_);
             }
             break;
         case CoreIrUnaryOpcode::BitwiseNot:
-            if (is_float_type(unary.get_type())) {
-                add_backend_error(
-                    diagnostic_engine_,
-                    "bitwise-not on floating-point values is not supported by the "
-                    "AArch64 native backend");
-                return false;
-            }
-            machine_block.append_instruction("mvn " + def_vreg(dst_reg) + ", " +
-                                             use_vreg(operand_reg));
-            break;
         case CoreIrUnaryOpcode::LogicalNot:
-            if (is_float_type(unary.get_operand()->get_type())) {
-                if (operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
-                    static CoreIrFloatType float128_type(CoreIrFloatKind::Float128);
-                    const CoreIrConstantFloat zero_constant(&float128_type, "0.0");
-                    const AArch64VirtualReg zero_reg =
-                        state.machine_function->create_virtual_reg(
-                            AArch64VirtualRegKind::Float128);
-                    if (!sysycc::materialize_float_constant(
-                            machine_block, *this, zero_constant, zero_reg,
-                            *state.machine_function) ||
-                        !emit_float128_compare_helper(
-                            machine_block, CoreIrComparePredicate::Equal, operand_reg,
-                            zero_reg, dst_reg, *state.machine_function)) {
-                        return false;
-                    }
-                    break;
+            if (unary.get_unary_opcode() == CoreIrUnaryOpcode::LogicalNot &&
+                is_float_type(unary.get_operand()->get_type()) &&
+                operand_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                static CoreIrFloatType float128_type(CoreIrFloatKind::Float128);
+                const CoreIrConstantFloat zero_constant(&float128_type, "0.0");
+                const AArch64VirtualReg zero_reg =
+                    state.machine_function->create_virtual_reg(
+                        AArch64VirtualRegKind::Float128);
+                if (!sysycc::materialize_float_constant(
+                        machine_block, *this, zero_constant, zero_reg,
+                        *state.machine_function) ||
+                    !emit_float128_compare_helper(
+                        machine_block, CoreIrComparePredicate::Equal, operand_reg,
+                        zero_reg, dst_reg, *state.machine_function)) {
+                    return false;
                 }
-                if (operand_reg.get_kind() == AArch64VirtualRegKind::Float16) {
-                    const AArch64VirtualReg promoted =
-                        promote_float16_to_float32(machine_block, operand_reg,
-                                                   *state.machine_function);
-                    machine_block.append_instruction("fcmp " + use_vreg(promoted) +
-                                                     ", #0.0");
-                } else {
-                    machine_block.append_instruction("fcmp " + use_vreg(operand_reg) +
-                                                     ", #0.0");
-                }
-            } else {
-                machine_block.append_instruction("cmp " + use_vreg(operand_reg) + ", #0");
+                break;
             }
-            machine_block.append_instruction("cset " + def_vreg(dst_reg) + ", eq");
+            return sysycc::emit_non_float128_unary(machine_block, unary, operand_reg,
+                                                   dst_reg,
+                                                   *state.machine_function,
+                                                   diagnostic_engine_);
             break;
         }
         return true;
