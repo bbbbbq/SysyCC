@@ -1,0 +1,11 @@
+char g_words[2][4] = {"ab", "cd"};
+
+int main(void) {
+    char l_words[2][4] = {"ef", "gh"};
+    putch(g_words[0][1]);
+    putch(g_words[1][1]);
+    putch(l_words[0][1]);
+    putch(l_words[1][1]);
+    putch(10);
+    return 0;
+}
