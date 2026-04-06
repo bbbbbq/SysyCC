@@ -328,6 +328,59 @@ void replace_header_phi_external_uses(
     }
 }
 
+bool rewrite_exit_lcssa_phis(CoreIrBasicBlock &exit_block, const CoreIrLoopInfo &loop,
+                             const std::unordered_map<CoreIrPhiInst *, CoreIrValue *> &final_values) {
+    std::vector<std::pair<CoreIrPhiInst *, CoreIrValue *>> rewrites;
+    for (const auto &instruction_ptr : exit_block.get_instructions()) {
+        auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction_ptr.get());
+        if (phi == nullptr) {
+            break;
+        }
+
+        CoreIrValue *replacement = nullptr;
+        for (std::size_t index = 0; index < phi->get_incoming_count(); ++index) {
+            CoreIrBasicBlock *incoming_block = phi->get_incoming_block(index);
+            if (!loop_contains_block(loop, incoming_block)) {
+                return false;
+            }
+
+            CoreIrValue *incoming_value = phi->get_incoming_value(index);
+            if (auto *incoming_phi = dynamic_cast<CoreIrPhiInst *>(incoming_value);
+                incoming_phi != nullptr) {
+                auto it = final_values.find(incoming_phi);
+                if (it == final_values.end()) {
+                    return false;
+                }
+                incoming_value = it->second;
+            } else if (auto *incoming_instruction =
+                           dynamic_cast<CoreIrInstruction *>(incoming_value);
+                       incoming_instruction != nullptr &&
+                       loop_contains_block(loop, incoming_instruction->get_parent())) {
+                return false;
+            }
+
+            if (replacement == nullptr) {
+                replacement = incoming_value;
+                continue;
+            }
+            if (replacement != incoming_value) {
+                return false;
+            }
+        }
+
+        if (replacement == nullptr) {
+            return false;
+        }
+        rewrites.emplace_back(phi, replacement);
+    }
+
+    for (const auto &[phi, replacement] : rewrites) {
+        phi->replace_all_uses_with(replacement);
+        erase_instruction(exit_block, phi);
+    }
+    return true;
+}
+
 bool fully_unroll_small_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
                              const CoreIrCanonicalInductionVarInfo &iv,
                              const CoreIrScalarEvolutionLiteAnalysisResult &scev,
@@ -379,9 +432,6 @@ bool fully_unroll_small_loop(CoreIrFunction &function, const CoreIrLoopInfo &loo
         exit_block = header_branch->get_false_block();
     }
     if (exit_block == nullptr) {
-        return false;
-    }
-    if (block_has_phi(*exit_block)) {
         return false;
     }
 
@@ -449,6 +499,9 @@ bool fully_unroll_small_loop(CoreIrFunction &function, const CoreIrLoopInfo &loo
     }
 
     replace_header_phi_external_uses(*phi_infos, loop, current_phi_values);
+    if (!rewrite_exit_lcssa_phis(*exit_block, loop, current_phi_values)) {
+        return false;
+    }
     preheader_jump->set_target_block(exit_block);
     for (const HeaderPhiInfo &phi_info : *phi_infos) {
         phi_info.phi->remove_incoming_block(loop.get_preheader());

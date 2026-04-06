@@ -433,5 +433,7 @@ int main() {
 
     const std::string text5 = printer.print_module(*module5);
     assert(text5.find("outer.body.unsw.true:") != std::string::npos);
+    assert(count_substring(text5, "%inner.sum.next = add i32") >= 5);
+    assert(text5.find("jmp %outer.latch.unsw.true") != std::string::npos);
     return 0;
 }
