@@ -26,7 +26,9 @@ namespace sysycc {
 namespace {
 
 using sysycc::detail::insert_instruction_before;
+using sysycc::detail::paths_overlap;
 using sysycc::detail::replace_instruction;
+using sysycc::detail::trace_stack_slot_prefix;
 
 constexpr std::size_t kMaxUnswitchNestingDepth = 2;
 constexpr std::size_t kMaxConditionSliceInstructionCount = 8;
@@ -214,8 +216,76 @@ bool loop_has_external_value_use(const CoreIrLoopInfo &loop) {
     return false;
 }
 
-bool loop_writes_direct_stack_slot(const CoreIrLoopInfo &loop,
-                                   const CoreIrStackSlot *stack_slot) {
+bool is_safe_address_user(CoreIrInstruction &user, std::size_t operand_index) {
+    if (auto *load = dynamic_cast<CoreIrLoadInst *>(&user); load != nullptr) {
+        return operand_index == 0 && load->get_address() != nullptr;
+    }
+    if (auto *store = dynamic_cast<CoreIrStoreInst *>(&user); store != nullptr) {
+        return operand_index == 1 && store->get_address() != nullptr;
+    }
+    if (dynamic_cast<CoreIrGetElementPtrInst *>(&user) != nullptr) {
+        return operand_index == 0;
+    }
+    return false;
+}
+
+bool loop_has_unsafe_address_use(const CoreIrLoopInfo &loop,
+                                 const CoreIrStackSlot *stack_slot,
+                                 const std::vector<std::uint64_t> &path) {
+    if (stack_slot == nullptr) {
+        return true;
+    }
+    for (CoreIrBasicBlock *block : loop.get_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr) {
+                continue;
+            }
+
+            if (auto *address =
+                    dynamic_cast<CoreIrAddressOfStackSlotInst *>(instruction);
+                address != nullptr && address->get_stack_slot() == stack_slot) {
+                for (const CoreIrUse &use : address->get_uses()) {
+                    CoreIrInstruction *user = use.get_user();
+                    if (user != nullptr && user->get_parent() != nullptr &&
+                        loop_contains_block(loop, user->get_parent()) &&
+                        !is_safe_address_user(*user, use.get_operand_index())) {
+                        return true;
+                    }
+                }
+                continue;
+            }
+
+            auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(instruction);
+            if (gep == nullptr) {
+                continue;
+            }
+            CoreIrStackSlot *root_slot = nullptr;
+            std::vector<std::uint64_t> prefix_path;
+            bool exact_path = true;
+            if (!trace_stack_slot_prefix(gep, root_slot, prefix_path, exact_path) ||
+                root_slot != stack_slot || !paths_overlap(path, prefix_path)) {
+                continue;
+            }
+            for (const CoreIrUse &use : gep->get_uses()) {
+                CoreIrInstruction *user = use.get_user();
+                if (user != nullptr && user->get_parent() != nullptr &&
+                    loop_contains_block(loop, user->get_parent()) &&
+                    !is_safe_address_user(*user, use.get_operand_index())) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+bool loop_writes_stack_slot_path(const CoreIrLoopInfo &loop,
+                                 const CoreIrStackSlot *stack_slot,
+                                 const std::vector<std::uint64_t> &path) {
     if (stack_slot == nullptr) {
         return true;
     }
@@ -225,7 +295,21 @@ bool loop_writes_direct_stack_slot(const CoreIrLoopInfo &loop,
         }
         for (const auto &instruction_ptr : block->get_instructions()) {
             auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
-            if (store != nullptr && store->get_stack_slot() == stack_slot) {
+            if (store == nullptr) {
+                continue;
+            }
+            if (store->get_stack_slot() == stack_slot) {
+                return true;
+            }
+            CoreIrStackSlot *root_slot = nullptr;
+            std::vector<std::uint64_t> store_path;
+            bool exact_path = true;
+            if (!trace_stack_slot_prefix(store->get_address(), root_slot, store_path,
+                                         exact_path) ||
+                root_slot != stack_slot) {
+                continue;
+            }
+            if (!exact_path || paths_overlap(path, store_path)) {
                 return true;
             }
         }
@@ -289,8 +373,22 @@ bool instruction_is_condition_slice_cloneable(const CoreIrInstruction &instructi
         return true;
     case CoreIrOpcode::Load: {
         const auto &load = static_cast<const CoreIrLoadInst &>(instruction);
-        return load.get_stack_slot() != nullptr &&
-               !loop_writes_direct_stack_slot(loop, load.get_stack_slot());
+        if (load.get_stack_slot() != nullptr) {
+            const std::vector<std::uint64_t> direct_path;
+            return !loop_writes_stack_slot_path(loop, load.get_stack_slot(),
+                                                direct_path) &&
+                   !loop_has_unsafe_address_use(loop, load.get_stack_slot(),
+                                               direct_path);
+        }
+
+        CoreIrStackSlot *stack_slot = nullptr;
+        std::vector<std::uint64_t> path;
+        bool exact_path = true;
+        return trace_stack_slot_prefix(load.get_address(), stack_slot, path,
+                                       exact_path) &&
+               exact_path &&
+               !loop_writes_stack_slot_path(loop, stack_slot, path) &&
+               !loop_has_unsafe_address_use(loop, stack_slot, path);
     }
     case CoreIrOpcode::Phi:
         return false;

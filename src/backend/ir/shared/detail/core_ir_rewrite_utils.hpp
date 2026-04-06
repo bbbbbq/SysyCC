@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -14,6 +15,7 @@ class CoreIrType;
 class CoreIrIntegerType;
 class CoreIrConstantInt;
 class CoreIrGetElementPtrInst;
+class CoreIrStackSlot;
 enum class CoreIrCastKind : unsigned char;
 
 namespace detail {
@@ -34,6 +36,13 @@ bool can_flatten_structural_gep(const CoreIrGetElementPtrInst &gep);
 bool collect_structural_gep_chain(const CoreIrGetElementPtrInst &gep,
                                   CoreIrValue *&root_base,
                                   std::vector<CoreIrValue *> &indices);
+bool normalize_constant_stack_slot_path(CoreIrValue *value,
+                                        CoreIrStackSlot *&stack_slot,
+                                        std::vector<std::uint64_t> &path);
+bool trace_stack_slot_prefix(CoreIrValue *value, CoreIrStackSlot *&stack_slot,
+                             std::vector<std::uint64_t> &path, bool &exact_path);
+bool paths_overlap(const std::vector<std::uint64_t> &lhs,
+                   const std::vector<std::uint64_t> &rhs);
 
 bool is_supported_integer_cast_kind(CoreIrCastKind cast_kind);
 bool preserves_integer_truthiness(CoreIrCastKind cast_kind);

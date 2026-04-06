@@ -27,5 +27,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: SimpleLoopUnswitch hoists invariant header conditions out of phi-free loops"
-
+echo "verified: SimpleLoopUnswitch hoists invariant header and loop-body condition slices out of loops"
