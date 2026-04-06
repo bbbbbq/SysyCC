@@ -1,4 +1,5 @@
+static double g = 1.0;
+
 int main() {
-    float x = 1.0f;
-    return (int)x;
+    return 0;
 }

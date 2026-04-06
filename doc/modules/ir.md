@@ -251,9 +251,13 @@ LLVM IR lowering path:
   chains, pointer-difference lowering through `ptrtoint/sub/sdiv`, internal
   linkage on staged function definitions and declarations, and explicit
   direct-call function signatures for variadic callees such as `printf`
-- `CoreIrAArch64TargetBackend` now exists as an explicit placeholder that
-  reports a compiler diagnostic instead of pretending ARM lowering is already
-  implemented
+- the native `AArch64AsmGenPass` path now lowers one growing Linux AArch64
+  subset directly from `CoreIrModule`, including integer/pointer codegen,
+  floating-point scalar call/return lowering, `_Float16` arithmetic through
+  float32 legalization, `long double` / fp128 helper-call lowering for common
+  constants, casts, arithmetic, and compares, variadic call signatures that do
+  not read `va_list`, and aggregate by-value ABI cases through direct-register,
+  HFA, and indirect/sret conventions where supported
 - `CoreIrBuilder` currently lowers a deliberately small staged subset:
   - `TranslationUnit`
   - top-level scalar `VarDecl` with constant initializer or zero-initialized
@@ -546,6 +550,10 @@ LLVM IR lowering path:
   saves/restores actually used callee-saved scratch/allocation registers in the
   function frame, and lowers integer cast legalization through explicit
   sign-/zero-extension instructions instead of generic `mov` copies
+- spill rewrite currently uses a fixed backend-local scratch partition of
+  `x24-x27` for integer value rewrite, `x28` for spill-slot address
+  materialization, and `v28-v31` for floating / `q` rewrite, so large-offset
+  and helper-heavy floating paths share the same frame-address helpers
 - parameters, value-producing instructions, and address-producing instructions
   now also prefer canonical machine virtual registers over default frame slots,
   so more native-backend live ranges survive into regalloc/spill instead of
@@ -553,6 +561,10 @@ LLVM IR lowering path:
 - the native AArch64 backend now seeds canonical machine virtual registers for
   parameters and value/address-producing Core IR nodes, so many uses flow
   through machine vregs directly instead of defaulting to per-value frame slots
+- selected `_Float16`, `double`, and `long double` native-backend asm tests now
+  also have optional AArch64 object/link/qemu smoke via `tests/test_helpers.sh`
+  and a target-only runtime support file, so host `long double` stubs are no
+  longer the only evidence for helper-lowered floating paths
 
 ## Notes
 
@@ -561,12 +573,14 @@ LLVM IR lowering path:
   therefore belong after
   [SemanticPass](/Users/caojunze424/code/SysyCC/src/frontend/semantic/semantic_pass.hpp).
 - The staged `CoreIrAArch64TargetBackend` placeholder still exists for the old
-  lower-to-IR interface, but the current native asm implementation is a
-  separate `AArch64AsmGenPass` pipeline that consumes `CoreIrModule` directly.
+  lower-to-IR interface, but the active native asm implementation is the
+  separate `AArch64AsmGenPass` pipeline that consumes `CoreIrModule`
+  directly.
 - The current lowering is intentionally conservative: unsupported functions are
   skipped instead of emitting partial or malformed IR.
-  - Arrays, richer aggregate/object lowering, and richer runtime-library IR
-  emission are still pending.
+  - Remaining native-backend gaps are now narrower and mostly sit around
+    global floating-point initializers, richer variadic runtime support, and
+    more complete cross-toolchain end-to-end verification.
 - Integer coercion is still limited to the currently modeled builtin integer
   family; it is not yet a complete ISO C99 implicit-conversion
   implementation.
