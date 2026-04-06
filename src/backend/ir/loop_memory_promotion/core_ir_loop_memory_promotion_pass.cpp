@@ -877,9 +877,34 @@ bool unit_has_outside_store(const CoreIrFunction &function,
                             const CoreIrLoopInfo &loop,
                             const CoreIrPromotableStackSlotAnalysisResult &promotable_units,
                             const UnitLoopAccessInfo &access_info) {
+    CoreIrBasicBlock *preheader = loop.get_preheader();
+    std::size_t preheader_order = 0;
+    bool have_preheader_order = false;
+    std::unordered_map<const CoreIrBasicBlock *, std::size_t> block_order;
+    std::size_t next_order = 0;
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        block_order.emplace(block.get(), next_order);
+        if (block.get() == preheader) {
+            preheader_order = next_order;
+            have_preheader_order = true;
+        }
+        ++next_order;
+    }
+    auto is_preheader_seed_store = [&](const CoreIrStoreInst *store) {
+        if (store == nullptr || store->get_parent() == nullptr || !have_preheader_order) {
+            return false;
+        }
+        auto it = block_order.find(store->get_parent());
+        return it != block_order.end() && it->second < preheader_order;
+    };
     if (access_info.unit_info != nullptr) {
         for (CoreIrStoreInst *store : access_info.unit_info->stores) {
             if (store == nullptr ||
+                store->get_parent() == preheader ||
+                is_preheader_seed_store(store) ||
                 std::find(access_info.stores.begin(), access_info.stores.end(), store) !=
                     access_info.stores.end()) {
                 continue;
@@ -894,7 +919,8 @@ bool unit_has_outside_store(const CoreIrFunction &function,
         for (const auto &instruction_ptr : block->get_instructions()) {
             CoreIrInstruction *instruction = instruction_ptr.get();
             auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
-            if (store == nullptr) {
+            if (store == nullptr || store->get_parent() == preheader ||
+                is_preheader_seed_store(store)) {
                 continue;
             }
             if (instruction_matches_access_info(*store, access_info)) {

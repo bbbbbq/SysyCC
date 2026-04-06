@@ -585,6 +585,12 @@ find_loop_body_unswitch_candidate(CoreIrFunction &function, const CoreIrLoopInfo
         if (branch == nullptr) {
             continue;
         }
+        if ((loop_contains_block(loop, branch->get_true_block()) &&
+             block_has_phi(*branch->get_true_block())) ||
+            (loop_contains_block(loop, branch->get_false_block()) &&
+             block_has_phi(*branch->get_false_block()))) {
+            continue;
+        }
 
         std::unordered_set<const CoreIrInstruction *> visiting;
         std::unordered_set<const CoreIrInstruction *> collected;

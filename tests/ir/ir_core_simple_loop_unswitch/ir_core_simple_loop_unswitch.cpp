@@ -400,6 +400,66 @@ void test_stops_unswitch_after_depth_budget() {
     assert(function->get_basic_blocks().size() == block_count_before);
 }
 
+void test_skips_loop_body_unswitch_when_successor_has_phi() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module =
+        context->create_module<CoreIrModule>("simple_unswitch_phi_successor");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *counter_slot =
+        function->create_stack_slot<CoreIrStackSlot>("counter", i32_type, 4);
+    auto *flag_slot =
+        function->create_stack_slot<CoreIrStackSlot>("flag", i32_type, 4);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *then_block = function->create_basic_block<CoreIrBasicBlock>("then");
+    auto *join = function->create_basic_block<CoreIrBasicBlock>("join");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *three = context->create_constant<CoreIrConstantInt>(i32_type, 3);
+
+    entry->create_instruction<CoreIrStoreInst>(void_type, zero, counter_slot);
+    entry->create_instruction<CoreIrStoreInst>(void_type, one, flag_slot);
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *counter_load = header->create_instruction<CoreIrLoadInst>(
+        i32_type, "counter.load", counter_slot);
+    auto *counter_cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "counter.cmp", counter_load,
+        three);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, counter_cmp, body, exit);
+    auto *flag_load = body->create_instruction<CoreIrLoadInst>(
+        i32_type, "flag.load", flag_slot);
+    auto *flag_cmp = body->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::NotEqual, i1_type, "flag.cmp", flag_load, zero);
+    body->create_instruction<CoreIrCondJumpInst>(void_type, flag_cmp, then_block,
+                                                 join);
+    then_block->create_instruction<CoreIrJumpInst>(void_type, join);
+    auto *join_phi = join->create_instruction<CoreIrPhiInst>(i32_type, "join.value");
+    auto *counter_reload = join->create_instruction<CoreIrLoadInst>(
+        i32_type, "counter.reload", counter_slot);
+    auto *counter_next = join->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "counter.next", counter_reload, one);
+    join->create_instruction<CoreIrStoreInst>(void_type, counter_next, counter_slot);
+    join->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+    join_phi->add_incoming(body, zero);
+    join_phi->add_incoming(then_block, one);
+
+    const std::size_t block_count_before = function->get_basic_blocks().size();
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrSimpleLoopUnswitchPass pass;
+    assert(pass.Run(compiler_context).ok);
+    assert(function->get_basic_blocks().size() == block_count_before);
+}
+
 } // namespace
 
 int main() {
@@ -408,5 +468,6 @@ int main() {
     test_unswitches_loop_body_compare_chain_from_invariant_access_path();
     test_unswitches_outer_loop_even_with_nested_inner_loop_phi();
     test_stops_unswitch_after_depth_budget();
+    test_skips_loop_body_unswitch_when_successor_has_phi();
     return 0;
 }
