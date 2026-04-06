@@ -13,13 +13,12 @@ source "${SCRIPT_DIR}/compiler2025_docker_common.sh"
 usage() {
     cat <<'EOF'
 Usage:
-  ./tests/compiler2025/run_functional_in_docker.sh [--image-tag tag] [--no-build] [run_functional.sh args...]
+  ./tests/compiler2025/run_arm_functional_in_docker.sh [--image-tag tag] [--no-build] [run_arm_functional.sh args...]
 
 Examples:
-  ./tests/compiler2025/run_functional_in_docker.sh
-  ./tests/compiler2025/run_functional_in_docker.sh --suite all
-  ./tests/compiler2025/run_functional_in_docker.sh --suite h_functional 00_comment2
-  ./tests/compiler2025/run_functional_in_docker.sh --no-build --suite functional
+  ./tests/compiler2025/run_arm_functional_in_docker.sh --case-root /path/to/ARM-性能
+  ./tests/compiler2025/run_arm_functional_in_docker.sh --no-build --case-root /path/to/ARM-性能 h-1-01
+  ./tests/compiler2025/run_arm_functional_in_docker.sh --report /tmp/arm_functional.md --case-root /path/to/ARM-性能
 EOF
 }
 
@@ -50,11 +49,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "${#SCRIPT_ARGS[@]}" -eq 0 ]]; then
-    SCRIPT_ARGS=(--suite all)
-fi
-
 compiler2025_docker_build_image_if_requested \
     "${BUILD_IMAGE}" "${IMAGE_TAG}" "${DOCKERFILE_PATH}" "${PROJECT_ROOT}"
 compiler2025_docker_prepare_script_args "${PROJECT_ROOT}" "${SCRIPT_ARGS[@]}"
-compiler2025_docker_run_script "${IMAGE_TAG}" "./tests/compiler2025/run_functional.sh"
+compiler2025_docker_run_script \
+    "${IMAGE_TAG}" "./tests/compiler2025/run_arm_functional.sh"
+
