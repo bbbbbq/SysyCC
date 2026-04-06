@@ -584,6 +584,10 @@ have_aarch64_native_smoke_toolchain() {
 }
 
 find_aarch64_readelf() {
+    if command -v aarch64-linux-gnu-readelf >/dev/null 2>&1; then
+        command -v aarch64-linux-gnu-readelf
+        return 0
+    fi
     if command -v readelf >/dev/null 2>&1; then
         command -v readelf
         return 0
@@ -610,7 +614,10 @@ assert_aarch64_relocations() {
         fi
     fi
 
-    objdump_tool="$(command -v llvm-objdump 2>/dev/null || true)"
+    objdump_tool="$(command -v aarch64-linux-gnu-objdump 2>/dev/null || true)"
+    if [[ -z "${objdump_tool}" ]]; then
+        objdump_tool="$(command -v llvm-objdump 2>/dev/null || true)"
+    fi
     if [[ -n "${objdump_tool}" ]]; then
         if dump_output="$("${objdump_tool}" -dr "${object_file}" 2>/dev/null)"; then
             grep -Eq "${symbol_pattern}" <<<"${dump_output}"

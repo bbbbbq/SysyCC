@@ -1,0 +1,5 @@
+extern int ext;
+
+int load_ext(void) {
+    return ext;
+}
