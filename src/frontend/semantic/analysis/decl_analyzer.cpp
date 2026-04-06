@@ -355,7 +355,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             conversion_checker_.is_integer_like_type(declared_type)) {
             const auto converted_constant =
                 constant_evaluator_.get_scalar_constant_value_as_integer(
-                    const_decl->get_initializer(), semantic_context);
+                    const_decl->get_initializer(), declared_type,
+                    semantic_context);
             if (converted_constant.has_value()) {
                 constant_evaluator_.bind_integer_constant_value(
                     const_decl, *converted_constant, semantic_context);
