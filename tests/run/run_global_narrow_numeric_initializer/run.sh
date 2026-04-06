@@ -23,4 +23,4 @@ build_and_link_ir_executable "${IR_FILE}" \
     "${PROGRAM_BINARY}"
 assert_program_output "${PROGRAM_BINARY}" /dev/null /dev/null
 
-echo "verified: runtime preserves numeric static integer initializers"
+echo "verified: runtime preserves narrowing of numeric static integer initializers"

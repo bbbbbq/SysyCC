@@ -10,10 +10,10 @@
 #include "common/integer_literal.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/model/semantic_symbol.hpp"
-#include "frontend/semantic/type_system/integer_conversion_service.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
-#include "frontend/semantic/support/semantic_context.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
+#include "frontend/semantic/type_system/integer_conversion_service.hpp"
+#include "frontend/semantic/support/semantic_context.hpp"
 
 namespace sysycc::detail {
 
@@ -174,17 +174,20 @@ void ConstantEvaluator::bind_integer_constant_value(
 }
 
 std::optional<long long> ConstantEvaluator::get_scalar_constant_value_as_integer(
-    const Expr *expr, const SemanticContext &semantic_context) const {
-    const auto value =
-        evaluate_scalar_numeric_expr(expr, semantic_context.get_semantic_model());
+    const Expr *expr, const SemanticType *target_type,
+    const SemanticContext &semantic_context) const {
+    return get_scalar_constant_value_as_integer(
+        expr, target_type, semantic_context.get_semantic_model());
+}
+
+std::optional<long long> ConstantEvaluator::get_scalar_constant_value_as_integer(
+    const Expr *expr, const SemanticType *target_type,
+    const SemanticModel &semantic_model) const {
+    const auto value = evaluate_scalar_numeric_expr(expr, semantic_model);
     if (!value.has_value()) {
         return std::nullopt;
     }
-    if (*value > static_cast<long double>(std::numeric_limits<long long>::max()) ||
-        *value < static_cast<long double>(std::numeric_limits<long long>::min())) {
-        return std::nullopt;
-    }
-    return static_cast<long long>(*value);
+    return convert_scalar_numeric_value_to_integer(*value, target_type);
 }
 
 bool ConstantEvaluator::is_integer_constant_expr(
@@ -738,6 +741,40 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
         return get_scalar_numeric_constant_value(expr, semantic_model).has_value();
     }
     return false;
+}
+
+std::optional<long long>
+ConstantEvaluator::convert_scalar_numeric_value_to_integer(
+    long double value, const SemanticType *target_type) const {
+    if (value > static_cast<long double>(std::numeric_limits<long long>::max()) ||
+        value < static_cast<long double>(std::numeric_limits<long long>::min())) {
+        return std::nullopt;
+    }
+
+    detail::IntegerConversionService integer_conversion_service;
+    const auto type_info =
+        integer_conversion_service.get_integer_type_info(
+            strip_qualifiers(target_type));
+    if (!type_info.has_value()) {
+        return static_cast<long long>(value);
+    }
+
+    std::uint64_t bits =
+        static_cast<std::uint64_t>(static_cast<long long>(value));
+    if (type_info->get_bit_width() > 0 && type_info->get_bit_width() < 64) {
+        const std::uint64_t mask =
+            (std::uint64_t{1} << type_info->get_bit_width()) - 1;
+        bits &= mask;
+        if (type_info->get_is_signed()) {
+            const std::uint64_t sign_bit =
+                std::uint64_t{1} << (type_info->get_bit_width() - 1);
+            if ((bits & sign_bit) != 0) {
+                bits |= ~mask;
+            }
+        }
+    }
+
+    return static_cast<long long>(bits);
 }
 
 std::optional<long long>

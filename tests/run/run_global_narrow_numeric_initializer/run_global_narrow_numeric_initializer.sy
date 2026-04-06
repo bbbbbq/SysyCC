@@ -1,0 +1,5 @@
+static unsigned char g = 257.0;
+
+int main(void) {
+    return g != 1;
+}

@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
-INPUT_FILE="${SCRIPT_DIR}/ir_global_scalar_numeric_initializer.sy"
+INPUT_FILE="${SCRIPT_DIR}/ir_global_narrow_numeric_initializer.sy"
 TEST_NAME="$(basename "${SCRIPT_DIR}")"
 IR_FILE="${BUILD_DIR}/intermediate_results/${TEST_NAME}.ll"
 
@@ -17,6 +17,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
-grep -Eq '^@g = (internal )?global i32 1$' "${IR_FILE}"
+grep -Eq '^@g = (internal )?global i8 1$' "${IR_FILE}"
 
-echo "verified: ir lowers numeric static integer initializers through the shared conversion rule"
+echo "verified: ir narrows numeric static integer initializers through the shared conversion rule"

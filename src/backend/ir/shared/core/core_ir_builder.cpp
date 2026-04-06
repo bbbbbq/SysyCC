@@ -1234,33 +1234,6 @@ class CoreIrBuildSession {
         return text;
     }
 
-    std::optional<std::uint64_t> convert_scalar_numeric_to_integer_bits(
-        long double value, const SemanticType *target_semantic_type) const {
-        detail::IntegerConversionService integer_conversion_service;
-        const auto type_info =
-            integer_conversion_service.get_integer_type_info(
-                strip_qualifiers(target_semantic_type));
-        if (!type_info.has_value()) {
-            return std::nullopt;
-        }
-
-        std::uint64_t bits =
-            static_cast<std::uint64_t>(static_cast<long long>(value));
-        if (type_info->get_bit_width() > 0 && type_info->get_bit_width() < 64) {
-            const std::uint64_t mask =
-                (std::uint64_t{1} << type_info->get_bit_width()) - 1;
-            bits &= mask;
-            if (type_info->get_is_signed()) {
-                const std::uint64_t sign_bit =
-                    std::uint64_t{1} << (type_info->get_bit_width() - 1);
-                if ((bits & sign_bit) != 0) {
-                    bits |= ~mask;
-                }
-            }
-        }
-        return bits;
-    }
-
     const SemanticType *get_member_owner_type(const SemanticType *base_type,
                                               const std::string &operator_text) const {
         const SemanticType *unqualified_base_type = strip_qualifiers(base_type);
@@ -5215,21 +5188,12 @@ class CoreIrBuildSession {
 
         const std::optional<long long> constant_value =
             get_integer_constant_value(initializer);
-        if (!constant_value.has_value() &&
-            declared_type->get_kind() == CoreIrTypeKind::Integer) {
-            const std::optional<long double> scalar_value =
-                get_scalar_numeric_constant_value(initializer);
-            if (scalar_value.has_value()) {
-                const std::optional<std::uint64_t> converted_value =
-                    convert_scalar_numeric_to_integer_bits(*scalar_value,
-                                                           declared_semantic_type);
-                if (converted_value.has_value()) {
-                    return core_ir_context_->create_constant<CoreIrConstantInt>(
-                        declared_type, *converted_value);
-                }
-            }
-        }
-        if (!constant_value.has_value()) {
+        const std::optional<long long> converted_constant_value =
+            constant_value.has_value()
+                ? constant_value
+                : constant_evaluator_.get_scalar_constant_value_as_integer(
+                      initializer, declared_semantic_type, semantic_model_);
+        if (!converted_constant_value.has_value()) {
             if (declared_type->get_kind() == CoreIrTypeKind::Pointer) {
                 const CoreIrConstant *pointer_constant =
                     build_global_constant_pointer_value(
@@ -5248,10 +5212,11 @@ class CoreIrBuildSession {
         }
         if (declared_type->get_kind() == CoreIrTypeKind::Integer) {
             return core_ir_context_->create_constant<CoreIrConstantInt>(
-                declared_type, static_cast<std::uint64_t>(*constant_value));
+                declared_type,
+                static_cast<std::uint64_t>(*converted_constant_value));
         }
         if (declared_type->get_kind() == CoreIrTypeKind::Pointer &&
-            *constant_value == 0) {
+            *converted_constant_value == 0) {
             return core_ir_context_->create_constant<CoreIrConstantNull>(
                 declared_type);
         }
@@ -5554,23 +5519,16 @@ class CoreIrBuildSession {
 
         const std::optional<long long> constant_value =
             get_integer_constant_value(initializer);
+        const std::optional<long long> converted_constant_value =
+            constant_value.has_value()
+                ? constant_value
+                : constant_evaluator_.get_scalar_constant_value_as_integer(
+                      initializer, semantic_type, semantic_model_);
         if (declared_type->get_kind() == CoreIrTypeKind::Integer &&
-            constant_value.has_value()) {
+            converted_constant_value.has_value()) {
             return core_ir_context_->create_constant<CoreIrConstantInt>(
-                declared_type, static_cast<std::uint64_t>(*constant_value));
-        }
-        if (declared_type->get_kind() == CoreIrTypeKind::Integer) {
-            const std::optional<long double> scalar_value =
-                get_scalar_numeric_constant_value(initializer);
-            if (scalar_value.has_value()) {
-                const std::optional<std::uint64_t> converted_value =
-                    convert_scalar_numeric_to_integer_bits(*scalar_value,
-                                                           semantic_type);
-                if (converted_value.has_value()) {
-                    return core_ir_context_->create_constant<CoreIrConstantInt>(
-                        declared_type, *converted_value);
-                }
-            }
+                declared_type,
+                static_cast<std::uint64_t>(*converted_constant_value));
         }
         if (declared_type->get_kind() == CoreIrTypeKind::Pointer &&
             is_null_pointer_constant_expr(initializer)) {
