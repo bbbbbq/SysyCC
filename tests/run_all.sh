@@ -108,9 +108,16 @@ make_case_key() {
 should_require_nonempty_artifacts() {
     local stage_name="$1"
     local test_name="$2"
+    local test_dir="${SCRIPT_DIR}/${stage_name}/${test_name}"
 
     if [[ "${stage_name}" == "run" || "${stage_name}" == "fuzz" ||
           "${stage_name}" == "cli" ]]; then
+        return 1
+    fi
+
+    if [[ ! -e "${test_dir}/${test_name}.sy" &&
+          ! -e "${test_dir}/${test_name}.c" &&
+          ! -e "${test_dir}/${test_name}.i" ]]; then
         return 1
     fi
 
