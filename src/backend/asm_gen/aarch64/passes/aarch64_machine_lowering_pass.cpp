@@ -462,6 +462,39 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         return function.create_virtual_reg(AArch64VirtualRegKind::General64);
     }
 
+    class FunctionPlanningContextAdapter final
+        : public AArch64FunctionPlanningContext {
+      private:
+        AArch64LoweringSession &session_;
+        const AArch64AbiLoweringPass &abi_lowering_pass_;
+
+      public:
+        FunctionPlanningContextAdapter(
+            AArch64LoweringSession &session,
+            const AArch64AbiLoweringPass &abi_lowering_pass)
+            : session_(session), abi_lowering_pass_(abi_lowering_pass) {}
+
+        void report_error(const std::string &message) override {
+            add_backend_error(session_.diagnostic_engine_, message);
+        }
+
+        AArch64VirtualReg
+        create_virtual_reg(AArch64MachineFunction &function,
+                           const CoreIrType *type) override {
+            return session_.create_virtual_reg(function, type);
+        }
+
+        AArch64VirtualReg
+        create_pointer_virtual_reg(AArch64MachineFunction &function) override {
+            return session_.create_pointer_virtual_reg(function);
+        }
+
+        AArch64FunctionAbiInfo classify_call(
+            const CoreIrCallInst &call) const override {
+            return abi_lowering_pass_.classify_call(call);
+        }
+    };
+
     void append_copy_from_physical_reg(AArch64MachineBlock &machine_block,
                                        const AArch64VirtualReg &target_reg,
                                        unsigned physical_reg,
@@ -544,39 +577,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
     bool seed_function_value_locations(const CoreIrFunction &function,
                                        FunctionState &state,
                                        std::size_t &current_offset) {
-        class FunctionPlanningContext final
-            : public AArch64FunctionPlanningContext {
-          private:
-            AArch64LoweringSession &session_;
-            const AArch64AbiLoweringPass &abi_lowering_pass_;
-
-          public:
-            FunctionPlanningContext(AArch64LoweringSession &session,
-                                    const AArch64AbiLoweringPass &abi_lowering_pass)
-                : session_(session), abi_lowering_pass_(abi_lowering_pass) {}
-
-            void report_error(const std::string &message) override {
-                add_backend_error(session_.diagnostic_engine_, message);
-            }
-
-            AArch64VirtualReg
-            create_virtual_reg(AArch64MachineFunction &function,
-                               const CoreIrType *type) override {
-                return session_.create_virtual_reg(function, type);
-            }
-
-            AArch64VirtualReg
-            create_pointer_virtual_reg(AArch64MachineFunction &function) override {
-                return session_.create_pointer_virtual_reg(function);
-            }
-
-            AArch64FunctionAbiInfo classify_call(
-                const CoreIrCallInst &call) const override {
-                return abi_lowering_pass_.classify_call(call);
-            }
-        };
-
-        FunctionPlanningContext planning_context(*this, abi_lowering_pass_);
+        FunctionPlanningContextAdapter planning_context(*this, abi_lowering_pass_);
         return sysycc::seed_function_value_locations(
             function, *state.machine_function, state.value_locations,
             state.aggregate_value_offsets, current_offset, planning_context);
@@ -698,39 +699,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         if (!seed_function_value_locations(function, state, current_offset)) {
             return false;
         }
-        class FunctionPlanningContext final
-            : public AArch64FunctionPlanningContext {
-          private:
-            AArch64LoweringSession &session_;
-            const AArch64AbiLoweringPass &abi_lowering_pass_;
-
-          public:
-            FunctionPlanningContext(AArch64LoweringSession &session,
-                                    const AArch64AbiLoweringPass &abi_lowering_pass)
-                : session_(session), abi_lowering_pass_(abi_lowering_pass) {}
-
-            void report_error(const std::string &message) override {
-                add_backend_error(session_.diagnostic_engine_, message);
-            }
-
-            AArch64VirtualReg
-            create_virtual_reg(AArch64MachineFunction &function,
-                               const CoreIrType *type) override {
-                return session_.create_virtual_reg(function, type);
-            }
-
-            AArch64VirtualReg
-            create_pointer_virtual_reg(AArch64MachineFunction &function) override {
-                return session_.create_pointer_virtual_reg(function);
-            }
-
-            AArch64FunctionAbiInfo classify_call(
-                const CoreIrCallInst &call) const override {
-                return abi_lowering_pass_.classify_call(call);
-            }
-        };
-
-        FunctionPlanningContext planning_context(*this, abi_lowering_pass_);
+        FunctionPlanningContextAdapter planning_context(*this, abi_lowering_pass_);
         sysycc::seed_call_argument_copy_slots(
             function, state.indirect_call_argument_copy_offsets, current_offset,
             planning_context);
