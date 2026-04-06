@@ -1,5 +1,6 @@
 #pragma once
 
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,23 @@ class AArch64PhiCopyLoweringContext {
                                    const CoreIrValue *value,
                                    const AArch64VirtualReg &target_reg) = 0;
 };
+
+class CoreIrFunction;
+
+class AArch64PhiPlanContext {
+  public:
+    virtual ~AArch64PhiPlanContext() = default;
+
+    virtual void report_error(const std::string &message) const = 0;
+    virtual const std::string &
+    block_label(const CoreIrBasicBlock *block) const = 0;
+};
+
+bool build_phi_edge_plans(
+    const CoreIrFunction &function, const AArch64PhiPlanContext &context,
+    std::unordered_map<AArch64PhiEdgeKey, std::string, AArch64PhiEdgeKeyHash>
+        &phi_edge_labels,
+    std::vector<AArch64PhiEdgePlan> &phi_edge_plans);
 
 bool emit_parallel_phi_copies(AArch64MachineBlock &machine_block,
                               const AArch64PhiEdgePlan &plan,

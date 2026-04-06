@@ -582,151 +582,6 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
             state.aggregate_value_offsets, current_offset, planning_context);
     }
 
-    std::vector<const CoreIrPhiInst *>
-    collect_block_phis(const CoreIrBasicBlock &basic_block) const {
-        std::vector<const CoreIrPhiInst *> phis;
-        for (const auto &instruction : basic_block.get_instructions()) {
-            if (instruction == nullptr ||
-                instruction->get_opcode() != CoreIrOpcode::Phi) {
-                break;
-            }
-            phis.push_back(static_cast<const CoreIrPhiInst *>(instruction.get()));
-        }
-        return phis;
-    }
-
-    bool append_predecessor_once(
-        std::unordered_map<const CoreIrBasicBlock *,
-                           std::vector<const CoreIrBasicBlock *>> &predecessors,
-        const CoreIrBasicBlock *successor,
-        const CoreIrBasicBlock *predecessor) const {
-        if (successor == nullptr || predecessor == nullptr) {
-            add_backend_error(diagnostic_engine_,
-                              "encountered null CFG edge while planning AArch64 phi lowering");
-            return false;
-        }
-        auto &incoming = predecessors[successor];
-        if (std::find(incoming.begin(), incoming.end(), predecessor) == incoming.end()) {
-            incoming.push_back(predecessor);
-        }
-        return true;
-    }
-
-    bool collect_block_predecessors(
-        const CoreIrFunction &function,
-        std::unordered_map<const CoreIrBasicBlock *,
-                           std::vector<const CoreIrBasicBlock *>> &predecessors) {
-        for (const auto &basic_block : function.get_basic_blocks()) {
-            if (basic_block == nullptr || basic_block->get_instructions().empty()) {
-                continue;
-            }
-            const CoreIrInstruction *terminator =
-                basic_block->get_instructions().back().get();
-            if (terminator == nullptr || !terminator->get_is_terminator()) {
-                add_backend_error(diagnostic_engine_,
-                                  "encountered basic block without terminator while "
-                                  "planning AArch64 phi lowering");
-                return false;
-            }
-            switch (terminator->get_opcode()) {
-            case CoreIrOpcode::Jump:
-                if (!append_predecessor_once(
-                        predecessors,
-                        static_cast<const CoreIrJumpInst *>(terminator)->get_target_block(),
-                        basic_block.get())) {
-                    return false;
-                }
-                break;
-            case CoreIrOpcode::CondJump: {
-                const auto *cond_jump =
-                    static_cast<const CoreIrCondJumpInst *>(terminator);
-                if (!append_predecessor_once(predecessors, cond_jump->get_true_block(),
-                                             basic_block.get()) ||
-                    !append_predecessor_once(predecessors, cond_jump->get_false_block(),
-                                             basic_block.get())) {
-                    return false;
-                }
-                break;
-            }
-            case CoreIrOpcode::Return:
-                break;
-            default:
-                break;
-            }
-        }
-        return true;
-    }
-
-    const CoreIrValue *find_phi_incoming_value(const CoreIrPhiInst &phi,
-                                               const CoreIrBasicBlock *predecessor) const {
-        for (std::size_t index = 0; index < phi.get_incoming_count(); ++index) {
-            if (phi.get_incoming_block(index) == predecessor) {
-                return phi.get_incoming_value(index);
-            }
-        }
-        return nullptr;
-    }
-
-    bool build_phi_edge_plans(const CoreIrFunction &function, FunctionState &state) {
-        std::unordered_map<const CoreIrBasicBlock *, std::vector<const CoreIrBasicBlock *>>
-            predecessors;
-        if (!collect_block_predecessors(function, predecessors)) {
-            return false;
-        }
-
-        for (const auto &basic_block : function.get_basic_blocks()) {
-            if (basic_block == nullptr) {
-                continue;
-            }
-            const std::vector<const CoreIrPhiInst *> phis =
-                collect_block_phis(*basic_block);
-            if (phis.empty()) {
-                continue;
-            }
-
-            const auto predecessor_it = predecessors.find(basic_block.get());
-            if (predecessor_it == predecessors.end()) {
-                add_backend_error(diagnostic_engine_,
-                                  "encountered phi block without predecessors in the "
-                                  "AArch64 native backend");
-                return false;
-            }
-
-            for (const CoreIrBasicBlock *predecessor : predecessor_it->second) {
-                AArch64PhiEdgePlan plan;
-                plan.edge = AArch64PhiEdgeKey{predecessor, basic_block.get()};
-                plan.edge_label =
-                    block_labels_.at(predecessor) + "_to_" +
-                    sanitize_label_fragment(basic_block->get_name()) + "_phi";
-                for (const CoreIrPhiInst *phi : phis) {
-                    if (phi == nullptr) {
-                        continue;
-                    }
-                    if (is_aggregate_type(phi->get_type())) {
-                        add_backend_error(
-                            diagnostic_engine_,
-                            "aggregate phi lowering is not supported by the current "
-                            "AArch64 native backend");
-                        return false;
-                    }
-                    const CoreIrValue *incoming =
-                        find_phi_incoming_value(*phi, predecessor);
-                    if (incoming == nullptr) {
-                        add_backend_error(
-                            diagnostic_engine_,
-                            "phi block is missing an incoming value for one of its "
-                            "predecessors in the AArch64 native backend");
-                        return false;
-                    }
-                    plan.copies.push_back(AArch64PhiCopyOp{phi, incoming});
-                }
-                state.phi_edge_labels.emplace(plan.edge, plan.edge_label);
-                state.phi_edge_plans.push_back(std::move(plan));
-            }
-        }
-        return true;
-    }
-
     std::string resolve_branch_target_label(const FunctionState &state,
                                             const CoreIrBasicBlock *predecessor,
                                             const CoreIrBasicBlock *successor) const {
@@ -916,7 +771,28 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         }
         state.phi_edge_labels.clear();
         state.phi_edge_plans.clear();
-        if (!build_phi_edge_plans(function, state)) {
+        class PhiPlanContext final : public AArch64PhiPlanContext {
+          private:
+            const AArch64LoweringSession &session_;
+
+          public:
+            explicit PhiPlanContext(const AArch64LoweringSession &session)
+                : session_(session) {}
+
+            void report_error(const std::string &message) const override {
+                add_backend_error(session_.diagnostic_engine_, message);
+            }
+
+            const std::string &
+            block_label(const CoreIrBasicBlock *block) const override {
+                return session_.block_labels_.at(block);
+            }
+        };
+
+        PhiPlanContext phi_plan_context(*this);
+        if (!sysycc::build_phi_edge_plans(function, phi_plan_context,
+                                          state.phi_edge_labels,
+                                          state.phi_edge_plans)) {
             return false;
         }
 
