@@ -1,0 +1,23 @@
+int main(void) {
+    int x = 2;
+    int y = 0;
+
+    switch (x) {
+    {
+    case 1:
+        y = 10;
+        break;
+    case 2:
+        y = 20;
+        y = y + 3;
+        break;
+    default:
+        y = 99;
+        break;
+    }
+    }
+
+    putint(y);
+    putch(10);
+    return 0;
+}
