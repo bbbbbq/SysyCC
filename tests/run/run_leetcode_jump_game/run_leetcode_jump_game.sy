@@ -1,0 +1,42 @@
+// Source: LeetCode 55. Jump Game
+// Problem: https://leetcode.com/problems/jump-game/
+// Adapted for SysyCC runtime regression: read n and jump lengths, then print
+// 1 if the last index is reachable, otherwise 0.
+
+int max_int(int lhs, int rhs) {
+    if (lhs > rhs) {
+        return lhs;
+    }
+    return rhs;
+}
+
+int can_jump(int values[32], int count) {
+    int farthest = 0;
+    int i = 0;
+
+    while (i < count) {
+        if (i > farthest) {
+            return 0;
+        }
+        farthest = max_int(farthest, i + values[i]);
+        i = i + 1;
+    }
+
+    return 1;
+}
+
+int main() {
+    int values[32];
+    int count = 0;
+    int i = 0;
+
+    count = getint();
+    while (i < count) {
+        values[i] = getint();
+        i = i + 1;
+    }
+
+    putint(can_jump(values, count));
+    putch(10);
+    return 0;
+}
