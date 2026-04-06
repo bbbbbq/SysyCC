@@ -84,6 +84,32 @@ int main() {
         CoreIrBinaryOpcode::Add, i32_type, "t6", scalar_load1, one);
     array_entry->create_instruction<CoreIrReturnInst>(void_type, sum2);
 
+    auto *exact_path_function = module->create_function<CoreIrFunction>(
+        "exact_path_forward", function_type, false);
+    auto *exact_entry =
+        exact_path_function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *state_slot = exact_path_function->create_stack_slot<CoreIrStackSlot>(
+        "state", array_type, 4);
+    auto *state_addr =
+        exact_entry->create_instruction<CoreIrAddressOfStackSlotInst>(
+            ptr_array_type, "state.addr", state_slot);
+    auto *state_elem0 = exact_entry->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_i32_type, "state.elem0", state_addr,
+        std::vector<CoreIrValue *>{zero, zero});
+    exact_entry->create_instruction<CoreIrStoreInst>(void_type, seven, state_elem0);
+    auto *state_addr_again =
+        exact_entry->create_instruction<CoreIrAddressOfStackSlotInst>(
+            ptr_array_type, "state.addr.dup", state_slot);
+    auto *state_elem0_again =
+        exact_entry->create_instruction<CoreIrGetElementPtrInst>(
+            ptr_i32_type, "state.elem0.dup", state_addr_again,
+            std::vector<CoreIrValue *>{zero, zero});
+    auto *exact_load = exact_entry->create_instruction<CoreIrLoadInst>(
+        i32_type, "t16", state_elem0_again);
+    auto *exact_sum = exact_entry->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "t17", exact_load, one);
+    exact_entry->create_instruction<CoreIrReturnInst>(void_type, exact_sum);
+
     auto *cross_block_function = module->create_function<CoreIrFunction>(
         "immutable_slot_forward", function_type, false);
     auto *cross_entry =
@@ -110,6 +136,31 @@ int main() {
     auto *callee_type = context->create_type<CoreIrFunctionType>(
         i32_type, std::vector<const CoreIrType *>{ptr_i32_type}, false);
     module->create_function<CoreIrFunction>("sink", callee_type, false);
+    auto *escaped_exact_function = module->create_function<CoreIrFunction>(
+        "escaped_exact_path", function_type, false);
+    auto *escaped_exact_entry =
+        escaped_exact_function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *escaped_exact_slot =
+        escaped_exact_function->create_stack_slot<CoreIrStackSlot>(
+            "state", array_type, 4);
+    auto *escaped_exact_addr =
+        escaped_exact_entry->create_instruction<CoreIrAddressOfStackSlotInst>(
+            ptr_array_type, "state.addr", escaped_exact_slot);
+    auto *escaped_exact_elem =
+        escaped_exact_entry->create_instruction<CoreIrGetElementPtrInst>(
+            ptr_i32_type, "state.elem", escaped_exact_addr,
+            std::vector<CoreIrValue *>{zero, zero});
+    escaped_exact_entry->create_instruction<CoreIrStoreInst>(void_type, seven,
+                                                             escaped_exact_elem);
+    escaped_exact_entry->create_instruction<CoreIrCallInst>(
+        i32_type, "call.exact", "sink", callee_type,
+        std::vector<CoreIrValue *>{escaped_exact_elem});
+    auto *escaped_exact_load =
+        escaped_exact_entry->create_instruction<CoreIrLoadInst>(
+            i32_type, "t18", escaped_exact_elem);
+    escaped_exact_entry->create_instruction<CoreIrReturnInst>(void_type,
+                                                              escaped_exact_load);
+
     auto *escape_function = module->create_function<CoreIrFunction>(
         "escaped_slot", function_type, false);
     auto *escape_entry =
@@ -160,6 +211,10 @@ int main() {
     assert(text.find("%t5 = load i32, stackslot %scalar") == std::string::npos);
     assert(text.find("%t6 = add i32 %t4, 1") != std::string::npos ||
            text.find("%t6 = add i32 7, 1") != std::string::npos);
+    assert(text.find("%t16 = load i32, %state.elem0.dup") == std::string::npos);
+    assert(text.find("%t17 = add i32 7, 1") != std::string::npos);
+    assert(text.find("%t18 = load i32") != std::string::npos);
+    assert(escaped_exact_load != nullptr);
     assert(text.find("%t7 = load i32, stackslot %immutable") == std::string::npos);
     assert(text.find("%t9 = load i32, stackslot %immutable") == std::string::npos);
     assert(text.find("%t8 = add i32 7, 1") != std::string::npos);

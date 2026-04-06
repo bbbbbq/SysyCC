@@ -4,10 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include "backend/ir/shared/detail/core_ir_rewrite_utils.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -19,6 +21,9 @@
 namespace sysycc {
 
 namespace {
+
+using sysycc::detail::paths_overlap;
+using sysycc::detail::trace_stack_slot_prefix;
 
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
     const std::string message =
@@ -46,6 +51,30 @@ struct AddressValueKeyHash {
                 (hash << 6U) + (hash >> 2U);
         hash ^= reinterpret_cast<std::uintptr_t>(key.type) + 0x9e3779b9U +
                 (hash << 6U) + (hash >> 2U);
+        return hash;
+    }
+};
+
+struct ExactPathValueKey {
+    CoreIrStackSlot *stack_slot = nullptr;
+    std::vector<std::uint64_t> path;
+    const CoreIrType *type = nullptr;
+
+    bool operator==(const ExactPathValueKey &other) const noexcept {
+        return stack_slot == other.stack_slot && type == other.type &&
+               path == other.path;
+    }
+};
+
+struct ExactPathValueKeyHash {
+    std::size_t operator()(const ExactPathValueKey &key) const noexcept {
+        std::size_t hash = reinterpret_cast<std::uintptr_t>(key.stack_slot);
+        hash ^= reinterpret_cast<std::uintptr_t>(key.type) + 0x9e3779b9U +
+                (hash << 6U) + (hash >> 2U);
+        for (std::uint64_t element : key.path) {
+            hash ^= static_cast<std::size_t>(element) + 0x9e3779b9U +
+                    (hash << 6U) + (hash >> 2U);
+        }
         return hash;
     }
 };
@@ -106,21 +135,98 @@ bool is_safe_address_user(CoreIrInstruction &user, std::size_t operand_index) {
     return false;
 }
 
+bool address_chain_has_only_safe_users(
+    CoreIrValue *value, std::unordered_set<CoreIrInstruction *> &visiting) {
+    auto *instruction = dynamic_cast<CoreIrInstruction *>(value);
+    if (instruction == nullptr) {
+        return false;
+    }
+    if (!visiting.insert(instruction).second) {
+        return true;
+    }
+    for (const CoreIrUse &use : instruction->get_uses()) {
+        CoreIrInstruction *user = use.get_user();
+        if (user == nullptr) {
+            visiting.erase(instruction);
+            return false;
+        }
+        if (!is_safe_address_user(*user, use.get_operand_index())) {
+            visiting.erase(instruction);
+            return false;
+        }
+        if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(user);
+            gep != nullptr &&
+            !address_chain_has_only_safe_users(gep, visiting)) {
+            visiting.erase(instruction);
+            return false;
+        }
+    }
+    visiting.erase(instruction);
+    return true;
+}
+
+bool address_chain_has_only_safe_users(CoreIrValue *value) {
+    std::unordered_set<CoreIrInstruction *> visiting;
+    return address_chain_has_only_safe_users(value, visiting);
+}
+
+std::optional<ExactPathValueKey> collect_exact_path_key(CoreIrValue *address,
+                                                        const CoreIrType *type) {
+    CoreIrStackSlot *stack_slot = nullptr;
+    std::vector<std::uint64_t> path;
+    bool exact_path = true;
+    if (!trace_stack_slot_prefix(address, stack_slot, path, exact_path) ||
+        stack_slot == nullptr || !exact_path || type == nullptr ||
+        !address_chain_has_only_safe_users(address)) {
+        return std::nullopt;
+    }
+    return ExactPathValueKey{stack_slot, std::move(path), type};
+}
+
+void invalidate_available_exact_path_values_for_root(
+    CoreIrStackSlot *stack_slot, const std::vector<std::uint64_t> &path,
+    std::unordered_map<ExactPathValueKey, CoreIrValue *, ExactPathValueKeyHash>
+        &available_exact_path_values) {
+    if (stack_slot == nullptr) {
+        available_exact_path_values.clear();
+        return;
+    }
+    for (auto it = available_exact_path_values.begin();
+         it != available_exact_path_values.end();) {
+        if (it->first.stack_slot == stack_slot &&
+            paths_overlap(it->first.path, path)) {
+            it = available_exact_path_values.erase(it);
+            continue;
+        }
+        ++it;
+    }
+}
+
 void invalidate_available_loads_for_store(
     const CoreIrStoreInst &store,
-    std::unordered_map<CoreIrStackSlot *, CoreIrValue *> &available_loads) {
+    std::unordered_map<CoreIrStackSlot *, CoreIrValue *> &available_loads,
+    std::unordered_map<ExactPathValueKey, CoreIrValue *, ExactPathValueKeyHash>
+        &available_exact_path_values) {
     if (store.get_stack_slot() != nullptr) {
         available_loads.erase(store.get_stack_slot());
+        invalidate_available_exact_path_values_for_root(
+            store.get_stack_slot(), {}, available_exact_path_values);
         return;
     }
 
-    CoreIrStackSlot *root_slot = trace_root_stack_slot(store.get_address());
-    if (root_slot != nullptr) {
+    CoreIrStackSlot *root_slot = nullptr;
+    std::vector<std::uint64_t> path;
+    bool exact_path = true;
+    if (trace_stack_slot_prefix(store.get_address(), root_slot, path, exact_path) &&
+        root_slot != nullptr) {
         available_loads.erase(root_slot);
+        invalidate_available_exact_path_values_for_root(
+            root_slot, path, available_exact_path_values);
         return;
     }
 
     available_loads.clear();
+    available_exact_path_values.clear();
 }
 
 struct ImmutableEntrySlotInfo {
@@ -290,6 +396,8 @@ bool propagate_address_value(CoreIrBasicBlock &block, CoreIrInstruction *instruc
 bool propagate_load_copies(CoreIrBasicBlock &block) {
     bool changed = false;
     std::unordered_map<CoreIrStackSlot *, CoreIrValue *> available_loads;
+    std::unordered_map<ExactPathValueKey, CoreIrValue *, ExactPathValueKeyHash>
+        available_exact_path_values;
     std::unordered_map<AddressValueKey, CoreIrInstruction *, AddressValueKeyHash>
         available_addresses;
     auto &instructions = block.get_instructions();
@@ -311,8 +419,19 @@ bool propagate_load_copies(CoreIrBasicBlock &block) {
         if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction); store != nullptr) {
             if (store->get_stack_slot() != nullptr) {
                 available_loads[store->get_stack_slot()] = store->get_value();
+                invalidate_available_exact_path_values_for_root(
+                    store->get_stack_slot(), {}, available_exact_path_values);
             } else {
-                invalidate_available_loads_for_store(*store, available_loads);
+                invalidate_available_loads_for_store(*store, available_loads,
+                                                    available_exact_path_values);
+                const std::optional<ExactPathValueKey> key =
+                    collect_exact_path_key(
+                        store->get_address(),
+                        store->get_value() == nullptr ? nullptr
+                                                      : store->get_value()->get_type());
+                if (key.has_value() && store->get_value() != nullptr) {
+                    available_exact_path_values[*key] = store->get_value();
+                }
             }
             ++index;
             continue;
@@ -328,6 +447,20 @@ bool propagate_load_copies(CoreIrBasicBlock &block) {
                     continue;
                 }
                 available_loads[load->get_stack_slot()] = load;
+            } else {
+                const std::optional<ExactPathValueKey> key =
+                    collect_exact_path_key(load->get_address(), load->get_type());
+                if (key.has_value()) {
+                    auto it = available_exact_path_values.find(*key);
+                    if (it != available_exact_path_values.end() &&
+                        it->second != nullptr) {
+                        load->replace_all_uses_with(it->second);
+                        erase_instruction(block, load);
+                        changed = true;
+                        continue;
+                    }
+                    available_exact_path_values[*key] = load;
+                }
             }
             ++index;
             continue;
@@ -335,6 +468,7 @@ bool propagate_load_copies(CoreIrBasicBlock &block) {
 
         if (dynamic_cast<CoreIrCallInst *>(instruction) != nullptr) {
             available_loads.clear();
+            available_exact_path_values.clear();
         }
 
         ++index;

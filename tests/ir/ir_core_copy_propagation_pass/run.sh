@@ -31,4 +31,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: CoreIrCopyPropagationPass reuses duplicate loads and address materializations"
+echo "verified: CoreIrCopyPropagationPass reuses duplicate direct and exact-path local loads plus address materializations"
