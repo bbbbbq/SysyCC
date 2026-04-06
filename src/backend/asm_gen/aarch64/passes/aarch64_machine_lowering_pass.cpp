@@ -24,6 +24,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_frame_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_function_boundary_abi_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_access_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_memory_value_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_value_conversion_support.hpp"
@@ -2168,6 +2169,78 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         }
     };
 
+    class MemoryValueLoweringContext final
+        : public AArch64MemoryValueLoweringContext {
+      private:
+        AArch64LoweringSession &session_;
+        const FunctionState &state_;
+
+      public:
+        MemoryValueLoweringContext(AArch64LoweringSession &session,
+                                   const FunctionState &state)
+            : session_(session), state_(state) {}
+
+        AArch64VirtualReg
+        create_pointer_virtual_reg(AArch64MachineFunction &function) override {
+            return session_.create_pointer_virtual_reg(function);
+        }
+
+        const CoreIrType *create_fake_pointer_type() const override {
+            return session_.create_fake_pointer_type();
+        }
+
+        void append_frame_address(AArch64MachineBlock &machine_block,
+                                  const AArch64VirtualReg &target_reg,
+                                  std::size_t offset,
+                                  AArch64MachineFunction &function) override {
+            session_.append_frame_address(machine_block, target_reg, offset,
+                                          function);
+        }
+
+        bool add_constant_offset(AArch64MachineBlock &machine_block,
+                                 const AArch64VirtualReg &base_reg,
+                                 long long offset,
+                                 AArch64MachineFunction &function) override {
+            return session_.add_constant_offset(machine_block, base_reg, offset,
+                                                function);
+        }
+
+        bool ensure_value_in_vreg(AArch64MachineBlock &machine_block,
+                                  const CoreIrValue *value,
+                                  AArch64VirtualReg &out) override {
+            return session_.ensure_value_in_vreg(machine_block, value, state_, out);
+        }
+
+        bool ensure_value_in_memory_address(AArch64MachineBlock &machine_block,
+                                            const CoreIrValue *value,
+                                            AArch64VirtualReg &out) override {
+            return session_.ensure_value_in_memory_address(machine_block, value,
+                                                           state_, out);
+        }
+
+        bool materialize_canonical_memory_address(
+            AArch64MachineBlock &machine_block, const CoreIrValue *value,
+            AArch64VirtualReg &out) override {
+            return session_.materialize_canonical_memory_address(machine_block,
+                                                                 state_, value, out);
+        }
+
+        bool require_canonical_vreg(const CoreIrValue *value,
+                                    AArch64VirtualReg &out) const override {
+            return session_.require_canonical_vreg(state_, value, out);
+        }
+
+        std::size_t get_stack_slot_offset(
+            const CoreIrStackSlot *stack_slot) const override {
+            return state_.machine_function->get_frame_info().get_stack_slot_offset(
+                stack_slot);
+        }
+
+        void report_error(const std::string &message) override {
+            add_backend_error(session_.diagnostic_engine_, message);
+        }
+    };
+
     std::string load_mnemonic_for_type(const CoreIrType *type) const {
         return sysycc::load_mnemonic_for_type(type);
     }
@@ -2430,34 +2503,12 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
 
     bool emit_load(AArch64MachineBlock &machine_block, const CoreIrLoadInst &load,
                    const FunctionState &state) {
-        if (is_aggregate_type(load.get_type())) {
-            AArch64VirtualReg destination_address;
-            if (!materialize_canonical_memory_address(machine_block, state, &load,
-                                                      destination_address)) {
-                return false;
-            }
-            AArch64VirtualReg source_address = create_pointer_virtual_reg(*state.machine_function);
-            if (load.get_stack_slot() != nullptr) {
-                append_frame_address(
-                    machine_block, source_address,
-                    state.machine_function->get_frame_info().get_stack_slot_offset(
-                        load.get_stack_slot()),
-                    *state.machine_function);
-            } else {
-                if (!ensure_value_in_vreg(machine_block, load.get_address(), state,
-                                          source_address)) {
-                    return false;
-                }
-            }
-            return emit_memory_copy(machine_block, destination_address, source_address,
-                                    load.get_type(), *state.machine_function);
-        }
-        AArch64VirtualReg value_reg;
-        if (!require_canonical_vreg(state, &load, value_reg)) {
-            return false;
-        }
         if (load.get_stack_slot() != nullptr) {
             if (is_promoted_stack_slot(state, load.get_stack_slot())) {
+                AArch64VirtualReg value_reg;
+                if (!require_canonical_vreg(state, &load, value_reg)) {
+                    return false;
+                }
                 const auto value_it =
                     state.promoted_stack_slot_values.find(load.get_stack_slot());
                 if (value_it == state.promoted_stack_slot_values.end()) {
@@ -2471,22 +2522,10 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                 }
                 return true;
             }
-            append_load_from_frame(
-                machine_block, load.get_type(), value_reg,
-                state.machine_function->get_frame_info().get_stack_slot_offset(
-                    load.get_stack_slot()),
-                *state.machine_function);
-        } else {
-            AArch64VirtualReg address_reg;
-            if (!ensure_value_in_vreg(machine_block, load.get_address(), state,
-                                      address_reg)) {
-                return false;
-            }
-            machine_block.append_instruction(load_mnemonic_for_type(load.get_type()) +
-                                             " " + def_vreg(value_reg) + ", [" +
-                                             use_vreg(address_reg) + "]");
         }
-        return true;
+        MemoryValueLoweringContext memory_context(*this, state);
+        return sysycc::emit_nonpromoted_load(machine_block, memory_context, load,
+                                             *state.machine_function);
     }
 
     bool emit_store(AArch64MachineBlock &machine_block,
@@ -2500,75 +2539,9 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
             state.promoted_stack_slot_values[store.get_stack_slot()] = value_reg;
             return true;
         }
-
-        if (const auto *zero_initializer =
-                dynamic_cast<const CoreIrConstantZeroInitializer *>(store.get_value());
-            zero_initializer != nullptr) {
-            AArch64VirtualReg address_reg;
-            if (store.get_stack_slot() != nullptr) {
-                address_reg = create_pointer_virtual_reg(*state.machine_function);
-                append_frame_address(
-                    machine_block, address_reg,
-                    state.machine_function->get_frame_info().get_stack_slot_offset(
-                        store.get_stack_slot()),
-                    *state.machine_function);
-            } else {
-                if (!ensure_value_in_vreg(machine_block, store.get_address(), state,
-                                          address_reg)) {
-                    return false;
-                }
-            }
-            return emit_zero_fill(machine_block, address_reg,
-                                  zero_initializer->get_type(),
-                                  *state.machine_function);
-        }
-
-        if (is_aggregate_type(store.get_value()->get_type())) {
-            AArch64VirtualReg source_address;
-            if (!ensure_value_in_memory_address(machine_block, store.get_value(), state,
-                                                source_address)) {
-                return false;
-            }
-            AArch64VirtualReg destination_address =
-                create_pointer_virtual_reg(*state.machine_function);
-            if (store.get_stack_slot() != nullptr) {
-                append_frame_address(
-                    machine_block, destination_address,
-                    state.machine_function->get_frame_info().get_stack_slot_offset(
-                        store.get_stack_slot()),
-                    *state.machine_function);
-            } else {
-                if (!ensure_value_in_vreg(machine_block, store.get_address(), state,
-                                          destination_address)) {
-                    return false;
-                }
-            }
-            return emit_memory_copy(machine_block, destination_address, source_address,
-                                    store.get_value()->get_type(),
-                                    *state.machine_function);
-        }
-
-        AArch64VirtualReg value_reg;
-        if (!ensure_value_in_vreg(machine_block, store.get_value(), state, value_reg)) {
-            return false;
-        }
-        if (store.get_stack_slot() != nullptr) {
-            append_store_to_frame(
-                machine_block, store.get_value()->get_type(), value_reg,
-                state.machine_function->get_frame_info().get_stack_slot_offset(
-                    store.get_stack_slot()),
-                *state.machine_function);
-            return true;
-        }
-        AArch64VirtualReg address_reg;
-        if (!ensure_value_in_vreg(machine_block, store.get_address(), state,
-                                  address_reg)) {
-            return false;
-        }
-        machine_block.append_instruction(store_mnemonic_for_type(store.get_value()->get_type()) +
-                                         " " + use_vreg(value_reg) + ", [" +
-                                         use_vreg(address_reg) + "]");
-        return true;
+        MemoryValueLoweringContext memory_context(*this, state);
+        return sysycc::emit_nonpromoted_store(machine_block, memory_context, store,
+                                              *state.machine_function);
     }
 
     bool emit_float128_binary_helper(AArch64MachineBlock &machine_block,
