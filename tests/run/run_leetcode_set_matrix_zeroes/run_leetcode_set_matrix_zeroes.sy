@@ -1,0 +1,58 @@
+// Source: LeetCode 73. Set Matrix Zeroes
+// Problem: https://leetcode.com/problems/set-matrix-zeroes/
+// Adapted for SysyCC runtime regression: read rows, cols, and a matrix, then
+// print the transformed matrix after zero propagation.
+
+int main() {
+    int matrix[6][6];
+    int row_zero[6];
+    int col_zero[6];
+    int rows = 0;
+    int cols = 0;
+    int i = 0;
+    int j = 0;
+
+    rows = getint();
+    cols = getint();
+
+    i = 0;
+    while (i < rows) {
+        row_zero[i] = 0;
+        i = i + 1;
+    }
+    i = 0;
+    while (i < cols) {
+        col_zero[i] = 0;
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < rows) {
+        j = 0;
+        while (j < cols) {
+            matrix[i][j] = getint();
+            if (matrix[i][j] == 0) {
+                row_zero[i] = 1;
+                col_zero[j] = 1;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < rows) {
+        j = 0;
+        while (j < cols) {
+            if (row_zero[i] || col_zero[j]) {
+                matrix[i][j] = 0;
+            }
+            putint(matrix[i][j]);
+            putch(10);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    return 0;
+}

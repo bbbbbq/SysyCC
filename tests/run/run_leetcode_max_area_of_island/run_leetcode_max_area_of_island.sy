@@ -1,0 +1,65 @@
+// Source: LeetCode 695. Max Area of Island
+// Problem: https://leetcode.com/problems/max-area-of-island/
+// Adapted for SysyCC runtime regression: read rows, cols, and a 0/1 grid, then
+// print the largest island area using DFS.
+
+int max_int(int lhs, int rhs) {
+    if (lhs > rhs) {
+        return lhs;
+    }
+    return rhs;
+}
+
+int g_grid[6][6];
+int g_rows = 0;
+int g_cols = 0;
+
+int area_dfs(int row, int col) {
+    if (row < 0 || row >= g_rows || col < 0 || col >= g_cols) {
+        return 0;
+    }
+    if (g_grid[row][col] == 0) {
+        return 0;
+    }
+
+    g_grid[row][col] = 0;
+    return 1 + area_dfs(row + 1, col) +
+           area_dfs(row - 1, col) +
+           area_dfs(row, col + 1) +
+           area_dfs(row, col - 1);
+}
+
+int main() {
+    int best = 0;
+    int i = 0;
+    int j = 0;
+
+    g_rows = getint();
+    g_cols = getint();
+
+    i = 0;
+    while (i < g_rows) {
+        j = 0;
+        while (j < g_cols) {
+            g_grid[i][j] = getint();
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < g_rows) {
+        j = 0;
+        while (j < g_cols) {
+            if (g_grid[i][j] == 1) {
+                best = max_int(best, area_dfs(i, j));
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    putint(best);
+    putch(10);
+    return 0;
+}

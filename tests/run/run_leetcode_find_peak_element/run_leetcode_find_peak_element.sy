@@ -1,0 +1,37 @@
+// Source: LeetCode 162. Find Peak Element
+// Problem: https://leetcode.com/problems/find-peak-element/
+// Adapted for SysyCC runtime regression: read n and values, then print one
+// peak index using binary search.
+
+int find_peak(int values[32], int count) {
+    int left = 0;
+    int right = count - 1;
+    int mid = 0;
+
+    while (left < right) {
+        mid = left + (right - left) / 2;
+        if (values[mid] < values[mid + 1]) {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+
+    return left;
+}
+
+int main() {
+    int values[32];
+    int count = 0;
+    int i = 0;
+
+    count = getint();
+    while (i < count) {
+        values[i] = getint();
+        i = i + 1;
+    }
+
+    putint(find_peak(values, count));
+    putch(10);
+    return 0;
+}
