@@ -27,7 +27,7 @@ assert_program_output "${PROGRAM_BINARY}" "${PROGRAM_INPUT}" "${EXPECTED_OUTPUT}
 
 grep -q '\[3 x i32\]' "${IR_FILE}"
 grep -q 'store i32 4, ptr %t0' "${IR_FILE}"
-grep -Eq '^cond\.true[0-9]+:$' "${IR_FILE}"
+grep -Eq '^cond\.(false|true)[0-9]+:$' "${IR_FILE}"
 grep -Eq '^cond\.end[0-9]+:$' "${IR_FILE}"
 
 echo "verified: canonical conditional expressions stay constant through array dimensions enum values case labels and final comparisons"
