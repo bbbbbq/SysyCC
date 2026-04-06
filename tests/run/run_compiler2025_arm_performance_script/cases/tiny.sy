@@ -1,0 +1,16 @@
+int getint(void);
+void putint(int value);
+void putch(int value);
+
+int main(void) {
+    int value = getint();
+    int total = value;
+    int i = 0;
+    while (i < 128) {
+        total = total + i;
+        i = i + 1;
+    }
+    putint(total);
+    putch(10);
+    return 3;
+}
