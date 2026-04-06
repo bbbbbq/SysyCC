@@ -21,6 +21,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_aggregate_abi_move_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_call_abi_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_cast_lowering_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_compare_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_frame_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_float_helper_lowering_support.hpp"
@@ -187,54 +188,6 @@ std::string floating_register_name(unsigned index, AArch64VirtualRegKind kind) {
 
 std::string zero_register_name(bool use_64bit) {
     return use_64bit ? "xzr" : "wzr";
-}
-
-std::string float_condition_code(CoreIrComparePredicate predicate) {
-    switch (predicate) {
-    case CoreIrComparePredicate::Equal:
-        return "eq";
-    case CoreIrComparePredicate::NotEqual:
-        return "ne";
-    case CoreIrComparePredicate::SignedLess:
-    case CoreIrComparePredicate::UnsignedLess:
-        return "lt";
-    case CoreIrComparePredicate::SignedLessEqual:
-    case CoreIrComparePredicate::UnsignedLessEqual:
-        return "le";
-    case CoreIrComparePredicate::SignedGreater:
-    case CoreIrComparePredicate::UnsignedGreater:
-        return "gt";
-    case CoreIrComparePredicate::SignedGreaterEqual:
-    case CoreIrComparePredicate::UnsignedGreaterEqual:
-        return "ge";
-    }
-    return "eq";
-}
-
-std::string condition_code(CoreIrComparePredicate predicate) {
-    switch (predicate) {
-    case CoreIrComparePredicate::Equal:
-        return "eq";
-    case CoreIrComparePredicate::NotEqual:
-        return "ne";
-    case CoreIrComparePredicate::SignedLess:
-        return "lt";
-    case CoreIrComparePredicate::SignedLessEqual:
-        return "le";
-    case CoreIrComparePredicate::SignedGreater:
-        return "gt";
-    case CoreIrComparePredicate::SignedGreaterEqual:
-        return "ge";
-    case CoreIrComparePredicate::UnsignedLess:
-        return "lo";
-    case CoreIrComparePredicate::UnsignedLessEqual:
-        return "ls";
-    case CoreIrComparePredicate::UnsignedGreater:
-        return "hi";
-    case CoreIrComparePredicate::UnsignedGreaterEqual:
-        return "hs";
-    }
-    return "eq";
 }
 
 std::string fp_move_mnemonic(AArch64VirtualRegKind kind) {
@@ -2647,31 +2600,9 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                                 rhs_reg, dst_reg,
                                                 *state.machine_function);
         }
-        if (is_float_type(compare.get_lhs()->get_type())) {
-            if (lhs_reg.get_kind() == AArch64VirtualRegKind::Float16) {
-                const AArch64VirtualReg lhs32 =
-                    promote_float16_to_float32(machine_block, lhs_reg,
-                                               *state.machine_function);
-                const AArch64VirtualReg rhs32 =
-                    promote_float16_to_float32(machine_block, rhs_reg,
-                                               *state.machine_function);
-                machine_block.append_instruction("fcmp " + use_vreg(lhs32) + ", " +
-                                                 use_vreg(rhs32));
-            } else {
-                machine_block.append_instruction("fcmp " + use_vreg(lhs_reg) + ", " +
-                                                 use_vreg(rhs_reg));
-            }
-        } else {
-            machine_block.append_instruction("cmp " + use_vreg(lhs_reg) + ", " +
-                                             use_vreg(rhs_reg));
-        }
-        machine_block.append_instruction("cset " + def_vreg(dst_reg) + ", " +
-                                         (is_float_type(compare.get_lhs()->get_type())
-                                              ? float_condition_code(
-                                                    compare.get_predicate())
-                                              : condition_code(
-                                                    compare.get_predicate())));
-        return true;
+        return sysycc::emit_non_float128_compare(machine_block, compare, lhs_reg,
+                                                 rhs_reg, dst_reg,
+                                                 *state.machine_function);
     }
 
     bool emit_cast(AArch64MachineBlock &machine_block, const CoreIrCastInst &cast,

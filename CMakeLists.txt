@@ -56,6 +56,7 @@ add_executable(${PROJECT_NAME}
     src/backend/asm_gen/aarch64/support/aarch64_address_materialization_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_call_abi_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_cast_lowering_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_compare_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_float_helper_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_function_boundary_abi_support.cpp
