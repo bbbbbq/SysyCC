@@ -1,0 +1,78 @@
+// Source: LeetCode 207. Course Schedule
+// Problem: https://leetcode.com/problems/course-schedule/
+// Adapted for SysyCC runtime regression: read course count and prerequisite
+// pairs, then print 1 if all courses can be finished, otherwise 0.
+
+int edges[16][16];
+int indegree[16];
+int queue_values[16];
+
+int main() {
+    int courses = 0;
+    int prerequisite_count = 0;
+    int from = 0;
+    int to = 0;
+    int head = 0;
+    int tail = 0;
+    int taken = 0;
+    int current = 0;
+    int next = 0;
+    int i = 0;
+    int j = 0;
+
+    courses = getint();
+    prerequisite_count = getint();
+
+    i = 0;
+    while (i < courses) {
+        indegree[i] = 0;
+        j = 0;
+        while (j < courses) {
+            edges[i][j] = 0;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < prerequisite_count) {
+        to = getint();
+        from = getint();
+        if (!edges[from][to]) {
+            edges[from][to] = 1;
+            indegree[to] = indegree[to] + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < courses) {
+        if (indegree[i] == 0) {
+            queue_values[tail] = i;
+            tail = tail + 1;
+        }
+        i = i + 1;
+    }
+
+    while (head < tail) {
+        current = queue_values[head];
+        head = head + 1;
+        taken = taken + 1;
+
+        next = 0;
+        while (next < courses) {
+            if (edges[current][next]) {
+                indegree[next] = indegree[next] - 1;
+                if (indegree[next] == 0) {
+                    queue_values[tail] = next;
+                    tail = tail + 1;
+                }
+            }
+            next = next + 1;
+        }
+    }
+
+    putint(taken == courses);
+    putch(10);
+    return 0;
+}
