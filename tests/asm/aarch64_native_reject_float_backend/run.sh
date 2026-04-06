@@ -18,6 +18,6 @@ assert_compiler_fails_with_message \
     --backend=aarch64-native \
     --target=aarch64-unknown-linux-gnu \
     "${INPUT_FILE}" \
-    "unsupported stack slot type in AArch64 native backend for function 'main'"
+    "unsupported global initializer in AArch64 native backend for 'g'"
 
-echo "verified: native AArch64 backend fails fast on unsupported float lowering"
+echo "verified: native AArch64 backend still fails fast on unsupported global float initializers"
