@@ -1,5 +1,9 @@
-int main() {
-    int value;
-    value = 1 ? 11 : 22;
-    return value;
+int getint(void);
+
+int pick(int cond) {
+    return cond ? 11 : 22;
+}
+
+int main(void) {
+    return pick(getint());
 }
