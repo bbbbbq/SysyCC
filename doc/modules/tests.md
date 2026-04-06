@@ -62,7 +62,9 @@ rather than inside, the regular `tests/<stage>/<case>/run.sh` tree. The
 current scripts cover:
 
 - the original correctness harness for the recovered `functional` and
-  `h_functional` suites
+  `h_functional` suites, now executed through SysyCC-generated native AArch64
+  assembly plus cross assemble/link and qemu user-mode execution rather than
+  the older host-side `--dump-ir` fallback
 - an ARM-performance correctness runner that treats
   `tests/compiler2025/extracted/ARM-性能` as a case root and checks the
   generated program output against the bundled `.out` files
@@ -132,6 +134,14 @@ includes:
   cases where the first initialized field is narrower than the union storage
 - IR/runtime coverage for aggregate assignment expressions used directly as
   fixed-parameter call arguments
+- runtime coverage for LeetCode-inspired array algorithms adapted to the
+  SysyCC stdin/stdout harness, including in-place duplicate compaction,
+  binary-search insertion index lookup, Kadane maximum subarray, single-pass
+  stock-profit scanning, and Boyer-Moore majority voting
+- runtime coverage for longer LeetCode-inspired composite problems including
+  dynamic 2D union-find, multi-source grid BFS, handwritten heap-based graph
+  shortest path, interval-room scheduling with paired heaps, and 2D dynamic
+  programming over matrix state
 - IR failure coverage for unsupported function bodies, which must now stop
   compilation with a diagnostic instead of being silently skipped
 - IR failure coverage for internal backend emission failures, which must now
