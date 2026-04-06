@@ -13,7 +13,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 set +e
-OUTPUT="$("${BUILD_DIR}/SysyCC" \
+OUTPUT="$("${BUILD_DIR}/compiler" \
     -E \
     -DCLI_MACRO=7 \
     -DHIDDEN \

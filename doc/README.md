@@ -83,6 +83,10 @@ main
       -> AArch64AsmGenPass
 ```
 
+The default public build artifact is now `build/compiler`. The build also keeps
+`build/SysyCC` as a compatibility alias for existing local scripts while the
+repository transitions toward the public driver name.
+
 ## Module Map
 
 - [attribute.md](/Users/caojunze424/code/SysyCC/doc/modules/attribute.md): GNU-style attribute parsing and structured attribute records
@@ -149,6 +153,10 @@ main
   lets preprocess include-trace notes surface in CLI diagnostics alongside the
   primary error, and the rendering policy now lives in a dedicated
   `DiagnosticFormatter`
+- the public CLI now accepts `-O0` and `-O1`, where `-O0` preserves only the
+  minimum Core IR normalization needed by later lowering and `-O1` additionally
+  enables the current `CoreIrCanonicalizePass`, `CoreIrConstFoldPass`, and
+  `CoreIrDcePass` batch
 - successful runs now also surface shared non-fatal diagnostics such as
   preprocess `#warning` through the same formatter path
 - IR results are now stored in memory as an `IRResult` attached to `CompilerContext`.

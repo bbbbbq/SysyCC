@@ -8,6 +8,7 @@
 #include "backend/asm_gen/aarch64/aarch64_asm_backend.hpp"
 #include "backend/asm_gen/backend_kind.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
@@ -32,6 +33,27 @@ std::filesystem::path get_asm_output_file_path(const CompilerContext &context) {
     return input_path.stem().string() + ".s";
 }
 
+PassResult maybe_dump_core_ir(CompilerContext &context, const CoreIrModule &module) {
+    if (!context.get_dump_core_ir()) {
+        return PassResult::Success();
+    }
+
+    const std::filesystem::path output_dir("build/intermediate_results");
+    std::filesystem::create_directories(output_dir);
+    const std::filesystem::path input_path(context.get_input_file());
+    const std::filesystem::path output_file =
+        output_dir / (input_path.stem().string() + ".core-ir.txt");
+    std::ofstream ofs(output_file);
+    if (!ofs.is_open()) {
+        return PassResult::Failure("failed to open core ir dump file");
+    }
+
+    CoreIrRawPrinter printer;
+    ofs << printer.print_module(module);
+    context.set_core_ir_dump_file_path(output_file.string());
+    return PassResult::Success();
+}
+
 } // namespace
 
 PassKind AArch64AsmGenPass::Kind() const { return PassKind::CodeGen; }
@@ -52,6 +74,11 @@ PassResult AArch64AsmGenPass::Run(CompilerContext &context) {
     CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
         return fail_missing_core_ir(context, Name());
+    }
+
+    PassResult core_ir_dump_result = maybe_dump_core_ir(context, *module);
+    if (!core_ir_dump_result.ok) {
+        return core_ir_dump_result;
     }
 
     AArch64AsmBackend backend;

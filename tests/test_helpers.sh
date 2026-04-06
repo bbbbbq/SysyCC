@@ -223,6 +223,7 @@ install_sysycc_test_binary_wrapper() {
     local wrapper_dir="${build_dir}/.sysycc_test_wrappers"
     local wrapper_path="${build_dir}/SysyCC"
     local real_binary_path="${wrapper_dir}/SysyCC.real"
+    local public_binary_path="${build_dir}/compiler"
     local install_lock_dir="${wrapper_dir}/.install.lock"
 
     if [[ "${SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS:-0}" == "1" ]]; then
@@ -235,7 +236,8 @@ install_sysycc_test_binary_wrapper() {
     (
         trap 'release_named_lock "${install_lock_dir}"' EXIT
 
-        if [[ ! -e "${wrapper_path}" && ! -e "${real_binary_path}" ]]; then
+        if [[ ! -e "${wrapper_path}" && ! -e "${real_binary_path}" &&
+              ! -e "${public_binary_path}" ]]; then
             return 0
         fi
 
@@ -243,9 +245,11 @@ install_sysycc_test_binary_wrapper() {
             rm -f "${real_binary_path}"
         fi
 
-        if [[ -e "${wrapper_path}" ]] &&
-           ! is_sysycc_test_wrapper_file "${wrapper_path}" &&
-           [[ ! -e "${real_binary_path}" ]]; then
+        if [[ -e "${public_binary_path}" ]]; then
+            cp "${public_binary_path}" "${real_binary_path}"
+        elif [[ -e "${wrapper_path}" ]] &&
+             ! is_sysycc_test_wrapper_file "${wrapper_path}" &&
+             [[ ! -e "${real_binary_path}" ]]; then
             mv "${wrapper_path}" "${real_binary_path}"
         fi
 

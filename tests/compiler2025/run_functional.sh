@@ -7,7 +7,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${SYSYCC_COMPILER2025_BUILD_DIR:-${PROJECT_ROOT}/build}"
 IR_OUTPUT_DIR="${SYSYCC_COMPILER2025_IR_OUTPUT_DIR:-${PROJECT_ROOT}/build/intermediate_results}"
 CASE_BUILD_ROOT_BASE="${SCRIPT_DIR}/build"
-COMPILER_BIN="${BUILD_DIR}/SysyCC"
+COMPILER_BIN="${BUILD_DIR}/compiler"
 RUNTIME_SOURCE="${SCRIPT_DIR}/sylib.c"
 RUNTIME_BUILTIN_STUB="${PROJECT_ROOT}/tests/run/support/runtime_builtin_stub.ll"
 RUNTIME_COMPAT_SOURCE="${SCRIPT_DIR}/runtime_builtin_compat.c"
@@ -199,7 +199,7 @@ fi
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 if ! "${COMPILER_BIN}" "${RUNTIME_SOURCE}" --dump-ir >"${RUNTIME_COMPILE_LOG}" 2>&1; then
-    echo "failed to compile compiler2025 runtime with SysyCC, see ${RUNTIME_COMPILE_LOG}" >&2
+    echo "failed to compile compiler2025 runtime with compiler, see ${RUNTIME_COMPILE_LOG}" >&2
     exit 1
 fi
 

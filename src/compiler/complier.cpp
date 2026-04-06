@@ -50,6 +50,7 @@ void Complier::sync_context_from_option() {
     context_.set_dump_core_ir(option_.dump_core_ir());
     context_.set_emit_asm(option_.emit_asm());
     context_.set_stop_after_stage(option_.get_stop_after_stage());
+    context_.set_optimization_level(option_.get_optimization_level());
     context_.set_backend_options(option_.get_backend_options());
     context_.get_diagnostic_engine().set_warning_policy(
         option_.get_warning_policy());

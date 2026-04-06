@@ -13,7 +13,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 rm -f "${OUTPUT_FILE}"
 
-"${BUILD_DIR}/SysyCC" -S -emit-llvm -o "${OUTPUT_FILE}" "${INPUT_FILE}"
+"${BUILD_DIR}/compiler" -S -emit-llvm -o "${OUTPUT_FILE}" "${INPUT_FILE}"
 
 grep -Fq "define i32 @main()" "${OUTPUT_FILE}"
 

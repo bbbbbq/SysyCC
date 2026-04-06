@@ -118,6 +118,10 @@ CoreIrInstCombinePass -> CoreIrMem2RegPass ->
   emits textual LLVM IR for the supported subset, while
   `-S --backend=aarch64-native` runs a first native Linux AArch64 asm backend
   over the same `CoreIrModule`.
+- The public driver now also carries an explicit optimization level. `-O0`
+  keeps only the minimum Core IR normalization required by later lowering,
+  while `-O1` enables the current canonicalize/const-fold/DCE batch over the
+  built Core IR before lowering continues.
 - That hot path now also carries staged pointer arithmetic, pointer
   differences, top-level constant global-address initializers, union-backed
   aggregate storage, and variadic default-argument promotions before LLVM text

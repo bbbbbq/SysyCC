@@ -1,6 +1,10 @@
 #include "pass.hpp"
 
+#include <filesystem>
+#include <fstream>
+
 #include "backend/ir/shared/core/core_ir_builder.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "backend/ir/verify/core_ir_verifier.hpp"
 
 namespace sysycc {
@@ -31,7 +35,9 @@ bool should_stop_after_pass(const CompilerContext &context, PassKind pass_kind) 
     case StopAfterStage::Semantic:
         return pass_kind == PassKind::Semantic;
     case StopAfterStage::CoreIr:
-        return pass_kind == PassKind::CoreIrDce;
+        return context.get_optimization_level() == OptimizationLevel::O1
+                   ? pass_kind == PassKind::CoreIrDce
+                   : pass_kind == PassKind::CoreIrMem2Reg;
     case StopAfterStage::IR:
         return pass_kind == PassKind::LowerIr;
     case StopAfterStage::Asm:
@@ -39,6 +45,38 @@ bool should_stop_after_pass(const CompilerContext &context, PassKind pass_kind) 
     }
 
     return false;
+}
+
+bool should_run_fixed_point_group(const CompilerContext &context) {
+    return context.get_optimization_level() == OptimizationLevel::O1;
+}
+
+void maybe_dump_core_ir_before_stop(CompilerContext &context) {
+    if (context.get_stop_after_stage() != StopAfterStage::CoreIr ||
+        !context.get_dump_core_ir()) {
+        return;
+    }
+
+    CoreIrBuildResult *build_result = context.get_core_ir_build_result();
+    CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
+    if (module == nullptr) {
+        return;
+    }
+
+    const std::filesystem::path output_dir("build/intermediate_results");
+    std::filesystem::create_directories(output_dir);
+    const std::filesystem::path input_path(context.get_input_file());
+    const std::filesystem::path output_file =
+        output_dir / (input_path.stem().string() + ".core-ir.txt");
+    std::ofstream ofs(output_file);
+    if (!ofs.is_open()) {
+        return;
+    }
+
+    CoreIrRawPrinter printer;
+    ofs << printer.print_module(*module);
+    context.set_core_ir_dump_file_path(output_file.string());
 }
 
 std::unordered_set<CoreIrFunction *>
@@ -171,6 +209,7 @@ PassExecutionResult run_one_pass(CompilerContext &context, Pass &pass) {
         return execution_result;
     }
     if (should_stop_after_pass(context, pass.Kind())) {
+        maybe_dump_core_ir_before_stop(context);
         execution_result.stopped = true;
     }
     execution_result.result = PassResult::Success();
@@ -244,6 +283,10 @@ PassResult PassManager::Run(CompilerContext &context) {
 
         if (!entry.fixed_point_group.has_value()) {
             return PassResult::Failure("encountered empty pipeline entry");
+        }
+
+        if (!should_run_fixed_point_group(context)) {
+            continue;
         }
 
         const FixedPointPassGroup &group = *entry.fixed_point_group;

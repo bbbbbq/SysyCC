@@ -453,6 +453,7 @@ class CompilerContext {
     bool dump_core_ir_ = false;
     bool emit_asm_ = false;
     StopAfterStage stop_after_stage_ = StopAfterStage::None;
+    OptimizationLevel optimization_level_ = OptimizationLevel::O0;
     bool ast_complete_ = false;
     BackendOptions backend_options_;
     std::string token_dump_file_path_;
@@ -606,6 +607,14 @@ class CompilerContext {
 
     void set_stop_after_stage(StopAfterStage stop_after_stage) noexcept {
         stop_after_stage_ = stop_after_stage;
+    }
+
+    OptimizationLevel get_optimization_level() const noexcept {
+        return optimization_level_;
+    }
+
+    void set_optimization_level(OptimizationLevel optimization_level) noexcept {
+        optimization_level_ = optimization_level;
     }
 
     bool get_ast_complete() const noexcept { return ast_complete_; }

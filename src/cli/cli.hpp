@@ -11,7 +11,7 @@ namespace ClI {
 // Parses command line arguments and translates them into compiler options.
 class Cli {
   private:
-    std::string program_name_ = "sysycc";
+    std::string program_name_ = "compiler";
     std::string input_file_;
     std::string output_file_;
     std::vector<std::string> include_directories_;
@@ -30,6 +30,9 @@ class Cli {
     bool internal_pipeline_requested_ = false;
     sysycc::DriverAction driver_action_ = sysycc::DriverAction::InternalPipeline;
     sysycc::LanguageMode language_mode_ = sysycc::LanguageMode::Sysy;
+    sysycc::OptimizationLevel optimization_level_ =
+        sysycc::OptimizationLevel::O0;
+    bool explicit_optimization_level_ = false;
     bool enable_gnu_dialect_ = true;
     bool enable_clang_dialect_ = true;
     bool enable_builtin_type_extension_pack_ = true;
@@ -64,13 +67,15 @@ class Cli {
     const std::string &get_program_name() const noexcept { return program_name_; }
     const std::string &get_version() const noexcept { return version_; }
 
-    static void PrintHelp() {
-        std::cout << "Usage: sysycc [options] <input_file>\n"
+    void PrintHelp() const {
+        std::cout << "Usage: " << program_name_ << " [options] <input_file>\n"
                   << "Options:\n"
                   << "  -E                 Preprocess only; write to stdout or -o\n"
                   << "  -fsyntax-only      Run through semantic analysis only\n"
                   << "  -S                 Emit assembly output\n"
                   << "  -emit-llvm         Emit LLVM IR (requires -S)\n"
+                  << "  -O0                Disable optional Core IR optimization passes\n"
+                  << "  -O1                Enable current Core IR optimization passes\n"
                   << "  -c                 Parse as compile-only mode (currently unsupported)\n"
                   << "  -I<dir>            Add include search directory\n"
                   << "  -I <dir>           Add include search directory\n"
@@ -102,7 +107,7 @@ class Cli {
                   << "  -v                 Show verbose driver configuration while compiling\n";
     }
     void PrintVersion() {
-        std::cout << "sysycc version " << version_ << '\n';
+        std::cout << program_name_ << " version " << version_ << '\n';
     }
 
     void set_compiler_option(sysycc::ComplierOption &option) const {
@@ -132,6 +137,7 @@ class Cli {
         option.set_emit_asm(emit_asm_);
         option.set_stop_after_stage(stop_after_stage_);
         option.set_language_mode(language_mode_);
+        option.set_optimization_level(optimization_level_);
         option.set_enable_gnu_dialect(enable_gnu_dialect_);
         option.set_enable_clang_dialect(enable_clang_dialect_);
         option.set_enable_builtin_type_extension_pack(

@@ -12,7 +12,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_compiler_fails_with_message \
-    "${BUILD_DIR}/SysyCC" \
+    "${BUILD_DIR}/compiler" \
     -fsyntax-only \
     --definitely-unknown-flag \
     "${INPUT_FILE}" \
