@@ -290,6 +290,13 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         }
         expr_analyzer_.analyze_expr(var_decl->get_initializer(), semantic_context,
                                     scope_stack);
+        if (is_file_scope && var_decl->get_initializer() != nullptr &&
+            !constant_evaluator_.is_static_storage_initializer(
+                var_decl->get_initializer(), declared_type, semantic_model)) {
+            add_error(semantic_context,
+                      "initializer is not a valid static initializer",
+                      var_decl->get_initializer()->get_source_span());
+        }
         if (var_decl->get_initializer() != nullptr &&
             var_decl->get_initializer()->get_kind() != AstKind::InitListExpr) {
             const SemanticType *initializer_type =
@@ -348,6 +355,14 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         }
         expr_analyzer_.analyze_expr(const_decl->get_initializer(),
                                     semantic_context, scope_stack);
+        if (semantic_context.get_current_function() == nullptr &&
+            const_decl->get_initializer() != nullptr &&
+            !constant_evaluator_.is_static_storage_initializer(
+                const_decl->get_initializer(), declared_type, semantic_model)) {
+            add_error(semantic_context,
+                      "initializer is not a valid static initializer",
+                      const_decl->get_initializer()->get_source_span());
+        }
         if (const_decl->get_initializer() != nullptr &&
             !constant_evaluator_.is_integer_constant_expr(
                 const_decl->get_initializer(), semantic_context,

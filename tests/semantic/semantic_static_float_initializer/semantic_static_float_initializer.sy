@@ -1,0 +1,5 @@
+static double g = 1.0 + 2.0;
+
+int main(void) {
+    return g == 3.0 ? 0 : 1;
+}
