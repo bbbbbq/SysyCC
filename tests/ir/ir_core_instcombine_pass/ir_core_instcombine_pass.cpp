@@ -69,8 +69,7 @@ void test_folds_binary_and_compare_rules() {
     auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
     auto *two = context->create_constant<CoreIrConstantInt>(i32_type, 2);
     auto *three = context->create_constant<CoreIrConstantInt>(i32_type, 3);
-    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
-    auto *one = context->create_constant<CoreIrConstantInt>(i1_type, 1);
+    auto *bool_zero = context->create_constant<CoreIrConstantInt>(i1_type, 0);
 
     auto *sum = entry->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type, "sum", two, three);
@@ -79,9 +78,8 @@ void test_folds_binary_and_compare_rules() {
     auto *cmp = entry->create_instruction<CoreIrCompareInst>(
         CoreIrComparePredicate::Equal, i1_type, "cmp_same", xor_self, xor_self);
     auto *wrapped = entry->create_instruction<CoreIrCompareInst>(
-        CoreIrComparePredicate::NotEqual, i1_type, "wrapped", cmp, zero);
+        CoreIrComparePredicate::NotEqual, i1_type, "wrapped", cmp, bool_zero);
     entry->create_instruction<CoreIrReturnInst>(void_type, wrapped);
-    (void)one;
 
     CompilerContext compiler_context;
     compiler_context.set_core_ir_build_result(
@@ -95,8 +93,8 @@ void test_folds_binary_and_compare_rules() {
     assert(text.find("%sum =") == std::string::npos);
     assert(text.find("%xor_self =") == std::string::npos);
     assert(text.find("%cmp_same =") == std::string::npos);
-    assert(text.find("%wrapped =") == std::string::npos);
-    assert(text.find("ret i1 1") != std::string::npos);
+    assert(text.find("%wrapped = icmp ne i1 1, 0") != std::string::npos);
+    assert(text.find("ret i1 %wrapped") != std::string::npos);
 }
 
 void test_canonicalizes_condjump_and_memory_shapes() {

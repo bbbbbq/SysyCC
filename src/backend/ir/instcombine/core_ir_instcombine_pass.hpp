@@ -4,6 +4,11 @@
 
 namespace sysycc {
 
+struct CoreIrInstCombineStats {
+    std::size_t visited_instructions = 0;
+    std::size_t rewrites = 0;
+};
+
 class CoreIrInstCombinePass : public Pass {
   public:
     PassKind Kind() const override;
@@ -12,6 +17,15 @@ class CoreIrInstCombinePass : public Pass {
         return CoreIrPassMetadata::core_ir_transform();
     }
     PassResult Run(CompilerContext &context) override;
+
+  private:
+    CoreIrInstCombineStats last_stats_{};
+
+    friend const CoreIrInstCombineStats &
+    get_instcombine_stats_for_testing(const CoreIrInstCombinePass &pass);
 };
+
+const CoreIrInstCombineStats &
+get_instcombine_stats_for_testing(const CoreIrInstCombinePass &pass);
 
 } // namespace sysycc
