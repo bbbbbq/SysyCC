@@ -414,7 +414,13 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
     if (const auto *global_address =
             dynamic_cast<const CoreIrConstantGlobalAddress *>(constant);
         global_address != nullptr) {
-        return "@" + global_address->get_global()->get_name();
+        if (global_address->get_global() != nullptr) {
+            return "@" + global_address->get_global()->get_name();
+        }
+        if (global_address->get_function() != nullptr) {
+            return "@" + global_address->get_function()->get_name();
+        }
+        return "<constant-global-address>";
     }
     if (const auto *gep_constant =
             dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);

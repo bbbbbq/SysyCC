@@ -59,6 +59,12 @@ collect_trampoline_blocks(CoreIrFunction &function) {
             jump->get_target_block() == block.get()) {
             continue;
         }
+        if (!jump->get_target_block()->get_instructions().empty() &&
+            jump->get_target_block()->get_instructions().front() != nullptr &&
+            jump->get_target_block()->get_instructions().front()->get_opcode() ==
+                CoreIrOpcode::Phi) {
+            continue;
+        }
         trampoline_blocks.emplace(block.get(), jump->get_target_block());
     }
     return trampoline_blocks;
@@ -226,6 +232,12 @@ bool merge_linear_blocks(CoreIrAnalysisManager &analysis_manager,
         CoreIrBasicBlock *successor = jump->get_target_block();
         if (successor == nullptr || successor == block || successor == entry_block ||
             cfg_analysis.get_predecessor_count(successor) != 1) {
+            continue;
+        }
+        if (!successor->get_instructions().empty() &&
+            successor->get_instructions().front() != nullptr &&
+            successor->get_instructions().front()->get_opcode() ==
+                CoreIrOpcode::Phi) {
             continue;
         }
 

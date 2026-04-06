@@ -5,9 +5,11 @@
 #include <cctype>
 #include <cstdint>
 #include <functional>
+#include <iomanip>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string_view>
 #include <string>
 #include <unordered_map>
@@ -29,6 +31,7 @@
 #include "frontend/semantic/model/semantic_model.hpp"
 #include "frontend/semantic/model/semantic_symbol.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
+#include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/integer_conversion_service.hpp"
 
 namespace sysycc {
@@ -305,6 +308,7 @@ class CoreIrBuildSession {
 
     CompilerContext &compiler_context_;
     SemanticModel &semantic_model_;
+    detail::ConstantEvaluator constant_evaluator_;
     std::unique_ptr<CoreIrContext> core_ir_context_;
     CoreIrModule *module_ = nullptr;
     const CoreIrType *void_type_ = nullptr;
@@ -513,7 +517,13 @@ class CoreIrBuildSession {
     }
 
     std::optional<long long> get_integer_constant_value(const AstNode *node) const {
-        return semantic_model_.get_integer_constant_value(node);
+        return constant_evaluator_.get_integer_constant_value(node, semantic_model_);
+    }
+
+    std::optional<long double>
+    get_scalar_numeric_constant_value(const Expr *expr) const {
+        return constant_evaluator_.get_scalar_numeric_constant_value(
+            expr, semantic_model_);
     }
 
     const FunctionSemanticType *
@@ -1211,6 +1221,44 @@ class CoreIrBuildSession {
         }
 
         return false;
+    }
+
+    std::string format_scalar_float_literal(long double value) const {
+        std::ostringstream stream;
+        stream << std::setprecision(std::numeric_limits<long double>::max_digits10)
+               << value;
+        std::string text = stream.str();
+        if (text.find_first_of(".eE") == std::string::npos) {
+            text += ".0";
+        }
+        return text;
+    }
+
+    std::optional<std::uint64_t> convert_scalar_numeric_to_integer_bits(
+        long double value, const SemanticType *target_semantic_type) const {
+        detail::IntegerConversionService integer_conversion_service;
+        const auto type_info =
+            integer_conversion_service.get_integer_type_info(
+                strip_qualifiers(target_semantic_type));
+        if (!type_info.has_value()) {
+            return std::nullopt;
+        }
+
+        std::uint64_t bits =
+            static_cast<std::uint64_t>(static_cast<long long>(value));
+        if (type_info->get_bit_width() > 0 && type_info->get_bit_width() < 64) {
+            const std::uint64_t mask =
+                (std::uint64_t{1} << type_info->get_bit_width()) - 1;
+            bits &= mask;
+            if (type_info->get_is_signed()) {
+                const std::uint64_t sign_bit =
+                    std::uint64_t{1} << (type_info->get_bit_width() - 1);
+                if ((bits & sign_bit) != 0) {
+                    bits |= ~mask;
+                }
+            }
+        }
+        return bits;
     }
 
     const SemanticType *get_member_owner_type(const SemanticType *base_type,
@@ -2305,21 +2353,12 @@ class CoreIrBuildSession {
         }
 
         const std::string logic_suffix = next_conditional_suffix();
-        const std::string slot_name =
-            logic_suffix == "0" ? "addr.addr" : "addr.addr" + logic_suffix;
-        auto *result_slot = current_function_->create_stack_slot<CoreIrStackSlot>(
-            next_stack_slot_name(slot_name), result_type,
-            get_default_alignment(result_type));
         auto *zero_value = core_ir_context_->create_constant<CoreIrConstantInt>(
             result_type, 0);
         zero_value->set_source_span(expr.get_source_span());
         auto *one_value = core_ir_context_->create_constant<CoreIrConstantInt>(
             result_type, 1);
         one_value->set_source_span(expr.get_source_span());
-        auto *default_store = current_block_->create_instruction<CoreIrStoreInst>(
-            void_type_, zero_value, result_slot);
-        default_store->set_source_span(expr.get_source_span());
-
         CoreIrValue *lhs = build_expr(expr.get_lhs());
         if (lhs == nullptr) {
             return nullptr;
@@ -2331,13 +2370,16 @@ class CoreIrBuildSession {
         CoreIrBasicBlock *true_block =
             current_function_->create_basic_block<CoreIrBasicBlock>(
                 "logic.true" + logic_suffix);
+        CoreIrBasicBlock *false_block =
+            current_function_->create_basic_block<CoreIrBasicBlock>(
+                "logic.false" + logic_suffix);
         CoreIrBasicBlock *end_block =
             current_function_->create_basic_block<CoreIrBasicBlock>(
                 "logic.end" + logic_suffix);
 
         auto *lhs_branch = current_block_->create_instruction<CoreIrCondJumpInst>(
             void_type_, lhs, is_logical_and ? rhs_block : true_block,
-            is_logical_and ? end_block : rhs_block);
+            is_logical_and ? false_block : rhs_block);
         lhs_branch->set_source_span(expr.get_lhs()->get_source_span());
 
         current_block_ = rhs_block;
@@ -2346,20 +2388,22 @@ class CoreIrBuildSession {
             return nullptr;
         }
         auto *rhs_branch = current_block_->create_instruction<CoreIrCondJumpInst>(
-            void_type_, rhs, true_block, end_block);
+            void_type_, rhs, true_block, false_block);
         rhs_branch->set_source_span(expr.get_rhs()->get_source_span());
 
         current_block_ = true_block;
-        auto *true_store = current_block_->create_instruction<CoreIrStoreInst>(
-            void_type_, one_value, result_slot);
-        true_store->set_source_span(expr.get_source_span());
+        emit_jump_to(end_block, expr.get_source_span());
+
+        current_block_ = false_block;
         emit_jump_to(end_block, expr.get_source_span());
 
         current_block_ = end_block;
-        auto *load = current_block_->create_instruction<CoreIrLoadInst>(
-            result_type, next_temp_name(), result_slot);
-        load->set_source_span(expr.get_source_span());
-        return load;
+        auto *phi = current_block_->create_instruction<CoreIrPhiInst>(
+            result_type, next_temp_name());
+        phi->add_incoming(true_block, one_value);
+        phi->add_incoming(false_block, zero_value);
+        phi->set_source_span(expr.get_source_span());
+        return phi;
     }
 
     CoreIrValue *build_binary_expr(const BinaryExpr &expr) {
@@ -2604,8 +2648,11 @@ class CoreIrBuildSession {
             void_type_, condition, true_block, false_block);
         branch->set_source_span(expr.get_source_span());
 
+        const bool can_use_phi =
+            result_type != void_type_ &&
+            is_scalar_semantic_type(get_node_type(&expr));
         CoreIrStackSlot *result_slot = nullptr;
-        if (result_type != void_type_) {
+        if (!can_use_phi && result_type != void_type_) {
             const std::string slot_name =
                 conditional_suffix == "0" ? "addr.addr"
                                            : "addr.addr" + conditional_suffix;
@@ -2619,7 +2666,15 @@ class CoreIrBuildSession {
         if (true_value == nullptr) {
             return nullptr;
         }
-        if (result_slot != nullptr) {
+        if (can_use_phi) {
+            true_value = build_converted_value(true_value,
+                                               get_node_type(expr.get_true_expr()),
+                                               get_node_type(&expr),
+                                               expr.get_true_expr()->get_source_span());
+            if (true_value == nullptr) {
+                return nullptr;
+            }
+        } else if (result_slot != nullptr) {
             true_value = build_converted_value(true_value,
                                                get_node_type(expr.get_true_expr()),
                                                get_node_type(&expr),
@@ -2638,11 +2693,18 @@ class CoreIrBuildSession {
         if (false_value == nullptr) {
             return nullptr;
         }
-        if (result_slot != nullptr) {
+        if (can_use_phi) {
             false_value = build_converted_value(false_value,
                                                 get_node_type(expr.get_false_expr()),
                                                 get_node_type(&expr),
                                                 expr.get_false_expr()->get_source_span());
+            if (false_value == nullptr) {
+                return nullptr;
+            }
+        } else if (result_slot != nullptr) {
+            false_value = build_converted_value(
+                false_value, get_node_type(expr.get_false_expr()),
+                get_node_type(&expr), expr.get_false_expr()->get_source_span());
             if (false_value == nullptr) {
                 return nullptr;
             }
@@ -2654,13 +2716,21 @@ class CoreIrBuildSession {
         emit_jump_to(end_block, expr.get_false_expr()->get_source_span());
 
         current_block_ = end_block;
-        if (result_slot == nullptr) {
-            return condition;
+        if (!can_use_phi) {
+            if (result_slot == nullptr) {
+                return condition;
+            }
+            auto *load = current_block_->create_instruction<CoreIrLoadInst>(
+                result_type, next_temp_name(), result_slot);
+            load->set_source_span(expr.get_source_span());
+            return load;
         }
-        auto *load = current_block_->create_instruction<CoreIrLoadInst>(
-            result_type, next_temp_name(), result_slot);
-        load->set_source_span(expr.get_source_span());
-        return load;
+        auto *phi = current_block_->create_instruction<CoreIrPhiInst>(
+            result_type, next_temp_name());
+        phi->add_incoming(true_block, true_value);
+        phi->add_incoming(false_block, false_value);
+        phi->set_source_span(expr.get_source_span());
+        return phi;
     }
 
     std::optional<CoreIrComparePredicate>
@@ -2932,19 +3002,35 @@ class CoreIrBuildSession {
             strip_qualifiers(target_semantic_type)->get_kind() ==
                 SemanticTypeKind::Pointer &&
             (binary_operator == "+" || binary_operator == "-")) {
-            const std::optional<long long> constant_offset =
-                get_integer_constant_value(expr.get_value());
-            if (!constant_offset.has_value()) {
-                add_error("core ir generation currently requires a constant "
-                          "pointer offset for compound assignment",
-                          expr.get_value()->get_source_span());
+            const SemanticType *index_type =
+                get_integer_promotion_type(get_node_type(expr.get_value()),
+                                           expr.get_value()->get_source_span());
+            if (index_type == nullptr) {
                 return nullptr;
             }
+            rhs_value = build_converted_value(rhs_value, get_node_type(expr.get_value()),
+                                              index_type,
+                                              expr.get_value()->get_source_span());
+            if (rhs_value == nullptr) {
+                return nullptr;
+            }
+            if (binary_operator == "-") {
+                CoreIrValue *zero = build_converted_value(
+                    create_i32_constant(0, expr.get_source_span()),
+                    get_static_builtin_semantic_type("int"), index_type,
+                    expr.get_source_span());
+                if (zero == nullptr) {
+                    return nullptr;
+                }
+                auto *negated_offset =
+                    current_block_->create_instruction<CoreIrBinaryInst>(
+                        CoreIrBinaryOpcode::Sub, rhs_value->get_type(),
+                        next_temp_name(), zero, rhs_value);
+                negated_offset->set_source_span(expr.get_source_span());
+                rhs_value = negated_offset;
+            }
             updated_value = build_pointer_step(current_value, target_semantic_type,
-                                               binary_operator == "+"
-                                                   ? *constant_offset
-                                                   : -*constant_offset,
-                                               expr.get_source_span());
+                                               rhs_value, expr.get_source_span());
         } else {
             CoreIrValue *lhs_value = build_converted_value(
                 current_value, target_semantic_type, compute_semantic_type,
@@ -3340,6 +3426,231 @@ class CoreIrBuildSession {
         return false;
     }
 
+    bool try_collect_char_array_string_initializer_bytes(
+        const Expr *initializer, const SemanticType *element_semantic_type,
+        std::size_t element_count, const std::string &diagnostic_context,
+        std::vector<std::uint8_t> &bytes, bool &matched) {
+        matched = false;
+        bytes.clear();
+        if (initializer == nullptr ||
+            initializer->get_kind() != AstKind::StringLiteralExpr ||
+            !is_character_semantic_type(element_semantic_type)) {
+            return true;
+        }
+
+        const auto *string_literal =
+            static_cast<const StringLiteralExpr *>(initializer);
+        const std::string decoded =
+            decode_string_literal_token(string_literal->get_value_text());
+        if (decoded.size() + 1 > element_count) {
+            add_error("core ir generation encountered an oversized " +
+                          diagnostic_context,
+                      string_literal->get_source_span());
+            return false;
+        }
+
+        bytes.assign(decoded.begin(), decoded.end());
+        bytes.resize(element_count, 0);
+        matched = true;
+        return true;
+    }
+
+    bool normalize_single_element_initializer(const Expr *initializer,
+                                              const std::string &diagnostic_context,
+                                              const Expr *&normalized_initializer) {
+        normalized_initializer = initializer;
+        if (initializer == nullptr || initializer->get_kind() != AstKind::InitListExpr) {
+            return true;
+        }
+
+        const auto *init_list = static_cast<const InitListExpr *>(initializer);
+        if (init_list->get_elements().size() > 1) {
+            add_error("core ir generation encountered too many " +
+                          diagnostic_context + " elements",
+                      initializer->get_source_span());
+            return false;
+        }
+        normalized_initializer = init_list->get_elements().empty()
+                                     ? nullptr
+                                     : init_list->get_elements().front().get();
+        return true;
+    }
+
+    bool normalize_single_element_union_initializer(
+        const Expr *initializer, const std::string &diagnostic_context,
+        const InitListExpr *&normalized_init_list) {
+        normalized_init_list = nullptr;
+        if (initializer == nullptr) {
+            return true;
+        }
+        if (initializer->get_kind() != AstKind::InitListExpr) {
+            add_error("core ir generation currently requires an initializer "
+                          "list for this " +
+                          diagnostic_context,
+                      initializer->get_source_span());
+            return false;
+        }
+
+        normalized_init_list = static_cast<const InitListExpr *>(initializer);
+        if (normalized_init_list->get_elements().size() > 1) {
+            add_error("core ir generation encountered too many " +
+                          diagnostic_context + " elements",
+                      initializer->get_source_span());
+            return false;
+        }
+        return true;
+    }
+
+    template <typename VisitElement>
+    bool walk_array_initializer_elements(const ArraySemanticType *array_semantic_type,
+                                         const CoreIrArrayType *array_type,
+                                         const Expr *initializer,
+                                         SourceSpan source_span,
+                                         const std::string &diagnostic_context,
+                                         VisitElement &&visit_element) {
+        if (array_semantic_type == nullptr || array_type == nullptr) {
+            add_error("core ir generation could not resolve array initializer "
+                      "shape",
+                      source_span);
+            return false;
+        }
+
+        const InitListExpr *init_list = nullptr;
+        if (initializer != nullptr) {
+            if (initializer->get_kind() != AstKind::InitListExpr) {
+                add_error("core ir generation currently requires an initializer "
+                              "list for this " +
+                              diagnostic_context,
+                          initializer->get_source_span());
+                return false;
+            }
+            init_list = static_cast<const InitListExpr *>(initializer);
+        }
+
+        std::function<bool(const ArraySemanticType *, const CoreIrArrayType *,
+                           const InitListExpr *, std::size_t &, SourceSpan)>
+            walk = [&](const ArraySemanticType *current_semantic_type,
+                       const CoreIrArrayType *current_array_type,
+                       const InitListExpr *current_init_list, std::size_t &cursor,
+                       SourceSpan current_source_span) -> bool {
+            const SemanticType *current_element_semantic_type =
+                current_semantic_type->get_element_type();
+            const CoreIrType *current_element_type =
+                current_array_type->get_element_type();
+            const auto *nested_array_semantic_type =
+                dynamic_cast<const ArraySemanticType *>(
+                    strip_qualifiers(current_element_semantic_type));
+            const auto *nested_array_type =
+                dynamic_cast<const CoreIrArrayType *>(current_element_type);
+
+            for (std::size_t index = 0;
+                 index < current_array_type->get_element_count(); ++index) {
+                const Expr *element_initializer =
+                    current_init_list != nullptr &&
+                            cursor < current_init_list->get_elements().size()
+                        ? current_init_list->get_elements()[cursor].get()
+                        : nullptr;
+                const SourceSpan element_source_span =
+                    element_initializer == nullptr
+                        ? current_source_span
+                        : element_initializer->get_source_span();
+
+                if (nested_array_semantic_type != nullptr &&
+                    nested_array_type != nullptr && element_initializer != nullptr &&
+                    element_initializer->get_kind() != AstKind::InitListExpr) {
+                    if (!walk(nested_array_semantic_type, nested_array_type,
+                              current_init_list, cursor, element_source_span)) {
+                        return false;
+                    }
+                    continue;
+                }
+
+                if (element_initializer != nullptr && current_init_list != nullptr) {
+                    ++cursor;
+                }
+                if (!visit_element(index, current_element_semantic_type,
+                                   current_element_type, element_initializer,
+                                   element_source_span)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        std::size_t cursor = 0;
+        if (!walk(array_semantic_type, array_type, init_list, cursor, source_span)) {
+            return false;
+        }
+        if (init_list != nullptr && cursor < init_list->get_elements().size()) {
+            add_error("core ir generation encountered too many " +
+                          diagnostic_context + " elements",
+                      initializer->get_source_span());
+            return false;
+        }
+        return true;
+    }
+
+    template <typename VisitField>
+    bool walk_struct_initializer_fields(
+        const StructSemanticType *struct_semantic_type,
+        const detail::AggregateLayoutInfo &layout, const Expr *initializer,
+        SourceSpan source_span, const std::string &diagnostic_context,
+        VisitField &&visit_field) {
+        if (struct_semantic_type == nullptr) {
+            add_error("core ir generation could not resolve struct initializer "
+                      "shape",
+                      source_span);
+            return false;
+        }
+
+        const InitListExpr *init_list = nullptr;
+        if (initializer != nullptr) {
+            if (initializer->get_kind() != AstKind::InitListExpr) {
+                add_error("core ir generation currently requires an initializer "
+                              "list for this " +
+                              diagnostic_context,
+                          initializer->get_source_span());
+                return false;
+            }
+            init_list = static_cast<const InitListExpr *>(initializer);
+        }
+
+        std::size_t initializer_index = 0;
+        for (std::size_t field_index = 0;
+             field_index < struct_semantic_type->get_fields().size(); ++field_index) {
+            const auto &field = struct_semantic_type->get_fields()[field_index];
+            const auto &field_layout = layout.field_layouts[field_index];
+            if (!field_layout.has_value()) {
+                continue;
+            }
+
+            const Expr *field_initializer = nullptr;
+            if (!field.get_name().empty()) {
+                if (init_list != nullptr &&
+                    initializer_index < init_list->get_elements().size()) {
+                    field_initializer = init_list->get_elements()[initializer_index].get();
+                }
+                ++initializer_index;
+            }
+
+            const SourceSpan field_source_span =
+                field_initializer == nullptr ? source_span
+                                             : field_initializer->get_source_span();
+            if (!visit_field(field_index, field, *field_layout, field_initializer,
+                             field_source_span)) {
+                return false;
+            }
+        }
+
+        if (init_list != nullptr && initializer_index < init_list->get_elements().size()) {
+            add_error("core ir generation encountered too many " +
+                          diagnostic_context + " elements",
+                      initializer->get_source_span());
+            return false;
+        }
+        return true;
+    }
+
     bool emit_local_initializer_to_address(CoreIrValue *address,
                                            const SemanticType *target_semantic_type,
                                            const Expr *initializer,
@@ -3382,43 +3693,16 @@ class CoreIrBuildSession {
 
             const std::size_t element_count = array_type->get_element_count();
             const CoreIrType *element_type = array_type->get_element_type();
-            const auto emit_element = [&](std::size_t index,
-                                          const Expr *element_initializer) -> bool {
-                CoreIrValue *element_address =
-                    build_gep(address, element_type,
-                              {create_i32_constant(0, source_span),
-                               create_i32_constant(static_cast<long long>(index),
-                                                   source_span)},
-                              source_span);
-                if (element_address == nullptr) {
-                    return false;
-                }
-                return emit_local_initializer_to_address(
-                    element_address, array_semantic_type->get_element_type(),
-                    element_initializer,
-                    element_initializer == nullptr ? source_span
-                                                  : element_initializer
-                                                        ->get_source_span());
-            };
-
-            if (initializer != nullptr &&
-                initializer->get_kind() == AstKind::StringLiteralExpr &&
-                is_character_semantic_type(array_semantic_type->get_element_type())) {
-                const auto *string_literal =
-                    static_cast<const StringLiteralExpr *>(initializer);
-                const std::string decoded =
-                    decode_string_literal_token(string_literal->get_value_text());
-                if (decoded.size() + 1 > element_count) {
-                    add_error("core ir generation encountered an oversized local "
-                              "string literal initializer",
-                              string_literal->get_source_span());
-                    return false;
-                }
+            std::vector<std::uint8_t> string_bytes;
+            bool matched_string_literal = false;
+            if (!try_collect_char_array_string_initializer_bytes(
+                    initializer, array_semantic_type->get_element_type(),
+                    element_count, "local string literal initializer",
+                    string_bytes, matched_string_literal)) {
+                return false;
+            }
+            if (matched_string_literal) {
                 for (std::size_t index = 0; index < element_count; ++index) {
-                    const long long byte_value =
-                        index < decoded.size()
-                            ? static_cast<unsigned char>(decoded[index])
-                            : 0;
                     CoreIrValue *element_address =
                         build_gep(address, element_type,
                                   {create_i32_constant(0, source_span),
@@ -3429,7 +3713,7 @@ class CoreIrBuildSession {
                         return false;
                     }
                     CoreIrValue *element_value = build_converted_value(
-                        create_i32_constant(byte_value, source_span),
+                        create_i32_constant(string_bytes[index], source_span),
                         get_static_builtin_semantic_type("int"),
                         array_semantic_type->get_element_type(), source_span);
                     if (element_value == nullptr) {
@@ -3437,101 +3721,31 @@ class CoreIrBuildSession {
                     }
                     auto *store = current_block_->create_instruction<CoreIrStoreInst>(
                         void_type_, element_value, element_address);
-                    store->set_source_span(string_literal->get_source_span());
+                    store->set_source_span(initializer->get_source_span());
                 }
                 return true;
             }
 
-            const InitListExpr *init_list = nullptr;
-            if (initializer != nullptr) {
-                if (initializer->get_kind() != AstKind::InitListExpr) {
-                    add_error("core ir generation currently requires an "
-                              "initializer list for this local array initializer",
-                              initializer->get_source_span());
-                    return false;
-                }
-                init_list = static_cast<const InitListExpr *>(initializer);
-            }
-
-            std::function<bool(CoreIrValue *, const ArraySemanticType *,
-                               const CoreIrArrayType *, const InitListExpr *,
-                               std::size_t &, SourceSpan)>
-                emit_array_initializer =
-                    [&](CoreIrValue *array_address,
-                        const ArraySemanticType *current_semantic_type,
-                        const CoreIrArrayType *current_array_type,
-                        const InitListExpr *current_init_list,
-                        std::size_t &cursor, SourceSpan current_source_span)
-                -> bool {
-                const std::size_t current_element_count =
-                    current_array_type->get_element_count();
-                const CoreIrType *current_element_type =
-                    current_array_type->get_element_type();
-                const SemanticType *current_element_semantic_type =
-                    current_semantic_type->get_element_type();
-                const auto *nested_array_semantic_type =
-                    dynamic_cast<const ArraySemanticType *>(
-                        strip_qualifiers(current_element_semantic_type));
-                const auto *nested_array_type =
-                    dynamic_cast<const CoreIrArrayType *>(current_element_type);
-
-                for (std::size_t index = 0; index < current_element_count; ++index) {
-                    const Expr *element_initializer =
-                        current_init_list != nullptr &&
-                                cursor < current_init_list->get_elements().size()
-                            ? current_init_list->get_elements()[cursor].get()
-                            : nullptr;
-
+            return walk_array_initializer_elements(
+                array_semantic_type, array_type, initializer, source_span,
+                "local array initializer",
+                [&](std::size_t index, const SemanticType *element_semantic_type,
+                    const CoreIrType *current_element_type,
+                    const Expr *element_initializer,
+                    SourceSpan element_source_span) -> bool {
                     CoreIrValue *element_address =
-                        build_gep(array_address, current_element_type,
-                                  {create_i32_constant(0, current_source_span),
+                        build_gep(address, current_element_type,
+                                  {create_i32_constant(0, source_span),
                                    create_i32_constant(
-                                       static_cast<long long>(index),
-                                       current_source_span)},
-                                  current_source_span);
+                                       static_cast<long long>(index), source_span)},
+                                  source_span);
                     if (element_address == nullptr) {
                         return false;
                     }
-
-                    if (nested_array_semantic_type != nullptr &&
-                        nested_array_type != nullptr && element_initializer != nullptr &&
-                        element_initializer->get_kind() != AstKind::InitListExpr) {
-                        if (!emit_array_initializer(
-                                element_address, nested_array_semantic_type,
-                                nested_array_type, current_init_list, cursor,
-                                element_initializer->get_source_span())) {
-                            return false;
-                        }
-                        continue;
-                    }
-
-                    if (element_initializer != nullptr && current_init_list != nullptr) {
-                        ++cursor;
-                    }
-                    if (!emit_local_initializer_to_address(
-                            element_address, current_element_semantic_type,
-                            element_initializer,
-                            element_initializer == nullptr
-                                ? current_source_span
-                                : element_initializer->get_source_span())) {
-                        return false;
-                    }
-                }
-                return true;
-            };
-
-            std::size_t cursor = 0;
-            if (!emit_array_initializer(address, array_semantic_type, array_type,
-                                        init_list, cursor, source_span)) {
-                return false;
-            }
-            if (init_list != nullptr && cursor < init_list->get_elements().size()) {
-                add_error("core ir generation encountered too many local "
-                          "array initializer elements",
-                          initializer->get_source_span());
-                return false;
-            }
-            return true;
+                    return emit_local_initializer_to_address(
+                        element_address, element_semantic_type, element_initializer,
+                        element_source_span);
+                });
         }
 
         if (target_semantic_type->get_kind() == SemanticTypeKind::Struct) {
@@ -3539,8 +3753,6 @@ class CoreIrBuildSession {
                 static_cast<const StructSemanticType *>(target_semantic_type);
             const detail::AggregateLayoutInfo layout =
                 detail::compute_aggregate_layout(target_semantic_type);
-
-            const InitListExpr *init_list = nullptr;
             if (initializer != nullptr) {
                 if (initializer->get_kind() != AstKind::InitListExpr) {
                     CoreIrValue *value = build_expr(initializer);
@@ -3558,110 +3770,74 @@ class CoreIrBuildSession {
                     store->set_source_span(initializer->get_source_span());
                     return true;
                 }
-                init_list = static_cast<const InitListExpr *>(initializer);
             }
-
-            std::size_t initializer_index = 0;
-            for (std::size_t field_index = 0;
-                 field_index < struct_semantic_type->get_fields().size();
-                 ++field_index) {
-                const auto &field = struct_semantic_type->get_fields()[field_index];
-                const auto &field_layout = layout.field_layouts[field_index];
-                if (!field_layout.has_value()) {
-                    continue;
-                }
-
-                const Expr *field_initializer = nullptr;
-                if (!field.get_name().empty()) {
-                    if (init_list != nullptr &&
-                        initializer_index < init_list->get_elements().size()) {
-                        field_initializer =
-                            init_list->get_elements()[initializer_index].get();
+            return walk_struct_initializer_fields(
+                struct_semantic_type, layout, initializer, source_span,
+                "local struct initializer",
+                [&](std::size_t /*field_index*/, const SemanticFieldInfo &field,
+                    const detail::AggregateFieldLayout &field_layout,
+                    const Expr *field_initializer,
+                    SourceSpan field_source_span) -> bool {
+                    if (field_layout.is_bit_field) {
+                        const CoreIrType *storage_type =
+                            get_or_create_type(field_layout.storage_type);
+                        if (storage_type == nullptr) {
+                            add_error("core ir generation could not resolve local "
+                                      "bit-field storage type",
+                                      source_span);
+                            return false;
+                        }
+                        CoreIrValue *storage_address =
+                            build_gep(address, storage_type,
+                                      {create_i32_constant(0, source_span),
+                                       create_i32_constant(
+                                           static_cast<long long>(
+                                               field_layout.llvm_element_index),
+                                           source_span)},
+                                      source_span);
+                        if (storage_address == nullptr) {
+                            return false;
+                        }
+                        CoreIrValue *field_value =
+                            field_initializer == nullptr
+                                ? create_i32_constant(0, source_span)
+                                : build_expr(field_initializer);
+                        if (field_value == nullptr) {
+                            return false;
+                        }
+                        return store_bit_field_value(
+                                   BitFieldLValue{storage_address, field_layout,
+                                                  field.get_type()},
+                                   field_value,
+                                   field_initializer == nullptr
+                                       ? get_static_builtin_semantic_type("int")
+                                       : get_node_type(field_initializer),
+                                   field_source_span) != nullptr;
                     }
-                    ++initializer_index;
-                }
 
-                if (field_layout->is_bit_field) {
-                    const CoreIrType *storage_type =
-                        get_or_create_type(field_layout->storage_type);
-                    if (storage_type == nullptr) {
-                        add_error("core ir generation could not resolve local "
-                                  "bit-field storage type",
+                    const CoreIrType *field_type =
+                        get_or_create_type(field_layout.field_type);
+                    if (field_type == nullptr) {
+                        add_error("core ir generation could not resolve local struct "
+                                  "field type",
                                   source_span);
                         return false;
                     }
-                    CoreIrValue *storage_address =
-                        build_gep(address, storage_type,
+                    CoreIrValue *field_address =
+                        build_gep(address, field_type,
                                   {create_i32_constant(0, source_span),
                                    create_i32_constant(
                                        static_cast<long long>(
-                                           field_layout->llvm_element_index),
+                                           field_layout.llvm_element_index),
                                        source_span)},
                                   source_span);
-                    if (storage_address == nullptr) {
+                    if (field_address == nullptr) {
                         return false;
                     }
-                    CoreIrValue *field_value = field_initializer == nullptr
-                                                  ? create_i32_constant(0, source_span)
-                                                  : build_expr(field_initializer);
-                    if (field_value == nullptr) {
-                        return false;
-                    }
-                    if (store_bit_field_value(BitFieldLValue{
-                                                  storage_address, *field_layout,
-                                                  field.get_type()},
-                                              field_value,
-                                              field_initializer == nullptr
-                                                  ? get_static_builtin_semantic_type(
-                                                        "int")
-                                                  : get_node_type(
-                                                        field_initializer),
-                                              field_initializer == nullptr
-                                                  ? source_span
-                                                  : field_initializer
-                                                        ->get_source_span()) ==
-                        nullptr) {
-                        return false;
-                    }
-                    continue;
-                }
-
-                const CoreIrType *field_type =
-                    get_or_create_type(field_layout->field_type);
-                if (field_type == nullptr) {
-                    add_error("core ir generation could not resolve local struct "
-                              "field type",
-                              source_span);
-                    return false;
-                }
-                CoreIrValue *field_address =
-                    build_gep(address, field_type,
-                              {create_i32_constant(0, source_span),
-                               create_i32_constant(
-                                   static_cast<long long>(
-                                       field_layout->llvm_element_index),
-                                   source_span)},
-                              source_span);
-                if (field_address == nullptr) {
-                    return false;
-                }
-                if (!emit_local_initializer_to_address(
+                    return emit_local_initializer_to_address(
                         field_address, field.get_type(), field_initializer,
-                        field_initializer == nullptr ? source_span
-                                                     : field_initializer
-                                                           ->get_source_span())) {
-                    return false;
-                }
-            }
-
-            if (init_list != nullptr &&
-                initializer_index < init_list->get_elements().size()) {
-                add_error("core ir generation encountered too many local struct "
-                          "initializer elements",
-                          initializer->get_source_span());
-                return false;
-            }
-            return true;
+                        field_source_span);
+                });
         }
 
         if (target_semantic_type->get_kind() == SemanticTypeKind::Union) {
@@ -3732,18 +3908,9 @@ class CoreIrBuildSession {
             if (initializer == nullptr) {
                 return true;
             }
-            if (initializer->get_kind() != AstKind::InitListExpr) {
-                add_error("core ir generation currently requires an initializer "
-                          "list for this local union initializer",
-                          initializer->get_source_span());
-                return false;
-            }
-
-            const auto *init_list = static_cast<const InitListExpr *>(initializer);
-            if (init_list->get_elements().size() > 1) {
-                add_error("core ir generation encountered too many local union "
-                          "initializer elements",
-                          initializer->get_source_span());
+            const InitListExpr *init_list = nullptr;
+            if (!normalize_single_element_union_initializer(
+                    initializer, "local union initializer", init_list)) {
                 return false;
             }
             if (union_semantic_type->get_fields().empty() ||
@@ -3771,18 +3938,9 @@ class CoreIrBuildSession {
                 init_list->get_elements().front()->get_source_span());
         }
 
-        const InitListExpr *scalar_init_list = nullptr;
-        if (initializer != nullptr && initializer->get_kind() == AstKind::InitListExpr) {
-            scalar_init_list = static_cast<const InitListExpr *>(initializer);
-            if (scalar_init_list->get_elements().size() > 1) {
-                add_error("core ir generation encountered too many local scalar "
-                          "initializer elements",
-                          initializer->get_source_span());
-                return false;
-            }
-            initializer = scalar_init_list->get_elements().empty()
-                              ? nullptr
-                              : scalar_init_list->get_elements().front().get();
+        if (!normalize_single_element_initializer(
+                initializer, "local scalar initializer", initializer)) {
+            return false;
         }
 
         CoreIrValue *value = nullptr;
@@ -4151,13 +4309,6 @@ class CoreIrBuildSession {
                       switch_stmt.get_source_span());
             return false;
         }
-        const auto *body = dynamic_cast<const BlockStmt *>(switch_stmt.get_body());
-        if (body == nullptr) {
-            add_error("core ir generation currently requires a block body for "
-                      "switch statements",
-                      switch_stmt.get_source_span());
-            return false;
-        }
 
         CoreIrValue *switch_value = build_expr(switch_stmt.get_condition());
         const SemanticType *switch_semantic_type =
@@ -4170,45 +4321,92 @@ class CoreIrBuildSession {
         }
 
         const std::string switch_suffix = next_switch_suffix();
+        struct SwitchEntrySpec {
+            const CaseStmt *case_stmt = nullptr;
+            const DefaultStmt *default_stmt = nullptr;
+            std::vector<const Stmt *> body_statements;
+        };
         struct SwitchEntry {
-            const Stmt *stmt = nullptr;
+            SwitchEntrySpec spec;
             CoreIrBasicBlock *block = nullptr;
         };
+
+        std::vector<SwitchEntrySpec> entry_specs;
+        auto append_statement_to_current_entry =
+            [&](const Stmt *stmt) -> bool {
+            if (stmt == nullptr) {
+                return true;
+            }
+            if (entry_specs.empty()) {
+                add_error("core ir generation requires statements inside a switch "
+                          "body to be attached to a case/default entry",
+                          stmt->get_source_span());
+                return false;
+            }
+            entry_specs.back().body_statements.push_back(stmt);
+            return true;
+        };
+        std::function<bool(const Stmt *)> collect_switch_entries =
+            [&](const Stmt *stmt) -> bool {
+            if (stmt == nullptr) {
+                return true;
+            }
+            if (const auto *block_stmt = dynamic_cast<const BlockStmt *>(stmt);
+                block_stmt != nullptr) {
+                for (const auto &child : block_stmt->get_statements()) {
+                    if (!collect_switch_entries(child.get())) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            if (const auto *case_stmt = dynamic_cast<const CaseStmt *>(stmt);
+                case_stmt != nullptr) {
+                entry_specs.push_back(SwitchEntrySpec{case_stmt, nullptr, {}});
+                if (case_stmt->get_body() != nullptr) {
+                    entry_specs.back().body_statements.push_back(case_stmt->get_body());
+                }
+                return true;
+            }
+            if (const auto *default_stmt = dynamic_cast<const DefaultStmt *>(stmt);
+                default_stmt != nullptr) {
+                entry_specs.push_back(SwitchEntrySpec{nullptr, default_stmt, {}});
+                if (default_stmt->get_body() != nullptr) {
+                    entry_specs.back().body_statements.push_back(
+                        default_stmt->get_body());
+                }
+                return true;
+            }
+            return append_statement_to_current_entry(stmt);
+        };
+        if (!collect_switch_entries(switch_stmt.get_body())) {
+            return false;
+        }
 
         std::vector<SwitchEntry> entries;
         std::vector<const CaseStmt *> case_entries;
         std::vector<CoreIrBasicBlock *> case_blocks;
         const DefaultStmt *default_entry = nullptr;
         CoreIrBasicBlock *default_block = nullptr;
-        for (const auto &child : body->get_statements()) {
-            if (child == nullptr) {
-                continue;
-            }
-            if (const auto *case_stmt = dynamic_cast<const CaseStmt *>(child.get());
-                case_stmt != nullptr) {
+        for (const SwitchEntrySpec &entry_spec : entry_specs) {
+            if (entry_spec.case_stmt != nullptr) {
                 CoreIrBasicBlock *case_block =
                     current_function_->create_basic_block<CoreIrBasicBlock>(
                         "switch.case" + switch_suffix + "." +
                         std::to_string(case_entries.size()));
-                entries.push_back({child.get(), case_block});
-                case_entries.push_back(case_stmt);
+                entries.push_back({entry_spec, case_block});
+                case_entries.push_back(entry_spec.case_stmt);
                 case_blocks.push_back(case_block);
                 continue;
             }
-            if (const auto *default_stmt =
-                    dynamic_cast<const DefaultStmt *>(child.get());
-                default_stmt != nullptr) {
+            if (entry_spec.default_stmt != nullptr) {
                 default_block =
                     current_function_->create_basic_block<CoreIrBasicBlock>(
                         "switch.default" + switch_suffix);
-                entries.push_back({child.get(), default_block});
-                default_entry = default_stmt;
+                entries.push_back({entry_spec, default_block});
+                default_entry = entry_spec.default_stmt;
                 continue;
             }
-            add_error("core ir generation currently requires only case/default "
-                      "entries inside switch blocks",
-                      child->get_source_span());
-            return false;
         }
 
         CoreIrBasicBlock *end_block =
@@ -4270,18 +4468,11 @@ class CoreIrBuildSession {
         break_blocks_.push_back(end_block);
         for (std::size_t index = 0; index < entries.size(); ++index) {
             current_block_ = entries[index].block;
-            const Stmt *entry_body = nullptr;
-            if (const auto *case_stmt =
-                    dynamic_cast<const CaseStmt *>(entries[index].stmt);
-                case_stmt != nullptr) {
-                entry_body = case_stmt->get_body();
-            } else {
-                entry_body =
-                    static_cast<const DefaultStmt *>(entries[index].stmt)->get_body();
-            }
-            if (!emit_stmt(entry_body)) {
-                break_blocks_.pop_back();
-                return false;
+            for (const Stmt *entry_body : entries[index].spec.body_statements) {
+                if (!emit_stmt(entry_body)) {
+                    break_blocks_.pop_back();
+                    return false;
+                }
             }
             if (current_block_ != nullptr && !current_block_->get_has_terminator()) {
                 CoreIrBasicBlock *fallthrough_block =
@@ -4725,6 +4916,17 @@ class CoreIrBuildSession {
                           identifier->get_source_span());
                 return nullptr;
             }
+            if (strip_qualifiers(symbol->get_type()) != nullptr &&
+                strip_qualifiers(symbol->get_type())->get_kind() ==
+                    SemanticTypeKind::Function) {
+                CoreIrFunction *function =
+                    ensure_function_binding(symbol, identifier->get_source_span());
+                if (function == nullptr) {
+                    return nullptr;
+                }
+                return core_ir_context_->create_constant<CoreIrConstantGlobalAddress>(
+                    target_type, function);
+            }
             ValueBinding *binding = find_value_binding(symbol);
             if (binding == nullptr || binding->global == nullptr) {
                 add_error("core ir generation expected a predeclared global for "
@@ -4841,23 +5043,143 @@ class CoreIrBuildSession {
         return nullptr;
     }
 
+    const CoreIrConstant *build_global_constant_pointer_value(
+        const Expr *expr, const CoreIrType *target_type, SourceSpan source_span) {
+        if (expr == nullptr || target_type == nullptr ||
+            target_type->get_kind() != CoreIrTypeKind::Pointer) {
+            add_error("core ir generation expected a pointer target for a global "
+                      "pointer initializer",
+                      source_span);
+            return nullptr;
+        }
+
+        if (is_null_pointer_constant_expr(expr)) {
+            return core_ir_context_->create_constant<CoreIrConstantNull>(
+                target_type);
+        }
+
+        if (const auto *cast_expr = dynamic_cast<const CastExpr *>(expr);
+            cast_expr != nullptr) {
+            return build_global_constant_pointer_value(cast_expr->get_operand(),
+                                                       target_type, source_span);
+        }
+
+        if (const auto *unary_expr = dynamic_cast<const UnaryExpr *>(expr);
+            unary_expr != nullptr && unary_expr->get_operator_text() == "&") {
+            return build_global_constant_address(unary_expr->get_operand(),
+                                                 target_type,
+                                                 unary_expr->get_source_span());
+        }
+
+        if (const auto *binary_expr = dynamic_cast<const BinaryExpr *>(expr);
+            binary_expr != nullptr &&
+            (binary_expr->get_operator_text() == "+" ||
+             binary_expr->get_operator_text() == "-")) {
+            const Expr *base_expr = binary_expr->get_lhs();
+            std::optional<long long> step =
+                get_integer_constant_value(binary_expr->get_rhs());
+            if (!step.has_value() && binary_expr->get_operator_text() == "+") {
+                base_expr = binary_expr->get_rhs();
+                step = get_integer_constant_value(binary_expr->get_lhs());
+            }
+            if (!step.has_value()) {
+                add_error("core ir generation currently requires a constant "
+                          "pointer offset for a global address initializer",
+                          expr->get_source_span());
+                return nullptr;
+            }
+            if (binary_expr->get_operator_text() == "-" &&
+                base_expr == binary_expr->get_lhs()) {
+                *step = -*step;
+            }
+            const SemanticType *base_semantic_type =
+                strip_qualifiers(get_node_type(base_expr));
+            if (base_semantic_type != nullptr &&
+                base_semantic_type->get_kind() == SemanticTypeKind::Array) {
+                const CoreIrType *array_core_type =
+                    get_or_create_type(base_semantic_type);
+                if (array_core_type == nullptr) {
+                    return nullptr;
+                }
+                const CoreIrConstant *base = build_global_constant_address(
+                    base_expr,
+                    core_ir_context_->create_type<CoreIrPointerType>(array_core_type),
+                    base_expr->get_source_span());
+                if (base == nullptr) {
+                    return nullptr;
+                }
+                const auto *i32_type =
+                    core_ir_context_->create_type<CoreIrIntegerType>(32);
+                std::vector<const CoreIrConstant *> indices;
+                indices.push_back(core_ir_context_->create_constant<CoreIrConstantInt>(
+                    i32_type, 0));
+                indices.push_back(core_ir_context_->create_constant<CoreIrConstantInt>(
+                    i32_type, static_cast<std::uint64_t>(*step)));
+                return core_ir_context_->create_constant<CoreIrConstantGetElementPtr>(
+                    target_type, base, std::move(indices));
+            }
+            const CoreIrConstant *base =
+                build_global_constant_pointer_value(base_expr, target_type,
+                                                    base_expr->get_source_span());
+            if (base == nullptr) {
+                return nullptr;
+            }
+            const auto *i32_type =
+                core_ir_context_->create_type<CoreIrIntegerType>(32);
+            std::vector<const CoreIrConstant *> indices;
+            indices.push_back(
+                core_ir_context_->create_constant<CoreIrConstantInt>(
+                    i32_type, static_cast<std::uint64_t>(*step)));
+            return core_ir_context_->create_constant<CoreIrConstantGetElementPtr>(
+                target_type, base, std::move(indices));
+        }
+
+        const SemanticType *expr_semantic_type =
+            strip_qualifiers(get_node_type(expr));
+        if (expr_semantic_type != nullptr &&
+            expr_semantic_type->get_kind() == SemanticTypeKind::Function) {
+            return build_global_constant_address(expr, target_type, source_span);
+        }
+        if (expr_semantic_type != nullptr &&
+            expr_semantic_type->get_kind() == SemanticTypeKind::Array) {
+            const CoreIrType *array_core_type = get_or_create_type(expr_semantic_type);
+            if (array_core_type == nullptr) {
+                return nullptr;
+            }
+            const CoreIrConstant *base = build_global_constant_address(
+                expr,
+                core_ir_context_->create_type<CoreIrPointerType>(array_core_type),
+                source_span);
+            if (base == nullptr) {
+                return nullptr;
+            }
+            const auto *i32_type =
+                core_ir_context_->create_type<CoreIrIntegerType>(32);
+            std::vector<const CoreIrConstant *> indices;
+            indices.push_back(
+                core_ir_context_->create_constant<CoreIrConstantInt>(i32_type, 0));
+            indices.push_back(
+                core_ir_context_->create_constant<CoreIrConstantInt>(i32_type, 0));
+            return core_ir_context_->create_constant<CoreIrConstantGetElementPtr>(
+                target_type, base, std::move(indices));
+        }
+
+        add_error("core ir generation does not yet support this global pointer "
+                  "initializer expression",
+                  source_span);
+        return nullptr;
+    }
+
     const CoreIrConstant *
     build_global_scalar_initializer(const Expr *initializer,
+                                    const SemanticType *declared_semantic_type,
                                     const CoreIrType *declared_type,
                                     SourceSpan source_span,
                                     bool is_extern) {
-        const InitListExpr *scalar_init_list = nullptr;
-        if (initializer != nullptr && initializer->get_kind() == AstKind::InitListExpr) {
-            scalar_init_list = static_cast<const InitListExpr *>(initializer);
-            if (scalar_init_list->get_elements().size() > 1) {
-                add_error("core ir generation encountered too many top-level scalar "
-                          "initializer elements",
-                          initializer->get_source_span());
-                return nullptr;
-            }
-            initializer = scalar_init_list->get_elements().empty()
-                              ? nullptr
-                              : scalar_init_list->get_elements().front().get();
+        declared_semantic_type = strip_qualifiers(declared_semantic_type);
+        if (!normalize_single_element_initializer(
+                initializer, "top-level scalar initializer", initializer)) {
+            return nullptr;
         }
 
         if (initializer == nullptr) {
@@ -4882,30 +5204,42 @@ class CoreIrBuildSession {
             return nullptr;
         }
 
-        if (declared_type->get_kind() == CoreIrTypeKind::Float &&
-            initializer->get_kind() == AstKind::FloatLiteralExpr) {
-            const auto *float_literal =
-                static_cast<const FloatLiteralExpr *>(initializer);
-            return core_ir_context_->create_constant<CoreIrConstantFloat>(
-                declared_type, float_literal->get_value_text());
+        if (declared_type->get_kind() == CoreIrTypeKind::Float) {
+            const std::optional<long double> constant_value =
+                get_scalar_numeric_constant_value(initializer);
+            if (constant_value.has_value()) {
+                return core_ir_context_->create_constant<CoreIrConstantFloat>(
+                    declared_type, format_scalar_float_literal(*constant_value));
+            }
         }
 
         const std::optional<long long> constant_value =
             get_integer_constant_value(initializer);
+        if (!constant_value.has_value() &&
+            declared_type->get_kind() == CoreIrTypeKind::Integer) {
+            const std::optional<long double> scalar_value =
+                get_scalar_numeric_constant_value(initializer);
+            if (scalar_value.has_value()) {
+                const std::optional<std::uint64_t> converted_value =
+                    convert_scalar_numeric_to_integer_bits(*scalar_value,
+                                                           declared_semantic_type);
+                if (converted_value.has_value()) {
+                    return core_ir_context_->create_constant<CoreIrConstantInt>(
+                        declared_type, *converted_value);
+                }
+            }
+        }
         if (!constant_value.has_value()) {
             if (declared_type->get_kind() == CoreIrTypeKind::Pointer) {
-                if (is_null_pointer_constant_expr(initializer)) {
-                    return core_ir_context_->create_constant<CoreIrConstantNull>(
-                        declared_type);
+                const CoreIrConstant *pointer_constant =
+                    build_global_constant_pointer_value(
+                        initializer, declared_type,
+                        initializer == nullptr ? source_span
+                                               : initializer->get_source_span());
+                if (pointer_constant != nullptr) {
+                    return pointer_constant;
                 }
-                if (initializer != nullptr &&
-                    initializer->get_kind() == AstKind::UnaryExpr &&
-                    static_cast<const UnaryExpr *>(initializer)->get_operator_text() ==
-                        "&") {
-                    return build_global_constant_address(
-                        static_cast<const UnaryExpr *>(initializer)->get_operand(),
-                        declared_type, initializer->get_source_span());
-                }
+                return nullptr;
             }
             add_error("core ir generation currently requires a constant scalar "
                       "initializer for top-level globals",
@@ -5009,111 +5343,43 @@ class CoreIrBuildSession {
                 return nullptr;
             }
 
-            if (initializer->get_kind() == AstKind::StringLiteralExpr &&
-                is_character_semantic_type(array_semantic_type->get_element_type())) {
-                const auto *string_literal =
-                    static_cast<const StringLiteralExpr *>(initializer);
-                std::string decoded =
-                    decode_string_literal_token(string_literal->get_value_text());
-                if (decoded.size() + 1 > array_type->get_element_count()) {
-                    add_error("core ir generation encountered an oversized string "
-                              "literal initializer",
-                              initializer->get_source_span());
-                    return nullptr;
-                }
-                std::vector<std::uint8_t> bytes(decoded.begin(), decoded.end());
-                while (bytes.size() < array_type->get_element_count()) {
-                    bytes.push_back(0);
-                }
+            std::vector<std::uint8_t> string_bytes;
+            bool matched_string_literal = false;
+            if (!try_collect_char_array_string_initializer_bytes(
+                    initializer, array_semantic_type->get_element_type(),
+                    array_type->get_element_count(), "string literal initializer",
+                    string_bytes, matched_string_literal)) {
+                return nullptr;
+            }
+            if (matched_string_literal) {
                 return core_ir_context_->create_constant<CoreIrConstantByteString>(
-                    array_type, std::move(bytes));
+                    array_type, std::move(string_bytes));
             }
 
-            if (initializer->get_kind() != AstKind::InitListExpr) {
-                add_error("core ir generation currently requires an initializer "
-                          "list for this top-level array initializer",
-                          initializer->get_source_span());
-                return nullptr;
-            }
-
-            const auto *init_list = static_cast<const InitListExpr *>(initializer);
-            std::function<const CoreIrConstant *(
-                const ArraySemanticType *, const CoreIrArrayType *,
-                const InitListExpr *, std::size_t &, SourceSpan)>
-                build_array_constant =
-                    [&](const ArraySemanticType *current_semantic_type,
-                        const CoreIrArrayType *current_array_type,
-                        const InitListExpr *current_init_list,
-                        std::size_t &cursor,
-                        SourceSpan current_source_span) -> const CoreIrConstant * {
-                std::vector<const CoreIrConstant *> elements;
-                elements.reserve(current_array_type->get_element_count());
-                const SemanticType *current_element_semantic_type =
-                    current_semantic_type->get_element_type();
-                const CoreIrType *current_element_type =
-                    current_array_type->get_element_type();
-                const auto *nested_array_semantic_type =
-                    dynamic_cast<const ArraySemanticType *>(
-                        strip_qualifiers(current_element_semantic_type));
-                const auto *nested_array_type =
-                    dynamic_cast<const CoreIrArrayType *>(current_element_type);
-
-                for (std::size_t index = 0;
-                     index < current_array_type->get_element_count(); ++index) {
-                    const Expr *element_initializer =
-                        current_init_list != nullptr &&
-                                cursor < current_init_list->get_elements().size()
-                            ? current_init_list->get_elements()[cursor].get()
-                            : nullptr;
-
-                    if (nested_array_semantic_type != nullptr &&
-                        nested_array_type != nullptr && element_initializer != nullptr &&
-                        element_initializer->get_kind() != AstKind::InitListExpr) {
-                        const CoreIrConstant *nested_constant = build_array_constant(
-                            nested_array_semantic_type, nested_array_type,
-                            current_init_list, cursor,
-                            element_initializer->get_source_span());
-                        if (nested_constant == nullptr) {
-                            return nullptr;
+            std::vector<const CoreIrConstant *> elements;
+            elements.reserve(array_type->get_element_count());
+            if (!walk_array_initializer_elements(
+                    array_semantic_type, array_type, initializer, source_span,
+                    "top-level array initializer",
+                    [&](std::size_t /*index*/,
+                        const SemanticType *element_semantic_type,
+                        const CoreIrType *element_core_type,
+                        const Expr *element_initializer,
+                        SourceSpan element_source_span) -> bool {
+                        const CoreIrConstant *element_constant =
+                            build_global_constant_for_initializer(
+                                element_initializer, element_semantic_type,
+                                element_core_type, element_source_span);
+                        if (element_constant == nullptr) {
+                            return false;
                         }
-                        elements.push_back(nested_constant);
-                        continue;
-                    }
-
-                    if (element_initializer != nullptr && current_init_list != nullptr) {
-                        ++cursor;
-                    }
-                    const CoreIrConstant *element_constant =
-                        build_global_constant_for_initializer(
-                            element_initializer, current_element_semantic_type,
-                            current_element_type,
-                            element_initializer == nullptr
-                                ? current_source_span
-                                : element_initializer->get_source_span());
-                    if (element_constant == nullptr) {
-                        return nullptr;
-                    }
-                    elements.push_back(element_constant);
-                }
-
-                return core_ir_context_->create_constant<CoreIrConstantAggregate>(
-                    current_array_type, std::move(elements));
-            };
-
-            std::size_t cursor = 0;
-            const CoreIrConstant *array_constant =
-                build_array_constant(array_semantic_type, array_type, init_list,
-                                     cursor, source_span);
-            if (array_constant == nullptr) {
+                        elements.push_back(element_constant);
+                        return true;
+                    })) {
                 return nullptr;
             }
-            if (cursor < init_list->get_elements().size()) {
-                add_error("core ir generation encountered too many array "
-                          "initializer elements",
-                          initializer->get_source_span());
-                return nullptr;
-            }
-            return array_constant;
+            return core_ir_context_->create_constant<CoreIrConstantAggregate>(
+                array_type, std::move(elements));
         }
 
         if (semantic_type->get_kind() == SemanticTypeKind::Struct) {
@@ -5127,14 +5393,6 @@ class CoreIrBuildSession {
                           source_span);
                 return nullptr;
             }
-            if (initializer->get_kind() != AstKind::InitListExpr) {
-                add_error("core ir generation currently requires an initializer "
-                          "list for this top-level struct initializer",
-                          initializer->get_source_span());
-                return nullptr;
-            }
-
-            const auto *init_list = static_cast<const InitListExpr *>(initializer);
             const detail::AggregateLayoutInfo layout =
                 detail::compute_aggregate_layout(struct_semantic_type);
             std::vector<const CoreIrConstant *> element_values(
@@ -5144,65 +5402,47 @@ class CoreIrBuildSession {
             std::vector<bool> bit_field_storage_initialized(
                 struct_type->get_element_types().size(), false);
 
-            std::size_t initializer_index = 0;
-            for (std::size_t field_index = 0;
-                 field_index < struct_semantic_type->get_fields().size();
-                 ++field_index) {
-                const auto &field = struct_semantic_type->get_fields()[field_index];
-                const auto &field_layout = layout.field_layouts[field_index];
-                if (!field_layout.has_value()) {
-                    continue;
-                }
+            if (!walk_struct_initializer_fields(
+                    struct_semantic_type, layout, initializer, source_span,
+                    "top-level struct initializer",
+                    [&](std::size_t /*field_index*/,
+                        const SemanticFieldInfo &field,
+                        const detail::AggregateFieldLayout &field_layout,
+                        const Expr *field_initializer,
+                        SourceSpan field_source_span) -> bool {
+                        if (field_layout.is_bit_field) {
+                            const auto integer_constant =
+                                field_initializer == nullptr
+                                    ? std::optional<long long>(0)
+                                    : get_integer_constant_value(field_initializer);
+                            if (!integer_constant.has_value()) {
+                                add_error("core ir generation currently requires an "
+                                          "integer constant bit-field initializer",
+                                          field_source_span);
+                                return false;
+                            }
+                            bit_field_storage_values[field_layout.llvm_element_index] |=
+                                (static_cast<std::uint64_t>(*integer_constant) &
+                                 get_low_bit_mask(field_layout.bit_width))
+                                << field_layout.bit_offset;
+                            bit_field_storage_initialized
+                                [field_layout.llvm_element_index] = true;
+                            return true;
+                        }
 
-                const Expr *field_initializer = nullptr;
-                if (!field.get_name().empty()) {
-                    if (initializer_index < init_list->get_elements().size()) {
-                        field_initializer =
-                            init_list->get_elements()[initializer_index].get();
-                    }
-                    ++initializer_index;
-                }
-
-                if (field_layout->is_bit_field) {
-                    const auto integer_constant =
-                        field_initializer == nullptr
-                            ? std::optional<long long>(0)
-                            : get_integer_constant_value(field_initializer);
-                    if (!integer_constant.has_value()) {
-                        add_error("core ir generation currently requires an "
-                                  "integer constant bit-field initializer",
-                                  field_initializer == nullptr
-                                      ? source_span
-                                      : field_initializer->get_source_span());
-                        return nullptr;
-                    }
-                    bit_field_storage_values[field_layout->llvm_element_index] |=
-                        (static_cast<std::uint64_t>(*integer_constant) &
-                         get_low_bit_mask(field_layout->bit_width))
-                        << field_layout->bit_offset;
-                    bit_field_storage_initialized
-                        [field_layout->llvm_element_index] = true;
-                    continue;
-                }
-
-                const CoreIrConstant *field_constant =
-                    build_global_constant_for_initializer(
-                        field_initializer, field.get_type(),
-                        struct_type->get_element_types()
-                            [field_layout->llvm_element_index],
-                        field_initializer == nullptr ? source_span
-                                                     : field_initializer
-                                                           ->get_source_span());
-                if (field_constant == nullptr) {
-                    return nullptr;
-                }
-                element_values[field_layout->llvm_element_index] = field_constant;
-            }
-
-            if (initializer_index < init_list->get_elements().size()) {
-                add_error("core ir generation encountered too many top-level "
-                          "struct initializer elements",
-                          initializer->get_source_span());
+                        const CoreIrConstant *field_constant =
+                            build_global_constant_for_initializer(
+                                field_initializer, field.get_type(),
+                                struct_type->get_element_types()
+                                    [field_layout.llvm_element_index],
+                                field_source_span);
+                        if (field_constant == nullptr) {
+                            return false;
+                        }
+                        element_values[field_layout.llvm_element_index] =
+                            field_constant;
+                        return true;
+                    })) {
                 return nullptr;
             }
 
@@ -5256,20 +5496,9 @@ class CoreIrBuildSession {
             }
 
             const InitListExpr *init_list = nullptr;
-            if (initializer != nullptr) {
-                if (initializer->get_kind() != AstKind::InitListExpr) {
-                    add_error("core ir generation currently requires an "
-                              "initializer list for this top-level union initializer",
-                              initializer->get_source_span());
-                    return nullptr;
-                }
-                init_list = static_cast<const InitListExpr *>(initializer);
-                if (init_list->get_elements().size() > 1) {
-                    add_error("core ir generation encountered too many top-level "
-                              "union initializer elements",
-                              initializer->get_source_span());
-                    return nullptr;
-                }
+            if (!normalize_single_element_union_initializer(
+                    initializer, "top-level union initializer", init_list)) {
+                return nullptr;
             }
 
             const auto &first_field = fields.front();
@@ -5314,12 +5543,13 @@ class CoreIrBuildSession {
                                              source_span);
         }
 
-        if (declared_type->get_kind() == CoreIrTypeKind::Float &&
-            initializer->get_kind() == AstKind::FloatLiteralExpr) {
-            const auto *float_literal =
-                static_cast<const FloatLiteralExpr *>(initializer);
-            return core_ir_context_->create_constant<CoreIrConstantFloat>(
-                declared_type, float_literal->get_value_text());
+        if (declared_type->get_kind() == CoreIrTypeKind::Float) {
+            const std::optional<long double> scalar_value =
+                get_scalar_numeric_constant_value(initializer);
+            if (scalar_value.has_value()) {
+                return core_ir_context_->create_constant<CoreIrConstantFloat>(
+                    declared_type, format_scalar_float_literal(*scalar_value));
+            }
         }
 
         const std::optional<long long> constant_value =
@@ -5329,17 +5559,32 @@ class CoreIrBuildSession {
             return core_ir_context_->create_constant<CoreIrConstantInt>(
                 declared_type, static_cast<std::uint64_t>(*constant_value));
         }
+        if (declared_type->get_kind() == CoreIrTypeKind::Integer) {
+            const std::optional<long double> scalar_value =
+                get_scalar_numeric_constant_value(initializer);
+            if (scalar_value.has_value()) {
+                const std::optional<std::uint64_t> converted_value =
+                    convert_scalar_numeric_to_integer_bits(*scalar_value,
+                                                           semantic_type);
+                if (converted_value.has_value()) {
+                    return core_ir_context_->create_constant<CoreIrConstantInt>(
+                        declared_type, *converted_value);
+                }
+            }
+        }
         if (declared_type->get_kind() == CoreIrTypeKind::Pointer &&
             is_null_pointer_constant_expr(initializer)) {
             return core_ir_context_->create_constant<CoreIrConstantNull>(
                 declared_type);
         }
-        if (declared_type->get_kind() == CoreIrTypeKind::Pointer &&
-            initializer->get_kind() == AstKind::UnaryExpr &&
-            static_cast<const UnaryExpr *>(initializer)->get_operator_text() == "&") {
-            return build_global_constant_address(
-                static_cast<const UnaryExpr *>(initializer)->get_operand(),
-                declared_type, initializer->get_source_span());
+        if (declared_type->get_kind() == CoreIrTypeKind::Pointer) {
+            const CoreIrConstant *pointer_constant =
+                build_global_constant_pointer_value(initializer, declared_type,
+                                                    initializer->get_source_span());
+            if (pointer_constant != nullptr) {
+                return pointer_constant;
+            }
+            return nullptr;
         }
 
         add_error("core ir generation does not yet support this top-level "
@@ -5392,9 +5637,6 @@ class CoreIrBuildSession {
                           source_span);
                 return nullptr;
             }
-            VarDecl placeholder_var("", nullptr, {}, nullptr, is_extern, false,
-                                    source_span);
-            (void)placeholder_var;
             return build_global_constant_for_initializer(
                 initializer, semantic_type, array_type, source_span);
         }
@@ -5425,8 +5667,9 @@ class CoreIrBuildSession {
                 initializer, semantic_type, union_type, source_span);
         }
 
-        return build_global_scalar_initializer(initializer, declared_type,
-                                               source_span, is_extern);
+        return build_global_scalar_initializer(initializer, semantic_type,
+                                               declared_type, source_span,
+                                               is_extern);
     }
 
     bool emit_global_var_decl(const VarDecl &var_decl) {

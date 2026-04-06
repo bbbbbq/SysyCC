@@ -243,6 +243,27 @@ std::string CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) co
         result += is_array ? " ]" : " }";
         return result;
     }
+    if (const auto *global_address =
+            dynamic_cast<const CoreIrConstantGlobalAddress *>(constant);
+        global_address != nullptr) {
+        if (global_address->get_global() != nullptr) {
+            return "@" + global_address->get_global()->get_name();
+        }
+        if (global_address->get_function() != nullptr) {
+            return "@" + global_address->get_function()->get_name();
+        }
+        return "<global-address>";
+    }
+    if (const auto *gep_constant =
+            dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
+        gep_constant != nullptr) {
+        std::string result = "getelementptr(" + format_constant(gep_constant->get_base());
+        for (const CoreIrConstant *index : gep_constant->get_indices()) {
+            result += ", " + format_constant(index);
+        }
+        result += ")";
+        return result;
+    }
     return "<constant>";
 }
 
