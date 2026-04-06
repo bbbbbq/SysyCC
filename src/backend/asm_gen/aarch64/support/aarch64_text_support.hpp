@@ -33,6 +33,14 @@ std::string def_vreg_as_kind(const AArch64VirtualReg &reg,
 void append_register_copy(AArch64MachineBlock &machine_block,
                           const AArch64VirtualReg &dst_reg,
                           const AArch64VirtualReg &src_reg);
+void append_copy_from_physical_reg(AArch64MachineBlock &machine_block,
+                                   const AArch64VirtualReg &dst_reg,
+                                   unsigned physical_reg,
+                                   AArch64VirtualRegKind physical_kind);
+void append_copy_to_physical_reg(AArch64MachineBlock &machine_block,
+                                 unsigned physical_reg,
+                                 AArch64VirtualRegKind physical_kind,
+                                 const AArch64VirtualReg &src_reg);
 
 struct ParsedVirtualRegRef {
     std::size_t id = 0;

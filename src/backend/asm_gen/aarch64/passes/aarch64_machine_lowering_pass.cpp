@@ -194,40 +194,6 @@ std::string zero_register_name(bool use_64bit) {
     return use_64bit ? "xzr" : "wzr";
 }
 
-void append_copy_from_physical_reg(AArch64MachineBlock &machine_block,
-                                   const AArch64VirtualReg &dst_reg,
-                                   unsigned physical_reg,
-                                   AArch64VirtualRegKind physical_kind) {
-    const std::string physical_name =
-        render_physical_register(physical_reg, physical_kind);
-    if (dst_reg.is_floating_point()) {
-        machine_block.append_instruction(fp_move_mnemonic(dst_reg.get_kind()) + " " +
-                                         def_vreg(dst_reg) + ", " + physical_name);
-        return;
-    }
-    machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
-                                     physical_name);
-}
-
-void append_copy_to_physical_reg(AArch64MachineBlock &machine_block,
-                                 unsigned physical_reg,
-                                 AArch64VirtualRegKind physical_kind,
-                                 const AArch64VirtualReg &src_reg) {
-    const std::string physical_name =
-        render_physical_register(physical_reg, physical_kind);
-    if (src_reg.is_floating_point()) {
-        machine_block.append_instruction(fp_move_mnemonic(src_reg.get_kind()) + " " +
-                                         physical_name + ", " + use_vreg(src_reg));
-        return;
-    }
-    machine_block.append_instruction("mov " + physical_name + ", " +
-                                     use_vreg_as_kind(
-                                         src_reg,
-                                         uses_general_64bit_register(physical_kind)
-                                             ? AArch64VirtualRegKind::General64
-                                             : AArch64VirtualRegKind::General32));
-}
-
 std::string scalar_directive(const CoreIrType *type) {
     if (is_pointer_type(type) || get_storage_size(type) == 8) {
         return ".xword";
@@ -1867,28 +1833,6 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         return sysycc::emit_float128_compare_helper(
             machine_block, float_context, predicate, lhs_reg, rhs_reg, dst_reg,
             function);
-    }
-
-    bool prepare_integer_value_for_runtime_helper(AArch64MachineBlock &machine_block,
-                                                  const CoreIrType *source_type,
-                                                  CoreIrCastKind cast_kind,
-                                                  const AArch64VirtualReg &source_reg,
-                                                  const AArch64VirtualReg &prepared_reg) {
-        append_register_copy(machine_block, prepared_reg, source_reg);
-        if (cast_kind == CoreIrCastKind::SignedIntToFloat) {
-            apply_sign_extend_to_virtual_reg(machine_block, prepared_reg, source_type,
-                                             prepared_reg.get_kind() ==
-                                                     AArch64VirtualRegKind::General64
-                                                 ? create_fake_pointer_type()
-                                                 : source_type);
-        } else {
-            apply_zero_extend_to_virtual_reg(machine_block, prepared_reg, source_type,
-                                             prepared_reg.get_kind() ==
-                                                     AArch64VirtualRegKind::General64
-                                                 ? create_fake_pointer_type()
-                                                 : source_type);
-        }
-        return true;
     }
 
     bool emit_float128_cast_helper(AArch64MachineBlock &machine_block,

@@ -221,6 +221,40 @@ void append_register_copy(AArch64MachineBlock &machine_block,
                                      use_vreg_as_kind(src_reg, dst_reg.get_kind()));
 }
 
+void append_copy_from_physical_reg(AArch64MachineBlock &machine_block,
+                                   const AArch64VirtualReg &dst_reg,
+                                   unsigned physical_reg,
+                                   AArch64VirtualRegKind physical_kind) {
+    const std::string physical_name =
+        render_physical_register(physical_reg, physical_kind);
+    if (dst_reg.is_floating_point()) {
+        machine_block.append_instruction(fp_move_mnemonic(dst_reg.get_kind()) + " " +
+                                         def_vreg(dst_reg) + ", " + physical_name);
+        return;
+    }
+    machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
+                                     physical_name);
+}
+
+void append_copy_to_physical_reg(AArch64MachineBlock &machine_block,
+                                 unsigned physical_reg,
+                                 AArch64VirtualRegKind physical_kind,
+                                 const AArch64VirtualReg &src_reg) {
+    const std::string physical_name =
+        render_physical_register(physical_reg, physical_kind);
+    if (src_reg.is_floating_point()) {
+        machine_block.append_instruction(fp_move_mnemonic(src_reg.get_kind()) + " " +
+                                         physical_name + ", " + use_vreg(src_reg));
+        return;
+    }
+    machine_block.append_instruction("mov " + physical_name + ", " +
+                                     use_vreg_as_kind(
+                                         src_reg,
+                                         uses_general_64bit_register(physical_kind)
+                                             ? AArch64VirtualRegKind::General64
+                                             : AArch64VirtualRegKind::General32));
+}
+
 std::vector<ParsedVirtualRegRef> parse_virtual_reg_refs(const std::string &text) {
     std::vector<ParsedVirtualRegRef> refs;
     for (std::size_t index = 0; index + 3 < text.size(); ++index) {
