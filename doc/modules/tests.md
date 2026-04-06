@@ -15,6 +15,9 @@ tests/
 │   ├── run_functional.sh
 │   ├── run_arm_functional.sh
 │   ├── run_arm_performance.sh
+│   ├── run_functional_in_docker.sh
+│   ├── run_arm_functional_in_docker.sh
+│   ├── run_arm_performance_in_docker.sh
 │   └── runtime support files
 ├── dialects/
 │   └── <case>/
@@ -65,6 +68,10 @@ current scripts cover:
   generated program output against the bundled `.out` files
 - an ARM-performance benchmark runner that compares SysyCC-generated LLVM IR
   programs against a direct Clang baseline and writes a Markdown timing report
+- matching Docker wrappers for the recovered functional suite plus the ARM
+  functional/performance runners, so the larger compiler2025 suites can be
+  executed inside the repository Docker image instead of depending on the host
+  toolchain layout
 
 Recent end-to-end coverage that now matters for the shared SysY22/C goal
 includes:
