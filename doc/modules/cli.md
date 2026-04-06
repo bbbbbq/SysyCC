@@ -13,7 +13,7 @@ The CLI module converts `argv` into a compiler configuration object.
 
 - parse command line flags
 - normalize public GCC-like driver actions such as `-E`, `-fsyntax-only`,
-  `-S`, and `-S -emit-llvm`
+  `-S`, `-c`, `-g`, and `-S -emit-llvm`
 - record input and output file paths
 - collect include search directories from `-I`
 - collect system include search directories from `-isystem`
@@ -28,6 +28,8 @@ The CLI module converts `argv` into a compiler configuration object.
 - support `--stop-after=<stage>` so tests and tooling can stop after
   `preprocess`, `lex`, `parse`, `ast`, `semantic`, `core-ir`, `ir`, or `asm`
 - select backend-specific emission modes such as native Linux AArch64 asm
+- select native AArch64 object / PIC / debug emission modes such as `-c`,
+  `-fPIC`, and `-g`
 - print help, version, and verbose driver configuration information
 - fill [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
 
@@ -52,9 +54,12 @@ Output:
   - `-E` preprocesses to stdout or `-o`
   - `-fsyntax-only` stops after semantic analysis
   - `-S` emits AArch64 assembly
+  - `-c` emits a native AArch64 ELF object file
+  - `-g` requests basic native AArch64 debug information
   - `-S -emit-llvm` emits LLVM IR
-- Bare `sysycc input.sy` and `-c` are parsed but currently fail with explicit
-  driver errors because linking and object emission are not implemented yet.
+- Bare `sysycc input.sy` still fails with an explicit linking-not-supported
+  diagnostic, but `-c` is now a supported compile-only object-emission path for
+  the native AArch64 backend.
 - `-I<dir>` and `-I <dir>` are both accepted and stored in [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp).
 - `-isystem <dir>` is accepted and merged ahead of the default system include directories unless `-nostdinc` disables the default search roots.
 - The parsed include directories are forwarded through the compiler context and consumed by the preprocess stage during local include resolution.
@@ -85,6 +90,13 @@ Output:
 - The public `-S` path defaults to the native AArch64 backend and fills in the
   default target triple `aarch64-unknown-linux-gnu` when the user does not
   specify one.
+- The public `-c` path now also defaults to the native AArch64 backend and the
+  same default target triple.
+- `-fPIC` is now accepted on the native AArch64 path and enables
+  position-independent address materialization for external symbol references.
+- `-g` is now accepted on the native AArch64 `-S` / `-c` path and emits
+  `.file` / `.loc` directives for assembly output plus assembler-generated
+  DWARF line tables for object output.
 - `--backend=llvm-ir|aarch64-native` and `--target=...` remain accepted as
   compatibility / developer controls but are no longer the primary user-facing
   surface.

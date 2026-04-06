@@ -185,9 +185,7 @@ bool Cli::finalize_driver_mode() {
     } else if (request_syntax_only_) {
         driver_action_ = sysycc::DriverAction::SyntaxOnly;
     } else if (request_compile_only_) {
-        driver_action_ = sysycc::DriverAction::CompileOnlyUnsupported;
-        emit_error("object emission is not supported yet; use -E, -fsyntax-only, -S, or -S -emit-llvm");
-        return false;
+        driver_action_ = sysycc::DriverAction::CompileOnly;
     } else if (request_emit_assembly_ && request_emit_llvm_) {
         driver_action_ = sysycc::DriverAction::EmitLlvmIr;
     } else if (request_emit_assembly_) {
@@ -197,7 +195,7 @@ bool Cli::finalize_driver_mode() {
             driver_action_ = sysycc::DriverAction::InternalPipeline;
         } else {
             driver_action_ = sysycc::DriverAction::FullCompile;
-            emit_error("linking is not supported yet; use -E, -fsyntax-only, -S, or -S -emit-llvm");
+            emit_error("linking is not supported yet; use -E, -fsyntax-only, -c, -S, or -S -emit-llvm");
             return false;
         }
     }
@@ -218,21 +216,26 @@ bool Cli::finalize_driver_mode() {
             break;
         case sysycc::DriverAction::InternalPipeline:
         case sysycc::DriverAction::FullCompile:
-        case sysycc::DriverAction::CompileOnlyUnsupported:
+        case sysycc::DriverAction::CompileOnly:
             stop_after_stage_ = sysycc::StopAfterStage::None;
             break;
         }
     }
 
     emit_asm_ = driver_action_ == sysycc::DriverAction::EmitAssembly;
+    if (driver_action_ == sysycc::DriverAction::CompileOnly) {
+        emit_asm_ = false;
+    }
 
     if (!explicit_backend_) {
-        backend_kind_ = driver_action_ == sysycc::DriverAction::EmitAssembly
+        backend_kind_ = (driver_action_ == sysycc::DriverAction::EmitAssembly ||
+                         driver_action_ == sysycc::DriverAction::CompileOnly)
                             ? sysycc::BackendKind::AArch64Native
                             : sysycc::BackendKind::LlvmIr;
     }
 
-    if (driver_action_ == sysycc::DriverAction::EmitAssembly &&
+    if ((driver_action_ == sysycc::DriverAction::EmitAssembly ||
+         driver_action_ == sysycc::DriverAction::CompileOnly) &&
         target_triple_.empty()) {
         target_triple_ = "aarch64-unknown-linux-gnu";
     }
@@ -273,6 +276,8 @@ void Cli::Run(int argc, char *argv[]) {
     request_emit_assembly_ = false;
     request_emit_llvm_ = false;
     request_compile_only_ = false;
+    request_position_independent_ = false;
+    request_debug_info_ = false;
     is_help_ = false;
     is_version_ = false;
     has_error_ = false;
@@ -320,6 +325,16 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-c") {
             request_compile_only_ = true;
+            continue;
+        }
+
+        if (arg == "-fPIC") {
+            request_position_independent_ = true;
+            continue;
+        }
+
+        if (arg == "-g") {
+            request_debug_info_ = true;
             continue;
         }
 
