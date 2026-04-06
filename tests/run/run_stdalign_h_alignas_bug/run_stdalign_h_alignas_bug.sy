@@ -1,0 +1,11 @@
+#include <stdalign.h>
+
+struct Buffer {
+    alignas(8) int value;
+};
+
+int main(void) {
+    struct Buffer buffer;
+    buffer.value = 1;
+    return buffer.value;
+}
