@@ -72,15 +72,18 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/local_cse/core_ir_local_cse_pass.cpp
     src/backend/ir/loop_simplify/core_ir_loop_simplify_pass.cpp
     src/backend/ir/mem2reg/core_ir_mem2reg_pass.cpp
+    src/backend/ir/pipeline/core_ir_pass_pipeline.cpp
     src/backend/ir/sccp/core_ir_sccp_pass.cpp
     src/backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.cpp
     src/backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.cpp
+    src/backend/ir/verify/core_ir_verifier.cpp
     src/backend/ir/lower/legacy/gnu_function_attribute_lowering_handler.cpp
     src/backend/ir/lower/legacy/ir_builder.cpp
     src/backend/ir/lower/lower_ir_pass.cpp
     src/backend/ir/shared/printer/core_ir_raw_printer.cpp
     src/backend/ir/lower/legacy/llvm/llvm_ir_backend.cpp
     src/backend/ir/shared/detail/aggregate_layout.cpp
+    src/backend/ir/shared/detail/core_ir_rewrite_utils.cpp
     src/backend/ir/shared/detail/ir_context.cpp
     src/backend/ir/shared/detail/symbol_value_map.cpp
     src/cli/cli.cpp

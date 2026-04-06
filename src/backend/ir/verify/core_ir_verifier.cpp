@@ -286,12 +286,6 @@ CoreIrVerifyResult CoreIrVerifier::verify_function(
         cfg_analysis = &owned_cfg_analysis;
     }
 
-    if (function.get_basic_blocks().empty()) {
-        add_issue(result, CoreIrVerifyIssueKind::FunctionOwnership,
-                  "function does not contain an entry block", &function);
-        return result;
-    }
-
     std::unordered_set<const CoreIrValue *> seen_values;
     for (const auto &parameter : function.get_parameters()) {
         if (parameter == nullptr) {
@@ -325,6 +319,10 @@ CoreIrVerifyResult CoreIrVerifier::verify_function(
                       "stack slot allocated type does not belong to the function context",
                       &function);
         }
+    }
+
+    if (function.get_basic_blocks().empty()) {
+        return result;
     }
 
     for (const auto &block : function.get_basic_blocks()) {
