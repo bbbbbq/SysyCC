@@ -24,6 +24,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_frame_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_float_helper_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_function_boundary_abi_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_global_data_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_access_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_value_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
@@ -482,7 +483,9 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                                   ? ".arch armv8.2-a+fp16"
                                                   : ".arch armv8-a");
 
-        if (!append_globals(*machine_module_) || !append_functions(*machine_module_)) {
+        GlobalDataLoweringContext global_data_context(*this);
+        if (!sysycc::append_globals(*machine_module_, module_, global_data_context) ||
+            !append_functions(*machine_module_)) {
             return false;
         }
         return true;
@@ -1025,351 +1028,6 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         return stack_slot != nullptr &&
                state.promoted_stack_slots.find(stack_slot) !=
                    state.promoted_stack_slots.end();
-    }
-
-    bool split_constant_address(const CoreIrConstant *constant, std::string &symbol_name,
-                                long long &offset) const {
-        if (const auto *global_address =
-                dynamic_cast<const CoreIrConstantGlobalAddress *>(constant);
-            global_address != nullptr) {
-            symbol_name = global_address->get_global()->get_name();
-            offset = 0;
-            return true;
-        }
-        if (const auto *gep_constant =
-                dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
-            gep_constant != nullptr) {
-            if (!split_constant_address(gep_constant->get_base(), symbol_name, offset)) {
-                return false;
-            }
-            const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
-                gep_constant->get_base()->get_type());
-            if (base_pointer_type == nullptr) {
-                return false;
-            }
-            const std::optional<long long> gep_offset =
-                compute_constant_gep_offset(base_pointer_type->get_pointee_type(),
-                                            gep_constant->get_indices());
-            if (!gep_offset.has_value()) {
-                return false;
-            }
-            offset += *gep_offset;
-            return true;
-        }
-        return false;
-    }
-
-    std::optional<long long>
-    compute_constant_gep_offset(const CoreIrType *base_type,
-                                const std::vector<const CoreIrConstant *> &indices) const {
-        if (base_type == nullptr) {
-            return std::nullopt;
-        }
-
-        const CoreIrType *current_type = base_type;
-        long long offset = 0;
-        for (std::size_t index_position = 0; index_position < indices.size();
-             ++index_position) {
-            const std::optional<long long> maybe_index =
-                get_signed_integer_constant(indices[index_position]);
-            if (!maybe_index.has_value()) {
-                return std::nullopt;
-            }
-
-            if (index_position == 0) {
-                offset += *maybe_index * static_cast<long long>(get_type_size(current_type));
-                continue;
-            }
-
-            if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
-                array_type != nullptr) {
-                offset += *maybe_index *
-                          static_cast<long long>(get_type_size(array_type->get_element_type()));
-                current_type = array_type->get_element_type();
-                continue;
-            }
-
-            if (const auto *struct_type =
-                    dynamic_cast<const CoreIrStructType *>(current_type);
-                struct_type != nullptr) {
-                if (*maybe_index < 0 ||
-                    static_cast<std::size_t>(*maybe_index) >=
-                        struct_type->get_element_types().size()) {
-                    return std::nullopt;
-                }
-                offset += static_cast<long long>(
-                    get_struct_member_offset(struct_type,
-                                             static_cast<std::size_t>(*maybe_index)));
-                current_type =
-                    struct_type->get_element_types()[static_cast<std::size_t>(*maybe_index)];
-                continue;
-            }
-
-            if (const auto *pointer_type =
-                    dynamic_cast<const CoreIrPointerType *>(current_type);
-                pointer_type != nullptr) {
-                offset += *maybe_index * static_cast<long long>(
-                                             get_type_size(pointer_type->get_pointee_type()));
-                current_type = pointer_type->get_pointee_type();
-                continue;
-            }
-
-            return std::nullopt;
-        }
-
-        return offset;
-    }
-
-    std::size_t alignment_to_log2(std::size_t alignment) const {
-        if (alignment <= 1) {
-            return 0;
-        }
-        std::size_t log2 = 0;
-        while ((static_cast<std::size_t>(1) << log2) < alignment) {
-            ++log2;
-        }
-        return log2;
-    }
-
-    void append_data_fragment(AArch64DataObject &data_object, std::string text,
-                              std::vector<AArch64RelocationRecord> relocations = {}) {
-        data_object.append_fragment(
-            AArch64DataFragment(std::move(text), std::move(relocations)));
-    }
-
-    bool append_global_constant_fragments(AArch64DataObject &data_object,
-                                          const CoreIrConstant *constant,
-                                          const CoreIrType *type) {
-        if (constant == nullptr) {
-            return false;
-        }
-
-        if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) != nullptr) {
-            append_data_fragment(data_object,
-                                 "  .zero " + std::to_string(get_type_size(type)));
-            return true;
-        }
-        if (const auto *int_constant =
-                dynamic_cast<const CoreIrConstantInt *>(constant);
-            int_constant != nullptr) {
-            append_data_fragment(
-                data_object,
-                "  " + scalar_directive(type) + " " +
-                std::to_string(int_constant->get_value()));
-            return true;
-        }
-        if (const auto *float_constant =
-                dynamic_cast<const CoreIrConstantFloat *>(constant);
-            float_constant != nullptr) {
-            const auto *float_type = as_float_type(type);
-            if (float_type == nullptr) {
-                return false;
-            }
-            const std::string literal_text =
-                strip_floating_literal_suffix(float_constant->get_literal_text());
-            try {
-                switch (float_type->get_float_kind()) {
-                case CoreIrFloatKind::Float16: {
-                    const float parsed = std::stof(literal_text);
-                    append_data_fragment(
-                        data_object,
-                        "  .hword " +
-                        format_bits_literal(float32_to_float16_bits(parsed), 4));
-                    return true;
-                }
-                case CoreIrFloatKind::Float32: {
-                    const float parsed = std::stof(literal_text);
-                    std::uint32_t bits = 0;
-                    std::memcpy(&bits, &parsed, sizeof(bits));
-                    append_data_fragment(data_object,
-                                         "  .word " +
-                                             format_bits_literal(bits, 8));
-                    return true;
-                }
-                case CoreIrFloatKind::Float64: {
-                    const double parsed = std::stod(literal_text);
-                    std::uint64_t bits = 0;
-                    std::memcpy(&bits, &parsed, sizeof(bits));
-                    append_data_fragment(data_object,
-                                         "  .xword " +
-                                             format_bits_literal(bits, 16));
-                    return true;
-                }
-                case CoreIrFloatKind::Float128:
-                    if (floating_literal_is_zero(literal_text)) {
-                        append_data_fragment(data_object, "  .zero 16");
-                        return true;
-                    }
-                    add_backend_error(
-                        diagnostic_engine_,
-                        "non-zero float128 global initializers are not yet "
-                        "supported by the AArch64 native backend");
-                    return false;
-                }
-            } catch (...) {
-                add_backend_error(
-                    diagnostic_engine_,
-                    "failed to parse floating literal for AArch64 global "
-                    "constant emission");
-                return false;
-            }
-        }
-        if (dynamic_cast<const CoreIrConstantNull *>(constant) != nullptr) {
-            append_data_fragment(
-                data_object,
-                "  " + scalar_directive(type) + " 0");
-            return true;
-        }
-        if (const auto *byte_string =
-                dynamic_cast<const CoreIrConstantByteString *>(constant);
-            byte_string != nullptr) {
-            std::ostringstream bytes_line;
-            bytes_line << "  .byte ";
-            for (std::size_t index = 0; index < byte_string->get_bytes().size();
-                 ++index) {
-                if (index > 0) {
-                    bytes_line << ", ";
-                }
-                bytes_line << static_cast<unsigned>(byte_string->get_bytes()[index]);
-            }
-            append_data_fragment(data_object, bytes_line.str());
-            return true;
-        }
-        if (const auto *aggregate =
-                dynamic_cast<const CoreIrConstantAggregate *>(constant);
-            aggregate != nullptr) {
-            const auto *struct_type = dynamic_cast<const CoreIrStructType *>(type);
-            const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
-            std::size_t emitted_size = 0;
-            for (std::size_t index = 0; index < aggregate->get_elements().size(); ++index) {
-                const CoreIrType *element_type = nullptr;
-                std::size_t element_offset = emitted_size;
-                if (struct_type != nullptr &&
-                    index < struct_type->get_element_types().size()) {
-                    element_type = struct_type->get_element_types()[index];
-                    element_offset = get_struct_member_offset(struct_type, index);
-                } else if (array_type != nullptr &&
-                           index < array_type->get_element_count()) {
-                    element_type = array_type->get_element_type();
-                    element_offset = index * get_type_size(element_type);
-                }
-                if (element_type == nullptr) {
-                    return false;
-                }
-                if (element_offset > emitted_size) {
-                    append_data_fragment(data_object,
-                                         "  .zero " +
-                                             std::to_string(element_offset -
-                                                            emitted_size));
-                    emitted_size = element_offset;
-                }
-                if (!append_global_constant_fragments(
-                        data_object, aggregate->get_elements()[index], element_type)) {
-                    return false;
-                }
-                emitted_size =
-                    std::max(emitted_size, element_offset + get_type_size(element_type));
-            }
-            if (get_type_size(type) > emitted_size) {
-                append_data_fragment(
-                    data_object,
-                    "  .zero " +
-                    std::to_string(get_type_size(type) - emitted_size));
-            }
-            return true;
-        }
-        std::string symbol_name;
-        long long offset = 0;
-        if (split_constant_address(constant, symbol_name, offset)) {
-            record_symbol_reference(symbol_name, AArch64SymbolKind::Object);
-            std::string line = "  " + scalar_directive(type) + " " + symbol_name;
-            if (offset > 0) {
-                line += " + " + std::to_string(offset);
-            } else if (offset < 0) {
-                line += " - " + std::to_string(-offset);
-            }
-            append_data_fragment(
-                data_object, line,
-                {AArch64RelocationRecord{
-                    get_storage_size(type) <= 4 ? AArch64RelocationKind::Absolute32
-                                                : AArch64RelocationKind::Absolute64,
-                    symbol_name,
-                    offset}});
-            return true;
-        }
-
-        return false;
-    }
-
-    bool append_globals(AArch64MachineModule &machine_module) {
-        for (const auto &global : module_.get_globals()) {
-            if (!append_global(machine_module, *global)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    bool append_global(AArch64MachineModule &machine_module,
-                       const CoreIrGlobal &global) {
-        if (global.get_initializer() == nullptr) {
-            if (global.get_is_internal_linkage()) {
-                add_backend_error(
-                    diagnostic_engine_,
-                    "AArch64 native backend requires an initializer for internal global '" +
-                        global.get_name() + "'");
-                return false;
-            }
-            record_symbol_reference(global.get_name(), AArch64SymbolKind::Object);
-            return true;
-        }
-        if (is_byte_string_global(global)) {
-            record_symbol_definition(global.get_name(), AArch64SymbolKind::Object,
-                                     AArch64SectionKind::ReadOnlyData,
-                                     !global.get_is_internal_linkage());
-            AArch64DataObject &data_object = machine_module.append_data_object(
-                AArch64SectionKind::ReadOnlyData, global.get_name(),
-                !global.get_is_internal_linkage(), 0);
-            const auto *byte_string =
-                static_cast<const CoreIrConstantByteString *>(global.get_initializer());
-            std::ostringstream bytes_line;
-            bytes_line << "  .byte ";
-            for (std::size_t index = 0; index < byte_string->get_bytes().size();
-                 ++index) {
-                if (index > 0) {
-                    bytes_line << ", ";
-                }
-                bytes_line << static_cast<unsigned>(byte_string->get_bytes()[index]);
-            }
-            append_data_fragment(data_object, bytes_line.str());
-            return true;
-        }
-
-        if (!is_supported_object_type(global.get_type())) {
-            add_backend_error(
-                diagnostic_engine_,
-                "unsupported global type in AArch64 native backend for '" +
-                    global.get_name() + "'");
-            return false;
-        }
-
-        const AArch64SectionKind section_kind =
-            global.get_is_constant() ? AArch64SectionKind::ReadOnlyData
-                                     : AArch64SectionKind::Data;
-        record_symbol_definition(global.get_name(), AArch64SymbolKind::Object,
-                                 section_kind, !global.get_is_internal_linkage());
-        AArch64DataObject &data_object = machine_module.append_data_object(
-            section_kind, global.get_name(), !global.get_is_internal_linkage(),
-            alignment_to_log2(get_type_alignment(global.get_type())));
-        if (!append_global_constant_fragments(data_object, global.get_initializer(),
-                                              global.get_type())) {
-            add_backend_error(
-                diagnostic_engine_,
-                "unsupported global initializer in AArch64 native backend for '" +
-                    global.get_name() + "'");
-            return false;
-        }
-        return true;
     }
 
     bool append_functions(AArch64MachineModule &machine_module) {
@@ -2318,6 +1976,33 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
             return sysycc::materialize_float_constant(machine_block, session_,
                                                       constant, target_reg,
                                                       function);
+        }
+
+        void report_error(const std::string &message) override {
+            add_backend_error(session_.diagnostic_engine_, message);
+        }
+    };
+
+    class GlobalDataLoweringContext final
+        : public AArch64GlobalDataLoweringContext {
+      private:
+        AArch64LoweringSession &session_;
+
+      public:
+        explicit GlobalDataLoweringContext(AArch64LoweringSession &session)
+            : session_(session) {}
+
+        void record_symbol_definition(const std::string &name,
+                                      AArch64SymbolKind kind,
+                                      AArch64SectionKind section_kind,
+                                      bool is_global_symbol) override {
+            session_.record_symbol_definition(name, kind, section_kind,
+                                              is_global_symbol);
+        }
+
+        void record_symbol_reference(const std::string &name,
+                                     AArch64SymbolKind kind) override {
+            session_.record_symbol_reference(name, kind);
         }
 
         void report_error(const std::string &message) override {
