@@ -14,6 +14,7 @@ The CLI module converts `argv` into a compiler configuration object.
 - parse command line flags
 - normalize public GCC-like driver actions such as `-E`, `-fsyntax-only`,
   `-S`, and `-S -emit-llvm`
+- parse public optimization switches such as `-O0` and `-O1`
 - record input and output file paths
 - collect include search directories from `-I`
 - collect system include search directories from `-isystem`
@@ -48,13 +49,21 @@ Output:
 - The namespace is currently `ClI`.
 - The CLI does not run compilation logic itself.
 - It only prepares configuration for the compiler core.
+- The default public executable produced by the build is `compiler`, while
+  `build/SysyCC` remains as a local compatibility alias for older scripts.
 - The public user-facing actions are now GCC-like:
   - `-E` preprocesses to stdout or `-o`
   - `-fsyntax-only` stops after semantic analysis
   - `-S` emits AArch64 assembly
   - `-S -emit-llvm` emits LLVM IR
-- Bare `sysycc input.sy` and `-c` are parsed but currently fail with explicit
+- Bare `compiler input.sy` and `-c` are parsed but currently fail with explicit
   driver errors because linking and object emission are not implemented yet.
+- `-O0` keeps the minimum Core IR pipeline required by later lowering, while
+  `-O1` additionally enables the current Core IR optimization batch:
+  canonicalization, constant folding, and dead-code elimination.
+- Unsupported higher optimization levels such as `-O2`, `-O3`, and `-Os`
+  currently fail with explicit driver diagnostics instead of being accepted
+  silently.
 - `-I<dir>` and `-I <dir>` are both accepted and stored in [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp).
 - `-isystem <dir>` is accepted and merged ahead of the default system include directories unless `-nostdinc` disables the default search roots.
 - The parsed include directories are forwarded through the compiler context and consumed by the preprocess stage during local include resolution.
@@ -98,5 +107,5 @@ Output:
   `--enable-builtin-types` / `--disable-builtin-types` explicitly reconfigure
   the optional dialect packs for one invocation.
 - `-v` now prints version plus the effective driver/language/include
-  configuration and then continues compiling, while `--version` exits
-  immediately.
+  configuration and optimization level, then continues compiling, while
+  `--version` exits immediately.

@@ -24,7 +24,6 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${PROJECT_ROOT}/src/common/source_mapping_view.cpp" \
     "${PROJECT_ROOT}/src/common/source_manager.cpp" \
     "${PROJECT_ROOT}/src/compiler/complier.cpp" \
-    "${PROJECT_ROOT}/src/compiler/pass/pass.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/registries/ast_feature_registry.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/registries/attribute_semantic_handler_registry.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/registries/builtin_type_semantic_handler_registry.cpp" \

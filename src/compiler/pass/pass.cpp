@@ -1,6 +1,11 @@
 #include "pass.hpp"
 
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
+
+#include "backend/ir/shared/core/core_ir_builder.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 
 namespace sysycc {
 
@@ -30,7 +35,9 @@ bool should_stop_after_pass(const CompilerContext &context, PassKind pass_kind) 
     case StopAfterStage::Semantic:
         return pass_kind == PassKind::Semantic;
     case StopAfterStage::CoreIr:
-        return pass_kind == PassKind::CoreIrDce;
+        return context.get_optimization_level() == OptimizationLevel::O1
+                   ? pass_kind == PassKind::CoreIrDce
+                   : pass_kind == PassKind::CoreIrCanonicalize;
     case StopAfterStage::IR:
         return pass_kind == PassKind::LowerIr;
     case StopAfterStage::Asm:
@@ -38,6 +45,54 @@ bool should_stop_after_pass(const CompilerContext &context, PassKind pass_kind) 
     }
 
     return false;
+}
+
+bool should_run_pass(const CompilerContext &context, PassKind pass_kind) {
+    switch (pass_kind) {
+    case PassKind::CoreIrConstFold:
+    case PassKind::CoreIrDce:
+        return context.get_optimization_level() == OptimizationLevel::O1;
+    case PassKind::Preprocess:
+    case PassKind::Lex:
+    case PassKind::Parse:
+    case PassKind::Ast:
+    case PassKind::Semantic:
+    case PassKind::BuildCoreIr:
+    case PassKind::CoreIrCanonicalize:
+    case PassKind::LowerIr:
+    case PassKind::CodeGen:
+        return true;
+    }
+
+    return true;
+}
+
+void maybe_dump_core_ir_before_stop(CompilerContext &context) {
+    if (context.get_stop_after_stage() != StopAfterStage::CoreIr ||
+        !context.get_dump_core_ir()) {
+        return;
+    }
+
+    CoreIrBuildResult *build_result = context.get_core_ir_build_result();
+    CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
+    if (module == nullptr) {
+        return;
+    }
+
+    const std::filesystem::path output_dir("build/intermediate_results");
+    std::filesystem::create_directories(output_dir);
+    const std::filesystem::path input_path(context.get_input_file());
+    const std::filesystem::path output_file =
+        output_dir / (input_path.stem().string() + ".core-ir.txt");
+    std::ofstream ofs(output_file);
+    if (!ofs.is_open()) {
+        return;
+    }
+
+    CoreIrRawPrinter printer;
+    ofs << printer.print_module(*module);
+    context.set_core_ir_dump_file_path(output_file.string());
 }
 
 } // namespace
@@ -71,6 +126,10 @@ PassResult PassManager::Run(CompilerContext &context) {
             return PassResult::Failure("encountered null pass");
         }
 
+        if (!should_run_pass(context, pass->Kind())) {
+            continue;
+        }
+
         PassResult result = pass->Run(context);
         if (!result.ok) {
             return result;
@@ -80,6 +139,7 @@ PassResult PassManager::Run(CompilerContext &context) {
                 first_error_message(context.get_diagnostic_engine()));
         }
         if (should_stop_after_pass(context, pass->Kind())) {
+            maybe_dump_core_ir_before_stop(context);
             return PassResult::Success();
         }
     }

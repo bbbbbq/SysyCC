@@ -18,11 +18,11 @@ class CoreIrBuildResult {
     CoreIrBuildResult(std::unique_ptr<CoreIrContext> context,
                       CoreIrModule *module) noexcept;
 
-    const CoreIrContext *get_context() const noexcept;
-    CoreIrContext *get_context() noexcept;
+    const CoreIrContext *get_context() const noexcept { return context_.get(); }
+    CoreIrContext *get_context() noexcept { return context_.get(); }
 
-    const CoreIrModule *get_module() const noexcept;
-    CoreIrModule *get_module() noexcept;
+    const CoreIrModule *get_module() const noexcept { return module_; }
+    CoreIrModule *get_module() noexcept { return module_; }
 };
 
 class CoreIrBuilder {

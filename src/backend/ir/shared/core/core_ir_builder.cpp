@@ -5634,20 +5634,6 @@ CoreIrBuildResult::CoreIrBuildResult(std::unique_ptr<CoreIrContext> context,
                                      CoreIrModule *module) noexcept
     : context_(std::move(context)), module_(module) {}
 
-const CoreIrContext *CoreIrBuildResult::get_context() const noexcept {
-    return context_.get();
-}
-
-CoreIrContext *CoreIrBuildResult::get_context() noexcept {
-    return context_.get();
-}
-
-const CoreIrModule *CoreIrBuildResult::get_module() const noexcept {
-    return module_;
-}
-
-CoreIrModule *CoreIrBuildResult::get_module() noexcept { return module_; }
-
 std::unique_ptr<CoreIrBuildResult> CoreIrBuilder::Build(CompilerContext &context) {
     if (context.get_ast_root() == nullptr) {
         context.get_diagnostic_engine().add_error(

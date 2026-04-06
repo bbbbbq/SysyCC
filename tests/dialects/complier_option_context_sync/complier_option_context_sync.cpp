@@ -19,6 +19,23 @@ using namespace sysycc;
 
 namespace sysycc {
 
+void PassManager::AddPass(std::unique_ptr<Pass> pass) {
+    if (pass != nullptr) {
+        passes_.push_back(std::move(pass));
+    }
+}
+
+Pass *PassManager::get_pass_by_kind(PassKind kind) const {
+    for (const std::unique_ptr<Pass> &pass : passes_) {
+        if (pass != nullptr && pass->Kind() == kind) {
+            return pass.get();
+        }
+    }
+    return nullptr;
+}
+
+PassResult PassManager::Run(CompilerContext &) { return PassResult::Success(); }
+
 PassKind PreprocessPass::Kind() const { return PassKind::Preprocess; }
 
 const char *PreprocessPass::Name() const { return "PreprocessPass"; }
@@ -113,6 +130,7 @@ ComplierOption make_option(std::string input_file,
                            bool dump_tokens, bool dump_parse, bool dump_ast,
                            bool dump_ir, bool dump_core_ir, bool emit_asm,
                            StopAfterStage stop_after_stage,
+                           OptimizationLevel optimization_level,
                            BackendKind backend_kind, std::string target_triple,
                            bool enable_gnu_dialect,
                            bool enable_clang_dialect,
@@ -127,6 +145,7 @@ ComplierOption make_option(std::string input_file,
     option.set_dump_core_ir(dump_core_ir);
     option.set_emit_asm(emit_asm);
     option.set_stop_after_stage(stop_after_stage);
+    option.set_optimization_level(optimization_level);
     option.set_enable_gnu_dialect(enable_gnu_dialect);
     option.set_enable_clang_dialect(enable_clang_dialect);
     option.set_enable_builtin_type_extension_pack(
@@ -152,6 +171,7 @@ void assert_context_matches(const CompilerContext &context,
     assert(context.get_dump_core_ir() == option.dump_core_ir());
     assert(context.get_emit_asm() == option.emit_asm());
     assert(context.get_stop_after_stage() == option.get_stop_after_stage());
+    assert(context.get_optimization_level() == option.get_optimization_level());
     assert(context.get_backend_options().get_backend_kind() ==
            option.get_backend_options().get_backend_kind());
     assert(context.get_backend_options().get_target_triple() ==
@@ -167,7 +187,8 @@ int main() {
     const ComplierOption constructor_option =
         make_option("constructor_input.sy", {"include/constructor"},
                     {"system/constructor"}, true, false, true, false, false,
-                    false, StopAfterStage::Parse, BackendKind::LlvmIr, "",
+                    false, StopAfterStage::Parse, OptimizationLevel::O0,
+                    BackendKind::LlvmIr, "",
                     false, false, false);
     Complier complier(constructor_option);
     assert_context_matches(complier.get_context(), constructor_option, {"c99"});
@@ -175,7 +196,8 @@ int main() {
     const ComplierOption assigned_option =
         make_option("assigned_input.sy", {"include/assigned"},
                     {"system/assigned"}, false, true, false, false, true,
-                    true, StopAfterStage::Asm, BackendKind::AArch64Native,
+                    true, StopAfterStage::Asm, OptimizationLevel::O1,
+                    BackendKind::AArch64Native,
                     "aarch64-unknown-linux-gnu", true, false, true);
     complier.set_option(assigned_option);
     assert_context_matches(complier.get_context(), assigned_option,
