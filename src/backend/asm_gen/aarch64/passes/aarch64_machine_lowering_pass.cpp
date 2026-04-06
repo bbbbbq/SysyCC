@@ -548,10 +548,12 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
             : public AArch64FunctionPlanningContext {
           private:
             AArch64LoweringSession &session_;
+            const AArch64AbiLoweringPass &abi_lowering_pass_;
 
           public:
-            explicit FunctionPlanningContext(AArch64LoweringSession &session)
-                : session_(session) {}
+            FunctionPlanningContext(AArch64LoweringSession &session,
+                                    const AArch64AbiLoweringPass &abi_lowering_pass)
+                : session_(session), abi_lowering_pass_(abi_lowering_pass) {}
 
             void report_error(const std::string &message) override {
                 add_backend_error(session_.diagnostic_engine_, message);
@@ -567,9 +569,14 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
             create_pointer_virtual_reg(AArch64MachineFunction &function) override {
                 return session_.create_pointer_virtual_reg(function);
             }
+
+            AArch64FunctionAbiInfo classify_call(
+                const CoreIrCallInst &call) const override {
+                return abi_lowering_pass_.classify_call(call);
+            }
         };
 
-        FunctionPlanningContext planning_context(*this);
+        FunctionPlanningContext planning_context(*this, abi_lowering_pass_);
         return sysycc::seed_function_value_locations(
             function, *state.machine_function, state.value_locations,
             state.aggregate_value_offsets, current_offset, planning_context);
@@ -756,92 +763,6 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         state.last_debug_column = column;
     }
 
-    void seed_call_argument_copy_slots(const CoreIrFunction &function,
-                                       FunctionState &state,
-                                       std::size_t &current_offset) {
-        for (const auto &basic_block : function.get_basic_blocks()) {
-            for (const auto &instruction : basic_block->get_instructions()) {
-                const auto *call =
-                    dynamic_cast<const CoreIrCallInst *>(instruction.get());
-                if (call == nullptr) {
-                    continue;
-                }
-                const AArch64FunctionAbiInfo abi_info =
-                    abi_lowering_pass_.classify_call(*call);
-                std::vector<std::size_t> offsets;
-                offsets.resize(abi_info.parameters.size(), 0);
-                for (std::size_t index = 0; index < abi_info.parameters.size(); ++index) {
-                    if (!abi_info.parameters[index].is_indirect) {
-                        continue;
-                    }
-                    offsets[index] = allocate_aggregate_value_slot(
-                        current_offset,
-                        call->get_operands()[call->get_argument_begin_index() + index]
-                            ->get_type());
-                }
-                if (!offsets.empty()) {
-                    state.indirect_call_argument_copy_offsets.emplace(call,
-                                                                      std::move(offsets));
-                }
-            }
-        }
-    }
-
-    void seed_promoted_stack_slots(const CoreIrFunction &function,
-                                   FunctionState &state) {
-        const CoreIrBasicBlock *entry_block =
-            function.get_basic_blocks().empty() ? nullptr :
-                                                  function.get_basic_blocks().front().get();
-        std::unordered_set<const CoreIrStackSlot *> address_taken;
-        std::unordered_map<const CoreIrStackSlot *, std::size_t> direct_store_count;
-        std::unordered_map<const CoreIrStackSlot *, const CoreIrStoreInst *> entry_store;
-
-        for (const auto &basic_block : function.get_basic_blocks()) {
-            for (const auto &instruction : basic_block->get_instructions()) {
-                if (const auto *address_of_stack_slot =
-                        dynamic_cast<const CoreIrAddressOfStackSlotInst *>(instruction.get());
-                    address_of_stack_slot != nullptr) {
-                    address_taken.insert(address_of_stack_slot->get_stack_slot());
-                    continue;
-                }
-                const auto *store =
-                    dynamic_cast<const CoreIrStoreInst *>(instruction.get());
-                if (store == nullptr || store->get_stack_slot() == nullptr) {
-                    continue;
-                }
-                ++direct_store_count[store->get_stack_slot()];
-                if (basic_block.get() == entry_block) {
-                    entry_store.emplace(store->get_stack_slot(), store);
-                }
-            }
-        }
-
-        for (const auto &stack_slot : function.get_stack_slots()) {
-            if (!is_supported_value_type(stack_slot->get_allocated_type())) {
-                continue;
-            }
-            if (address_taken.find(stack_slot.get()) != address_taken.end()) {
-                continue;
-            }
-            const auto count_it = direct_store_count.find(stack_slot.get());
-            if (count_it == direct_store_count.end() || count_it->second != 1) {
-                continue;
-            }
-            const auto entry_store_it = entry_store.find(stack_slot.get());
-            if (entry_store_it == entry_store.end()) {
-                continue;
-            }
-            const CoreIrValue *stored_value = entry_store_it->second->get_value();
-            const AArch64ValueLocation *location =
-                lookup_value_location(state, stored_value);
-            if (location == nullptr ||
-                location->kind != AArch64ValueLocationKind::VirtualReg) {
-                continue;
-            }
-            state.promoted_stack_slots.insert(stack_slot.get());
-        }
-    }
-
     bool is_promoted_stack_slot(const FunctionState &state,
                                 const CoreIrStackSlot *stack_slot) const {
         return stack_slot != nullptr &&
@@ -922,7 +843,42 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         if (!seed_function_value_locations(function, state, current_offset)) {
             return false;
         }
-        seed_call_argument_copy_slots(function, state, current_offset);
+        class FunctionPlanningContext final
+            : public AArch64FunctionPlanningContext {
+          private:
+            AArch64LoweringSession &session_;
+            const AArch64AbiLoweringPass &abi_lowering_pass_;
+
+          public:
+            FunctionPlanningContext(AArch64LoweringSession &session,
+                                    const AArch64AbiLoweringPass &abi_lowering_pass)
+                : session_(session), abi_lowering_pass_(abi_lowering_pass) {}
+
+            void report_error(const std::string &message) override {
+                add_backend_error(session_.diagnostic_engine_, message);
+            }
+
+            AArch64VirtualReg
+            create_virtual_reg(AArch64MachineFunction &function,
+                               const CoreIrType *type) override {
+                return session_.create_virtual_reg(function, type);
+            }
+
+            AArch64VirtualReg
+            create_pointer_virtual_reg(AArch64MachineFunction &function) override {
+                return session_.create_pointer_virtual_reg(function);
+            }
+
+            AArch64FunctionAbiInfo classify_call(
+                const CoreIrCallInst &call) const override {
+                return abi_lowering_pass_.classify_call(call);
+            }
+        };
+
+        FunctionPlanningContext planning_context(*this, abi_lowering_pass_);
+        sysycc::seed_call_argument_copy_slots(
+            function, state.indirect_call_argument_copy_offsets, current_offset,
+            planning_context);
         const std::size_t frame_size = align_to(current_offset, 16);
         machine_function.get_frame_info().set_local_size(current_offset);
         machine_function.get_frame_info().set_frame_size(frame_size);
@@ -948,7 +904,8 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                 static_cast<long long>(frame_size + 16)});
         machine_function.get_frame_record().append_cfi_directive(
             AArch64CfiDirective{AArch64CfiDirectiveKind::EndProcedure});
-        seed_promoted_stack_slots(function, state);
+        sysycc::seed_promoted_stack_slots(function, state.value_locations,
+                                          state.promoted_stack_slots);
 
         block_labels_.clear();
         for (const auto &basic_block : function.get_basic_blocks()) {

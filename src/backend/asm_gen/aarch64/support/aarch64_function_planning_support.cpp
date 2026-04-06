@@ -3,6 +3,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
+#include "backend/ir/shared/core/ir_stack_slot.hpp"
 
 namespace sysycc {
 
@@ -128,6 +129,92 @@ bool seed_function_value_locations(
         }
     }
     return true;
+}
+
+void seed_call_argument_copy_slots(
+    const CoreIrFunction &function,
+    std::unordered_map<const CoreIrCallInst *, std::vector<std::size_t>>
+        &indirect_call_argument_copy_offsets,
+    std::size_t &current_offset, AArch64FunctionPlanningContext &context) {
+    for (const auto &basic_block : function.get_basic_blocks()) {
+        for (const auto &instruction : basic_block->get_instructions()) {
+            const auto *call = dynamic_cast<const CoreIrCallInst *>(instruction.get());
+            if (call == nullptr) {
+                continue;
+            }
+            const AArch64FunctionAbiInfo abi_info = context.classify_call(*call);
+            std::vector<std::size_t> offsets;
+            offsets.resize(abi_info.parameters.size(), 0);
+            for (std::size_t index = 0; index < abi_info.parameters.size(); ++index) {
+                if (!abi_info.parameters[index].is_indirect) {
+                    continue;
+                }
+                offsets[index] = allocate_aggregate_value_slot(
+                    current_offset,
+                    call->get_operands()[call->get_argument_begin_index() + index]
+                        ->get_type());
+            }
+            if (!offsets.empty()) {
+                indirect_call_argument_copy_offsets.emplace(call, std::move(offsets));
+            }
+        }
+    }
+}
+
+void seed_promoted_stack_slots(
+    const CoreIrFunction &function,
+    const std::unordered_map<const CoreIrValue *, AArch64ValueLocation> &value_locations,
+    std::unordered_set<const CoreIrStackSlot *> &promoted_stack_slots) {
+    const CoreIrBasicBlock *entry_block =
+        function.get_basic_blocks().empty() ? nullptr :
+                                              function.get_basic_blocks().front().get();
+    std::unordered_set<const CoreIrStackSlot *> address_taken;
+    std::unordered_map<const CoreIrStackSlot *, std::size_t> direct_store_count;
+    std::unordered_map<const CoreIrStackSlot *, const CoreIrStoreInst *> entry_store;
+
+    for (const auto &basic_block : function.get_basic_blocks()) {
+        for (const auto &instruction : basic_block->get_instructions()) {
+            if (const auto *address_of_stack_slot =
+                    dynamic_cast<const CoreIrAddressOfStackSlotInst *>(
+                        instruction.get());
+                address_of_stack_slot != nullptr) {
+                address_taken.insert(address_of_stack_slot->get_stack_slot());
+                continue;
+            }
+            const auto *store = dynamic_cast<const CoreIrStoreInst *>(instruction.get());
+            if (store == nullptr || store->get_stack_slot() == nullptr) {
+                continue;
+            }
+            ++direct_store_count[store->get_stack_slot()];
+            if (basic_block.get() == entry_block) {
+                entry_store.emplace(store->get_stack_slot(), store);
+            }
+        }
+    }
+
+    for (const auto &stack_slot : function.get_stack_slots()) {
+        if (!is_supported_value_type(stack_slot->get_allocated_type())) {
+            continue;
+        }
+        if (address_taken.find(stack_slot.get()) != address_taken.end()) {
+            continue;
+        }
+        const auto count_it = direct_store_count.find(stack_slot.get());
+        if (count_it == direct_store_count.end() || count_it->second != 1) {
+            continue;
+        }
+        const auto entry_store_it = entry_store.find(stack_slot.get());
+        if (entry_store_it == entry_store.end()) {
+            continue;
+        }
+        const CoreIrValue *stored_value = entry_store_it->second->get_value();
+        const auto location_it = value_locations.find(stored_value);
+        if (location_it == value_locations.end() ||
+            location_it->second.kind != AArch64ValueLocationKind::VirtualReg) {
+            continue;
+        }
+        promoted_stack_slots.insert(stack_slot.get());
+    }
 }
 
 } // namespace sysycc

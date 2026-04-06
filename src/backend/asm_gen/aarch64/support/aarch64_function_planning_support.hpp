@@ -2,13 +2,18 @@
 
 #include <cstddef>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "backend/asm_gen/aarch64/model/aarch64_codegen_model.hpp"
+#include "backend/asm_gen/aarch64/passes/aarch64_abi_lowering_pass.hpp"
 
 namespace sysycc {
 
+class CoreIrCallInst;
 class CoreIrFunction;
 class CoreIrInstruction;
+class CoreIrStackSlot;
 class CoreIrType;
 class CoreIrValue;
 
@@ -36,6 +41,7 @@ class AArch64FunctionPlanningContext {
                                                  const CoreIrType *type) = 0;
     virtual AArch64VirtualReg
     create_pointer_virtual_reg(AArch64MachineFunction &function) = 0;
+    virtual AArch64FunctionAbiInfo classify_call(const CoreIrCallInst &call) const = 0;
 };
 
 bool is_supported_native_value_type(const CoreIrType *type);
@@ -47,5 +53,14 @@ bool seed_function_value_locations(
     std::unordered_map<const CoreIrValue *, AArch64ValueLocation> &value_locations,
     std::unordered_map<const CoreIrValue *, std::size_t> &aggregate_value_offsets,
     std::size_t &current_offset, AArch64FunctionPlanningContext &context);
+void seed_call_argument_copy_slots(
+    const CoreIrFunction &function,
+    std::unordered_map<const CoreIrCallInst *, std::vector<std::size_t>>
+        &indirect_call_argument_copy_offsets,
+    std::size_t &current_offset, AArch64FunctionPlanningContext &context);
+void seed_promoted_stack_slots(
+    const CoreIrFunction &function,
+    const std::unordered_map<const CoreIrValue *, AArch64ValueLocation> &value_locations,
+    std::unordered_set<const CoreIrStackSlot *> &promoted_stack_slots);
 
 } // namespace sysycc
