@@ -44,6 +44,20 @@ add_executable(${PROJECT_NAME}
     ${FLEX_SysyLexer_OUTPUTS}
     src/backend/asm_gen/aarch64/aarch64_asm_backend.cpp
     src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp
+    src/backend/asm_gen/aarch64/model/aarch64_codegen_model.cpp
+    src/backend/asm_gen/aarch64/passes/aarch64_emission_pass.cpp
+    src/backend/asm_gen/aarch64/passes/aarch64_frame_finalize_pass.cpp
+    src/backend/asm_gen/aarch64/passes/aarch64_abi_lowering_pass.cpp
+    src/backend/asm_gen/aarch64/passes/aarch64_machine_lowering_pass.cpp
+    src/backend/asm_gen/aarch64/passes/aarch64_register_allocation_pass.cpp
+    src/backend/asm_gen/aarch64/passes/aarch64_spill_rewrite_pass.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_frame_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_aggregate_abi_move_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_call_abi_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_function_boundary_abi_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_memory_access_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_text_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_type_layout_support.cpp
     src/backend/ir/analysis/analysis_manager.cpp
     src/backend/ir/analysis/alias_analysis.cpp
     src/backend/ir/analysis/cfg_analysis.cpp
