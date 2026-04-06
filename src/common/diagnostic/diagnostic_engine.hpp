@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "common/diagnostic/diagnostic.hpp"
+#include "common/diagnostic/warning_policy.hpp"
 
 namespace sysycc {
 
@@ -11,6 +12,7 @@ namespace sysycc {
 class DiagnosticEngine {
   private:
     std::vector<Diagnostic> diagnostics_;
+    WarningPolicy warning_policy_;
 
   public:
     DiagnosticEngine() = default;
@@ -20,12 +22,15 @@ class DiagnosticEngine {
 
     void clear();
     bool has_error() const noexcept;
+    const WarningPolicy &get_warning_policy() const noexcept;
+    void set_warning_policy(WarningPolicy warning_policy);
 
     void add_diagnostic(Diagnostic diagnostic);
     void add_error(DiagnosticStage stage, std::string message,
                    SourceSpan source_span = {});
     void add_warning(DiagnosticStage stage, std::string message,
-                     SourceSpan source_span = {});
+                     SourceSpan source_span = {},
+                     std::string warning_option = {});
     void add_note(DiagnosticStage stage, std::string message,
                   SourceSpan source_span = {});
 };

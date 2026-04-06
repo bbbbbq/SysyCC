@@ -5,9 +5,11 @@
 namespace sysycc {
 
 Diagnostic::Diagnostic(DiagnosticLevel level, DiagnosticStage stage,
-                       std::string message, SourceSpan source_span)
+                       std::string message, SourceSpan source_span,
+                       std::string warning_option, bool promoted_from_warning)
     : level_(level), stage_(stage), message_(std::move(message)),
-      source_span_(source_span) {}
+      source_span_(source_span), warning_option_(std::move(warning_option)),
+      promoted_from_warning_(promoted_from_warning) {}
 
 DiagnosticLevel Diagnostic::get_level() const noexcept { return level_; }
 
@@ -17,6 +19,18 @@ const std::string &Diagnostic::get_message() const noexcept { return message_; }
 
 const SourceSpan &Diagnostic::get_source_span() const noexcept {
     return source_span_;
+}
+
+const std::string &Diagnostic::get_warning_option() const noexcept {
+    return warning_option_;
+}
+
+bool Diagnostic::has_warning_option() const noexcept {
+    return !warning_option_.empty();
+}
+
+bool Diagnostic::is_promoted_from_warning() const noexcept {
+    return promoted_from_warning_;
 }
 
 const char *get_diagnostic_level_name(DiagnosticLevel level) noexcept {

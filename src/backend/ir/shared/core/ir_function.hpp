@@ -11,12 +11,21 @@
 namespace sysycc {
 
 class CoreIrFunctionType;
+class CoreIrFunction;
+class CoreIrModule;
 class CoreIrType;
 
 class CoreIrParameter : public CoreIrValue {
+  private:
+    CoreIrFunction *parent_ = nullptr;
+
   public:
     CoreIrParameter(const CoreIrType *type, std::string name)
         : CoreIrValue(type, std::move(name)) {}
+
+    CoreIrFunction *get_parent() const noexcept { return parent_; }
+
+    void set_parent(CoreIrFunction *parent) noexcept { parent_ = parent; }
 };
 
 class CoreIrFunction {
@@ -25,6 +34,7 @@ class CoreIrFunction {
     const CoreIrFunctionType *function_type_ = nullptr;
     bool is_internal_linkage_ = false;
     bool is_always_inline_ = false;
+    CoreIrModule *parent_ = nullptr;
     std::vector<std::unique_ptr<CoreIrParameter>> parameters_;
     std::vector<std::unique_ptr<CoreIrStackSlot>> stack_slots_;
     std::vector<std::unique_ptr<CoreIrBasicBlock>> basic_blocks_;
@@ -38,6 +48,10 @@ class CoreIrFunction {
           is_always_inline_(is_always_inline) {}
 
     const std::string &get_name() const noexcept { return name_; }
+
+    CoreIrModule *get_parent() const noexcept { return parent_; }
+
+    void set_parent(CoreIrModule *parent) noexcept { parent_ = parent; }
 
     const CoreIrFunctionType *get_function_type() const noexcept {
         return function_type_;
@@ -84,6 +98,7 @@ class CoreIrFunction {
         if (parameter == nullptr) {
             return nullptr;
         }
+        parameter->set_parent(this);
         CoreIrParameter *parameter_ptr = parameter.get();
         parameters_.push_back(std::move(parameter));
         return parameter_ptr;
@@ -94,6 +109,7 @@ class CoreIrFunction {
         if (stack_slot == nullptr) {
             return nullptr;
         }
+        stack_slot->set_parent(this);
         CoreIrStackSlot *stack_slot_ptr = stack_slot.get();
         stack_slots_.push_back(std::move(stack_slot));
         return stack_slot_ptr;

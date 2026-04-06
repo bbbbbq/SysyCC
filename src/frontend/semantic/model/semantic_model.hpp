@@ -59,6 +59,8 @@ class SemanticModel {
     std::unordered_map<const AstNode *, const SemanticType *> node_types_;
     std::unordered_map<const AstNode *, const SemanticSymbol *> symbol_bindings_;
     std::unordered_map<const AstNode *, long long> integer_constant_values_;
+    std::unordered_map<const SemanticSymbol *, std::size_t> symbol_use_counts_;
+    std::unordered_map<const SemanticSymbol *, std::size_t> symbol_write_counts_;
     std::unordered_map<const FunctionDecl *,
                        std::vector<SemanticFunctionAttribute>>
         function_attributes_;
@@ -85,6 +87,12 @@ class SemanticModel {
     std::optional<long long>
     get_integer_constant_value(const AstNode *node) const noexcept;
     void bind_integer_constant_value(const AstNode *node, long long value);
+
+    void mark_symbol_used(const SemanticSymbol *symbol);
+    std::size_t get_symbol_use_count(const SemanticSymbol *symbol) const noexcept;
+    void mark_symbol_written(const SemanticSymbol *symbol);
+    std::size_t
+    get_symbol_write_count(const SemanticSymbol *symbol) const noexcept;
 
     const std::vector<SemanticFunctionAttribute> *
     get_function_attributes(const FunctionDecl *function_decl) const noexcept;

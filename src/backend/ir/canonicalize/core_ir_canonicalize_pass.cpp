@@ -12,18 +12,22 @@
 #include <utility>
 #include <vector>
 
+#include "backend/ir/effect/core_ir_effect.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
+#include "backend/ir/shared/detail/core_ir_rewrite_utils.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
 
 namespace {
+
+using namespace detail;
 
 // 这些不变式会被后续的 Core IR pass 直接依赖：
 // - 每个 CondJump 条件都应显式变成 i1 SSA 值
@@ -44,229 +48,10 @@ std::string next_canonicalize_name(const std::string &prefix) {
     return prefix + std::to_string(g_canonicalize_temp_counter++);
 }
 
-// 下面这组工具函数负责做类型、常量和地址形状判断，
-// 让后面的规范化规则可以只关注“是否可安全改写”。
-const CoreIrIntegerType *as_integer_type(const CoreIrType *type) {
-    return dynamic_cast<const CoreIrIntegerType *>(type);
-}
-
-const CoreIrConstantInt *as_integer_constant(const CoreIrValue *value) {
-    return dynamic_cast<const CoreIrConstantInt *>(value);
-}
-
-bool is_zero_integer_constant(const CoreIrValue *value) {
-    const auto *constant = as_integer_constant(value);
-    return constant != nullptr && constant->get_value() == 0;
-}
-
-bool is_one_integer_constant(const CoreIrValue *value) {
-    const auto *constant = as_integer_constant(value);
-    return constant != nullptr && constant->get_value() == 1;
-}
-
-bool is_all_ones_integer_constant(const CoreIrValue *value) {
-    const auto *constant = as_integer_constant(value);
-    const auto *integer_type =
-        constant == nullptr ? nullptr : as_integer_type(constant->get_type());
-    if (integer_type == nullptr) {
-        return false;
-    }
-    const std::size_t bit_width = integer_type->get_bit_width();
-    const std::uint64_t all_ones =
-        bit_width >= 64 ? std::numeric_limits<std::uint64_t>::max()
-                        : ((std::uint64_t{1} << bit_width) - 1);
-    return constant->get_value() == all_ones;
-}
-
-std::optional<std::size_t> get_integer_bit_width(const CoreIrType *type) {
-    const auto *integer_type = as_integer_type(type);
-    if (integer_type == nullptr) {
-        return std::nullopt;
-    }
-    return integer_type->get_bit_width();
-}
-
-const CoreIrType *get_pointer_pointee_type(const CoreIrValue *value) {
-    if (value == nullptr) {
-        return nullptr;
-    }
-    const auto *pointer_type =
-        dynamic_cast<const CoreIrPointerType *>(value->get_type());
-    return pointer_type == nullptr ? nullptr : pointer_type->get_pointee_type();
-}
-
-const CoreIrType *get_gep_result_pointee_type(const CoreIrGetElementPtrInst &gep) {
-    const auto *pointer_type =
-        dynamic_cast<const CoreIrPointerType *>(gep.get_type());
-    return pointer_type == nullptr ? nullptr : pointer_type->get_pointee_type();
-}
-
-bool is_trivial_zero_index_gep(const CoreIrGetElementPtrInst &gep) {
-    return gep.get_index_count() == 1 && is_zero_integer_constant(gep.get_index(0)) &&
-           gep.get_base() != nullptr && gep.get_base()->get_type() == gep.get_type();
-}
-
-CoreIrValue *unwrap_trivial_zero_index_geps(CoreIrValue *value) {
-    CoreIrValue *current = value;
-    auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(current);
-    while (gep != nullptr && is_trivial_zero_index_gep(*gep)) {
-        current = gep->get_base();
-        gep = dynamic_cast<CoreIrGetElementPtrInst *>(current);
-    }
-    return current;
-}
-
-const CoreIrType *get_selected_gep_pointee_type(const CoreIrGetElementPtrInst &gep) {
-    const CoreIrType *current_type = get_pointer_pointee_type(gep.get_base());
-    if (current_type == nullptr) {
-        return nullptr;
-    }
-
-    std::size_t start_index = 0;
-    if (is_trivial_zero_index_gep(gep) ||
-        (gep.get_index_count() > 1 && is_zero_integer_constant(gep.get_index(0)))) {
-        start_index = 1;
-    }
-
-    for (std::size_t index = start_index; index < gep.get_index_count(); ++index) {
-        if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
-            array_type != nullptr) {
-            current_type = array_type->get_element_type();
-            continue;
-        }
-        if (const auto *struct_type =
-                dynamic_cast<const CoreIrStructType *>(current_type);
-            struct_type != nullptr) {
-            if (start_index == 0 && index == 0) {
-                return nullptr;
-            }
-            const auto *index_constant = as_integer_constant(gep.get_index(index));
-            if (index_constant == nullptr) {
-                return nullptr;
-            }
-            const std::uint64_t field_index = index_constant->get_value();
-            if (field_index >= struct_type->get_element_types().size()) {
-                return nullptr;
-            }
-            current_type = struct_type->get_element_types()[field_index];
-            continue;
-        }
-        return nullptr;
-    }
-
-    return current_type;
-}
-
-bool can_flatten_structural_gep(const CoreIrGetElementPtrInst &gep) {
-    return get_selected_gep_pointee_type(gep) == get_gep_result_pointee_type(gep);
-}
-
-bool collect_structural_gep_chain(const CoreIrGetElementPtrInst &gep,
-                                  CoreIrValue *&root_base,
-                                  std::vector<CoreIrValue *> &indices) {
-    if (!can_flatten_structural_gep(gep)) {
-        return false;
-    }
-
-    if (auto *inner_gep = dynamic_cast<CoreIrGetElementPtrInst *>(gep.get_base());
-        inner_gep != nullptr && collect_structural_gep_chain(*inner_gep, root_base, indices)) {
-        const bool drop_outer_leading_zero = is_zero_integer_constant(gep.get_index(0));
-        const std::size_t outer_start_index = drop_outer_leading_zero ? 1 : 0;
-        for (std::size_t index = outer_start_index; index < gep.get_index_count();
-             ++index) {
-            indices.push_back(gep.get_index(index));
-        }
-        return true;
-    }
-
-    root_base = unwrap_trivial_zero_index_geps(gep.get_base());
-    for (std::size_t index = 0; index < gep.get_index_count(); ++index) {
-        indices.push_back(gep.get_index(index));
-    }
-    return true;
-}
-
-bool is_supported_integer_cast_kind(CoreIrCastKind cast_kind) {
-    return cast_kind == CoreIrCastKind::SignExtend ||
-           cast_kind == CoreIrCastKind::ZeroExtend ||
-           cast_kind == CoreIrCastKind::Truncate;
-}
-
-bool preserves_integer_truthiness(CoreIrCastKind cast_kind) {
-    return cast_kind == CoreIrCastKind::SignExtend ||
-           cast_kind == CoreIrCastKind::ZeroExtend;
-}
-
-bool is_float_type(const CoreIrType *type) {
-    return type != nullptr && type->get_kind() == CoreIrTypeKind::Float;
-}
-
-bool is_pointer_type(const CoreIrType *type) {
-    return type != nullptr && type->get_kind() == CoreIrTypeKind::Pointer;
-}
-
-CoreIrInstruction *insert_instruction_before(
-    CoreIrBasicBlock &block, CoreIrInstruction *anchor,
-    std::unique_ptr<CoreIrInstruction> instruction) {
-    if (instruction == nullptr) {
-        return nullptr;
-    }
-
-    auto &instructions = block.get_instructions();
-    auto it = std::find_if(
-        instructions.begin(), instructions.end(),
-        [anchor](const std::unique_ptr<CoreIrInstruction> &candidate) {
-            return candidate.get() == anchor;
-        });
-    instruction->set_parent(&block);
-    CoreIrInstruction *instruction_ptr = instruction.get();
-    instructions.insert(it, std::move(instruction));
-    return instruction_ptr;
-}
-
-bool erase_instruction(CoreIrBasicBlock &block, CoreIrInstruction *instruction) {
-    auto &instructions = block.get_instructions();
-    auto it = std::find_if(
-        instructions.begin(), instructions.end(),
-        [instruction](const std::unique_ptr<CoreIrInstruction> &candidate) {
-            return candidate.get() == instruction;
-        });
-    if (it == instructions.end()) {
-        return false;
-    }
-    (*it)->detach_operands();
-    instructions.erase(it);
-    return true;
-}
-
-CoreIrInstruction *replace_instruction(CoreIrBasicBlock &block,
-                                       CoreIrInstruction *instruction,
-                                       std::unique_ptr<CoreIrInstruction> replacement) {
-    if (instruction == nullptr || replacement == nullptr) {
-        return nullptr;
-    }
-
-    auto &instructions = block.get_instructions();
-    auto it = std::find_if(
-        instructions.begin(), instructions.end(),
-        [instruction](const std::unique_ptr<CoreIrInstruction> &candidate) {
-            return candidate.get() == instruction;
-        });
-    if (it == instructions.end()) {
-        return nullptr;
-    }
-
-    replacement->set_parent(&block);
-    CoreIrInstruction *replacement_ptr = replacement.get();
-    instruction->replace_all_uses_with(replacement_ptr);
-    instruction->detach_operands();
-    *it = std::move(replacement);
-    return replacement_ptr;
-}
-
 bool erase_instruction_if_dead(CoreIrBasicBlock &block,
                                CoreIrInstruction *instruction) {
-    if (instruction == nullptr || instruction->get_has_side_effect() ||
+    if (instruction == nullptr ||
+        !get_core_ir_instruction_effect(*instruction).is_pure_value ||
         !instruction->get_uses().empty()) {
         return false;
     }
@@ -459,11 +244,13 @@ CoreIrCompareInst *canonicalize_branch_condition_value(CoreIrContext &context,
             match_boolean_compare(condition);
         match.has_value()) {
         auto *compare = match->compare;
+        if (compare == nullptr) {
+            return nullptr;
+        }
         const auto *compare_type =
-            compare == nullptr ? nullptr : as_integer_type(compare->get_type());
-        if (compare != nullptr && compare_type != nullptr &&
-            compare_type->get_bit_width() == 1 && !match->invert &&
-            compare == condition) {
+            as_integer_type(compare->get_type());
+        if (compare_type != nullptr && compare_type->get_bit_width() == 1 &&
+            !match->invert && compare == condition) {
             return compare;
         }
         changed = true;
@@ -632,7 +419,8 @@ bool canonicalize_integer_cast(CoreIrBasicBlock &block, CoreIrCastInst &cast) {
 
 void erase_dead_address_chain(CoreIrBasicBlock &block, CoreIrValue *value) {
     CoreIrInstruction *instruction = dynamic_cast<CoreIrInstruction *>(value);
-    while (instruction != nullptr && !instruction->get_has_side_effect() &&
+    while (instruction != nullptr &&
+           get_core_ir_instruction_effect(*instruction).is_pure_value &&
            instruction->get_uses().empty()) {
         CoreIrValue *next = nullptr;
         if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(instruction);
@@ -951,7 +739,10 @@ bool canonicalize_stackslot_store(CoreIrBasicBlock &block,
 
 bool canonicalize_nonterminator_instructions(CoreIrContext &context,
                                              CoreIrBasicBlock &block) {
-    // 逐条扫非终结指令，必要时会删掉当前节点或替换成更规范的形状。
+    (void)context;
+    // 这里只保留 pre-SSA 必需的硬结构规整：
+    // - stack-slot 直接 load/store 形状
+    // 其他值级 fold / wrapper cleanup 交给 InstCombine。
     bool changed = false;
     auto &instructions = block.get_instructions();
     std::size_t index = 0;
@@ -968,30 +759,7 @@ bool canonicalize_nonterminator_instructions(CoreIrContext &context,
         }
 
         const std::size_t old_size = instructions.size();
-        if (auto *binary = dynamic_cast<CoreIrBinaryInst *>(instruction);
-            binary != nullptr) {
-            if (canonicalize_commutative_binary(block, *binary) ||
-                canonicalize_binary_identity(context, block, *binary)) {
-                changed = true;
-            }
-        } else if (auto *cast = dynamic_cast<CoreIrCastInst *>(instruction);
-            cast != nullptr) {
-            if (canonicalize_integer_cast(block, *cast)) {
-                changed = true;
-            }
-        } else if (auto *compare = dynamic_cast<CoreIrCompareInst *>(instruction);
-                   compare != nullptr) {
-            if (canonicalize_compare_boolean_wrapper(block, *compare) ||
-                canonicalize_compare_orientation(block, *compare)) {
-                changed = true;
-            }
-        } else if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(instruction);
-                   gep != nullptr) {
-            if (canonicalize_gep(block, *gep) ||
-                canonicalize_nested_gep(block, *gep)) {
-                changed = true;
-            }
-        } else if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
+        if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
                    load != nullptr) {
             if (canonicalize_stackslot_load(block, *load)) {
                 changed = true;
@@ -1009,267 +777,6 @@ bool canonicalize_nonterminator_instructions(CoreIrContext &context,
         ++index;
     }
     return changed;
-}
-
-std::unordered_map<CoreIrBasicBlock *, CoreIrBasicBlock *>
-collect_trampoline_blocks(CoreIrFunction &function) {
-    std::unordered_map<CoreIrBasicBlock *, CoreIrBasicBlock *> trampoline_blocks;
-    if (function.get_basic_blocks().empty()) {
-        return trampoline_blocks;
-    }
-
-    CoreIrBasicBlock *entry_block = function.get_basic_blocks().front().get();
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block.get() == nullptr || block.get() == entry_block) {
-            continue;
-        }
-        if (block->get_instructions().size() != 1) {
-            continue;
-        }
-        auto *jump =
-            dynamic_cast<CoreIrJumpInst *>(block->get_instructions().front().get());
-        if (jump == nullptr || jump->get_target_block() == nullptr ||
-            jump->get_target_block() == block.get()) {
-            continue;
-        }
-        trampoline_blocks.emplace(block.get(), jump->get_target_block());
-    }
-    return trampoline_blocks;
-}
-
-CoreIrBasicBlock *resolve_trampoline_target(
-    CoreIrBasicBlock *block,
-    const std::unordered_map<CoreIrBasicBlock *, CoreIrBasicBlock *> &trampoline_blocks) {
-    std::unordered_set<CoreIrBasicBlock *> seen;
-    CoreIrBasicBlock *current = block;
-    while (current != nullptr) {
-        auto it = trampoline_blocks.find(current);
-        if (it == trampoline_blocks.end()) {
-            return current;
-        }
-        if (!seen.insert(current).second) {
-            return current;
-        }
-        current = it->second;
-    }
-    return current;
-}
-
-bool remove_trampoline_blocks(CoreIrFunction &function) {
-    auto trampoline_blocks = collect_trampoline_blocks(function);
-    if (trampoline_blocks.empty()) {
-        return false;
-    }
-
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr) {
-            continue;
-        }
-        auto &instructions = block->get_instructions();
-        if (instructions.empty()) {
-            continue;
-        }
-        CoreIrInstruction *terminator = instructions.back().get();
-        if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator);
-            jump != nullptr) {
-            CoreIrBasicBlock *new_target =
-                resolve_trampoline_target(jump->get_target_block(), trampoline_blocks);
-            jump->set_target_block(new_target);
-        } else if (auto *cond_jump = dynamic_cast<CoreIrCondJumpInst *>(terminator);
-                   cond_jump != nullptr) {
-            cond_jump->set_true_block(resolve_trampoline_target(
-                cond_jump->get_true_block(), trampoline_blocks));
-            cond_jump->set_false_block(resolve_trampoline_target(
-                cond_jump->get_false_block(), trampoline_blocks));
-        }
-    }
-
-    auto &blocks = function.get_basic_blocks();
-    blocks.erase(
-        std::remove_if(blocks.begin(), blocks.end(),
-                       [&trampoline_blocks](const std::unique_ptr<CoreIrBasicBlock> &block) {
-                           if (block == nullptr) {
-                               return true;
-                           }
-                           if (trampoline_blocks.find(block.get()) ==
-                               trampoline_blocks.end()) {
-                               return false;
-                           }
-                           for (const auto &instruction : block->get_instructions()) {
-                               instruction->detach_operands();
-                           }
-                           return true;
-                       }),
-        blocks.end());
-    return true;
-}
-
-std::unordered_map<CoreIrBasicBlock *, std::size_t>
-collect_predecessor_counts(CoreIrFunction &function) {
-    std::unordered_map<CoreIrBasicBlock *, std::size_t> predecessor_counts;
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block != nullptr) {
-            predecessor_counts.emplace(block.get(), 0);
-        }
-    }
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr || block->get_instructions().empty()) {
-            continue;
-        }
-        CoreIrInstruction *terminator = block->get_instructions().back().get();
-        if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator);
-            jump != nullptr && jump->get_target_block() != nullptr) {
-            predecessor_counts[jump->get_target_block()]++;
-        } else if (auto *cond_jump = dynamic_cast<CoreIrCondJumpInst *>(terminator);
-                   cond_jump != nullptr) {
-            if (cond_jump->get_true_block() != nullptr) {
-                predecessor_counts[cond_jump->get_true_block()]++;
-            }
-            if (cond_jump->get_false_block() != nullptr) {
-                predecessor_counts[cond_jump->get_false_block()]++;
-            }
-        }
-    }
-    return predecessor_counts;
-}
-
-bool simplify_redundant_cond_jumps(CoreIrFunction &function) {
-    bool changed = false;
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr || block->get_instructions().empty()) {
-            continue;
-        }
-        auto *cond_jump = dynamic_cast<CoreIrCondJumpInst *>(
-            block->get_instructions().back().get());
-        if (cond_jump == nullptr ||
-            cond_jump->get_true_block() != cond_jump->get_false_block()) {
-            continue;
-        }
-        CoreIrBasicBlock *target = cond_jump->get_true_block();
-        cond_jump->detach_operands();
-        auto replacement = std::make_unique<CoreIrJumpInst>(
-            cond_jump->get_type(), target);
-        replacement->set_source_span(cond_jump->get_source_span());
-        replacement->set_parent(block.get());
-        block->get_instructions().back() = std::move(replacement);
-        changed = true;
-    }
-    return changed;
-}
-
-bool simplify_constant_cond_jumps(CoreIrFunction &function) {
-    bool changed = false;
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr || block->get_instructions().empty()) {
-            continue;
-        }
-        auto *cond_jump = dynamic_cast<CoreIrCondJumpInst *>(
-            block->get_instructions().back().get());
-        if (cond_jump == nullptr) {
-            continue;
-        }
-        const auto *constant = as_integer_constant(cond_jump->get_condition());
-        if (constant == nullptr) {
-            continue;
-        }
-        CoreIrBasicBlock *target =
-            constant->get_value() == 0 ? cond_jump->get_false_block()
-                                       : cond_jump->get_true_block();
-        cond_jump->detach_operands();
-        auto replacement =
-            std::make_unique<CoreIrJumpInst>(cond_jump->get_type(), target);
-        replacement->set_source_span(cond_jump->get_source_span());
-        replacement->set_parent(block.get());
-        block->get_instructions().back() = std::move(replacement);
-        changed = true;
-    }
-    return changed;
-}
-
-bool remove_unreachable_blocks(CoreIrFunction &function) {
-    if (function.get_basic_blocks().empty()) {
-        return false;
-    }
-
-    auto predecessor_counts = collect_predecessor_counts(function);
-    CoreIrBasicBlock *entry_block = function.get_basic_blocks().front().get();
-    auto &blocks = function.get_basic_blocks();
-    const auto new_end = std::remove_if(
-        blocks.begin(), blocks.end(),
-        [&predecessor_counts, entry_block](
-            const std::unique_ptr<CoreIrBasicBlock> &block) {
-            if (block == nullptr) {
-                return true;
-            }
-            if (block.get() == entry_block) {
-                return false;
-            }
-            auto it = predecessor_counts.find(block.get());
-            if (it == predecessor_counts.end() || it->second != 0) {
-                return false;
-            }
-            for (const auto &instruction : block->get_instructions()) {
-                if (instruction != nullptr) {
-                    instruction->detach_operands();
-                }
-            }
-            return true;
-        });
-    if (new_end == blocks.end()) {
-        return false;
-    }
-    blocks.erase(new_end, blocks.end());
-    return true;
-}
-
-bool merge_linear_blocks(CoreIrFunction &function) {
-    // 单前驱、单后继的线性块可以合并，减少 CFG 噪音。
-    auto predecessor_counts = collect_predecessor_counts(function);
-    if (function.get_basic_blocks().empty()) {
-        return false;
-    }
-    CoreIrBasicBlock *entry_block = function.get_basic_blocks().front().get();
-        // 这一轮做完后可能又产生新的可规范化机会，所以需要多轮迭代到稳定。
-    auto &blocks = function.get_basic_blocks();
-
-    for (std::size_t index = 0; index < blocks.size(); ++index) {
-        CoreIrBasicBlock *block = blocks[index].get();
-        if (block == nullptr || block->get_instructions().empty()) {
-            continue;
-        }
-        auto *jump =
-            dynamic_cast<CoreIrJumpInst *>(block->get_instructions().back().get());
-        if (jump == nullptr) {
-            continue;
-        }
-        CoreIrBasicBlock *successor = jump->get_target_block();
-        if (successor == nullptr || successor == block || successor == entry_block ||
-            predecessor_counts[successor] != 1) {
-            continue;
-        }
-
-        auto successor_it = std::find_if(
-            blocks.begin(), blocks.end(),
-            [successor](const std::unique_ptr<CoreIrBasicBlock> &candidate) {
-                return candidate.get() == successor;
-            });
-        if (successor_it == blocks.end()) {
-            continue;
-        }
-
-        jump->detach_operands();
-        block->get_instructions().pop_back();
-        auto &successor_instructions = successor->get_instructions();
-        for (auto &instruction : successor_instructions) {
-            instruction->set_parent(block);
-            block->get_instructions().push_back(std::move(instruction));
-        }
-        successor_instructions.clear();
-        blocks.erase(successor_it);
-        return true;
-    }
-
-    return false;
 }
 
 } // namespace
@@ -1294,25 +801,34 @@ PassResult CoreIrCanonicalizePass::Run(CompilerContext &context) {
         return fail_missing_core_ir(context, Name());
     }
 
+    CoreIrPassEffects effects;
     bool changed = true;
     while (changed) {
         changed = false;
         for (const auto &function : module->get_functions()) {
+            bool function_changed = false;
             for (const auto &block : function->get_basic_blocks()) {
-                changed =
+                function_changed =
                     canonicalize_nonterminator_instructions(*core_ir_context, *block) ||
-                    changed;
-                changed = canonicalize_branch_condition(*core_ir_context, *block) ||
-                          changed;
+                    function_changed;
+                function_changed =
+                    canonicalize_branch_condition(*core_ir_context, *block) ||
+                    function_changed;
             }
-            changed = simplify_constant_cond_jumps(*function) || changed;
-            changed = simplify_redundant_cond_jumps(*function) || changed;
-            changed = remove_trampoline_blocks(*function) || changed;
-            changed = remove_unreachable_blocks(*function) || changed;
-            changed = merge_linear_blocks(*function) || changed;
+            if (function_changed) {
+                effects.changed_functions.insert(function.get());
+            }
+            changed = function_changed || changed;
         }
     }
-    return PassResult::Success();
+    if (!effects.has_changes()) {
+        effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_all();
+        return PassResult::Success(std::move(effects));
+    }
+    effects.preserved_analyses = CoreIrPreservedAnalyses::preserve_none();
+    effects.preserved_analyses.preserve_cfg_family();
+    effects.preserved_analyses.preserve_loop_family();
+    return PassResult::Success(std::move(effects));
 }
 
 } // namespace sysycc

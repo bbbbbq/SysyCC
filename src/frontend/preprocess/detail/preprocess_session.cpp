@@ -23,6 +23,26 @@ bool ends_with_line_continuation(const std::string &text) {
     return !text.empty() && text.back() == '\\';
 }
 
+bool is_identifier_start(char ch) {
+    return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+bool is_identifier_char(char ch) {
+    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+bool is_valid_macro_name(const std::string &name) {
+    if (name.empty() || !is_identifier_start(name.front())) {
+        return false;
+    }
+    for (char ch : name) {
+        if (!is_identifier_char(ch)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void append_comment_placeholder(std::string &text) {
     if (text.empty() || ends_with_whitespace(text)) {
         return;
@@ -109,6 +129,18 @@ PassResult PreprocessSession::Run() {
     preprocess_context_.initialize_predefined_macros();
     preprocess_context_.get_compiler_context().clear_preprocessed_line_map();
 
+    PassResult macro_option_result = apply_command_line_macro_options();
+    if (!macro_option_result.ok) {
+        preprocess_context_.set_preprocessed_file_path("");
+        return macro_option_result;
+    }
+
+    PassResult forced_include_result = preprocess_forced_includes();
+    if (!forced_include_result.ok) {
+        preprocess_context_.set_preprocessed_file_path("");
+        return forced_include_result;
+    }
+
     PassResult result = preprocess_file(preprocess_context_.get_input_file());
     if (!result.ok) {
         preprocess_context_.set_preprocessed_file_path("");
@@ -125,6 +157,81 @@ PassResult PreprocessSession::Run() {
     preprocess_context_.set_preprocessed_file_path(std::move(output_file_path));
     preprocess_context_.set_preprocessed_line_map(
         preprocess_context_.get_runtime().get_output_line_map());
+    return PassResult::Success();
+}
+
+PassResult PreprocessSession::apply_command_line_macro_options() {
+    for (const CommandLineMacroOption &macro_option :
+         preprocess_context_.get_command_line_macro_options()) {
+        if (!is_valid_macro_name(macro_option.get_name())) {
+            return PassResult::Failure("invalid command-line macro name: " +
+                                       macro_option.get_name());
+        }
+
+        if (macro_option.get_action_kind() ==
+            CommandLineMacroActionKind::Undefine) {
+            preprocess_context_.get_macro_table().undefine_macro(
+                macro_option.get_name());
+            continue;
+        }
+
+        const std::string replacement =
+            macro_option.has_replacement() ? macro_option.get_replacement() : "1";
+        PassResult define_result = preprocess_context_.get_macro_table().define_macro(
+            MacroDefinition(macro_option.get_name(), replacement), true);
+        if (!define_result.ok) {
+            return define_result;
+        }
+    }
+
+    return PassResult::Success();
+}
+
+PassResult PreprocessSession::preprocess_forced_includes() {
+    for (const std::string &forced_include :
+         preprocess_context_.get_forced_include_files()) {
+        std::string resolved_file_path;
+        const std::filesystem::path include_path(forced_include);
+        if (std::filesystem::exists(include_path)) {
+            resolved_file_path = include_path.lexically_normal().string();
+        } else {
+            for (const std::string &include_directory :
+                 preprocess_context_.get_include_directories()) {
+                const std::filesystem::path candidate =
+                    std::filesystem::path(include_directory) / forced_include;
+                if (!std::filesystem::exists(candidate)) {
+                    continue;
+                }
+                resolved_file_path = candidate.lexically_normal().string();
+                break;
+            }
+
+            if (resolved_file_path.empty()) {
+                for (const std::string &system_include_directory :
+                     preprocess_context_.get_system_include_directories()) {
+                    const std::filesystem::path candidate =
+                        std::filesystem::path(system_include_directory) /
+                        forced_include;
+                    if (!std::filesystem::exists(candidate)) {
+                        continue;
+                    }
+                    resolved_file_path = candidate.lexically_normal().string();
+                    break;
+                }
+            }
+        }
+
+        if (resolved_file_path.empty()) {
+            return PassResult::Failure("failed to resolve forced include file: " +
+                                       forced_include);
+        }
+
+        PassResult result = preprocess_file(resolved_file_path);
+        if (!result.ok) {
+            return result;
+        }
+    }
+
     return PassResult::Success();
 }
 

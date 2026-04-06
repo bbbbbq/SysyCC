@@ -10,6 +10,10 @@ PassKind BuildCoreIrPass::Kind() const { return PassKind::BuildCoreIr; }
 
 const char *BuildCoreIrPass::Name() const { return "BuildCoreIrPass"; }
 
+CoreIrPassMetadata BuildCoreIrPass::Metadata() const noexcept {
+    return CoreIrPassMetadata::core_ir_build();
+}
+
 PassResult BuildCoreIrPass::Run(CompilerContext &context) {
     context.clear_core_ir_build_result();
     CoreIrBuilder builder;

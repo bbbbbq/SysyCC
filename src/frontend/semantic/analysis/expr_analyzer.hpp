@@ -26,7 +26,8 @@ class ExprAnalyzer {
     void add_error(SemanticContext &semantic_context, std::string message,
                    const class SourceSpan &source_span) const;
     void add_warning(SemanticContext &semantic_context, std::string message,
-                     const class SourceSpan &source_span) const;
+                     const class SourceSpan &source_span,
+                     std::string warning_option = {}) const;
 
   public:
     ExprAnalyzer(const TypeResolver &type_resolver,

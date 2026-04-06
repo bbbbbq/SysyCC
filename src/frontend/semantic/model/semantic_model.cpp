@@ -63,6 +63,38 @@ void SemanticModel::bind_integer_constant_value(const AstNode *node,
     integer_constant_values_[node] = value;
 }
 
+void SemanticModel::mark_symbol_used(const SemanticSymbol *symbol) {
+    if (symbol == nullptr) {
+        return;
+    }
+    ++symbol_use_counts_[symbol];
+}
+
+std::size_t
+SemanticModel::get_symbol_use_count(const SemanticSymbol *symbol) const noexcept {
+    const auto it = symbol_use_counts_.find(symbol);
+    if (it == symbol_use_counts_.end()) {
+        return 0;
+    }
+    return it->second;
+}
+
+void SemanticModel::mark_symbol_written(const SemanticSymbol *symbol) {
+    if (symbol == nullptr) {
+        return;
+    }
+    ++symbol_write_counts_[symbol];
+}
+
+std::size_t
+SemanticModel::get_symbol_write_count(const SemanticSymbol *symbol) const noexcept {
+    const auto it = symbol_write_counts_.find(symbol);
+    if (it == symbol_write_counts_.end()) {
+        return 0;
+    }
+    return it->second;
+}
+
 const std::vector<SemanticFunctionAttribute> *
 SemanticModel::get_function_attributes(
     const FunctionDecl *function_decl) const noexcept {

@@ -27,10 +27,10 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-grep -q '^  str x19, \[x29, #-24\]$' "${ASM_FILE}"
+grep -q '^  str x19, \[x29, #-8\]$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*add w19, w[0-9]+, w[0-9]+$' "${ASM_FILE}"
 grep -q '^  bl inc$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*add w[0-9]+, w19, w[0-9]+$' "${ASM_FILE}"
-grep -q '^  ldr x19, \[x29, #-24\]$' "${ASM_FILE}"
+grep -q '^  ldr x19, \[x29, #-8\]$' "${ASM_FILE}"
 
 echo "verified: live-across-call integer values use callee-saved registers on direct calls"

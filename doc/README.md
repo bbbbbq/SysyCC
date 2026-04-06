@@ -34,6 +34,10 @@ Shared assertions for success-path test scripts live in [tests/test_helpers.sh](
 That shared helper now also prefers Ninja plus `ccache` when available and
 coordinates one local build per `build/` directory at a time, so overlapping
 test runs wait for the in-flight compile instead of racing.
+The same helper now also installs a bounded shared slot controller for heavy
+test tools such as `SysyCC`, `clang`, and `clang++`, and its default test/build
+parallelism is intentionally memory-conservative so manually launching several
+single-case scripts is less likely to freeze the host.
 The top-level regression entry [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh) now also writes a summary table to `build/test_result.md`.
 For day-to-day local development, the top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now drives a dedicated Ninja build under `build-ninja/`, while test and intermediate-result flows continue to use `build/`.
 
@@ -67,8 +71,14 @@ main
       -> SemanticPass
       -> BuildCoreIrPass
       -> CoreIrCanonicalizePass
-      -> CoreIrConstFoldPass
-      -> CoreIrDcePass
+      -> CoreIrSimplifyCfgPass
+      -> CoreIrLoopSimplifyPass
+      -> CoreIrInstCombinePass
+      -> CoreIrStackSlotForwardPass
+      -> CoreIrDeadStoreEliminationPass
+      -> CoreIrInstCombinePass
+      -> CoreIrMem2RegPass
+      -> post-SSA fixed-point group
       -> LowerIrPass
       -> AArch64AsmGenPass
 ```
@@ -187,14 +197,25 @@ main
   compatibility allowing `char * -> const char *` but rejecting
   `const char * -> char *`.
 - The backend is now split into explicit top-level passes:
-  `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrConstFoldPass ->
-  CoreIrDcePass -> LowerIrPass`. `CompilerContext` stores both the staged
-  `CoreIrBuildResult` and the final `IRResult`, and the current lowering path
-  still targets LLVM IR for the supported subset of integer/void functions,
-  integer locals, arithmetic and comparisons, short-circuit logical
-  expressions, integer ternary expressions, assignments, direct function
-  calls, and basic `if` / `while` / `for` / `do-while` / `switch` /
-  `break` / `continue` control flow.
+  `BuildCoreIrPass -> CoreIrCanonicalizePass -> CoreIrSimplifyCfgPass ->
+  CoreIrLoopSimplifyPass -> CoreIrInstCombinePass ->
+  CoreIrStackSlotForwardPass -> CoreIrDeadStoreEliminationPass ->
+  CoreIrInstCombinePass -> CoreIrMem2RegPass -> post-SSA fixed-point group ->
+  LowerIrPass`. That fixed-point group is
+  `CoreIrCopyPropagationPass -> CoreIrInstCombinePass -> CoreIrSccpPass ->
+  CoreIrSimplifyCfgPass -> CoreIrLicmPass -> CoreIrLocalCsePass ->
+  CoreIrGvnPass -> CoreIrInstCombinePass -> CoreIrConstFoldPass ->
+  CoreIrDcePass -> CoreIrSimplifyCfgPass`, iterated until one round makes no
+  Core IR changes or four rounds are reached. `CompilerContext` stores both
+  the staged `CoreIrBuildResult` and the final `IRResult`, while the staged
+  `CoreIrBuildResult` now also owns function-level CFG, dominator,
+  dominance-frontier, and promotable-stack-slot analysis caches for the
+  current Core IR module. The staged Core IR now includes block-head `phi`
+  nodes, allowing the post-`Mem2Reg` optimization lane to run over SSA-form
+  values before LLVM lowering, repeatedly combine small value patterns through
+  `InstCombine`, strengthen value propagation through SCCP, hoist
+  loop-invariant SSA work through LICM, and widen pure-value reuse through
+  GVN.
 - The current LLVM IR path now also lowers enum storage through `i32`,
   supports local/global character-array initialization from string literals,
   and supports indirect calls through lowered function-pointer values.

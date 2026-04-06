@@ -10,9 +10,12 @@
 
 namespace sysycc {
 
+class CoreIrContext;
+
 class CoreIrModule {
   private:
     std::string name_;
+    CoreIrContext *parent_context_ = nullptr;
     std::vector<std::unique_ptr<CoreIrGlobal>> globals_;
     std::vector<std::unique_ptr<CoreIrFunction>> functions_;
 
@@ -20,6 +23,12 @@ class CoreIrModule {
     explicit CoreIrModule(std::string name) : name_(std::move(name)) {}
 
     const std::string &get_name() const noexcept { return name_; }
+
+    CoreIrContext *get_parent_context() const noexcept { return parent_context_; }
+
+    void set_parent_context(CoreIrContext *parent_context) noexcept {
+        parent_context_ = parent_context;
+    }
 
     const std::vector<std::unique_ptr<CoreIrGlobal>> &get_globals() const noexcept {
         return globals_;
@@ -38,10 +47,29 @@ class CoreIrModule {
         return functions_;
     }
 
+    CoreIrGlobal *find_global(const std::string &name) const noexcept {
+        for (const auto &global : globals_) {
+            if (global != nullptr && global->get_name() == name) {
+                return global.get();
+            }
+        }
+        return nullptr;
+    }
+
+    CoreIrFunction *find_function(const std::string &name) const noexcept {
+        for (const auto &function : functions_) {
+            if (function != nullptr && function->get_name() == name) {
+                return function.get();
+            }
+        }
+        return nullptr;
+    }
+
     CoreIrGlobal *append_global(std::unique_ptr<CoreIrGlobal> global) {
         if (global == nullptr) {
             return nullptr;
         }
+        global->set_parent(this);
         CoreIrGlobal *global_ptr = global.get();
         globals_.push_back(std::move(global));
         return global_ptr;
@@ -51,6 +79,7 @@ class CoreIrModule {
         if (function == nullptr) {
             return nullptr;
         }
+        function->set_parent(this);
         CoreIrFunction *function_ptr = function.get();
         functions_.push_back(std::move(function));
         return function_ptr;

@@ -1,0 +1,9 @@
+int foo(void) {
+    return 7;
+}
+
+static int (*fp)(void) = foo;
+
+int main(void) {
+    return fp();
+}

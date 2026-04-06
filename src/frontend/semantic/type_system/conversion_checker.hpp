@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 
 namespace sysycc {
@@ -52,6 +53,12 @@ class ConversionChecker {
                                      const Expr *rhs_expr,
                                      SemanticContext &semantic_context,
                                      const ConstantEvaluator &constant_evaluator) const;
+    bool should_warn_sign_compare(const SemanticType *lhs,
+                                  const SemanticType *rhs,
+                                  SemanticModel &semantic_model) const;
+    bool should_warn_implicit_integer_narrowing(
+        const SemanticType *target, const SemanticType *value,
+        std::optional<long long> constant_value) const;
     const SemanticType *get_usual_arithmetic_conversion_type(
         const SemanticType *lhs, const SemanticType *rhs,
         SemanticModel &semantic_model) const;

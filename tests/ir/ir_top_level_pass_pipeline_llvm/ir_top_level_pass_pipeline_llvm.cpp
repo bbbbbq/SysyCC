@@ -1,12 +1,9 @@
 #include <cassert>
 #include <string>
 
-#include "backend/ir/build/build_core_ir_pass.hpp"
-#include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
-#include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
-#include "backend/ir/dce/core_ir_dce_pass.hpp"
-#include "backend/ir/shared/ir_result.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
+#include "backend/ir/pipeline/core_ir_pass_pipeline.hpp"
+#include "backend/ir/shared/ir_result.hpp"
 #include "compiler/complier.hpp"
 #include "compiler/complier_option.hpp"
 #include "compiler/pass/pass.hpp"
@@ -56,17 +53,10 @@ int main(int argc, char **argv) {
     assert(frontend_result.ok);
 
     CompilerContext &context = complier.get_context();
-    BuildCoreIrPass build_pass;
-    CoreIrCanonicalizePass canonicalize_pass;
-    CoreIrConstFoldPass const_fold_pass;
-    CoreIrDcePass dce_pass;
-    LowerIrPass lower_pass;
+    PassManager pass_manager;
+    append_default_core_ir_pipeline(pass_manager);
 
-    assert(build_pass.Run(context).ok);
-    assert(canonicalize_pass.Run(context).ok);
-    assert(const_fold_pass.Run(context).ok);
-    assert(dce_pass.Run(context).ok);
-    assert(lower_pass.Run(context).ok);
+    assert(pass_manager.Run(context).ok);
 
     const IRResult *ir_result = context.get_ir_result();
     assert(ir_result != nullptr);
@@ -92,13 +82,12 @@ int main(int argc, char **argv) {
         "  %value.addr = alloca i32\n"
         "  %t0 = load i32, ptr @g\n"
         "  store i32 %t0, ptr %value.addr\n"
-        "  %t1 = load i32, ptr %value.addr\n"
-        "  %t2.raw = icmp slt i32 %t1, 2\n"
-        "  br i1 %t2.raw, label %if.then0, label %if.end0\n"
+        "  %t1.raw = icmp slt i32 %t0, 2\n"
+        "  br i1 %t1.raw, label %if.then0, label %if.end0\n"
         "if.then0:\n"
-        "  %t3 = load i32, ptr %value.addr\n"
-        "  %t4 = add i32 %t3, 3\n"
-        "  ret i32 %t4\n"
+        "  %t2 = load i32, ptr %value.addr\n"
+        "  %t3 = add i32 %t2, 3\n"
+        "  ret i32 %t3\n"
         "if.end0:\n"
         "  ret i32 0\n"
         "}\n";

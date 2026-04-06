@@ -2445,6 +2445,7 @@ class AArch64LoweringSession {
 
     static bool instruction_has_canonical_vreg(const CoreIrInstruction &instruction) {
         switch (instruction.get_opcode()) {
+        case CoreIrOpcode::Phi:
         case CoreIrOpcode::Load:
         case CoreIrOpcode::Binary:
         case CoreIrOpcode::Unary:
@@ -3109,6 +3110,11 @@ class AArch64LoweringSession {
                           const CoreIrInstruction &instruction,
                           FunctionState &state) {
         switch (instruction.get_opcode()) {
+        case CoreIrOpcode::Phi:
+            add_backend_error(diagnostic_engine_,
+                              "phi instructions are not supported by the "
+                              "AArch64 native backend");
+            return false;
         case CoreIrOpcode::Load:
             return emit_load(machine_block,
                              static_cast<const CoreIrLoadInst &>(instruction),

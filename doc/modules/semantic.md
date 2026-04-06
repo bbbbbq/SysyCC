@@ -147,6 +147,13 @@ The current implementation has a first batch of real semantic rules:
   `VariableSemanticInfo`
 - top-level `static` function declarations and definitions are now accepted so
   downstream IR lowering can emit internal-linkage functions
+- file-scope and static-storage objects now also run through one shared
+  static-initializer classifier in `ConstantEvaluator`, so semantic analysis
+  can reject runtime-valued initializers earlier instead of deferring those
+  failures to Core IR construction
+- folded scalar constant expressions such as `static double g = 1.0 + 2.0`
+  and address-shaped static initializers such as `static int *p = arr + 1`
+  now reuse that same semantic-side static-initializer path
 - declaration analysis now rejects non-list variable initializers whose
   expression type is not assignable to the declared type
 - declaration analysis now also accepts one-dimensional character arrays

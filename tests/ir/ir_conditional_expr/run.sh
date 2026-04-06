@@ -8,19 +8,28 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 INPUT_FILE="${SCRIPT_DIR}/ir_conditional_expr.sy"
 TEST_NAME="$(basename "${SCRIPT_DIR}")"
 IR_FILE="${BUILD_DIR}/intermediate_results/${TEST_NAME}.ll"
+CORE_IR_FILE="${BUILD_DIR}/intermediate_results/${TEST_NAME}.core-ir.txt"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
-"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
+"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-core-ir --dump-ir
 
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
+assert_file_nonempty "${CORE_IR_FILE}"
 
-grep -Eq '^cond\.true[0-9]+:$' "${IR_FILE}"
+grep -Eq '^func @pick\(i32 %cond\) -> i32 \{$' "${CORE_IR_FILE}"
+grep -Eq '^cond\.false[0-9]+:$' "${CORE_IR_FILE}"
+grep -Eq '^cond\.end[0-9]+:$' "${CORE_IR_FILE}"
+grep -Eq '^  br i1 %canon\.cond\.[0-9]+, label %cond\.end[0-9]+, label %cond\.false[0-9]+$' "${CORE_IR_FILE}"
+grep -Eq '^  %t[0-9]+ = phi i32 \[ 11, %entry \], \[ 22, %cond\.false[0-9]+ \]$' "${CORE_IR_FILE}"
+
+grep -Eq '^define i32 @pick\(i32 %cond\) \{$' "${IR_FILE}"
+grep -Eq '^  br i1 %t[0-9]+\.raw, label %cond\.end[0-9]+, label %cond\.false[0-9]+$' "${IR_FILE}"
+grep -Eq '^cond\.false[0-9]+:$' "${IR_FILE}"
 grep -Eq '^cond\.end[0-9]+:$' "${IR_FILE}"
-grep -Eq 'store i32 11, ptr %addr\.addr[0-9]*' "${IR_FILE}"
-grep -Eq '^  br label %cond\.true[0-9]+$' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+ = phi i32 \[ 11, %entry \], \[ 22, %cond\.false[0-9]+ \]$' "${IR_FILE}"
 
-echo "verified: integer ternary expressions lower to conditional control-flow blocks"
+echo "verified: ternary lowering keeps phi-based Core IR merges while optimized LLVM IR may fold the true edge into entry"

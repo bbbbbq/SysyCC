@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/diagnostic/warning_options.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
@@ -186,6 +187,7 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         if (define_symbol(semantic_context, scope_stack, symbol,
                           param_decl->get_source_span())) {
             semantic_model.bind_symbol(param_decl, symbol);
+            semantic_context.record_function_local_symbol(symbol);
         }
         return;
     }
@@ -283,8 +285,18 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
 
         semantic_model.bind_symbol(var_decl, symbol);
         semantic_model.bind_node_type(var_decl, declared_type);
+        if (!is_global_storage) {
+            semantic_context.record_function_local_symbol(symbol);
+        }
         expr_analyzer_.analyze_expr(var_decl->get_initializer(), semantic_context,
                                     scope_stack);
+        if (is_file_scope && var_decl->get_initializer() != nullptr &&
+            !constant_evaluator_.is_static_storage_initializer(
+                var_decl->get_initializer(), declared_type, semantic_model)) {
+            add_error(semantic_context,
+                      "initializer is not a valid static initializer",
+                      var_decl->get_initializer()->get_source_span());
+        }
         if (var_decl->get_initializer() != nullptr &&
             var_decl->get_initializer()->get_kind() != AstKind::InitListExpr) {
             const SemanticType *initializer_type =
@@ -296,6 +308,19 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                 add_error(semantic_context,
                           "initializer type does not match declared type",
                           var_decl->get_initializer()->get_source_span());
+            } else if (initializer_type != nullptr &&
+                       var_decl->get_initializer()->get_kind() !=
+                           AstKind::CastExpr &&
+                       conversion_checker_.should_warn_implicit_integer_narrowing(
+                           declared_type, initializer_type,
+                           constant_evaluator_.get_integer_constant_value(
+                               var_decl->get_initializer(), semantic_context))) {
+                semantic_context.get_semantic_model().add_diagnostic(
+                    SemanticDiagnostic(
+                        DiagnosticSeverity::Warning,
+                        "implicit integer conversion may change value",
+                        var_decl->get_initializer()->get_source_span(),
+                        warning_options::kConversion));
             }
         }
         return;
@@ -330,6 +355,14 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         }
         expr_analyzer_.analyze_expr(const_decl->get_initializer(),
                                     semantic_context, scope_stack);
+        if (semantic_context.get_current_function() == nullptr &&
+            const_decl->get_initializer() != nullptr &&
+            !constant_evaluator_.is_static_storage_initializer(
+                const_decl->get_initializer(), declared_type, semantic_model)) {
+            add_error(semantic_context,
+                      "initializer is not a valid static initializer",
+                      const_decl->get_initializer()->get_source_span());
+        }
         if (const_decl->get_initializer() != nullptr &&
             !constant_evaluator_.is_integer_constant_expr(
                 const_decl->get_initializer(), semantic_context,
@@ -337,7 +370,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             conversion_checker_.is_integer_like_type(declared_type)) {
             const auto converted_constant =
                 constant_evaluator_.get_scalar_constant_value_as_integer(
-                    const_decl->get_initializer(), semantic_context);
+                    const_decl->get_initializer(), declared_type,
+                    semantic_context);
             if (converted_constant.has_value()) {
                 constant_evaluator_.bind_integer_constant_value(
                     const_decl, *converted_constant, semantic_context);

@@ -20,6 +20,7 @@ class CoreIrContext {
     template <typename T, typename... Args>
     T *create_type(Args &&...args) {
         auto type = std::make_unique<T>(std::forward<Args>(args)...);
+        type->set_parent_context(this);
         T *type_ptr = type.get();
         owned_types_.push_back(std::move(type));
         return type_ptr;
@@ -28,6 +29,7 @@ class CoreIrContext {
     template <typename T, typename... Args>
     T *create_constant(Args &&...args) {
         auto constant = std::make_unique<T>(std::forward<Args>(args)...);
+        constant->set_parent_context(this);
         T *constant_ptr = constant.get();
         owned_constants_.push_back(std::move(constant));
         return constant_ptr;
@@ -36,6 +38,7 @@ class CoreIrContext {
     template <typename T, typename... Args>
     T *create_module(Args &&...args) {
         auto module = std::make_unique<T>(std::forward<Args>(args)...);
+        module->set_parent_context(this);
         T *module_ptr = module.get();
         owned_modules_.push_back(std::move(module));
         return module_ptr;

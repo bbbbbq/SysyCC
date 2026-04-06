@@ -9,10 +9,21 @@
 namespace sysycc {
 
 class CoreIrGlobal;
+class CoreIrFunction;
+class CoreIrContext;
 
 class CoreIrConstant : public CoreIrValue {
+  private:
+    CoreIrContext *parent_context_ = nullptr;
+
   public:
     using CoreIrValue::CoreIrValue;
+
+    CoreIrContext *get_parent_context() const noexcept { return parent_context_; }
+
+    void set_parent_context(CoreIrContext *parent_context) noexcept {
+        parent_context_ = parent_context;
+    }
 };
 
 class CoreIrConstantInt final : public CoreIrConstant {
@@ -81,12 +92,17 @@ class CoreIrConstantAggregate final : public CoreIrConstant {
 class CoreIrConstantGlobalAddress final : public CoreIrConstant {
   private:
     CoreIrGlobal *global_ = nullptr;
+    CoreIrFunction *function_ = nullptr;
 
   public:
     CoreIrConstantGlobalAddress(const CoreIrType *type, CoreIrGlobal *global)
         : CoreIrConstant(type), global_(global) {}
 
+    CoreIrConstantGlobalAddress(const CoreIrType *type, CoreIrFunction *function)
+        : CoreIrConstant(type), function_(function) {}
+
     CoreIrGlobal *get_global() const noexcept { return global_; }
+    CoreIrFunction *get_function() const noexcept { return function_; }
 };
 
 class CoreIrConstantGetElementPtr final : public CoreIrConstant {

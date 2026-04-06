@@ -1,10 +1,13 @@
 #pragma once
 
+#include <vector>
+
 namespace sysycc {
 
 class Decl;
 class Stmt;
 class SemanticType;
+class SemanticSymbol;
 class TranslationUnit;
 class AttributeAnalyzer;
 
@@ -37,7 +40,9 @@ class SemanticAnalyzer {
                                const ConversionChecker &conversion_checker,
                                const DeclAnalyzer &decl_analyzer,
                                const StmtAnalyzer &stmt_analyzer,
-                               const AttributeAnalyzer &attribute_analyzer) const;
+                               const AttributeAnalyzer &attribute_analyzer,
+                               std::vector<const SemanticSymbol *>
+                                   &static_function_candidates) const;
     bool stmt_guarantees_return(const Stmt *stmt) const;
 };
 

@@ -17,7 +17,7 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_file_nonempty "${IR_FILE}"
 grep -Eq 'store ptr @inc, ptr %fn\.addr[0-9]*' "${IR_FILE}"
-grep -Eq '%t[0-9]+ = load ptr, ptr %fn\.addr' "${IR_FILE}"
-grep -Eq '%t[0-9]+ = call i32 %t[0-9]+\(i32 %t[0-9]+\)' "${IR_FILE}"
+grep -Eq '%t[0-9]+ = call i32 (%fn|%t[0-9]+)\(i32 (%value|%t[0-9]+)\)' "${IR_FILE}"
+grep -Eq '%t[0-9]+ = call i32 @apply\(ptr @inc, i32 4\)' "${IR_FILE}"
 
 echo "verified: ir lowers function designator decay and indirect calls"

@@ -17,6 +17,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_file_nonempty "${IR_FILE}"
 grep -q 'alloca { i32 }' "${IR_FILE}"
 grep -Eq '^  %t[0-9]+ = getelementptr inbounds \{ i32 \}, ptr %box\.addr, i32 0, i32 0$' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = load i32, ptr %t[0-9]+$' "${IR_FILE}"
+grep -Eq '^  ret i32 7$' "${IR_FILE}"
 
 echo "verified: ir lowers local union storage and dot-member access"

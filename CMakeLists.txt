@@ -44,6 +44,17 @@ add_executable(${PROJECT_NAME}
     ${FLEX_SysyLexer_OUTPUTS}
     src/backend/asm_gen/aarch64/aarch64_asm_backend.cpp
     src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp
+    src/backend/ir/analysis/analysis_manager.cpp
+    src/backend/ir/analysis/alias_analysis.cpp
+    src/backend/ir/analysis/cfg_analysis.cpp
+    src/backend/ir/analysis/dominance_frontier_analysis.cpp
+    src/backend/ir/analysis/dominator_tree_analysis.cpp
+    src/backend/ir/analysis/function_effect_summary_analysis.cpp
+    src/backend/ir/analysis/loop_info_analysis.cpp
+    src/backend/ir/analysis/memory_ssa_analysis.cpp
+    src/backend/ir/analysis/promotable_stack_slot_analysis.cpp
+    src/backend/ir/effect/core_ir_effect.cpp
+    src/backend/ir/effect/core_ir_memory_location.cpp
     src/backend/ir/shared/core/core_ir_builder.cpp
     src/backend/ir/lower/lowering/core_ir_target_backend_factory.cpp
     src/backend/ir/lower/lowering/aarch64/core_ir_aarch64_target_backend.cpp
@@ -51,14 +62,28 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/lower/legacy/ir_backend_factory.cpp
     src/backend/ir/build/build_core_ir_pass.cpp
     src/backend/ir/canonicalize/core_ir_canonicalize_pass.cpp
+    src/backend/ir/copy_propagation/core_ir_copy_propagation_pass.cpp
     src/backend/ir/const_fold/core_ir_const_fold_pass.cpp
+    src/backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.cpp
     src/backend/ir/dce/core_ir_dce_pass.cpp
+    src/backend/ir/gvn/core_ir_gvn_pass.cpp
+    src/backend/ir/instcombine/core_ir_instcombine_pass.cpp
+    src/backend/ir/licm/core_ir_licm_pass.cpp
+    src/backend/ir/local_cse/core_ir_local_cse_pass.cpp
+    src/backend/ir/loop_simplify/core_ir_loop_simplify_pass.cpp
+    src/backend/ir/mem2reg/core_ir_mem2reg_pass.cpp
+    src/backend/ir/pipeline/core_ir_pass_pipeline.cpp
+    src/backend/ir/sccp/core_ir_sccp_pass.cpp
+    src/backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.cpp
+    src/backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.cpp
+    src/backend/ir/verify/core_ir_verifier.cpp
     src/backend/ir/lower/legacy/gnu_function_attribute_lowering_handler.cpp
     src/backend/ir/lower/legacy/ir_builder.cpp
     src/backend/ir/lower/lower_ir_pass.cpp
     src/backend/ir/shared/printer/core_ir_raw_printer.cpp
     src/backend/ir/lower/legacy/llvm/llvm_ir_backend.cpp
     src/backend/ir/shared/detail/aggregate_layout.cpp
+    src/backend/ir/shared/detail/core_ir_rewrite_utils.cpp
     src/backend/ir/shared/detail/ir_context.cpp
     src/backend/ir/shared/detail/symbol_value_map.cpp
     src/cli/cli.cpp

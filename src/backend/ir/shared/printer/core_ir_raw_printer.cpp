@@ -243,6 +243,27 @@ std::string CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) co
         result += is_array ? " ]" : " }";
         return result;
     }
+    if (const auto *global_address =
+            dynamic_cast<const CoreIrConstantGlobalAddress *>(constant);
+        global_address != nullptr) {
+        if (global_address->get_global() != nullptr) {
+            return "@" + global_address->get_global()->get_name();
+        }
+        if (global_address->get_function() != nullptr) {
+            return "@" + global_address->get_function()->get_name();
+        }
+        return "<global-address>";
+    }
+    if (const auto *gep_constant =
+            dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
+        gep_constant != nullptr) {
+        std::string result = "getelementptr(" + format_constant(gep_constant->get_base());
+        for (const CoreIrConstant *index : gep_constant->get_indices()) {
+            result += ", " + format_constant(index);
+        }
+        result += ")";
+        return result;
+    }
     return "<constant>";
 }
 
@@ -263,6 +284,27 @@ std::string CoreIrRawPrinter::format_value(const CoreIrValue *value) const {
 std::string
 CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const {
     switch (instruction.get_opcode()) {
+    case CoreIrOpcode::Phi: {
+        const auto &phi_instruction = static_cast<const CoreIrPhiInst &>(instruction);
+        std::string text = format_value(&phi_instruction) + " = phi " +
+                           format_type(phi_instruction.get_type());
+        for (std::size_t index = 0; index < phi_instruction.get_incoming_count();
+             ++index) {
+            CoreIrBasicBlock *incoming_block =
+                phi_instruction.get_incoming_block(index);
+            CoreIrValue *incoming_value = phi_instruction.get_incoming_value(index);
+            if (incoming_block == nullptr || incoming_value == nullptr) {
+                continue;
+            }
+            text += index == 0 ? " " : ", ";
+            text += "[ ";
+            text += format_value(incoming_value);
+            text += ", %";
+            text += incoming_block->get_name();
+            text += " ]";
+        }
+        return text;
+    }
     case CoreIrOpcode::Binary: {
         const auto &binary_instruction =
             static_cast<const CoreIrBinaryInst &>(instruction);
