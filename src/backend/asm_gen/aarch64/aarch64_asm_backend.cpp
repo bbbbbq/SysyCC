@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <iomanip>
 #include <limits>
 #include <optional>
 #include <set>
@@ -716,6 +717,72 @@ std::string strip_floating_literal_suffix(std::string value_text) {
         break;
     }
     return value_text;
+}
+
+std::string format_bits_literal(std::uint64_t bits, unsigned hex_digits) {
+    std::ostringstream stream;
+    stream << "0x" << std::hex << std::nouppercase << std::setfill('0')
+           << std::setw(static_cast<int>(hex_digits)) << bits;
+    return stream.str();
+}
+
+std::uint16_t float32_to_float16_bits(float value) {
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+
+    const std::uint16_t sign =
+        static_cast<std::uint16_t>((bits >> 16U) & 0x8000U);
+    std::uint32_t mantissa = bits & 0x007fffffU;
+    const std::uint32_t exponent = (bits >> 23U) & 0xffU;
+
+    if (exponent == 0xffU) {
+        if (mantissa == 0) {
+            return static_cast<std::uint16_t>(sign | 0x7c00U);
+        }
+        std::uint16_t payload =
+            static_cast<std::uint16_t>(mantissa >> 13U);
+        if (payload == 0) {
+            payload = 1;
+        }
+        return static_cast<std::uint16_t>(sign | 0x7c00U | payload);
+    }
+
+    int adjusted_exponent = static_cast<int>(exponent) - 127 + 15;
+    if (adjusted_exponent >= 0x1f) {
+        return static_cast<std::uint16_t>(sign | 0x7c00U);
+    }
+    if (adjusted_exponent <= 0) {
+        if (adjusted_exponent < -10) {
+            return sign;
+        }
+        mantissa = (mantissa | 0x00800000U) >> (1 - adjusted_exponent);
+        if ((mantissa & 0x00001000U) != 0) {
+            mantissa += 0x00002000U;
+        }
+        return static_cast<std::uint16_t>(sign | (mantissa >> 13U));
+    }
+
+    if ((mantissa & 0x00001000U) != 0) {
+        mantissa += 0x00002000U;
+        if ((mantissa & 0x00800000U) != 0) {
+            mantissa = 0;
+            ++adjusted_exponent;
+            if (adjusted_exponent >= 0x1f) {
+                return static_cast<std::uint16_t>(sign | 0x7c00U);
+            }
+        }
+    }
+
+    return static_cast<std::uint16_t>(
+        sign | (static_cast<std::uint16_t>(adjusted_exponent) << 10U) |
+        static_cast<std::uint16_t>(mantissa >> 13U));
+}
+
+bool floating_literal_is_zero(const std::string &literal_text) {
+    char *end = nullptr;
+    const long double value = std::strtold(literal_text.c_str(), &end);
+    return end != literal_text.c_str() && end != nullptr && *end == '\0' &&
+           value == 0.0L;
 }
 
 bool float128_literal_is_supported_by_helper_path(const std::string &literal_text) {
@@ -1999,6 +2066,36 @@ struct AArch64ValueLocation {
     AArch64VirtualReg virtual_reg;
 };
 
+struct AArch64PhiEdgeKey {
+    const CoreIrBasicBlock *predecessor = nullptr;
+    const CoreIrBasicBlock *successor = nullptr;
+
+    bool operator==(const AArch64PhiEdgeKey &other) const noexcept {
+        return predecessor == other.predecessor && successor == other.successor;
+    }
+};
+
+struct AArch64PhiEdgeKeyHash {
+    std::size_t operator()(const AArch64PhiEdgeKey &key) const noexcept {
+        const std::size_t lhs =
+            std::hash<const CoreIrBasicBlock *>{}(key.predecessor);
+        const std::size_t rhs =
+            std::hash<const CoreIrBasicBlock *>{}(key.successor);
+        return lhs ^ (rhs + 0x9e3779b97f4a7c15ULL + (lhs << 6U) + (lhs >> 2U));
+    }
+};
+
+struct AArch64PhiCopyOp {
+    const CoreIrPhiInst *phi = nullptr;
+    const CoreIrValue *source_value = nullptr;
+};
+
+struct AArch64PhiEdgePlan {
+    AArch64PhiEdgeKey edge;
+    std::string edge_label;
+    std::vector<AArch64PhiCopyOp> copies;
+};
+
 bool is_supported_native_value_type(const CoreIrType *type) {
     return is_void_type(type) || is_supported_scalar_storage_type(type) ||
            is_supported_object_type(type);
@@ -2352,6 +2449,9 @@ class AArch64LoweringSession {
         std::unordered_set<const CoreIrStackSlot *> promoted_stack_slots;
         std::unordered_map<const CoreIrStackSlot *, AArch64VirtualReg>
             promoted_stack_slot_values;
+        std::unordered_map<AArch64PhiEdgeKey, std::string, AArch64PhiEdgeKeyHash>
+            phi_edge_labels;
+        std::vector<AArch64PhiEdgePlan> phi_edge_plans;
     };
 
   public:
@@ -2595,6 +2695,162 @@ class AArch64LoweringSession {
         return true;
     }
 
+    std::vector<const CoreIrPhiInst *>
+    collect_block_phis(const CoreIrBasicBlock &basic_block) const {
+        std::vector<const CoreIrPhiInst *> phis;
+        for (const auto &instruction : basic_block.get_instructions()) {
+            if (instruction == nullptr ||
+                instruction->get_opcode() != CoreIrOpcode::Phi) {
+                break;
+            }
+            phis.push_back(static_cast<const CoreIrPhiInst *>(instruction.get()));
+        }
+        return phis;
+    }
+
+    bool append_predecessor_once(
+        std::unordered_map<const CoreIrBasicBlock *,
+                           std::vector<const CoreIrBasicBlock *>> &predecessors,
+        const CoreIrBasicBlock *successor,
+        const CoreIrBasicBlock *predecessor) const {
+        if (successor == nullptr || predecessor == nullptr) {
+            add_backend_error(diagnostic_engine_,
+                              "encountered null CFG edge while planning AArch64 phi lowering");
+            return false;
+        }
+        auto &incoming = predecessors[successor];
+        if (std::find(incoming.begin(), incoming.end(), predecessor) == incoming.end()) {
+            incoming.push_back(predecessor);
+        }
+        return true;
+    }
+
+    bool collect_block_predecessors(
+        const CoreIrFunction &function,
+        std::unordered_map<const CoreIrBasicBlock *,
+                           std::vector<const CoreIrBasicBlock *>> &predecessors) {
+        for (const auto &basic_block : function.get_basic_blocks()) {
+            if (basic_block == nullptr || basic_block->get_instructions().empty()) {
+                continue;
+            }
+            const CoreIrInstruction *terminator =
+                basic_block->get_instructions().back().get();
+            if (terminator == nullptr || !terminator->get_is_terminator()) {
+                add_backend_error(diagnostic_engine_,
+                                  "encountered basic block without terminator while "
+                                  "planning AArch64 phi lowering");
+                return false;
+            }
+            switch (terminator->get_opcode()) {
+            case CoreIrOpcode::Jump:
+                if (!append_predecessor_once(
+                        predecessors,
+                        static_cast<const CoreIrJumpInst *>(terminator)->get_target_block(),
+                        basic_block.get())) {
+                    return false;
+                }
+                break;
+            case CoreIrOpcode::CondJump: {
+                const auto *cond_jump =
+                    static_cast<const CoreIrCondJumpInst *>(terminator);
+                if (!append_predecessor_once(predecessors, cond_jump->get_true_block(),
+                                             basic_block.get()) ||
+                    !append_predecessor_once(predecessors, cond_jump->get_false_block(),
+                                             basic_block.get())) {
+                    return false;
+                }
+                break;
+            }
+            case CoreIrOpcode::Return:
+                break;
+            default:
+                break;
+            }
+        }
+        return true;
+    }
+
+    const CoreIrValue *find_phi_incoming_value(const CoreIrPhiInst &phi,
+                                               const CoreIrBasicBlock *predecessor) const {
+        for (std::size_t index = 0; index < phi.get_incoming_count(); ++index) {
+            if (phi.get_incoming_block(index) == predecessor) {
+                return phi.get_incoming_value(index);
+            }
+        }
+        return nullptr;
+    }
+
+    bool build_phi_edge_plans(const CoreIrFunction &function, FunctionState &state) {
+        std::unordered_map<const CoreIrBasicBlock *, std::vector<const CoreIrBasicBlock *>>
+            predecessors;
+        if (!collect_block_predecessors(function, predecessors)) {
+            return false;
+        }
+
+        for (const auto &basic_block : function.get_basic_blocks()) {
+            if (basic_block == nullptr) {
+                continue;
+            }
+            const std::vector<const CoreIrPhiInst *> phis =
+                collect_block_phis(*basic_block);
+            if (phis.empty()) {
+                continue;
+            }
+
+            const auto predecessor_it = predecessors.find(basic_block.get());
+            if (predecessor_it == predecessors.end()) {
+                add_backend_error(diagnostic_engine_,
+                                  "encountered phi block without predecessors in the "
+                                  "AArch64 native backend");
+                return false;
+            }
+
+            for (const CoreIrBasicBlock *predecessor : predecessor_it->second) {
+                AArch64PhiEdgePlan plan;
+                plan.edge = AArch64PhiEdgeKey{predecessor, basic_block.get()};
+                plan.edge_label =
+                    block_labels_.at(predecessor) + "_to_" +
+                    sanitize_label_fragment(basic_block->get_name()) + "_phi";
+                for (const CoreIrPhiInst *phi : phis) {
+                    if (phi == nullptr) {
+                        continue;
+                    }
+                    if (is_aggregate_type(phi->get_type())) {
+                        add_backend_error(
+                            diagnostic_engine_,
+                            "aggregate phi lowering is not supported by the current "
+                            "AArch64 native backend");
+                        return false;
+                    }
+                    const CoreIrValue *incoming =
+                        find_phi_incoming_value(*phi, predecessor);
+                    if (incoming == nullptr) {
+                        add_backend_error(
+                            diagnostic_engine_,
+                            "phi block is missing an incoming value for one of its "
+                            "predecessors in the AArch64 native backend");
+                        return false;
+                    }
+                    plan.copies.push_back(AArch64PhiCopyOp{phi, incoming});
+                }
+                state.phi_edge_labels.emplace(plan.edge, plan.edge_label);
+                state.phi_edge_plans.push_back(std::move(plan));
+            }
+        }
+        return true;
+    }
+
+    std::string resolve_branch_target_label(const FunctionState &state,
+                                            const CoreIrBasicBlock *predecessor,
+                                            const CoreIrBasicBlock *successor) const {
+        const auto edge_it =
+            state.phi_edge_labels.find(AArch64PhiEdgeKey{predecessor, successor});
+        if (edge_it != state.phi_edge_labels.end()) {
+            return edge_it->second;
+        }
+        return block_labels_.at(successor);
+    }
+
     void seed_call_argument_copy_slots(const CoreIrFunction &function,
                                        FunctionState &state,
                                        std::size_t &current_offset) {
@@ -2800,6 +3056,59 @@ class AArch64LoweringSession {
                 std::to_string(int_constant->get_value()));
             return true;
         }
+        if (const auto *float_constant =
+                dynamic_cast<const CoreIrConstantFloat *>(constant);
+            float_constant != nullptr) {
+            const auto *float_type = as_float_type(type);
+            if (float_type == nullptr) {
+                return false;
+            }
+            const std::string literal_text =
+                strip_floating_literal_suffix(float_constant->get_literal_text());
+            try {
+                switch (float_type->get_float_kind()) {
+                case CoreIrFloatKind::Float16: {
+                    const float parsed = std::stof(literal_text);
+                    machine_module.append_global_line(
+                        "  .hword " +
+                        format_bits_literal(float32_to_float16_bits(parsed), 4));
+                    return true;
+                }
+                case CoreIrFloatKind::Float32: {
+                    const float parsed = std::stof(literal_text);
+                    std::uint32_t bits = 0;
+                    std::memcpy(&bits, &parsed, sizeof(bits));
+                    machine_module.append_global_line("  .word " +
+                                                      format_bits_literal(bits, 8));
+                    return true;
+                }
+                case CoreIrFloatKind::Float64: {
+                    const double parsed = std::stod(literal_text);
+                    std::uint64_t bits = 0;
+                    std::memcpy(&bits, &parsed, sizeof(bits));
+                    machine_module.append_global_line("  .xword " +
+                                                      format_bits_literal(bits, 16));
+                    return true;
+                }
+                case CoreIrFloatKind::Float128:
+                    if (floating_literal_is_zero(literal_text)) {
+                        machine_module.append_global_line("  .zero 16");
+                        return true;
+                    }
+                    add_backend_error(
+                        diagnostic_engine_,
+                        "non-zero float128 global initializers are not yet "
+                        "supported by the AArch64 native backend");
+                    return false;
+                }
+            } catch (...) {
+                add_backend_error(
+                    diagnostic_engine_,
+                    "failed to parse floating literal for AArch64 global "
+                    "constant emission");
+                return false;
+            }
+        }
         if (dynamic_cast<const CoreIrConstantNull *>(constant) != nullptr) {
             machine_module.append_global_line(
                 "  " + scalar_directive(type) + " 0");
@@ -2825,20 +3134,40 @@ class AArch64LoweringSession {
             aggregate != nullptr) {
             const auto *struct_type = dynamic_cast<const CoreIrStructType *>(type);
             const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
+            std::size_t emitted_size = 0;
             for (std::size_t index = 0; index < aggregate->get_elements().size(); ++index) {
                 const CoreIrType *element_type = nullptr;
+                std::size_t element_offset = emitted_size;
                 if (struct_type != nullptr &&
                     index < struct_type->get_element_types().size()) {
                     element_type = struct_type->get_element_types()[index];
-                } else if (array_type != nullptr) {
+                    element_offset = get_struct_member_offset(struct_type, index);
+                } else if (array_type != nullptr &&
+                           index < array_type->get_element_count()) {
                     element_type = array_type->get_element_type();
+                    element_offset = index * get_type_size(element_type);
                 }
-                if (element_type == nullptr ||
-                    !append_global_constant_lines(machine_module,
+                if (element_type == nullptr) {
+                    return false;
+                }
+                if (element_offset > emitted_size) {
+                    machine_module.append_global_line("  .zero " +
+                                                      std::to_string(element_offset -
+                                                                     emitted_size));
+                    emitted_size = element_offset;
+                }
+                if (!append_global_constant_lines(machine_module,
                                                  aggregate->get_elements()[index],
                                                  element_type)) {
                     return false;
                 }
+                emitted_size =
+                    std::max(emitted_size, element_offset + get_type_size(element_type));
+            }
+            if (get_type_size(type) > emitted_size) {
+                machine_module.append_global_line(
+                    "  .zero " +
+                    std::to_string(get_type_size(type) - emitted_size));
             }
             return true;
         }
@@ -3014,6 +3343,11 @@ class AArch64LoweringSession {
                 ".L" + sanitize_label_fragment(function_name) + "_" +
                     sanitize_label_fragment(basic_block->get_name()));
         }
+        state.phi_edge_labels.clear();
+        state.phi_edge_plans.clear();
+        if (!build_phi_edge_plans(function, state)) {
+            return false;
+        }
 
         if (!emit_function(machine_function, function, state)) {
             return false;
@@ -3086,10 +3420,15 @@ class AArch64LoweringSession {
             AArch64MachineBlock &machine_block =
                 machine_function.append_block(block_labels_.at(basic_block.get()));
             for (const auto &instruction : basic_block->get_instructions()) {
-                if (!emit_instruction(machine_function, machine_block, *instruction,
-                                      state)) {
+                if (!emit_instruction(machine_function, machine_block,
+                                      basic_block.get(), *instruction, state)) {
                     return false;
                 }
+            }
+        }
+        for (const AArch64PhiEdgePlan &plan : state.phi_edge_plans) {
+            if (!emit_phi_edge_block(machine_function, plan, state)) {
+                return false;
             }
         }
 
@@ -3107,14 +3446,12 @@ class AArch64LoweringSession {
 
     bool emit_instruction(AArch64MachineFunction &machine_function,
                           AArch64MachineBlock &machine_block,
+                          const CoreIrBasicBlock *current_block,
                           const CoreIrInstruction &instruction,
                           FunctionState &state) {
         switch (instruction.get_opcode()) {
         case CoreIrOpcode::Phi:
-            add_backend_error(diagnostic_engine_,
-                              "phi instructions are not supported by the "
-                              "AArch64 native backend");
-            return false;
+            return true;
         case CoreIrOpcode::Load:
             return emit_load(machine_block,
                              static_cast<const CoreIrLoadInst &>(instruction),
@@ -3143,14 +3480,15 @@ class AArch64LoweringSession {
                              static_cast<const CoreIrCallInst &>(instruction), state);
         case CoreIrOpcode::Jump:
             machine_block.append_instruction(
-                "b " +
-                block_labels_.at(
-                    static_cast<const CoreIrJumpInst &>(instruction).get_target_block()));
+                "b " + resolve_branch_target_label(
+                          state, current_block,
+                          static_cast<const CoreIrJumpInst &>(instruction)
+                              .get_target_block()));
             return true;
         case CoreIrOpcode::CondJump:
             return emit_cond_jump(machine_block,
                                   static_cast<const CoreIrCondJumpInst &>(instruction),
-                                  state);
+                                  state, current_block);
         case CoreIrOpcode::Return:
             return emit_return(machine_function, machine_block,
                                static_cast<const CoreIrReturnInst &>(instruction),
@@ -3314,6 +3652,113 @@ class AArch64LoweringSession {
         }
         out = create_virtual_reg(*state.machine_function, value->get_type());
         return materialize_noncanonical_value(machine_block, value, out, state);
+    }
+
+    bool emit_parallel_phi_copies(AArch64MachineBlock &machine_block,
+                                  const AArch64PhiEdgePlan &plan,
+                                  const FunctionState &state) {
+        struct PendingPhiCopy {
+            AArch64VirtualReg destination;
+            std::optional<AArch64VirtualReg> source_reg;
+            const CoreIrValue *source_value = nullptr;
+        };
+
+        std::vector<PendingPhiCopy> pending;
+        for (const AArch64PhiCopyOp &copy : plan.copies) {
+            if (copy.phi == nullptr || copy.source_value == nullptr) {
+                add_backend_error(
+                    diagnostic_engine_,
+                    "encountered malformed phi copy while lowering the AArch64 "
+                    "native backend");
+                return false;
+            }
+            AArch64VirtualReg destination;
+            if (!require_canonical_vreg(state, copy.phi, destination)) {
+                return false;
+            }
+            PendingPhiCopy pending_copy;
+            pending_copy.destination = destination;
+            pending_copy.source_value = copy.source_value;
+            if (const AArch64ValueLocation *location =
+                    lookup_value_location(state, copy.source_value);
+                location != nullptr &&
+                location->kind == AArch64ValueLocationKind::VirtualReg &&
+                location->virtual_reg.is_valid()) {
+                pending_copy.source_reg = location->virtual_reg;
+            }
+            if (pending_copy.source_reg.has_value() &&
+                pending_copy.source_reg->get_id() == pending_copy.destination.get_id() &&
+                pending_copy.source_reg->get_kind() ==
+                    pending_copy.destination.get_kind()) {
+                continue;
+            }
+            pending.push_back(std::move(pending_copy));
+        }
+
+        while (!pending.empty()) {
+            bool progressed = false;
+            std::unordered_set<std::size_t> pending_destinations;
+            for (const PendingPhiCopy &copy : pending) {
+                pending_destinations.insert(copy.destination.get_id());
+            }
+
+            for (auto it = pending.begin(); it != pending.end(); ++it) {
+                const bool source_is_blocked =
+                    it->source_reg.has_value() &&
+                    pending_destinations.find(it->source_reg->get_id()) !=
+                        pending_destinations.end();
+                if (source_is_blocked) {
+                    continue;
+                }
+                if (it->source_reg.has_value()) {
+                    append_register_copy(machine_block, it->destination,
+                                         *it->source_reg);
+                } else if (!materialize_value(machine_block, it->source_value,
+                                              it->destination, state)) {
+                    return false;
+                }
+                pending.erase(it);
+                progressed = true;
+                break;
+            }
+
+            if (progressed) {
+                continue;
+            }
+
+            PendingPhiCopy &cycle_head = pending.front();
+            if (!cycle_head.source_reg.has_value()) {
+                add_backend_error(
+                    diagnostic_engine_,
+                    "failed to schedule phi copies in the AArch64 native backend");
+                return false;
+            }
+            const AArch64VirtualReg saved_destination =
+                state.machine_function->create_virtual_reg(
+                    cycle_head.destination.get_kind());
+            append_register_copy(machine_block, saved_destination,
+                                 cycle_head.destination);
+            for (PendingPhiCopy &copy : pending) {
+                if (copy.source_reg.has_value() &&
+                    copy.source_reg->get_id() == cycle_head.destination.get_id()) {
+                    copy.source_reg = saved_destination;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    bool emit_phi_edge_block(AArch64MachineFunction &machine_function,
+                             const AArch64PhiEdgePlan &plan,
+                             const FunctionState &state) {
+        AArch64MachineBlock &edge_block =
+            machine_function.append_block(plan.edge_label);
+        if (!emit_parallel_phi_copies(edge_block, plan, state)) {
+            return false;
+        }
+        edge_block.append_instruction("b " + block_labels_.at(plan.edge.successor));
+        return true;
     }
 
     const CoreIrType *create_fake_pointer_type() const {
@@ -3749,8 +4194,8 @@ class AArch64LoweringSession {
                                                location.stack_offset, function);
             }
             add_backend_error(diagnostic_engine_,
-                              "stack-indirect aggregate call arguments are not yet "
-                              "supported by the AArch64 native backend");
+                              "missing outgoing stack base address for a stack-indirect "
+                              "aggregate call argument in the AArch64 native backend");
             return false;
         }
         for (const AArch64AbiLocation &location : assignment.locations) {
@@ -4165,6 +4610,128 @@ class AArch64LoweringSession {
         return true;
     }
 
+    bool apply_constant_gep_index(
+        AArch64MachineBlock &machine_block, const AArch64VirtualReg &target_reg,
+        const AArch64IntegerConstantValue &index, const CoreIrType *current_type,
+        std::size_t index_position, const FunctionState &state,
+        const CoreIrType *&next_type) {
+        if (index_position == 0) {
+            const auto scaled =
+                scale_integer_constant_value(index, get_type_size(current_type));
+            if (!scaled.has_value()) {
+                return false;
+            }
+            return add_constant_offset(machine_block, target_reg, scaled->magnitude,
+                                       scaled->is_negative,
+                                       *state.machine_function);
+        }
+
+        if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
+            array_type != nullptr) {
+            const auto scaled = scale_integer_constant_value(
+                index, get_type_size(array_type->get_element_type()));
+            if (!scaled.has_value() ||
+                !add_constant_offset(machine_block, target_reg, scaled->magnitude,
+                                     scaled->is_negative,
+                                     *state.machine_function)) {
+                return false;
+            }
+            next_type = array_type->get_element_type();
+            return true;
+        }
+
+        if (const auto *struct_type = dynamic_cast<const CoreIrStructType *>(current_type);
+            struct_type != nullptr) {
+            if (index.is_negative ||
+                static_cast<std::size_t>(index.unsigned_value) >=
+                    struct_type->get_element_types().size()) {
+                add_backend_error(diagnostic_engine_,
+                                  "unsupported gep struct index in AArch64 native backend");
+                return false;
+            }
+            if (!add_constant_offset(
+                    machine_block, target_reg,
+                    static_cast<long long>(get_struct_member_offset(
+                        struct_type, static_cast<std::size_t>(index.unsigned_value))),
+                    *state.machine_function)) {
+                return false;
+            }
+            next_type = struct_type->get_element_types()
+                            [static_cast<std::size_t>(index.unsigned_value)];
+            return true;
+        }
+
+        if (const auto *pointer_type =
+                dynamic_cast<const CoreIrPointerType *>(current_type);
+            pointer_type != nullptr) {
+            const auto scaled = scale_integer_constant_value(
+                index, get_type_size(pointer_type->get_pointee_type()));
+            if (!scaled.has_value() ||
+                !add_constant_offset(machine_block, target_reg, scaled->magnitude,
+                                     scaled->is_negative,
+                                     *state.machine_function)) {
+                return false;
+            }
+            next_type = pointer_type->get_pointee_type();
+            return true;
+        }
+
+        add_backend_error(
+            diagnostic_engine_,
+            "invalid constant gep index into non-aggregate type in the AArch64 "
+            "native backend");
+        return false;
+    }
+
+    bool apply_dynamic_gep_index(AArch64MachineBlock &machine_block,
+                                 const AArch64VirtualReg &target_reg,
+                                 const CoreIrValue *index_value,
+                                 const CoreIrType *current_type,
+                                 std::size_t index_position,
+                                 const FunctionState &state,
+                                 const CoreIrType *&next_type) {
+        if (index_position == 0) {
+            return add_scaled_index(machine_block, target_reg, index_value,
+                                    get_type_size(current_type), state);
+        }
+
+        if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
+            array_type != nullptr) {
+            if (!add_scaled_index(machine_block, target_reg, index_value,
+                                  get_type_size(array_type->get_element_type()),
+                                  state)) {
+                return false;
+            }
+            next_type = array_type->get_element_type();
+            return true;
+        }
+
+        if (const auto *pointer_type =
+                dynamic_cast<const CoreIrPointerType *>(current_type);
+            pointer_type != nullptr) {
+            if (!add_scaled_index(machine_block, target_reg, index_value,
+                                  get_type_size(pointer_type->get_pointee_type()),
+                                  state)) {
+                return false;
+            }
+            next_type = pointer_type->get_pointee_type();
+            return true;
+        }
+
+        if (dynamic_cast<const CoreIrStructType *>(current_type) != nullptr) {
+            add_backend_error(diagnostic_engine_,
+                              "dynamic struct index is not supported in the "
+                              "AArch64 native backend");
+            return false;
+        }
+
+        add_backend_error(
+            diagnostic_engine_,
+            "invalid dynamic gep index into non-aggregate type in the AArch64 "
+            "native backend");
+        return false;
+    }
+
     bool materialize_gep_value(
         AArch64MachineBlock &machine_block, const CoreIrValue *base_value,
         const CoreIrType *base_type, std::size_t index_count,
@@ -4197,105 +4764,23 @@ class AArch64LoweringSession {
                 if (!index.has_value()) {
                     return false;
                 }
-                if (index_position == 0) {
-                    const auto scaled =
-                        scale_integer_constant_value(*index, get_type_size(current_type));
-                    if (!scaled.has_value() ||
-                        !add_constant_offset(machine_block, target_reg,
-                                             scaled->magnitude, scaled->is_negative,
-                                             *state.machine_function)) {
-                        return false;
-                    }
-                    continue;
+                const CoreIrType *next_type = current_type;
+                if (!apply_constant_gep_index(machine_block, target_reg, *index,
+                                              current_type, index_position, state,
+                                              next_type)) {
+                    return false;
                 }
-                if (const auto *array_type =
-                        dynamic_cast<const CoreIrArrayType *>(current_type);
-                    array_type != nullptr) {
-                    const auto scaled = scale_integer_constant_value(
-                        *index, get_type_size(array_type->get_element_type()));
-                    if (!scaled.has_value() ||
-                        !add_constant_offset(machine_block, target_reg,
-                                             scaled->magnitude, scaled->is_negative,
-                                             *state.machine_function)) {
-                        return false;
-                    }
-                    current_type = array_type->get_element_type();
-                    continue;
-                }
-                if (const auto *struct_type =
-                        dynamic_cast<const CoreIrStructType *>(current_type);
-                    struct_type != nullptr) {
-                    if (index->is_negative ||
-                        static_cast<std::size_t>(index->unsigned_value) >=
-                            struct_type->get_element_types().size()) {
-                        add_backend_error(diagnostic_engine_,
-                                          "unsupported gep struct index in AArch64 native backend");
-                        return false;
-                    }
-                    if (!add_constant_offset(
-                            machine_block, target_reg,
-                            static_cast<long long>(
-                                get_struct_member_offset(
-                                    struct_type,
-                                    static_cast<std::size_t>(index->unsigned_value))),
-                            *state.machine_function)) {
-                        return false;
-                    }
-                    current_type =
-                        struct_type->get_element_types()[static_cast<std::size_t>(
-                            index->unsigned_value)];
-                    continue;
-                }
-                if (const auto *pointer_type =
-                        dynamic_cast<const CoreIrPointerType *>(current_type);
-                    pointer_type != nullptr) {
-                    const auto scaled = scale_integer_constant_value(
-                        *index, get_type_size(pointer_type->get_pointee_type()));
-                    if (!scaled.has_value() ||
-                        !add_constant_offset(machine_block, target_reg,
-                                             scaled->magnitude, scaled->is_negative,
-                                             *state.machine_function)) {
-                        return false;
-                    }
-                    current_type = pointer_type->get_pointee_type();
-                    continue;
-                }
-                add_backend_error(diagnostic_engine_,
-                                  "unsupported constant gep shape in AArch64 native backend");
-                return false;
+                current_type = next_type;
+                continue;
             }
 
-            if (index_position == 0) {
-                if (!add_scaled_index(machine_block, target_reg, index_value,
-                                      get_type_size(current_type), state)) {
-                    return false;
-                }
-                continue;
+            const CoreIrType *next_type = current_type;
+            if (!apply_dynamic_gep_index(machine_block, target_reg, index_value,
+                                         current_type, index_position, state,
+                                         next_type)) {
+                return false;
             }
-            if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
-                array_type != nullptr) {
-                if (!add_scaled_index(machine_block, target_reg, index_value,
-                                      get_type_size(array_type->get_element_type()),
-                                      state)) {
-                    return false;
-                }
-                current_type = array_type->get_element_type();
-                continue;
-            }
-            if (const auto *pointer_type =
-                    dynamic_cast<const CoreIrPointerType *>(current_type);
-                pointer_type != nullptr) {
-                if (!add_scaled_index(machine_block, target_reg, index_value,
-                                      get_type_size(pointer_type->get_pointee_type()),
-                                      state)) {
-                    return false;
-                }
-                current_type = pointer_type->get_pointee_type();
-                continue;
-            }
-            add_backend_error(diagnostic_engine_,
-                              "unsupported non-constant aggregate gep in AArch64 native backend");
-            return false;
+            current_type = next_type;
         }
 
         return true;
@@ -5446,7 +5931,8 @@ class AArch64LoweringSession {
 
     bool emit_cond_jump(AArch64MachineBlock &machine_block,
                         const CoreIrCondJumpInst &cond_jump,
-                        const FunctionState &state) {
+                        const FunctionState &state,
+                        const CoreIrBasicBlock *current_block) {
         AArch64VirtualReg condition_reg;
         if (!ensure_value_in_vreg(machine_block, cond_jump.get_condition(), state,
                                   condition_reg)) {
@@ -5454,9 +5940,11 @@ class AArch64LoweringSession {
         }
         machine_block.append_instruction(
             "cbnz " + use_vreg(condition_reg) + ", " +
-            block_labels_.at(cond_jump.get_true_block()));
+            resolve_branch_target_label(state, current_block,
+                                        cond_jump.get_true_block()));
         machine_block.append_instruction(
-            "b " + block_labels_.at(cond_jump.get_false_block()));
+            "b " + resolve_branch_target_label(state, current_block,
+                                               cond_jump.get_false_block()));
         return true;
     }
 
