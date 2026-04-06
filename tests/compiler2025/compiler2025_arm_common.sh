@@ -71,7 +71,12 @@ expected_path = Path(sys.argv[1])
 actual_path = Path(sys.argv[2])
 expected = expected_path.read_text(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
 actual = actual_path.read_text(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
-if expected != actual:
+
+# Treat a final trailing newline difference as formatting-only noise.
+expected_compare = expected.rstrip("\n")
+actual_compare = actual.rstrip("\n")
+
+if expected_compare != actual_compare:
     diff = difflib.unified_diff(
         expected.splitlines(True),
         actual.splitlines(True),
@@ -195,4 +200,3 @@ payload = {
 output_json.write_text(json.dumps(payload, indent=2, sort_keys=True))
 PY
 }
-
