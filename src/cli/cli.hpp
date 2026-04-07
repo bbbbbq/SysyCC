@@ -46,6 +46,8 @@ class Cli {
     bool request_emit_assembly_ = false;
     bool request_emit_llvm_ = false;
     bool request_compile_only_ = false;
+    bool request_position_independent_ = false;
+    bool request_debug_info_ = false;
     bool is_help_ = false;
     bool is_version_ = false;
     bool has_error_ = false;
@@ -76,7 +78,9 @@ class Cli {
                   << "  -emit-llvm         Emit LLVM IR (requires -S)\n"
                   << "  -O0                Disable optional Core IR optimization passes\n"
                   << "  -O1                Enable current Core IR optimization passes\n"
-                  << "  -c                 Parse as compile-only mode (currently unsupported)\n"
+                  << "  -c                 Emit object output\n"
+                  << "  -fPIC              Emit position-independent AArch64 code\n"
+                  << "  -g                 Emit basic debug information on native AArch64 outputs\n"
                   << "  -I<dir>            Add include search directory\n"
                   << "  -I <dir>           Add include search directory\n"
                   << "  -isystem <dir>     Add system include search directory\n"
@@ -135,6 +139,7 @@ class Cli {
         option.set_dump_core_ir(dump_core_ir_);
         option.set_driver_action(driver_action_);
         option.set_emit_asm(emit_asm_);
+        option.set_emit_object(driver_action_ == sysycc::DriverAction::CompileOnly);
         option.set_stop_after_stage(stop_after_stage_);
         option.set_language_mode(language_mode_);
         option.set_optimization_level(optimization_level_);
@@ -147,9 +152,12 @@ class Cli {
         sysycc::BackendOptions backend_options;
         backend_options.set_backend_kind(backend_kind_);
         backend_options.set_target_triple(target_triple_);
-        if (driver_action_ == sysycc::DriverAction::EmitAssembly) {
+        if (driver_action_ == sysycc::DriverAction::EmitAssembly ||
+            driver_action_ == sysycc::DriverAction::CompileOnly) {
             backend_options.set_output_file(output_file_);
         }
+        backend_options.set_position_independent(request_position_independent_);
+        backend_options.set_debug_info(request_debug_info_);
         option.set_backend_options(std::move(backend_options));
     }
 };

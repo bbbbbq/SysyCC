@@ -12,6 +12,8 @@ class BackendOptions {
     BackendKind backend_kind_ = BackendKind::LlvmIr;
     std::string target_triple_;
     std::string output_file_;
+    bool position_independent_ = false;
+    bool debug_info_ = false;
 
   public:
     BackendKind get_backend_kind() const noexcept { return backend_kind_; }
@@ -33,6 +35,16 @@ class BackendOptions {
     void set_output_file(std::string output_file) {
         output_file_ = std::move(output_file);
     }
+
+    bool get_position_independent() const noexcept { return position_independent_; }
+
+    void set_position_independent(bool position_independent) noexcept {
+        position_independent_ = position_independent;
+    }
+
+    bool get_debug_info() const noexcept { return debug_info_; }
+
+    void set_debug_info(bool debug_info) noexcept { debug_info_ = debug_info; }
 };
 
 } // namespace sysycc

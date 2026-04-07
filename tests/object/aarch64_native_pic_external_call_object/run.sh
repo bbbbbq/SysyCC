@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+BUILD_DIR="${PROJECT_ROOT}/build"
+CASE_BUILD_DIR="${SCRIPT_DIR}/build"
+INPUT_FILE="${SCRIPT_DIR}/aarch64_native_pic_external_call_object.sy"
+OBJ_FILE="${CASE_BUILD_DIR}/aarch64_native_pic_external_call_object.o"
+
+source "${PROJECT_ROOT}/tests/test_helpers.sh"
+
+build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
+mkdir -p "${CASE_BUILD_DIR}"
+
+"${BUILD_DIR}/SysyCC" \
+    --dump-tokens \
+    --dump-parse \
+    -c \
+    -fPIC \
+    --backend=aarch64-native \
+    --target=aarch64-unknown-linux-gnu \
+    -o "${OBJ_FILE}" \
+    "${INPUT_FILE}"
+
+assert_basic_frontend_outputs "${BUILD_DIR}" "aarch64_native_pic_external_call_object"
+assert_file_nonempty "${OBJ_FILE}"
+assert_aarch64_relocations "${OBJ_FILE}" 'ext_fn'
+
+echo "verified: PIC native AArch64 object emission records relocations for external calls"

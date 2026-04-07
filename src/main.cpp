@@ -39,7 +39,7 @@ std::string driver_action_name(sysycc::DriverAction driver_action) {
         return "internal-pipeline";
     case sysycc::DriverAction::FullCompile:
         return "full-compile";
-    case sysycc::DriverAction::CompileOnlyUnsupported:
+    case sysycc::DriverAction::CompileOnly:
         return "compile-only";
     case sysycc::DriverAction::PreprocessOnly:
         return "preprocess-only";
@@ -145,6 +145,8 @@ std::string default_output_file_for_action(
         return input_path.stem().string() + ".ll";
     case sysycc::DriverAction::EmitAssembly:
         return input_path.stem().string() + ".s";
+    case sysycc::DriverAction::CompileOnly:
+        return input_path.stem().string() + ".o";
     default:
         return option.get_output_file();
     }
@@ -178,6 +180,10 @@ bool emit_driver_primary_output(const ClI::Cli &cli,
                 : option.get_output_file();
         return emit_primary_text_output(cli.get_program_name(), output_file,
                                         context.get_ir_result()->get_text());
+    }
+
+    if (option.get_driver_action() == sysycc::DriverAction::CompileOnly) {
+        return context.get_object_result() != nullptr;
     }
 
     return true;

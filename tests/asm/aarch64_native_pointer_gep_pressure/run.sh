@@ -30,7 +30,7 @@ assert_file_nonempty "${ASM_FILE}"
 assert_no_illegal_aarch64_index_forms "${ASM_FILE}"
 test "$(grep -Ec '^[[:space:]]*sxtw x[0-9]+, w[0-9]+$' "${ASM_FILE}")" -ge 5
 test "$(grep -Ec '^[[:space:]]*add x[0-9]+, x[0-9]+, x[0-9]+, lsl #2$' "${ASM_FILE}")" -ge 5
-test "$(grep -Ec '^[[:space:]]*ldr w[0-9]+, \[x[0-9]+\]$' "${ASM_FILE}")" -ge 5
+test "$(grep -Ec '^[[:space:]]*ldr w[0-9]+, \[x[0-9]+(, #0)?\]$' "${ASM_FILE}")" -ge 5
 grep -Eq '^[[:space:]]*str x19, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*ldr x19, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
 if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then

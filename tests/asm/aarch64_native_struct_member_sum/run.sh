@@ -29,6 +29,6 @@ assert_file_nonempty "${ASM_FILE}"
 
 grep -Eq '^  sub x[0-9]+, x29, #8$' "${ASM_FILE}"
 grep -Eq '^  add x[0-9]+, x[0-9]+, #4$' "${ASM_FILE}"
-grep -Eq '^  ldr w[0-9]+, \[x[0-9]+\]$' "${ASM_FILE}"
+grep -Eq '^  ldr w[0-9]+, \[x[0-9]+(, #0)?\]$' "${ASM_FILE}"
 
 echo "verified: native AArch64 asm lowers struct member addresses through stack-slot base plus member offsets"

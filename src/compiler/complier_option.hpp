@@ -76,7 +76,7 @@ enum class StopAfterStage : uint8_t {
 enum class DriverAction : uint8_t {
     InternalPipeline,
     FullCompile,
-    CompileOnlyUnsupported,
+    CompileOnly,
     PreprocessOnly,
     SyntaxOnly,
     EmitAssembly,
@@ -144,6 +144,7 @@ class ComplierOption {
     bool dump_ir_ = false;
     bool dump_core_ir_ = false;
     bool emit_asm_ = false;
+    bool emit_object_ = false;
     StopAfterStage stop_after_stage_ = StopAfterStage::None;
     DriverAction driver_action_ = DriverAction::InternalPipeline;
     LanguageMode language_mode_ = LanguageMode::Sysy;
@@ -248,6 +249,10 @@ class ComplierOption {
     bool emit_asm() const noexcept { return emit_asm_; }
 
     void set_emit_asm(bool emit_asm) noexcept { emit_asm_ = emit_asm; }
+
+    bool emit_object() const noexcept { return emit_object_; }
+
+    void set_emit_object(bool emit_object) noexcept { emit_object_ = emit_object; }
 
     StopAfterStage get_stop_after_stage() const noexcept {
         return stop_after_stage_;

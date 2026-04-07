@@ -49,6 +49,7 @@ void Complier::sync_context_from_option() {
     context_.set_dump_ir(option_.dump_ir());
     context_.set_dump_core_ir(option_.dump_core_ir());
     context_.set_emit_asm(option_.emit_asm());
+    context_.set_emit_object(option_.emit_object());
     context_.set_stop_after_stage(option_.get_stop_after_stage());
     context_.set_optimization_level(option_.get_optimization_level());
     context_.set_backend_options(option_.get_backend_options());
@@ -130,8 +131,17 @@ PassResult Complier::validate_backend_configuration() {
             return PassResult::Failure(message);
         }
         if (!context_.get_emit_asm()) {
+            if (!context_.get_emit_object()) {
+                const std::string message =
+                    "--backend=aarch64-native currently requires -S or -c";
+                context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                           message);
+                return PassResult::Failure(message);
+            }
+        }
+        if (context_.get_emit_asm() && context_.get_emit_object()) {
             const std::string message =
-                "--backend=aarch64-native currently requires -S";
+                "--backend=aarch64-native cannot emit asm and object at the same time";
             context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                        message);
             return PassResult::Failure(message);
@@ -152,6 +162,14 @@ PassResult Complier::validate_backend_configuration() {
             return PassResult::Failure(message);
         }
         return PassResult::Success();
+    }
+
+    if (context_.get_emit_object()) {
+        const std::string message =
+            "-c currently requires --backend=aarch64-native";
+        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                   message);
+        return PassResult::Failure(message);
     }
 
     if (context_.get_emit_asm()) {
@@ -185,18 +203,13 @@ PassResult Complier::validate_driver_configuration() {
         return PassResult::Success();
     case DriverAction::FullCompile: {
         const std::string message =
-            "linking is not supported yet; use -E, -fsyntax-only, -S, or -S -emit-llvm";
+            "linking is not supported yet; use -E, -fsyntax-only, -c, -S, or -S -emit-llvm";
         context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                    message);
         return PassResult::Failure(message);
     }
-    case DriverAction::CompileOnlyUnsupported: {
-        const std::string message =
-            "object emission is not supported yet; use -E, -fsyntax-only, -S, or -S -emit-llvm";
-        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
-                                                   message);
-        return PassResult::Failure(message);
-    }
+    case DriverAction::CompileOnly:
+        return PassResult::Success();
     case DriverAction::PreprocessOnly:
     case DriverAction::SyntaxOnly:
     case DriverAction::EmitAssembly:
@@ -212,9 +225,11 @@ PassResult Complier::Run() {
     context_.clear_core_ir_build_result();
     context_.clear_ir_result();
     context_.clear_asm_result();
+    context_.clear_object_result();
     context_.set_core_ir_dump_file_path("");
     context_.set_ir_dump_file_path("");
     context_.set_asm_dump_file_path("");
+    context_.set_object_dump_file_path("");
     sync_context_from_option();
     for (auto &dialect : extra_dialects_) {
         context_.get_dialect_manager().register_dialect(std::move(dialect));
