@@ -58,6 +58,23 @@ void invalidate_non_preserved_analyses(CompilerContext &context,
     if (analysis_manager == nullptr || !effects.has_changes()) {
         return;
     }
+    if (effects.module_changed) {
+        analysis_manager->invalidate_all();
+        return;
+    }
+
+    constexpr CoreIrAnalysisKind k_module_analysis_kinds[] = {
+        CoreIrAnalysisKind::CallGraph,
+        CoreIrAnalysisKind::FunctionAttrs,
+        CoreIrAnalysisKind::EscapeAnalysis,
+        CoreIrAnalysisKind::BlockFrequencyLite,
+        CoreIrAnalysisKind::TargetTransformInfoLite,
+    };
+    for (CoreIrAnalysisKind kind : k_module_analysis_kinds) {
+        if (!effects.preserved_analyses.preserves(kind)) {
+            analysis_manager->invalidate(kind);
+        }
+    }
 
     constexpr CoreIrAnalysisKind k_all_analysis_kinds[] = {
         CoreIrAnalysisKind::Cfg,
@@ -121,6 +138,12 @@ bool verify_core_ir_after_pass(CompilerContext &context, const Pass &pass,
 
     if (result.core_ir_effects.has_value() &&
         result.core_ir_effects->has_changes()) {
+        if (result.core_ir_effects->module_changed ||
+            collect_changed_functions(*result.core_ir_effects).empty()) {
+            return emit_core_ir_verify_result(context,
+                                              verifier.verify_module(*module),
+                                              pass.Name());
+        }
         for (CoreIrFunction *function :
              collect_changed_functions(*result.core_ir_effects)) {
             if (function == nullptr) {
@@ -206,6 +229,28 @@ void PassManager::AddCoreIrFixedPointGroup(std::vector<std::unique_ptr<Pass>> pa
         max_iterations = 1;
     }
     group.max_iterations = max_iterations;
+
+    PipelineEntry entry;
+    entry.fixed_point_group = std::move(group);
+    entries_.push_back(std::move(entry));
+}
+
+void PassManager::AddCoreIrModuleFixedPointGroup(
+    std::vector<std::unique_ptr<Pass>> passes, std::size_t max_iterations) {
+    FixedPointPassGroup group;
+    for (std::unique_ptr<Pass> &pass : passes) {
+        if (pass != nullptr) {
+            group.passes.push_back(std::move(pass));
+        }
+    }
+    if (group.passes.empty()) {
+        return;
+    }
+    if (max_iterations == 0) {
+        max_iterations = 1;
+    }
+    group.max_iterations = max_iterations;
+    group.module_scope = true;
 
     PipelineEntry entry;
     entry.fixed_point_group = std::move(group);

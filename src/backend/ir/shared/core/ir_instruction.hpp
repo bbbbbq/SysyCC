@@ -535,8 +535,54 @@ class CoreIrCallInst final : public CoreIrInstruction {
         return callee_type_;
     }
 
+    void set_callee_name(std::string callee_name) {
+        callee_name_ = std::move(callee_name);
+        callee_value_ = nullptr;
+        argument_begin_index_ = 0;
+    }
+
+    void set_callee_value(CoreIrValue *callee_value) {
+        if (argument_begin_index_ == 1) {
+            set_operand(0, callee_value);
+        } else {
+            std::vector<CoreIrValue *> arguments;
+            for (std::size_t index = argument_begin_index_; index < get_operands().size();
+                 ++index) {
+                arguments.push_back(get_operands()[index]);
+            }
+            detach_operands();
+            append_operand(callee_value);
+            for (CoreIrValue *argument : arguments) {
+                append_operand(argument);
+            }
+            argument_begin_index_ = 1;
+        }
+        callee_value_ = callee_value;
+        callee_name_.clear();
+    }
+
+    void set_callee_type(const CoreIrFunctionType *callee_type) noexcept {
+        callee_type_ = callee_type;
+    }
+
     std::size_t get_argument_begin_index() const noexcept {
         return argument_begin_index_;
+    }
+
+    std::size_t get_argument_count() const noexcept {
+        return get_operands().size() < argument_begin_index_
+                   ? 0
+                   : get_operands().size() - argument_begin_index_;
+    }
+
+    CoreIrValue *get_argument(std::size_t index) const noexcept {
+        const std::size_t operand_index = argument_begin_index_ + index;
+        return operand_index < get_operands().size() ? get_operands()[operand_index]
+                                                     : nullptr;
+    }
+
+    void set_argument(std::size_t index, CoreIrValue *value) {
+        set_operand(argument_begin_index_ + index, value);
     }
 
     bool get_has_side_effect() const noexcept override { return true; }

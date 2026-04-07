@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -83,6 +84,32 @@ class CoreIrModule {
         CoreIrFunction *function_ptr = function.get();
         functions_.push_back(std::move(function));
         return function_ptr;
+    }
+
+    bool erase_global(CoreIrGlobal *global) {
+        auto it = std::find_if(
+            globals_.begin(), globals_.end(),
+            [global](const std::unique_ptr<CoreIrGlobal> &candidate) {
+                return candidate.get() == global;
+            });
+        if (it == globals_.end()) {
+            return false;
+        }
+        globals_.erase(it);
+        return true;
+    }
+
+    bool erase_function(CoreIrFunction *function) {
+        auto it = std::find_if(
+            functions_.begin(), functions_.end(),
+            [function](const std::unique_ptr<CoreIrFunction> &candidate) {
+                return candidate.get() == function;
+            });
+        if (it == functions_.end()) {
+            return false;
+        }
+        functions_.erase(it);
+        return true;
     }
 
     template <typename T, typename... Args>

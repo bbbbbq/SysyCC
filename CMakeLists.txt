@@ -46,10 +46,12 @@ add_executable(${PROJECT_NAME}
     src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp
     src/backend/ir/analysis/analysis_manager.cpp
     src/backend/ir/analysis/alias_analysis.cpp
+    src/backend/ir/analysis/call_graph_analysis.cpp
     src/backend/ir/analysis/cfg_analysis.cpp
     src/backend/ir/analysis/dominance_frontier_analysis.cpp
     src/backend/ir/analysis/dominator_tree_analysis.cpp
     src/backend/ir/analysis/function_effect_summary_analysis.cpp
+    src/backend/ir/analysis/function_attrs_analysis.cpp
     src/backend/ir/analysis/induction_var_analysis.cpp
     src/backend/ir/analysis/loop_info_analysis.cpp
     src/backend/ir/analysis/memory_ssa_analysis.cpp
@@ -63,6 +65,11 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/lower/lowering/llvm/core_ir_llvm_target_backend.cpp
     src/backend/ir/lower/legacy/ir_backend_factory.cpp
     src/backend/ir/build/build_core_ir_pass.cpp
+    src/backend/ir/function_attrs/core_ir_function_attrs_pass.cpp
+    src/backend/ir/global_dce/core_ir_global_dce_pass.cpp
+    src/backend/ir/inliner/core_ir_inliner_pass.cpp
+    src/backend/ir/ipsccp/core_ir_ipsccp_pass.cpp
+    src/backend/ir/argument_promotion/core_ir_argument_promotion_pass.cpp
     src/backend/ir/canonicalize/core_ir_canonicalize_pass.cpp
     src/backend/ir/copy_propagation/core_ir_copy_propagation_pass.cpp
     src/backend/ir/const_fold/core_ir_const_fold_pass.cpp
@@ -93,6 +100,7 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/shared/printer/core_ir_raw_printer.cpp
     src/backend/ir/lower/legacy/llvm/llvm_ir_backend.cpp
     src/backend/ir/shared/detail/aggregate_layout.cpp
+    src/backend/ir/shared/detail/core_ir_clone_utils.cpp
     src/backend/ir/shared/detail/core_ir_rewrite_utils.cpp
     src/backend/ir/shared/detail/ir_context.cpp
     src/backend/ir/shared/detail/symbol_value_map.cpp

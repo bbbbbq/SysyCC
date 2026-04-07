@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "backend/ir/shared/core/ir_function.hpp"
+#include "backend/ir/shared/core/ir_module.hpp"
 
 namespace sysycc {
 
@@ -16,11 +17,54 @@ void bump_compute_count(
     ++compute_counts[&function][kind];
 }
 
+void bump_module_compute_count(
+    std::unordered_map<CoreIrModule *,
+                       std::unordered_map<CoreIrAnalysisKind, std::size_t>>
+        &compute_counts,
+    CoreIrModule &module, CoreIrAnalysisKind kind) {
+    ++compute_counts[&module][kind];
+}
+
 } // namespace
+
+CoreIrAnalysisManager::CachedModuleAnalyses &
+CoreIrAnalysisManager::get_or_create_module_cache_entry(CoreIrModule &module) {
+    return module_cache_[&module];
+}
 
 CoreIrAnalysisManager::CachedFunctionAnalyses &
 CoreIrAnalysisManager::get_or_create_cache_entry(CoreIrFunction &function) {
     return function_cache_[&function];
+}
+
+const CoreIrCallGraphAnalysisResult &
+CoreIrAnalysisManager::get_or_compute_call_graph(CoreIrModule &module) {
+    CachedModuleAnalyses &cache_entry = get_or_create_module_cache_entry(module);
+    if (cache_entry.call_graph_analysis == nullptr) {
+        CoreIrCallGraphAnalysis analysis;
+        cache_entry.call_graph_analysis =
+            std::make_unique<CoreIrCallGraphAnalysisResult>(analysis.Run(module));
+        cache_entry.function_attrs_analysis.reset();
+        bump_module_compute_count(module_compute_counts_, module,
+                                  CoreIrAnalysisKind::CallGraph);
+    }
+    return *cache_entry.call_graph_analysis;
+}
+
+const CoreIrFunctionAttrsAnalysisResult &
+CoreIrAnalysisManager::get_or_compute_function_attrs(CoreIrModule &module) {
+    CachedModuleAnalyses &cache_entry = get_or_create_module_cache_entry(module);
+    if (cache_entry.function_attrs_analysis == nullptr) {
+        const CoreIrCallGraphAnalysisResult &call_graph =
+            get_or_compute_call_graph(module);
+        CoreIrFunctionAttrsAnalysis analysis;
+        cache_entry.function_attrs_analysis =
+            std::make_unique<CoreIrFunctionAttrsAnalysisResult>(
+                analysis.Run(module, call_graph));
+        bump_module_compute_count(module_compute_counts_, module,
+                                  CoreIrAnalysisKind::FunctionAttrs);
+    }
+    return *cache_entry.function_attrs_analysis;
 }
 
 const CoreIrCfgAnalysisResult &
@@ -204,8 +248,15 @@ CoreIrAnalysisManager::get_or_compute_memory_ssa(CoreIrFunction &function) {
 }
 
 void CoreIrAnalysisManager::invalidate_all() noexcept {
+    module_cache_.clear();
+    module_compute_counts_.clear();
     function_cache_.clear();
     compute_counts_.clear();
+}
+
+void CoreIrAnalysisManager::invalidate(CoreIrModule &module) noexcept {
+    module_cache_.erase(&module);
+    module_compute_counts_.erase(&module);
 }
 
 void CoreIrAnalysisManager::invalidate(CoreIrFunction &function) noexcept {
@@ -213,6 +264,38 @@ void CoreIrAnalysisManager::invalidate(CoreIrFunction &function) noexcept {
 }
 
 void CoreIrAnalysisManager::invalidate(CoreIrAnalysisKind kind) noexcept {
+    switch (kind) {
+    case CoreIrAnalysisKind::CallGraph:
+        for (auto it = module_cache_.begin(); it != module_cache_.end();) {
+            it->second.call_graph_analysis.reset();
+            it->second.function_attrs_analysis.reset();
+            if (it->second.call_graph_analysis == nullptr &&
+                it->second.function_attrs_analysis == nullptr) {
+                it = module_cache_.erase(it);
+                continue;
+            }
+            ++it;
+        }
+        return;
+    case CoreIrAnalysisKind::FunctionAttrs:
+        for (auto it = module_cache_.begin(); it != module_cache_.end();) {
+            it->second.function_attrs_analysis.reset();
+            if (it->second.call_graph_analysis == nullptr &&
+                it->second.function_attrs_analysis == nullptr) {
+                it = module_cache_.erase(it);
+                continue;
+            }
+            ++it;
+        }
+        return;
+    case CoreIrAnalysisKind::EscapeAnalysis:
+    case CoreIrAnalysisKind::BlockFrequencyLite:
+    case CoreIrAnalysisKind::TargetTransformInfoLite:
+        return;
+    default:
+        break;
+    }
+
     for (auto it = function_cache_.begin(); it != function_cache_.end();) {
         switch (kind) {
         case CoreIrAnalysisKind::Cfg:
@@ -263,6 +346,14 @@ void CoreIrAnalysisManager::invalidate(CoreIrAnalysisKind kind) noexcept {
             it->second.alias_analysis.reset();
             it->second.memory_ssa_analysis.reset();
             break;
+        case CoreIrAnalysisKind::CallGraph:
+        case CoreIrAnalysisKind::FunctionAttrs:
+        case CoreIrAnalysisKind::EscapeAnalysis:
+        case CoreIrAnalysisKind::BlockFrequencyLite:
+        case CoreIrAnalysisKind::TargetTransformInfoLite:
+            break;
+        default:
+            break;
         }
 
         if (it->second.cfg_analysis == nullptr &&
@@ -284,6 +375,15 @@ void CoreIrAnalysisManager::invalidate(CoreIrAnalysisKind kind) noexcept {
 
 void CoreIrAnalysisManager::invalidate(CoreIrFunction &function,
                                        CoreIrAnalysisKind kind) noexcept {
+    if (kind == CoreIrAnalysisKind::CallGraph ||
+        kind == CoreIrAnalysisKind::FunctionAttrs ||
+        kind == CoreIrAnalysisKind::EscapeAnalysis ||
+        kind == CoreIrAnalysisKind::BlockFrequencyLite ||
+        kind == CoreIrAnalysisKind::TargetTransformInfoLite) {
+        invalidate(kind);
+        return;
+    }
+
     auto it = function_cache_.find(&function);
     if (it == function_cache_.end()) {
         return;
@@ -338,6 +438,14 @@ void CoreIrAnalysisManager::invalidate(CoreIrFunction &function,
         it->second.alias_analysis.reset();
         it->second.memory_ssa_analysis.reset();
         break;
+    case CoreIrAnalysisKind::CallGraph:
+    case CoreIrAnalysisKind::FunctionAttrs:
+    case CoreIrAnalysisKind::EscapeAnalysis:
+    case CoreIrAnalysisKind::BlockFrequencyLite:
+    case CoreIrAnalysisKind::TargetTransformInfoLite:
+        break;
+    default:
+        break;
     }
 
     if (it->second.cfg_analysis == nullptr &&
@@ -354,6 +462,45 @@ void CoreIrAnalysisManager::invalidate(CoreIrFunction &function,
     }
 }
 
+void CoreIrAnalysisManager::invalidate(CoreIrModule &module,
+                                       CoreIrAnalysisKind kind) noexcept {
+    auto it = module_cache_.find(&module);
+    if (it == module_cache_.end()) {
+        return;
+    }
+    switch (kind) {
+    case CoreIrAnalysisKind::CallGraph:
+        it->second.call_graph_analysis.reset();
+        it->second.function_attrs_analysis.reset();
+        break;
+    case CoreIrAnalysisKind::FunctionAttrs:
+        it->second.function_attrs_analysis.reset();
+        break;
+    case CoreIrAnalysisKind::EscapeAnalysis:
+    case CoreIrAnalysisKind::BlockFrequencyLite:
+    case CoreIrAnalysisKind::TargetTransformInfoLite:
+        break;
+    default:
+        invalidate(kind);
+        return;
+    }
+    if (it->second.call_graph_analysis == nullptr &&
+        it->second.function_attrs_analysis == nullptr) {
+        module_cache_.erase(it);
+    }
+    module_compute_counts_.erase(&module);
+}
+
+std::size_t CoreIrAnalysisManager::get_compute_count(
+    CoreIrModule &module, CoreIrAnalysisKind kind) const noexcept {
+    auto module_it = module_compute_counts_.find(&module);
+    if (module_it == module_compute_counts_.end()) {
+        return 0;
+    }
+    auto count_it = module_it->second.find(kind);
+    return count_it == module_it->second.end() ? 0 : count_it->second;
+}
+
 std::size_t CoreIrAnalysisManager::get_compute_count(
     CoreIrFunction &function, CoreIrAnalysisKind kind) const noexcept {
     auto function_it = compute_counts_.find(&function);
@@ -361,8 +508,7 @@ std::size_t CoreIrAnalysisManager::get_compute_count(
         return 0;
     }
     auto count_it = function_it->second.find(kind);
-    return count_it == function_it->second.end() ? 0
-                                                                : count_it->second;
+    return count_it == function_it->second.end() ? 0 : count_it->second;
 }
 
 } // namespace sysycc

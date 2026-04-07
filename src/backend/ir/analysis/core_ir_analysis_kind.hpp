@@ -5,6 +5,8 @@
 namespace sysycc {
 
 enum class CoreIrAnalysisKind : uint8_t {
+    CallGraph,
+    FunctionAttrs,
     Cfg,
     DominatorTree,
     DominanceFrontier,
@@ -15,6 +17,9 @@ enum class CoreIrAnalysisKind : uint8_t {
     AliasAnalysis,
     MemorySSA,
     FunctionEffectSummary,
+    EscapeAnalysis,
+    BlockFrequencyLite,
+    TargetTransformInfoLite,
 };
 
 } // namespace sysycc

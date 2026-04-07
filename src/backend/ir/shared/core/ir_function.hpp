@@ -34,10 +34,15 @@ class CoreIrFunction {
     const CoreIrFunctionType *function_type_ = nullptr;
     bool is_internal_linkage_ = false;
     bool is_always_inline_ = false;
+    bool is_readnone_ = false;
+    bool is_readonly_ = false;
+    bool is_writeonly_ = false;
+    bool is_norecurse_ = false;
     CoreIrModule *parent_ = nullptr;
     std::vector<std::unique_ptr<CoreIrParameter>> parameters_;
     std::vector<std::unique_ptr<CoreIrStackSlot>> stack_slots_;
     std::vector<std::unique_ptr<CoreIrBasicBlock>> basic_blocks_;
+    std::vector<bool> parameter_nocapture_;
 
   public:
     CoreIrFunction(std::string name, const CoreIrFunctionType *function_type,
@@ -57,11 +62,47 @@ class CoreIrFunction {
         return function_type_;
     }
 
+    void set_function_type(const CoreIrFunctionType *function_type) noexcept {
+        function_type_ = function_type;
+    }
+
     bool get_is_internal_linkage() const noexcept {
         return is_internal_linkage_;
     }
 
+    void set_is_internal_linkage(bool is_internal_linkage) noexcept {
+        is_internal_linkage_ = is_internal_linkage;
+    }
+
     bool get_is_always_inline() const noexcept { return is_always_inline_; }
+
+    void set_is_always_inline(bool is_always_inline) noexcept {
+        is_always_inline_ = is_always_inline;
+    }
+
+    bool get_is_readnone() const noexcept { return is_readnone_; }
+    void set_is_readnone(bool is_readnone) noexcept { is_readnone_ = is_readnone; }
+
+    bool get_is_readonly() const noexcept { return is_readonly_; }
+    void set_is_readonly(bool is_readonly) noexcept { is_readonly_ = is_readonly; }
+
+    bool get_is_writeonly() const noexcept { return is_writeonly_; }
+    void set_is_writeonly(bool is_writeonly) noexcept {
+        is_writeonly_ = is_writeonly;
+    }
+
+    bool get_is_norecurse() const noexcept { return is_norecurse_; }
+    void set_is_norecurse(bool is_norecurse) noexcept {
+        is_norecurse_ = is_norecurse;
+    }
+
+    const std::vector<bool> &get_parameter_nocapture() const noexcept {
+        return parameter_nocapture_;
+    }
+
+    void set_parameter_nocapture(std::vector<bool> parameter_nocapture) {
+        parameter_nocapture_ = std::move(parameter_nocapture);
+    }
 
     bool get_is_variadic() const noexcept {
         return function_type_ != nullptr && function_type_->get_is_variadic();

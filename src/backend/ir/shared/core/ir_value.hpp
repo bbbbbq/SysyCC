@@ -41,6 +41,8 @@ class CoreIrValue {
 
     const CoreIrType *get_type() const noexcept { return type_; }
 
+    void set_type(const CoreIrType *type) noexcept { type_ = type; }
+
     const std::string &get_name() const noexcept { return name_; }
 
     void set_name(std::string name) { name_ = std::move(name); }

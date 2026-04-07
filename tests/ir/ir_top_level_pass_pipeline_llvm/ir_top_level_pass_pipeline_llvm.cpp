@@ -56,6 +56,12 @@ int main(int argc, char **argv) {
     PassManager pass_manager;
     append_default_core_ir_pipeline(pass_manager);
 
+    assert(pass_manager.get_pass_by_kind(PassKind::CoreIrFunctionAttrs) != nullptr);
+    assert(pass_manager.get_pass_by_kind(PassKind::CoreIrIpsccp) != nullptr);
+    assert(pass_manager.get_pass_by_kind(PassKind::CoreIrArgumentPromotion) != nullptr);
+    assert(pass_manager.get_pass_by_kind(PassKind::CoreIrInliner) != nullptr);
+    assert(pass_manager.get_pass_by_kind(PassKind::CoreIrGlobalDce) != nullptr);
+
     assert(pass_manager.Run(context).ok);
 
     const IRResult *ir_result = context.get_ir_result();

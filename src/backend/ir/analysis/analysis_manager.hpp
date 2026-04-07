@@ -4,11 +4,13 @@
 #include <unordered_map>
 
 #include "backend/ir/analysis/alias_analysis.hpp"
+#include "backend/ir/analysis/call_graph_analysis.hpp"
 #include "backend/ir/analysis/cfg_analysis.hpp"
 #include "backend/ir/analysis/core_ir_analysis_kind.hpp"
 #include "backend/ir/analysis/dominance_frontier_analysis.hpp"
 #include "backend/ir/analysis/dominator_tree_analysis.hpp"
 #include "backend/ir/analysis/function_effect_summary_analysis.hpp"
+#include "backend/ir/analysis/function_attrs_analysis.hpp"
 #include "backend/ir/analysis/induction_var_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/analysis/memory_ssa_analysis.hpp"
@@ -18,9 +20,15 @@
 namespace sysycc {
 
 class CoreIrFunction;
+class CoreIrModule;
 
 class CoreIrAnalysisManager {
   private:
+    struct CachedModuleAnalyses {
+        std::unique_ptr<CoreIrCallGraphAnalysisResult> call_graph_analysis;
+        std::unique_ptr<CoreIrFunctionAttrsAnalysisResult> function_attrs_analysis;
+    };
+
     struct CachedFunctionAnalyses {
         std::unique_ptr<CoreIrCfgAnalysisResult> cfg_analysis;
         std::unique_ptr<CoreIrDominatorTreeAnalysisResult>
@@ -39,12 +47,20 @@ class CoreIrAnalysisManager {
             function_effect_summary;
     };
 
+    std::unordered_map<CoreIrModule *, CachedModuleAnalyses> module_cache_;
+    std::unordered_map<CoreIrModule *,
+                       std::unordered_map<CoreIrAnalysisKind, std::size_t>>
+        module_compute_counts_;
     std::unordered_map<CoreIrFunction *, CachedFunctionAnalyses> function_cache_;
     std::unordered_map<CoreIrFunction *,
                        std::unordered_map<CoreIrAnalysisKind, std::size_t>>
         compute_counts_;
 
+    CachedModuleAnalyses &get_or_create_module_cache_entry(CoreIrModule &module);
     CachedFunctionAnalyses &get_or_create_cache_entry(CoreIrFunction &function);
+    const CoreIrCallGraphAnalysisResult &get_or_compute_call_graph(CoreIrModule &module);
+    const CoreIrFunctionAttrsAnalysisResult &
+    get_or_compute_function_attrs(CoreIrModule &module);
     const CoreIrCfgAnalysisResult &get_or_compute_cfg(CoreIrFunction &function);
     const CoreIrDominatorTreeAnalysisResult &
     get_or_compute_dominator_tree(CoreIrFunction &function);
@@ -65,15 +81,36 @@ class CoreIrAnalysisManager {
   public:
     template <typename AnalysisT>
     const typename AnalysisT::ResultType &
+    get_or_compute(CoreIrModule &module);
+
+    template <typename AnalysisT>
+    const typename AnalysisT::ResultType &
     get_or_compute(CoreIrFunction &function);
 
     void invalidate_all() noexcept;
+    void invalidate(CoreIrModule &module) noexcept;
     void invalidate(CoreIrFunction &function) noexcept;
     void invalidate(CoreIrAnalysisKind kind) noexcept;
+    void invalidate(CoreIrModule &module, CoreIrAnalysisKind kind) noexcept;
     void invalidate(CoreIrFunction &function, CoreIrAnalysisKind kind) noexcept;
     std::size_t get_compute_count(CoreIrFunction &function,
                                   CoreIrAnalysisKind kind) const noexcept;
+    std::size_t get_compute_count(CoreIrModule &module,
+                                  CoreIrAnalysisKind kind) const noexcept;
 };
+
+template <>
+inline const CoreIrCallGraphAnalysisResult &
+CoreIrAnalysisManager::get_or_compute<CoreIrCallGraphAnalysis>(CoreIrModule &module) {
+    return get_or_compute_call_graph(module);
+}
+
+template <>
+inline const CoreIrFunctionAttrsAnalysisResult &
+CoreIrAnalysisManager::get_or_compute<CoreIrFunctionAttrsAnalysis>(
+    CoreIrModule &module) {
+    return get_or_compute_function_attrs(module);
+}
 
 template <>
 inline const CoreIrCfgAnalysisResult &

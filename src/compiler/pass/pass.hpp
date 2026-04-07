@@ -80,13 +80,15 @@ class CoreIrPreservedAnalyses {
 };
 
 struct CoreIrPassEffects {
+    bool module_changed = false;
     std::unordered_set<CoreIrFunction *> changed_functions;
     std::unordered_set<CoreIrFunction *> cfg_changed_functions;
     CoreIrPreservedAnalyses preserved_analyses =
         CoreIrPreservedAnalyses::preserve_none();
 
     bool has_changes() const noexcept {
-        return !changed_functions.empty() || !cfg_changed_functions.empty();
+        return module_changed || !changed_functions.empty() ||
+               !cfg_changed_functions.empty();
     }
 };
 
@@ -97,6 +99,11 @@ enum class PassKind : uint8_t {
     Ast,
     Semantic,
     BuildCoreIr,
+    CoreIrFunctionAttrs,
+    CoreIrIpsccp,
+    CoreIrArgumentPromotion,
+    CoreIrInliner,
+    CoreIrGlobalDce,
     CoreIrCanonicalize,
     CoreIrSimplifyCfg,
     CoreIrLoopSimplify,
@@ -155,6 +162,7 @@ class PassManager {
     struct FixedPointPassGroup {
         std::vector<std::unique_ptr<Pass>> passes;
         std::size_t max_iterations = 4;
+        bool module_scope = false;
     };
 
     struct PipelineEntry {
@@ -168,6 +176,8 @@ class PassManager {
     void AddPass(std::unique_ptr<Pass> pass);
     void AddCoreIrFixedPointGroup(std::vector<std::unique_ptr<Pass>> passes,
                                   std::size_t max_iterations = 4);
+    void AddCoreIrModuleFixedPointGroup(std::vector<std::unique_ptr<Pass>> passes,
+                                        std::size_t max_iterations = 4);
     PassManager() = default;
     Pass *get_pass_by_kind(PassKind kind) const;
     PassResult Run(CompilerContext &context);

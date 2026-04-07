@@ -4,6 +4,11 @@
 #include <vector>
 
 #include "backend/ir/build/build_core_ir_pass.hpp"
+#include "backend/ir/function_attrs/core_ir_function_attrs_pass.hpp"
+#include "backend/ir/global_dce/core_ir_global_dce_pass.hpp"
+#include "backend/ir/inliner/core_ir_inliner_pass.hpp"
+#include "backend/ir/ipsccp/core_ir_ipsccp_pass.hpp"
+#include "backend/ir/argument_promotion/core_ir_argument_promotion_pass.hpp"
 #include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
 #include "backend/ir/const_fold/core_ir_const_fold_pass.hpp"
 #include "backend/ir/copy_propagation/core_ir_copy_propagation_pass.hpp"
@@ -101,6 +106,19 @@ void append_post_ssa_fixed_point_pipeline(PassManager &pass_manager) {
                                           4);
 }
 
+void append_module_fixed_point_pipeline(PassManager &pass_manager) {
+    std::vector<std::unique_ptr<Pass>> module_fixed_point_passes;
+    module_fixed_point_passes.push_back(
+        std::make_unique<CoreIrFunctionAttrsPass>());
+    module_fixed_point_passes.push_back(std::make_unique<CoreIrIpsccpPass>());
+    module_fixed_point_passes.push_back(
+        std::make_unique<CoreIrArgumentPromotionPass>());
+    module_fixed_point_passes.push_back(std::make_unique<CoreIrInlinerPass>());
+    module_fixed_point_passes.push_back(std::make_unique<CoreIrGlobalDcePass>());
+    pass_manager.AddCoreIrModuleFixedPointGroup(
+        std::move(module_fixed_point_passes), 4);
+}
+
 void append_lowering_pipeline(PassManager &pass_manager) {
     pass_manager.AddPass(std::make_unique<LowerIrPass>());
 }
@@ -109,6 +127,7 @@ void append_lowering_pipeline(PassManager &pass_manager) {
 
 void append_default_core_ir_pipeline(PassManager &pass_manager) {
     append_pre_ssa_pipeline(pass_manager);
+    append_module_fixed_point_pipeline(pass_manager);
     append_post_ssa_fixed_point_pipeline(pass_manager);
     append_lowering_pipeline(pass_manager);
 }
