@@ -1,8 +1,9 @@
 DEV_BUILD_DIR := build-ninja
 TARGET := $(DEV_BUILD_DIR)/SysyCC
 FORMAT_FILES := $(shell find src -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) 2>/dev/null)
+TEST_ARGS ?=
 
-.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja clean clean-ninja format check
+.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja test-tier1 test-tier2 test-full test clean clean-ninja format check
 
 all: run
 
@@ -21,6 +22,17 @@ run-ninja: build-ninja
 	./$(TARGET)
 
 run: run-ninja
+
+test-tier1:
+	./tests/run_tier1.sh $(TEST_ARGS)
+
+test-tier2:
+	./tests/run_tier2.sh $(TEST_ARGS)
+
+test-full:
+	./tests/run_full.sh $(TEST_ARGS)
+
+test: test-tier1
 
 format:
 	clang-format -i $(FORMAT_FILES)
