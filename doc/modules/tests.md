@@ -39,6 +39,9 @@ tests/
 ├── semantic/
 │   └── <case>/
 ├── run_all.sh
+├── run_tier1.sh
+├── run_tier2.sh
+├── run_full.sh
 └── test_helpers.sh
 ```
 
@@ -974,8 +977,18 @@ Native Linux AArch64 asm regressions, including:
   serializes concurrent local `cmake` / compiler invocations per build
   directory so later test runs wait for the active build instead of colliding.
 - [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh)
-  recursively discovers every executable `tests/<stage>/<case>/run.sh`,
-  executes them, and writes a Markdown summary to `build/test_result.md`.
+  recursively discovers executable `tests/<stage>/<case>/run.sh`, defaults to
+  the tier-1 regression lane (`run`, `cli`, `dialects`), supports
+  `--layer tier1|tier2|all`, and writes a Markdown summary to
+  `build/test_result.md`.
+- [tests/run_tier1.sh](/Users/caojunze424/code/SysyCC/tests/run_tier1.sh)
+  is the explicit day-to-day fast lane for `run`, `cli`, and `dialects`
+  regressions.
+- [tests/run_tier2.sh](/Users/caojunze424/code/SysyCC/tests/run_tier2.sh)
+  runs the stage-focused second layer covering `asm`, `ast`, `fuzz`, `ir`,
+  `lexer`, `object`, `parser`, `preprocess`, and `semantic`.
+- [tests/run_full.sh](/Users/caojunze424/code/SysyCC/tests/run_full.sh)
+  preserves the old full-suite behavior by running both layers together.
 
 ## Artifact Checks
 

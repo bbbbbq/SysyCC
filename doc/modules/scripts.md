@@ -33,6 +33,14 @@ python3 scripts/show_parse_tree.py build/intermediate_results/minimal.parse.txt 
 make check
 ```
 
+```bash
+make test-tier1
+```
+
+```bash
+make test-tier2 TEST_ARGS="--stage ir"
+```
+
 ## Notes
 
 - `make check` requires these tools to be installed and visible in `PATH`:
@@ -40,6 +48,11 @@ make check
   - `cppcheck`
   - `include-what-you-use`
   - `python3`
+- `make test-tier1` runs `./tests/run_tier1.sh`
+- `make test-tier2` runs `./tests/run_tier2.sh`
+- `make test-full` runs `./tests/run_full.sh`
+- `make test` is an alias for `make test-tier1`
+- `TEST_ARGS="..."` forwards extra arguments such as `--list` or `--stage ir`
 - the static-check pipeline configures and builds the project first so
   `build/compile_commands.json` is available to all three tools
 - generated parser files are intentionally excluded from the blocking
