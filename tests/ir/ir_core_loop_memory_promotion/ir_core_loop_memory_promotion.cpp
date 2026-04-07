@@ -396,5 +396,82 @@ int main() {
         assert(text5.find("%field0.exit = load i32") == std::string::npos);
         assert(text5.find("%state.loop.") != std::string::npos);
     }
+    {
+        auto context6 = std::make_unique<CoreIrContext>();
+        auto *void_type6 = context6->create_type<CoreIrVoidType>();
+        auto *i1_type6 = context6->create_type<CoreIrIntegerType>(1);
+        auto *i32_type6 = context6->create_type<CoreIrIntegerType>(32);
+        auto *function_type6 = context6->create_type<CoreIrFunctionType>(
+            i32_type6, std::vector<const CoreIrType *>{}, false);
+        auto *module6 = context6->create_module<CoreIrModule>(
+            "ir_core_loop_memory_promotion_whole_slot_multi_def");
+        auto *function6 =
+            module6->create_function<CoreIrFunction>("main", function_type6, false);
+        auto *entry6 = function6->create_basic_block<CoreIrBasicBlock>("entry");
+        auto *header6 = function6->create_basic_block<CoreIrBasicBlock>("header");
+        auto *first6 = function6->create_basic_block<CoreIrBasicBlock>("first");
+        auto *second6 = function6->create_basic_block<CoreIrBasicBlock>("second");
+        auto *exit6 = function6->create_basic_block<CoreIrBasicBlock>("exit");
+        auto *sum_slot6 =
+            function6->create_stack_slot<CoreIrStackSlot>("sum", i32_type6, 4);
+        auto *zero6 = context6->create_constant<CoreIrConstantInt>(i32_type6, 0);
+        auto *one6 = context6->create_constant<CoreIrConstantInt>(i32_type6, 1);
+        auto *two6 = context6->create_constant<CoreIrConstantInt>(i32_type6, 2);
+        auto *three6 =
+            context6->create_constant<CoreIrConstantInt>(i32_type6, 3);
+
+        entry6->create_instruction<CoreIrStoreInst>(void_type6, zero6, sum_slot6);
+        entry6->create_instruction<CoreIrJumpInst>(void_type6, header6);
+        auto *iv6 = header6->create_instruction<CoreIrPhiInst>(i32_type6, "iv");
+        auto *cmp6 = header6->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::SignedLess, i1_type6, "cmp", iv6, three6);
+        header6->create_instruction<CoreIrCondJumpInst>(void_type6, cmp6, first6,
+                                                        exit6);
+
+        auto *sum_first_load = first6->create_instruction<CoreIrLoadInst>(
+            i32_type6, "sum.first.load", sum_slot6);
+        auto *sum_after_first = first6->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type6, "sum.first.next",
+            sum_first_load, one6);
+        first6->create_instruction<CoreIrStoreInst>(void_type6, sum_after_first,
+                                                    sum_slot6);
+        first6->create_instruction<CoreIrJumpInst>(void_type6, second6);
+
+        auto *sum_second_load = second6->create_instruction<CoreIrLoadInst>(
+            i32_type6, "sum.second.load", sum_slot6);
+        auto *sum_after_second = second6->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type6, "sum.second.next",
+            sum_second_load, two6);
+        second6->create_instruction<CoreIrStoreInst>(void_type6, sum_after_second,
+                                                     sum_slot6);
+        auto *next_iv6 = second6->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type6, "iv.next", iv6, one6);
+        second6->create_instruction<CoreIrJumpInst>(void_type6, header6);
+
+        auto *sum_exit6 =
+            exit6->create_instruction<CoreIrLoadInst>(i32_type6, "sum.exit", sum_slot6);
+        exit6->create_instruction<CoreIrReturnInst>(void_type6, sum_exit6);
+        iv6->add_incoming(entry6, zero6);
+        iv6->add_incoming(second6, next_iv6);
+
+        CompilerContext compiler_context6;
+        compiler_context6.set_core_ir_build_result(
+            std::make_unique<CoreIrBuildResult>(std::move(context6), module6));
+        CoreIrLcssaPass lcssa6;
+        assert(lcssa6.Run(compiler_context6).ok);
+        CoreIrLoopMemoryPromotionPass pass6;
+        assert(pass6.Run(compiler_context6).ok);
+
+        const std::string text6 = printer.print_module(*module6);
+        assert(text6.find("%sum.first.load = load i32, %sum") !=
+               std::string::npos);
+        assert(text6.find("%sum.second.load = load i32, %sum") !=
+               std::string::npos);
+        assert(text6.find("store i32 %sum.first.next, %sum") !=
+               std::string::npos);
+        assert(text6.find("store i32 %sum.second.next, %sum") !=
+               std::string::npos);
+        assert(text6.find("%sum.loop.") == std::string::npos);
+    }
     return 0;
 }

@@ -964,6 +964,10 @@ bool can_promote_slot_in_loop(const CoreIrFunction &function,
         loop.get_preheader() == nullptr) {
         return false;
     }
+    if (access_info.kind == CoreIrPromotionUnitKind::WholeSlot &&
+        access_info.def_blocks.size() > 1) {
+        return false;
+    }
     if (unit_has_outside_store(function, loop, promotable_units, access_info)) {
         return false;
     }
