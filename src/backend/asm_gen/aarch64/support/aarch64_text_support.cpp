@@ -157,6 +157,14 @@ std::string zero_register_name(bool use_64bit) {
     return use_64bit ? "xzr" : "wzr";
 }
 
+AArch64MachineOperand zero_register_operand(bool use_64bit) {
+    return AArch64MachineOperand::raw_text(zero_register_name(use_64bit));
+}
+
+AArch64MachineOperand condition_code_operand(std::string_view condition) {
+    return AArch64MachineOperand::raw_text(std::string(condition));
+}
+
 namespace {
 
 std::string vreg_token(char role, const AArch64VirtualReg &reg) {
@@ -198,6 +206,40 @@ std::string use_vreg_as_kind(const AArch64VirtualReg &reg,
 std::string def_vreg_as_kind(const AArch64VirtualReg &reg,
                              AArch64VirtualRegKind kind) {
     return vreg_token_with_kind('d', reg, kind);
+}
+
+AArch64MachineOperand use_vreg_operand(const AArch64VirtualReg &reg) {
+    return AArch64MachineOperand::use_virtual_reg(reg);
+}
+
+AArch64MachineOperand def_vreg_operand(const AArch64VirtualReg &reg) {
+    return AArch64MachineOperand::def_virtual_reg(reg);
+}
+
+AArch64MachineOperand use_vreg_operand_as(const AArch64VirtualReg &reg,
+                                          bool use_64bit) {
+    return use_vreg_operand_as_kind(
+        reg, use_64bit ? AArch64VirtualRegKind::General64
+                       : AArch64VirtualRegKind::General32);
+}
+
+AArch64MachineOperand def_vreg_operand_as(const AArch64VirtualReg &reg,
+                                          bool use_64bit) {
+    return def_vreg_operand_as_kind(
+        reg, use_64bit ? AArch64VirtualRegKind::General64
+                       : AArch64VirtualRegKind::General32);
+}
+
+AArch64MachineOperand use_vreg_operand_as_kind(const AArch64VirtualReg &reg,
+                                               AArch64VirtualRegKind kind) {
+    return AArch64MachineOperand::use_virtual_reg(
+        AArch64VirtualReg(reg.get_id(), kind));
+}
+
+AArch64MachineOperand def_vreg_operand_as_kind(const AArch64VirtualReg &reg,
+                                               AArch64VirtualRegKind kind) {
+    return AArch64MachineOperand::def_virtual_reg(
+        AArch64VirtualReg(reg.get_id(), kind));
 }
 
 std::string fp_move_mnemonic(AArch64VirtualRegKind kind) {

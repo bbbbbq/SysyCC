@@ -73,23 +73,26 @@ bool emit_non_float128_compare(AArch64MachineBlock &machine_block,
                 promote_float16_to_float32(machine_block, lhs_reg, function);
             const AArch64VirtualReg rhs32 =
                 promote_float16_to_float32(machine_block, rhs_reg, function);
-            machine_block.append_instruction("fcmp " + use_vreg(lhs32) + ", " +
-                                             use_vreg(rhs32));
+            machine_block.append_instruction(
+                AArch64MachineInstr("fcmp", {use_vreg_operand(lhs32),
+                                             use_vreg_operand(rhs32)}));
         } else {
-            machine_block.append_instruction("fcmp " + use_vreg(lhs_reg) + ", " +
-                                             use_vreg(rhs_reg));
+            machine_block.append_instruction(
+                AArch64MachineInstr("fcmp", {use_vreg_operand(lhs_reg),
+                                             use_vreg_operand(rhs_reg)}));
         }
-        machine_block.append_instruction(
-            "cset " + def_vreg(dst_reg) + ", " +
-            float_condition_code(compare.get_predicate()));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "cset", {def_vreg_operand(dst_reg),
+                     condition_code_operand(float_condition_code(compare.get_predicate()))}));
         return true;
     }
 
-    machine_block.append_instruction("cmp " + use_vreg(lhs_reg) + ", " +
-                                     use_vreg(rhs_reg));
     machine_block.append_instruction(
-        "cset " + def_vreg(dst_reg) + ", " +
-        integer_condition_code(compare.get_predicate()));
+        AArch64MachineInstr("cmp", {use_vreg_operand(lhs_reg),
+                                    use_vreg_operand(rhs_reg)}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "cset", {def_vreg_operand(dst_reg),
+                 condition_code_operand(integer_condition_code(compare.get_predicate()))}));
     return true;
 }
 

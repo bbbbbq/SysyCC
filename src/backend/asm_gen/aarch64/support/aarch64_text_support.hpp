@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -21,6 +22,8 @@ parse_machine_instruction_text(std::string text);
 std::string render_physical_register(unsigned reg_number, AArch64VirtualRegKind kind);
 std::string render_physical_register(unsigned reg_number, bool use_64bit);
 std::string zero_register_name(bool use_64bit);
+AArch64MachineOperand zero_register_operand(bool use_64bit);
+AArch64MachineOperand condition_code_operand(std::string_view condition);
 std::string fp_move_mnemonic(AArch64VirtualRegKind kind);
 std::string use_vreg(const AArch64VirtualReg &reg);
 std::string def_vreg(const AArch64VirtualReg &reg);
@@ -30,6 +33,14 @@ std::string use_vreg_as_kind(const AArch64VirtualReg &reg,
                              AArch64VirtualRegKind kind);
 std::string def_vreg_as_kind(const AArch64VirtualReg &reg,
                              AArch64VirtualRegKind kind);
+AArch64MachineOperand use_vreg_operand(const AArch64VirtualReg &reg);
+AArch64MachineOperand def_vreg_operand(const AArch64VirtualReg &reg);
+AArch64MachineOperand use_vreg_operand_as(const AArch64VirtualReg &reg, bool use_64bit);
+AArch64MachineOperand def_vreg_operand_as(const AArch64VirtualReg &reg, bool use_64bit);
+AArch64MachineOperand use_vreg_operand_as_kind(const AArch64VirtualReg &reg,
+                                               AArch64VirtualRegKind kind);
+AArch64MachineOperand def_vreg_operand_as_kind(const AArch64VirtualReg &reg,
+                                               AArch64VirtualRegKind kind);
 void append_register_copy(AArch64MachineBlock &machine_block,
                           const AArch64VirtualReg &dst_reg,
                           const AArch64VirtualReg &src_reg);

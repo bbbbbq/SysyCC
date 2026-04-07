@@ -34,17 +34,19 @@ bool emit_non_float128_unary(AArch64MachineBlock &machine_block,
                     promote_float16_to_float32(machine_block, operand_reg, function);
                 const AArch64VirtualReg negated =
                     function.create_virtual_reg(AArch64VirtualRegKind::Float32);
-                machine_block.append_instruction("fneg " + def_vreg(negated) + ", " +
-                                                 use_vreg(promoted));
+                machine_block.append_instruction(AArch64MachineInstr(
+                    "fneg", {def_vreg_operand(negated),
+                             use_vreg_operand(promoted)}));
                 demote_float32_to_float16(machine_block, negated, dst_reg);
                 return true;
             }
-            machine_block.append_instruction("fneg " + def_vreg(dst_reg) + ", " +
-                                             use_vreg(operand_reg));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "fneg", {def_vreg_operand(dst_reg),
+                         use_vreg_operand(operand_reg)}));
             return true;
         }
-        machine_block.append_instruction("neg " + def_vreg(dst_reg) + ", " +
-                                         use_vreg(operand_reg));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "neg", {def_vreg_operand(dst_reg), use_vreg_operand(operand_reg)}));
         return true;
     case CoreIrUnaryOpcode::BitwiseNot:
         if (is_float_type(unary.get_type())) {
@@ -54,24 +56,29 @@ bool emit_non_float128_unary(AArch64MachineBlock &machine_block,
                 "AArch64 native backend");
             return false;
         }
-        machine_block.append_instruction("mvn " + def_vreg(dst_reg) + ", " +
-                                         use_vreg(operand_reg));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mvn", {def_vreg_operand(dst_reg), use_vreg_operand(operand_reg)}));
         return true;
     case CoreIrUnaryOpcode::LogicalNot:
         if (is_float_type(unary.get_operand()->get_type())) {
             if (operand_reg.get_kind() == AArch64VirtualRegKind::Float16) {
                 const AArch64VirtualReg promoted =
                     promote_float16_to_float32(machine_block, operand_reg, function);
-                machine_block.append_instruction("fcmp " + use_vreg(promoted) +
-                                                 ", #0.0");
+                machine_block.append_instruction(
+                    AArch64MachineInstr("fcmp", {use_vreg_operand(promoted),
+                                                 AArch64MachineOperand::immediate("#0.0")}));
             } else {
-                machine_block.append_instruction("fcmp " + use_vreg(operand_reg) +
-                                                 ", #0.0");
+                machine_block.append_instruction(AArch64MachineInstr(
+                    "fcmp", {use_vreg_operand(operand_reg),
+                             AArch64MachineOperand::immediate("#0.0")}));
             }
         } else {
-            machine_block.append_instruction("cmp " + use_vreg(operand_reg) + ", #0");
+            machine_block.append_instruction(AArch64MachineInstr(
+                "cmp", {use_vreg_operand(operand_reg),
+                        AArch64MachineOperand::immediate("#0")}));
         }
-        machine_block.append_instruction("cset " + def_vreg(dst_reg) + ", eq");
+        machine_block.append_instruction(AArch64MachineInstr(
+            "cset", {def_vreg_operand(dst_reg), condition_code_operand("eq")}));
         return true;
     }
 
