@@ -28,6 +28,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_float_helper_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_function_boundary_abi_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_function_planning_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_global_data_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_access_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_value_lowering_support.hpp"
@@ -151,22 +152,6 @@ std::size_t align_to(std::size_t value, std::size_t alignment) {
         return value;
     }
     return value + (alignment - remainder);
-}
-
-std::string sanitize_label_fragment(const std::string &text) {
-    std::string sanitized;
-    sanitized.reserve(text.size());
-    for (char ch : text) {
-        if (std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_') {
-            sanitized.push_back(ch);
-        } else {
-            sanitized.push_back('_');
-        }
-    }
-    if (sanitized.empty()) {
-        return "unnamed";
-    }
-    return sanitized;
 }
 
 bool is_byte_string_global(const CoreIrGlobal &global) {
@@ -615,7 +600,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         const std::string function_name = function.get_name();
         AArch64MachineFunction &machine_function = machine_module.append_function(
             function_name, !function.get_is_internal_linkage(),
-            ".L" + sanitize_label_fragment(function_name) + "_epilogue");
+            make_aarch64_function_epilogue_label(function_name));
         record_symbol_definition(function_name, AArch64SymbolKind::Function,
                                  AArch64SectionKind::Text,
                                  !function.get_is_internal_linkage());
@@ -640,37 +625,11 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         machine_function.get_frame_info().set_local_size(current_offset);
         machine_function.get_frame_info().set_frame_size(frame_size);
         machine_function.set_section_kind(AArch64SectionKind::Text);
-        machine_function.get_frame_record().set_stack_frame_size(frame_size);
-        machine_function.get_frame_record().append_cfi_directive(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::StartProcedure});
-        machine_function.get_frame_record().append_cfi_directive(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::DefCfa,
-                                static_cast<unsigned>(AArch64PhysicalReg::X29), 16});
-        machine_function.get_frame_record().append_cfi_directive(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::Offset,
-                                static_cast<unsigned>(AArch64PhysicalReg::X29), -16});
-        machine_function.get_frame_record().append_cfi_directive(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::Offset,
-                                static_cast<unsigned>(AArch64PhysicalReg::X30), -8});
-        machine_function.get_frame_record().append_cfi_directive(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::DefCfaRegister,
-                                static_cast<unsigned>(AArch64PhysicalReg::X29), 0});
-        machine_function.get_frame_record().append_cfi_directive(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::DefCfaOffset,
-                                static_cast<unsigned>(AArch64PhysicalReg::X29),
-                                static_cast<long long>(frame_size + 16)});
-        machine_function.get_frame_record().append_cfi_directive(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::EndProcedure});
+        initialize_aarch64_function_frame_record(machine_function, frame_size);
         sysycc::seed_promoted_stack_slots(function, state.value_locations,
                                           state.promoted_stack_slots);
 
-        block_labels_.clear();
-        for (const auto &basic_block : function.get_basic_blocks()) {
-            block_labels_.emplace(
-                basic_block.get(),
-                ".L" + sanitize_label_fragment(function_name) + "_" +
-                    sanitize_label_fragment(basic_block->get_name()));
-        }
+        block_labels_ = build_aarch64_function_block_labels(function, function_name);
         state.phi_edge_labels.clear();
         state.phi_edge_plans.clear();
         class PhiPlanContext final : public AArch64PhiPlanContext {
@@ -706,13 +665,8 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         AbiEmissionContext abi_context(*this, state);
         AArch64MachineBlock &prologue_block =
             machine_function.append_block(function.get_name());
-        prologue_block.append_instruction("stp x29, x30, [sp, #-16]!");
-        prologue_block.append_instruction("mov x29, sp");
-        if (machine_function.get_frame_info().get_frame_size() > 0) {
-            prologue_block.append_instruction(
-                "sub sp, sp, #" +
-                std::to_string(machine_function.get_frame_info().get_frame_size()));
-        }
+        append_aarch64_standard_prologue(
+            prologue_block, machine_function.get_frame_info().get_frame_size());
         if (state.abi_info.return_value.is_indirect) {
             state.indirect_result_address =
                 create_pointer_virtual_reg(machine_function);
@@ -745,13 +699,8 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
 
         AArch64MachineBlock &epilogue_block =
             machine_function.append_block(machine_function.get_epilogue_label());
-        if (machine_function.get_frame_info().get_frame_size() > 0) {
-            epilogue_block.append_instruction(
-                "add sp, sp, #" +
-                std::to_string(machine_function.get_frame_info().get_frame_size()));
-        }
-        epilogue_block.append_instruction("ldp x29, x30, [sp], #16");
-        epilogue_block.append_instruction("ret");
+        append_aarch64_standard_epilogue(
+            epilogue_block, machine_function.get_frame_info().get_frame_size());
         return true;
     }
 

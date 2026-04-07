@@ -1,10 +1,10 @@
 #include "backend/asm_gen/aarch64/support/aarch64_phi_lowering_support.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <optional>
 #include <unordered_set>
 
+#include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -13,22 +13,6 @@
 namespace sysycc {
 
 namespace {
-
-std::string sanitize_label_fragment(const std::string &text) {
-    std::string sanitized;
-    sanitized.reserve(text.size());
-    for (char ch : text) {
-        if (std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_') {
-            sanitized.push_back(ch);
-        } else {
-            sanitized.push_back('_');
-        }
-    }
-    if (sanitized.empty()) {
-        return "unnamed";
-    }
-    return sanitized;
-}
 
 std::vector<const CoreIrPhiInst *> collect_block_phis(
     const CoreIrBasicBlock &basic_block) {
@@ -157,7 +141,8 @@ bool build_phi_edge_plans(
             AArch64PhiEdgePlan plan;
             plan.edge = AArch64PhiEdgeKey{predecessor, basic_block.get()};
             plan.edge_label = context.block_label(predecessor) + "_to_" +
-                              sanitize_label_fragment(basic_block->get_name()) +
+                              sanitize_aarch64_label_fragment(
+                                  basic_block->get_name()) +
                               "_phi";
             for (const CoreIrPhiInst *phi : phis) {
                 if (phi == nullptr) {
