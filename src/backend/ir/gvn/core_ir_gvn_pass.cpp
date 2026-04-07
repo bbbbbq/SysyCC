@@ -3,20 +3,27 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
+#include "backend/ir/analysis/alias_analysis.hpp"
 #include "backend/ir/analysis/analysis_manager.hpp"
+#include "backend/ir/analysis/memory_ssa_analysis.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
+#include "backend/ir/shared/detail/core_ir_rewrite_utils.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
 
 namespace {
+
+using sysycc::detail::are_equivalent_types;
+using sysycc::detail::erase_instruction;
 
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
     const std::string message =
@@ -26,24 +33,85 @@ PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name)
     return PassResult::Failure(message);
 }
 
-bool erase_instruction(CoreIrBasicBlock &block, CoreIrInstruction *instruction) {
-    auto &instructions = block.get_instructions();
-    auto it = std::find_if(
-        instructions.begin(), instructions.end(),
-        [instruction](const std::unique_ptr<CoreIrInstruction> &candidate) {
-            return candidate.get() == instruction;
-        });
-    if (it == instructions.end()) {
-        return false;
-    }
-    (*it)->detach_operands();
-    instructions.erase(it);
-    return true;
-}
-
 void append_pointer_key(std::string &key, const void *pointer) {
     key += std::to_string(reinterpret_cast<std::uintptr_t>(pointer));
     key.push_back(';');
+}
+
+void append_memory_location_key(std::string &key,
+                                const CoreIrMemoryLocation &location) {
+    key += std::to_string(static_cast<int>(location.root_kind));
+    key.push_back(':');
+    switch (location.root_kind) {
+    case CoreIrMemoryLocationRootKind::StackSlot:
+        append_pointer_key(key, location.stack_slot);
+        break;
+    case CoreIrMemoryLocationRootKind::Global:
+        append_pointer_key(key, location.global);
+        break;
+    case CoreIrMemoryLocationRootKind::ArgumentDerived:
+        key += std::to_string(location.parameter_index);
+        key.push_back(';');
+        break;
+    case CoreIrMemoryLocationRootKind::Unknown:
+        key += "unknown;";
+        break;
+    }
+    for (std::uint64_t index : location.access_path) {
+        key += std::to_string(index);
+        key.push_back('/');
+    }
+    key.push_back(';');
+}
+
+CoreIrStackSlot *get_memory_stack_slot(const CoreIrInstruction &instruction) {
+    if (const auto *load = dynamic_cast<const CoreIrLoadInst *>(&instruction);
+        load != nullptr) {
+        return load->get_stack_slot();
+    }
+    if (const auto *store = dynamic_cast<const CoreIrStoreInst *>(&instruction);
+        store != nullptr) {
+        return store->get_stack_slot();
+    }
+    return nullptr;
+}
+
+CoreIrValue *get_memory_address_value(const CoreIrInstruction &instruction) {
+    if (const auto *load = dynamic_cast<const CoreIrLoadInst *>(&instruction);
+        load != nullptr) {
+        return load->get_address();
+    }
+    if (const auto *store = dynamic_cast<const CoreIrStoreInst *>(&instruction);
+        store != nullptr) {
+        return store->get_address();
+    }
+    return nullptr;
+}
+
+bool instructions_share_exact_memory_access(const CoreIrInstruction &lhs,
+                                            const CoreIrInstruction &rhs) {
+    CoreIrStackSlot *lhs_slot = get_memory_stack_slot(lhs);
+    CoreIrStackSlot *rhs_slot = get_memory_stack_slot(rhs);
+    if (lhs_slot != nullptr || rhs_slot != nullptr) {
+        return lhs_slot != nullptr && lhs_slot == rhs_slot && rhs_slot != nullptr;
+    }
+
+    CoreIrValue *lhs_address = get_memory_address_value(lhs);
+    CoreIrValue *rhs_address = get_memory_address_value(rhs);
+    return lhs_address != nullptr && lhs_address == rhs_address &&
+           rhs_address != nullptr;
+}
+
+CoreIrAliasKind get_precise_memory_alias_kind(
+    const CoreIrInstruction &lhs, const CoreIrInstruction &rhs,
+    const CoreIrAliasAnalysisResult &alias_analysis) {
+    CoreIrAliasKind alias_kind = alias_analysis.alias_instructions(&lhs, &rhs);
+    if (alias_kind != CoreIrAliasKind::MayAlias) {
+        return alias_kind;
+    }
+    return instructions_share_exact_memory_access(lhs, rhs)
+               ? CoreIrAliasKind::MustAlias
+               : alias_kind;
 }
 
 bool is_commutative_binary(CoreIrBinaryOpcode opcode) {
@@ -135,6 +203,65 @@ bool is_gvn_candidate(const CoreIrInstruction &instruction) {
            dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction) != nullptr;
 }
 
+std::optional<std::string>
+build_load_gvn_key(const CoreIrLoadInst &load,
+                   const CoreIrAliasAnalysisResult &alias_analysis,
+                   const CoreIrMemorySSAAnalysisResult &memory_ssa) {
+    CoreIrMemoryAccess *clobber = memory_ssa.get_clobbering_access(&load);
+    if (clobber == nullptr) {
+        return std::nullopt;
+    }
+
+    std::string key = "load:";
+    append_pointer_key(key, load.get_type());
+    key += "mem:";
+    if (const CoreIrMemoryLocation *location =
+            alias_analysis.get_location_for_instruction(&load);
+        location != nullptr &&
+        location->root_kind != CoreIrMemoryLocationRootKind::Unknown) {
+        append_memory_location_key(key, *location);
+    } else if (load.get_stack_slot() != nullptr) {
+        append_pointer_key(key, load.get_stack_slot());
+    } else if (load.get_address() != nullptr) {
+        append_pointer_key(key, load.get_address());
+    } else {
+        return std::nullopt;
+    }
+    key += "clobber:";
+    key += std::to_string(clobber->get_id());
+    key.push_back(';');
+    return key;
+}
+
+CoreIrValue *resolve_load_replacement(
+    const CoreIrLoadInst &load, const CoreIrAliasAnalysisResult &alias_analysis,
+    const CoreIrMemorySSAAnalysisResult &memory_ssa,
+    const std::unordered_map<std::string, CoreIrValue *> &available_values,
+    std::optional<std::string> &key_out) {
+    key_out = build_load_gvn_key(load, alias_analysis, memory_ssa);
+    if (!key_out.has_value()) {
+        return nullptr;
+    }
+
+    auto available_it = available_values.find(*key_out);
+    if (available_it != available_values.end()) {
+        return available_it->second;
+    }
+
+    auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(
+        memory_ssa.get_clobbering_access(&load));
+    auto *store = def == nullptr ? nullptr
+                                 : dynamic_cast<const CoreIrStoreInst *>(
+                                       def->get_instruction());
+    if (store == nullptr || store->get_value() == nullptr ||
+        !are_equivalent_types(load.get_type(), store->get_value()->get_type()) ||
+        get_precise_memory_alias_kind(load, *store, alias_analysis) !=
+            CoreIrAliasKind::MustAlias) {
+        return nullptr;
+    }
+    return const_cast<CoreIrValue *>(store->get_value());
+}
+
 void build_dominator_children(
     CoreIrFunction &function, CoreIrAnalysisManager &analysis_manager,
     std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>> &children) {
@@ -162,8 +289,10 @@ void build_dominator_children(
 
 bool run_gvn_block(
     CoreIrBasicBlock &block,
+    const CoreIrAliasAnalysisResult &alias_analysis,
+    const CoreIrMemorySSAAnalysisResult &memory_ssa,
     const std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>> &children,
-    std::unordered_map<std::string, CoreIrInstruction *> available_values) {
+    std::unordered_map<std::string, CoreIrValue *> available_values) {
     bool changed = false;
     auto &instructions = block.get_instructions();
     std::size_t index = 0;
@@ -175,7 +304,32 @@ bool run_gvn_block(
             continue;
         }
         if (dynamic_cast<CoreIrPhiInst *>(instruction) != nullptr ||
-            !is_gvn_candidate(*instruction)) {
+            instruction->get_is_terminator()) {
+            ++index;
+            continue;
+        }
+
+        if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction); load != nullptr) {
+            std::optional<std::string> load_key;
+            CoreIrValue *replacement = resolve_load_replacement(
+                *load, alias_analysis, memory_ssa, available_values, load_key);
+            if (replacement != nullptr) {
+                load->replace_all_uses_with(replacement);
+                erase_instruction(block, load);
+                changed = true;
+                if (load_key.has_value()) {
+                    available_values[*load_key] = replacement;
+                }
+                continue;
+            }
+            if (load_key.has_value()) {
+                available_values[*load_key] = load;
+            }
+            ++index;
+            continue;
+        }
+
+        if (!is_gvn_candidate(*instruction)) {
             ++index;
             continue;
         }
@@ -195,7 +349,9 @@ bool run_gvn_block(
     auto child_it = children.find(&block);
     if (child_it != children.end()) {
         for (CoreIrBasicBlock *child : child_it->second) {
-            changed = run_gvn_block(*child, children, available_values) || changed;
+            changed = run_gvn_block(*child, alias_analysis, memory_ssa, children,
+                                    available_values) ||
+                      changed;
         }
     }
     return changed;
@@ -221,6 +377,10 @@ PassResult CoreIrGvnPass::Run(CompilerContext &context) {
 
     CoreIrPassEffects effects;
     for (const auto &function : module->get_functions()) {
+        const CoreIrAliasAnalysisResult &alias_analysis =
+            analysis_manager->get_or_compute<CoreIrAliasAnalysis>(*function);
+        const CoreIrMemorySSAAnalysisResult &memory_ssa =
+            analysis_manager->get_or_compute<CoreIrMemorySSAAnalysis>(*function);
         std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>> children;
         build_dominator_children(*function, *analysis_manager, children);
         const CoreIrCfgAnalysisResult &cfg_analysis =
@@ -230,7 +390,7 @@ PassResult CoreIrGvnPass::Run(CompilerContext &context) {
         if (entry_block == nullptr) {
             continue;
         }
-        if (run_gvn_block(*entry_block, children, {})) {
+        if (run_gvn_block(*entry_block, alias_analysis, memory_ssa, children, {})) {
             effects.changed_functions.insert(function.get());
         }
     }

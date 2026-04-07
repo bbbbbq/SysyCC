@@ -938,6 +938,9 @@ bool unit_has_outside_store(const CoreIrFunction &function,
 
 bool exit_blocks_contain_local_store_conflict(const CoreIrLoopInfo &loop,
                                               const UnitLoopAccessInfo &access_info) {
+    if (access_info.kind == CoreIrPromotionUnitKind::AccessPath) {
+        return false;
+    }
     for (CoreIrBasicBlock *exit_block : loop.get_exit_blocks()) {
         if (exit_block == nullptr) {
             continue;
@@ -1046,7 +1049,8 @@ bool can_promote_slot_in_loop(const CoreIrFunction &function,
     if (whole_slot_accesses_nested_subloop(loop, access_info)) {
         return false;
     }
-    if (unit_has_outside_store(function, loop, promotable_units, access_info)) {
+    if (access_info.kind == CoreIrPromotionUnitKind::WholeSlot &&
+        unit_has_outside_store(function, loop, promotable_units, access_info)) {
         return false;
     }
     if (exit_blocks_contain_local_store_conflict(loop, access_info)) {
