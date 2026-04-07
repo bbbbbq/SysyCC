@@ -279,8 +279,9 @@ bool unit_is_definitely_defined_on_all_paths(
         if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
             continue;
         }
-        in_defined.emplace(block.get(), false);
-        out_defined.emplace(block.get(), false);
+        const bool starts_defined = block.get() != entry_block;
+        in_defined.emplace(block.get(), starts_defined);
+        out_defined.emplace(block.get(), starts_defined);
     }
 
     bool changed = true;
