@@ -955,6 +955,44 @@ bool exit_blocks_contain_local_store_conflict(const CoreIrLoopInfo &loop,
     return false;
 }
 
+bool whole_slot_accesses_nested_subloop(const CoreIrLoopInfo &loop,
+                                        const UnitLoopAccessInfo &access_info) {
+    if (access_info.kind != CoreIrPromotionUnitKind::WholeSlot) {
+        return false;
+    }
+
+    std::vector<const CoreIrLoopInfo *> worklist;
+    for (CoreIrLoopInfo *subloop : loop.get_subloops()) {
+        if (subloop != nullptr) {
+            worklist.push_back(subloop);
+        }
+    }
+
+    while (!worklist.empty()) {
+        const CoreIrLoopInfo *subloop = worklist.back();
+        worklist.pop_back();
+        if (subloop == nullptr) {
+            continue;
+        }
+
+        for (CoreIrBasicBlock *block : subloop->get_blocks()) {
+            if (block != nullptr &&
+                (access_info.def_blocks.find(block) != access_info.def_blocks.end() ||
+                 access_info.use_blocks.find(block) != access_info.use_blocks.end())) {
+                return true;
+            }
+        }
+
+        for (CoreIrLoopInfo *child : subloop->get_subloops()) {
+            if (child != nullptr) {
+                worklist.push_back(child);
+            }
+        }
+    }
+
+    return false;
+}
+
 bool can_promote_slot_in_loop(const CoreIrFunction &function,
                               const CoreIrLoopInfo &loop,
                               const CoreIrPromotableStackSlotAnalysisResult &promotable_units,
@@ -966,6 +1004,12 @@ bool can_promote_slot_in_loop(const CoreIrFunction &function,
     }
     if (access_info.kind == CoreIrPromotionUnitKind::WholeSlot &&
         access_info.def_blocks.size() > 1) {
+        return false;
+    }
+    // Outer-loop promotion can bypass loop-local reset stores on the edge into an
+    // inner loop, so keep whole-slot scalars in memory when the accesses live in
+    // nested subloops.
+    if (whole_slot_accesses_nested_subloop(loop, access_info)) {
         return false;
     }
     if (unit_has_outside_store(function, loop, promotable_units, access_info)) {
