@@ -8,49 +8,25 @@ namespace sysycc {
 
 namespace {
 
-std::string render_memory_address_text(const std::string &base_text,
-                                       const std::string &offset_text,
-                                       AArch64MachineMemoryAddressOperand::AddressMode
-                                           address_mode) {
-    if (offset_text.empty()) {
-        return "[" + base_text + "]";
-    }
-    switch (address_mode) {
-    case AArch64MachineMemoryAddressOperand::AddressMode::Offset:
-        return "[" + base_text + ", " + offset_text + "]";
-    case AArch64MachineMemoryAddressOperand::AddressMode::PreIndex:
-        return "[" + base_text + ", " + offset_text + "]!";
-    case AArch64MachineMemoryAddressOperand::AddressMode::PostIndex:
-        return "[" + base_text + "], " + offset_text;
-    }
-    return "[" + base_text + ", " + offset_text + "]";
-}
-
 AArch64VirtualReg memory_base_virtual_reg(const AArch64VirtualReg &reg) {
     return AArch64VirtualReg(reg.get_id(), AArch64VirtualRegKind::General64);
 }
 
 } // namespace
 
-AArch64MachineOperand AArch64MachineOperand::make_string_payload_operand(
-    AArch64MachineOperandKind kind, std::string text) {
-    std::string rendered = text;
-    return AArch64MachineOperand(kind, std::move(rendered), std::move(text));
-}
-
 AArch64MachineOperand::AArch64MachineOperand(AArch64MachineOperandKind kind,
-                                             std::string text, Payload payload)
-    : kind_(kind), text_(std::move(text)), payload_(std::move(payload)) {}
+                                             Payload payload)
+    : kind_(kind), payload_(std::move(payload)) {}
 
 AArch64MachineOperand
 AArch64MachineOperand::use_virtual_reg(const AArch64VirtualReg &reg) {
-    return AArch64MachineOperand(AArch64MachineOperandKind::VirtualReg, use_vreg(reg),
+    return AArch64MachineOperand(AArch64MachineOperandKind::VirtualReg,
                                  AArch64MachineVirtualRegOperand{reg, false});
 }
 
 AArch64MachineOperand
 AArch64MachineOperand::def_virtual_reg(const AArch64VirtualReg &reg) {
-    return AArch64MachineOperand(AArch64MachineOperandKind::VirtualReg, def_vreg(reg),
+    return AArch64MachineOperand(AArch64MachineOperandKind::VirtualReg,
                                  AArch64MachineVirtualRegOperand{reg, true});
 }
 
@@ -58,98 +34,148 @@ AArch64MachineOperand
 AArch64MachineOperand::physical_reg(unsigned reg_number,
                                     AArch64VirtualRegKind kind) {
     return AArch64MachineOperand(AArch64MachineOperandKind::PhysicalReg,
-                                 render_physical_register(reg_number, kind),
                                  AArch64MachinePhysicalRegOperand{reg_number, kind});
 }
 
 AArch64MachineOperand AArch64MachineOperand::immediate(std::string text) {
-    return make_string_payload_operand(AArch64MachineOperandKind::Immediate,
-                                       std::move(text));
+    return AArch64MachineOperand(AArch64MachineOperandKind::Immediate,
+                                 AArch64MachineImmediateOperand{std::move(text)});
 }
 
 AArch64MachineOperand AArch64MachineOperand::symbol(std::string text) {
-    return make_string_payload_operand(AArch64MachineOperandKind::Symbol,
-                                       std::move(text));
+    return AArch64MachineOperand(AArch64MachineOperandKind::Symbol,
+                                 AArch64MachineSymbolOperand{std::move(text)});
 }
 
 AArch64MachineOperand AArch64MachineOperand::label(std::string text) {
-    return make_string_payload_operand(AArch64MachineOperandKind::Label,
-                                       std::move(text));
+    return AArch64MachineOperand(AArch64MachineOperandKind::Label,
+                                 AArch64MachineLabelOperand{std::move(text)});
 }
 
 AArch64MachineOperand AArch64MachineOperand::condition_code(std::string code) {
-    std::string rendered = code;
-    return AArch64MachineOperand(
-        AArch64MachineOperandKind::ConditionCode, std::move(rendered),
-        AArch64MachineConditionCodeOperand{std::move(code)});
+    return AArch64MachineOperand(AArch64MachineOperandKind::ConditionCode,
+                                 AArch64MachineConditionCodeOperand{
+                                     std::move(code)});
 }
 
 AArch64MachineOperand AArch64MachineOperand::zero_register(bool use_64bit) {
     return AArch64MachineOperand(AArch64MachineOperandKind::ZeroRegister,
-                                 zero_register_name(use_64bit),
                                  AArch64MachineZeroRegisterOperand{use_64bit});
 }
 
 AArch64MachineOperand AArch64MachineOperand::shift(std::string mnemonic,
                                                    unsigned amount) {
-    const std::string rendered =
-        mnemonic + " #" + std::to_string(amount);
-    return AArch64MachineOperand(AArch64MachineOperandKind::Shift, rendered,
+    return AArch64MachineOperand(AArch64MachineOperandKind::Shift,
                                  AArch64MachineShiftOperand{std::move(mnemonic),
                                                             amount});
 }
 
 AArch64MachineOperand AArch64MachineOperand::stack_pointer(bool use_64bit) {
     return AArch64MachineOperand(AArch64MachineOperandKind::StackPointer,
-                                 stack_pointer_name(use_64bit),
                                  AArch64MachineStackPointerOperand{use_64bit});
 }
 
 AArch64MachineOperand AArch64MachineOperand::memory_address_virtual_reg(
-    const AArch64VirtualReg &reg, std::string offset_text,
+    const AArch64VirtualReg &reg, std::optional<long long> immediate_offset,
     AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
     const AArch64VirtualReg base_reg = memory_base_virtual_reg(reg);
+    AArch64MachineMemoryAddressOperand::OffsetPayload offset;
+    if (immediate_offset.has_value()) {
+        offset = AArch64MachineMemoryImmediateOffset{*immediate_offset};
+    }
     return AArch64MachineOperand(
         AArch64MachineOperandKind::MemoryAddress,
-        render_memory_address_text(use_vreg(base_reg), offset_text, address_mode),
         AArch64MachineMemoryAddressOperand{
             .base_kind = AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg,
             .virtual_reg = base_reg,
             .physical_reg = 0,
             .stack_pointer_use_64bit = true,
-            .offset_text = std::move(offset_text),
+            .offset = std::move(offset),
             .address_mode = address_mode});
 }
 
 AArch64MachineOperand AArch64MachineOperand::memory_address_physical_reg(
-    unsigned reg_number, std::string offset_text,
+    unsigned reg_number, std::optional<long long> immediate_offset,
     AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
+    AArch64MachineMemoryAddressOperand::OffsetPayload offset;
+    if (immediate_offset.has_value()) {
+        offset = AArch64MachineMemoryImmediateOffset{*immediate_offset};
+    }
     return AArch64MachineOperand(
         AArch64MachineOperandKind::MemoryAddress,
-        render_memory_address_text(render_physical_register(reg_number, true),
-                                   offset_text, address_mode),
         AArch64MachineMemoryAddressOperand{
             .base_kind = AArch64MachineMemoryAddressOperand::BaseKind::PhysicalReg,
             .virtual_reg = {},
             .physical_reg = reg_number,
             .stack_pointer_use_64bit = true,
-            .offset_text = std::move(offset_text),
+            .offset = std::move(offset),
             .address_mode = address_mode});
 }
 
 AArch64MachineOperand AArch64MachineOperand::memory_address_stack_pointer(
-    std::string offset_text, bool use_64bit,
+    std::optional<long long> immediate_offset, bool use_64bit,
     AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
+    AArch64MachineMemoryAddressOperand::OffsetPayload offset;
+    if (immediate_offset.has_value()) {
+        offset = AArch64MachineMemoryImmediateOffset{*immediate_offset};
+    }
     return AArch64MachineOperand(
         AArch64MachineOperandKind::MemoryAddress,
-        render_memory_address_text(stack_pointer_name(use_64bit), offset_text,
-                                   address_mode),
         AArch64MachineMemoryAddressOperand{
             .base_kind = AArch64MachineMemoryAddressOperand::BaseKind::StackPointer,
             .virtual_reg = {},
             .physical_reg = 0,
             .stack_pointer_use_64bit = use_64bit,
-            .offset_text = std::move(offset_text),
+            .offset = std::move(offset),
+            .address_mode = address_mode});
+}
+
+AArch64MachineOperand AArch64MachineOperand::memory_address_virtual_reg(
+    const AArch64VirtualReg &reg, std::string symbolic_offset,
+    AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
+    const AArch64VirtualReg base_reg = memory_base_virtual_reg(reg);
+    AArch64MachineMemoryAddressOperand::OffsetPayload offset =
+        AArch64MachineMemorySymbolOffset{std::move(symbolic_offset)};
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::MemoryAddress,
+        AArch64MachineMemoryAddressOperand{
+            .base_kind = AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg,
+            .virtual_reg = base_reg,
+            .physical_reg = 0,
+            .stack_pointer_use_64bit = true,
+            .offset = std::move(offset),
+            .address_mode = address_mode});
+}
+
+AArch64MachineOperand AArch64MachineOperand::memory_address_physical_reg(
+    unsigned reg_number, std::string symbolic_offset,
+    AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
+    AArch64MachineMemoryAddressOperand::OffsetPayload offset =
+        AArch64MachineMemorySymbolOffset{std::move(symbolic_offset)};
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::MemoryAddress,
+        AArch64MachineMemoryAddressOperand{
+            .base_kind = AArch64MachineMemoryAddressOperand::BaseKind::PhysicalReg,
+            .virtual_reg = {},
+            .physical_reg = reg_number,
+            .stack_pointer_use_64bit = true,
+            .offset = std::move(offset),
+            .address_mode = address_mode});
+}
+
+AArch64MachineOperand AArch64MachineOperand::memory_address_stack_pointer(
+    std::string symbolic_offset, bool use_64bit,
+    AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
+    AArch64MachineMemoryAddressOperand::OffsetPayload offset =
+        AArch64MachineMemorySymbolOffset{std::move(symbolic_offset)};
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::MemoryAddress,
+        AArch64MachineMemoryAddressOperand{
+            .base_kind = AArch64MachineMemoryAddressOperand::BaseKind::StackPointer,
+            .virtual_reg = {},
+            .physical_reg = 0,
+            .stack_pointer_use_64bit = use_64bit,
+            .offset = std::move(offset),
             .address_mode = address_mode});
 }
 
@@ -166,6 +192,21 @@ AArch64MachineOperand::get_physical_reg_operand() const noexcept {
 const AArch64MachineConditionCodeOperand *
 AArch64MachineOperand::get_condition_code_operand() const noexcept {
     return std::get_if<AArch64MachineConditionCodeOperand>(&payload_);
+}
+
+const AArch64MachineImmediateOperand *
+AArch64MachineOperand::get_immediate_operand() const noexcept {
+    return std::get_if<AArch64MachineImmediateOperand>(&payload_);
+}
+
+const AArch64MachineSymbolOperand *
+AArch64MachineOperand::get_symbol_operand() const noexcept {
+    return std::get_if<AArch64MachineSymbolOperand>(&payload_);
+}
+
+const AArch64MachineLabelOperand *
+AArch64MachineOperand::get_label_operand() const noexcept {
+    return std::get_if<AArch64MachineLabelOperand>(&payload_);
 }
 
 const AArch64MachineZeroRegisterOperand *

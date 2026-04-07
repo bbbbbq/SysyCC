@@ -116,8 +116,20 @@ AArch64MachineOperand rewrite_spilled_operand(
         if (it == mapping.end()) {
             return operand;
         }
+        if (const std::optional<long long> immediate_offset =
+                memory->get_immediate_offset();
+            immediate_offset.has_value()) {
+            return AArch64MachineOperand::memory_address_physical_reg(
+                it->second, *immediate_offset, memory->address_mode);
+        }
+        if (const std::string *symbolic_offset =
+                memory->get_symbolic_offset_text();
+            symbolic_offset != nullptr) {
+            return AArch64MachineOperand::memory_address_physical_reg(
+                it->second, *symbolic_offset, memory->address_mode);
+        }
         return AArch64MachineOperand::memory_address_physical_reg(
-            it->second, memory->offset_text, memory->address_mode);
+            it->second, std::nullopt, memory->address_mode);
     }
     return operand;
 }

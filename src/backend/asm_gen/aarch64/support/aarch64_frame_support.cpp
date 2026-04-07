@@ -22,7 +22,7 @@ std::size_t align_to(std::size_t value, std::size_t alignment) {
 AArch64MachineOperand frame_memory_operand(std::size_t offset) {
     return AArch64MachineOperand::memory_address_physical_reg(
         static_cast<unsigned>(AArch64PhysicalReg::X29),
-        "#-" + std::to_string(offset));
+        -static_cast<long long>(offset));
 }
 
 AArch64MachineOperand memory_operand(unsigned address_reg) {

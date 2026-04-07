@@ -151,16 +151,21 @@ std::vector<std::size_t> collect_block_successors(
         const AArch64MachineInstr &second_last = instructions[instructions.size() - 2];
         if (second_last.get_mnemonic() == "cbnz" && last.get_mnemonic() == "b") {
             if (second_last.get_operands().size() >= 2) {
-                const auto it =
-                    label_to_index.find(second_last.get_operands()[1].get_text());
-                if (it != label_to_index.end()) {
-                    successors.push_back(it->second);
+                const auto *label = second_last.get_operands()[1].get_label_operand();
+                if (label != nullptr) {
+                    const auto it = label_to_index.find(label->label_text);
+                    if (it != label_to_index.end()) {
+                        successors.push_back(it->second);
+                    }
                 }
             }
             if (!last.get_operands().empty()) {
-                const auto it = label_to_index.find(last.get_operands()[0].get_text());
-                if (it != label_to_index.end()) {
-                    successors.push_back(it->second);
+                const auto *label = last.get_operands()[0].get_label_operand();
+                if (label != nullptr) {
+                    const auto it = label_to_index.find(label->label_text);
+                    if (it != label_to_index.end()) {
+                        successors.push_back(it->second);
+                    }
                 }
             }
             return successors;
@@ -169,9 +174,12 @@ std::vector<std::size_t> collect_block_successors(
 
     if (last.get_mnemonic() == "cbnz") {
         if (last.get_operands().size() >= 2) {
-            const auto it = label_to_index.find(last.get_operands()[1].get_text());
-            if (it != label_to_index.end()) {
-                successors.push_back(it->second);
+            const auto *label = last.get_operands()[1].get_label_operand();
+            if (label != nullptr) {
+                const auto it = label_to_index.find(label->label_text);
+                if (it != label_to_index.end()) {
+                    successors.push_back(it->second);
+                }
             }
         }
         if (block_index + 1 < blocks.size()) {
@@ -182,9 +190,12 @@ std::vector<std::size_t> collect_block_successors(
 
     if (last.get_mnemonic() == "b") {
         if (!last.get_operands().empty()) {
-            const auto it = label_to_index.find(last.get_operands()[0].get_text());
-            if (it != label_to_index.end()) {
-                successors.push_back(it->second);
+            const auto *label = last.get_operands()[0].get_label_operand();
+            if (label != nullptr) {
+                const auto it = label_to_index.find(label->label_text);
+                if (it != label_to_index.end()) {
+                    successors.push_back(it->second);
+                }
             }
         }
         return successors;

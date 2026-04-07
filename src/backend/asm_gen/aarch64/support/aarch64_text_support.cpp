@@ -156,6 +156,11 @@ std::string vreg_token_with_kind(char role, const AArch64VirtualReg &reg,
            virtual_reg_suffix(kind);
 }
 
+std::string render_virtual_reg_fallback(
+    const AArch64MachineVirtualRegOperand &virtual_reg) {
+    return virtual_reg.is_def ? def_vreg(virtual_reg.reg) : use_vreg(virtual_reg.reg);
+}
+
 } // namespace
 
 std::string use_vreg(const AArch64VirtualReg &reg) { return vreg_token('u', reg); }
@@ -312,7 +317,6 @@ namespace {
 
 std::string render_memory_address_operand_for_asm(
     const AArch64MachineMemoryAddressOperand &memory,
-    const AArch64MachineOperand &fallback_operand,
     const AArch64MachineFunction &function) {
     std::string base_text;
     switch (memory.base_kind) {
@@ -320,7 +324,8 @@ std::string render_memory_address_operand_for_asm(
         const std::optional<unsigned> physical_reg =
             function.get_physical_reg_for_virtual(memory.virtual_reg.get_id());
         if (!physical_reg.has_value()) {
-            return fallback_operand.get_text();
+            base_text = use_vreg(memory.virtual_reg);
+            break;
         }
         base_text =
             render_physical_register(*physical_reg, memory.virtual_reg.get_kind());
@@ -334,18 +339,29 @@ std::string render_memory_address_operand_for_asm(
         break;
     }
 
-    if (memory.offset_text.empty()) {
+    std::string offset_text;
+    if (const std::optional<long long> immediate_offset =
+            memory.get_immediate_offset();
+        immediate_offset.has_value()) {
+        offset_text = "#" + std::to_string(*immediate_offset);
+    } else if (const std::string *symbolic_offset =
+                   memory.get_symbolic_offset_text();
+               symbolic_offset != nullptr) {
+        offset_text = *symbolic_offset;
+    }
+
+    if (offset_text.empty()) {
         return "[" + base_text + "]";
     }
     switch (memory.address_mode) {
     case AArch64MachineMemoryAddressOperand::AddressMode::Offset:
-        return "[" + base_text + ", " + memory.offset_text + "]";
+        return "[" + base_text + ", " + offset_text + "]";
     case AArch64MachineMemoryAddressOperand::AddressMode::PreIndex:
-        return "[" + base_text + ", " + memory.offset_text + "]!";
+        return "[" + base_text + ", " + offset_text + "]!";
     case AArch64MachineMemoryAddressOperand::AddressMode::PostIndex:
-        return "[" + base_text + "], " + memory.offset_text;
+        return "[" + base_text + "], " + offset_text;
     }
-    return "[" + base_text + ", " + memory.offset_text + "]";
+    return "[" + base_text + ", " + offset_text + "]";
 }
 
 } // namespace
@@ -373,13 +389,22 @@ std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
         const std::optional<unsigned> physical_reg =
             function.get_physical_reg_for_virtual(virtual_reg->reg.get_id());
         if (!physical_reg.has_value()) {
-            return operand.get_text();
+            return render_virtual_reg_fallback(*virtual_reg);
         }
         return render_physical_register(*physical_reg, virtual_reg->reg.get_kind());
     }
     if (const auto *physical_reg = operand.get_physical_reg_operand();
         physical_reg != nullptr) {
         return render_physical_register(physical_reg->reg_number, physical_reg->kind);
+    }
+    if (const auto *immediate = operand.get_immediate_operand(); immediate != nullptr) {
+        return immediate->asm_text;
+    }
+    if (const auto *symbol = operand.get_symbol_operand(); symbol != nullptr) {
+        return symbol->symbol_text;
+    }
+    if (const auto *label = operand.get_label_operand(); label != nullptr) {
+        return label->label_text;
     }
     if (const auto *condition_code = operand.get_condition_code_operand();
         condition_code != nullptr) {
@@ -397,9 +422,9 @@ std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
         return stack_pointer_name(stack_pointer->use_64bit);
     }
     if (const auto *memory = operand.get_memory_address_operand(); memory != nullptr) {
-        return render_memory_address_operand_for_asm(*memory, operand, function);
+        return render_memory_address_operand_for_asm(*memory, function);
     }
-    return operand.get_text();
+    return {};
 }
 
 std::string render_vector_move_operand(const std::string &text) {

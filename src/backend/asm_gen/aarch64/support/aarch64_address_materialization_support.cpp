@@ -75,8 +75,9 @@ AArch64MachineOperand memory_operand(const AArch64VirtualReg &base_reg) {
 }
 
 AArch64MachineOperand memory_operand(const AArch64VirtualReg &base_reg,
-                                     const std::string &offset_text) {
-    return AArch64MachineOperand::memory_address_virtual_reg(base_reg, offset_text);
+                                     std::string symbolic_offset) {
+    return AArch64MachineOperand::memory_address_virtual_reg(
+        base_reg, std::move(symbolic_offset));
 }
 
 bool materialize_index_as_pointer_offset(

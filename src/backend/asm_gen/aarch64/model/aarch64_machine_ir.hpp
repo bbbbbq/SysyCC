@@ -43,6 +43,18 @@ struct AArch64MachineConditionCodeOperand {
     std::string code;
 };
 
+struct AArch64MachineImmediateOperand {
+    std::string asm_text;
+};
+
+struct AArch64MachineSymbolOperand {
+    std::string symbol_text;
+};
+
+struct AArch64MachineLabelOperand {
+    std::string label_text;
+};
+
 struct AArch64MachineZeroRegisterOperand {
     bool use_64bit = false;
 };
@@ -56,7 +68,19 @@ struct AArch64MachineStackPointerOperand {
     bool use_64bit = true;
 };
 
+struct AArch64MachineMemoryImmediateOffset {
+    long long value = 0;
+};
+
+struct AArch64MachineMemorySymbolOffset {
+    std::string asm_text;
+};
+
 struct AArch64MachineMemoryAddressOperand {
+    using OffsetPayload =
+        std::variant<std::monostate, AArch64MachineMemoryImmediateOffset,
+                     AArch64MachineMemorySymbolOffset>;
+
     enum class AddressMode : unsigned char {
         Offset,
         PreIndex,
@@ -73,8 +97,30 @@ struct AArch64MachineMemoryAddressOperand {
     AArch64VirtualReg virtual_reg;
     unsigned physical_reg = 0;
     bool stack_pointer_use_64bit = true;
-    std::string offset_text;
+    OffsetPayload offset;
     AddressMode address_mode = AddressMode::Offset;
+
+    std::optional<long long> get_immediate_offset() const noexcept {
+        const auto *immediate =
+            std::get_if<AArch64MachineMemoryImmediateOffset>(&offset);
+        if (immediate == nullptr) {
+            return std::nullopt;
+        }
+        return immediate->value;
+    }
+
+    const std::string *get_symbolic_offset_text() const noexcept {
+        const auto *symbolic =
+            std::get_if<AArch64MachineMemorySymbolOffset>(&offset);
+        if (symbolic == nullptr) {
+            return nullptr;
+        }
+        return &symbolic->asm_text;
+    }
+
+    bool has_offset() const noexcept {
+        return !std::holds_alternative<std::monostate>(offset);
+    }
 };
 
 class AArch64MachineOperand {
@@ -82,20 +128,18 @@ class AArch64MachineOperand {
     using Payload = std::variant<std::monostate, AArch64MachineVirtualRegOperand,
                                  AArch64MachinePhysicalRegOperand,
                                  AArch64MachineConditionCodeOperand,
+                                 AArch64MachineImmediateOperand,
+                                 AArch64MachineSymbolOperand,
+                                 AArch64MachineLabelOperand,
                                  AArch64MachineZeroRegisterOperand,
                                  AArch64MachineShiftOperand,
                                  AArch64MachineStackPointerOperand,
-                                 AArch64MachineMemoryAddressOperand,
-                                 std::string>;
+                                 AArch64MachineMemoryAddressOperand>;
 
     AArch64MachineOperandKind kind_ = AArch64MachineOperandKind::Immediate;
-    std::string text_;
     Payload payload_;
 
-    static AArch64MachineOperand make_string_payload_operand(
-        AArch64MachineOperandKind kind, std::string text);
-    AArch64MachineOperand(AArch64MachineOperandKind kind, std::string text,
-                          Payload payload);
+    AArch64MachineOperand(AArch64MachineOperandKind kind, Payload payload);
 
   public:
     static AArch64MachineOperand use_virtual_reg(const AArch64VirtualReg &reg);
@@ -110,15 +154,30 @@ class AArch64MachineOperand {
     static AArch64MachineOperand shift(std::string mnemonic, unsigned amount);
     static AArch64MachineOperand stack_pointer(bool use_64bit = true);
     static AArch64MachineOperand memory_address_virtual_reg(
-        const AArch64VirtualReg &reg, std::string offset_text = {},
+        const AArch64VirtualReg &reg,
+        std::optional<long long> immediate_offset = std::nullopt,
+        AArch64MachineMemoryAddressOperand::AddressMode address_mode =
+            AArch64MachineMemoryAddressOperand::AddressMode::Offset);
+    static AArch64MachineOperand memory_address_virtual_reg(
+        const AArch64VirtualReg &reg, std::string symbolic_offset,
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
     static AArch64MachineOperand memory_address_physical_reg(
-        unsigned reg_number, std::string offset_text = {},
+        unsigned reg_number,
+        std::optional<long long> immediate_offset = std::nullopt,
+        AArch64MachineMemoryAddressOperand::AddressMode address_mode =
+            AArch64MachineMemoryAddressOperand::AddressMode::Offset);
+    static AArch64MachineOperand memory_address_physical_reg(
+        unsigned reg_number, std::string symbolic_offset,
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
     static AArch64MachineOperand memory_address_stack_pointer(
-        std::string offset_text = {}, bool use_64bit = true,
+        std::optional<long long> immediate_offset = std::nullopt,
+        bool use_64bit = true,
+        AArch64MachineMemoryAddressOperand::AddressMode address_mode =
+            AArch64MachineMemoryAddressOperand::AddressMode::Offset);
+    static AArch64MachineOperand memory_address_stack_pointer(
+        std::string symbolic_offset, bool use_64bit = true,
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
 
@@ -150,16 +209,15 @@ class AArch64MachineOperand {
         return kind_ == AArch64MachineOperandKind::MemoryAddress;
     }
 
-    const std::string &get_text() const noexcept { return text_; }
-    const std::string *get_string_payload() const noexcept {
-        return std::get_if<std::string>(&payload_);
-    }
     const AArch64MachineVirtualRegOperand *
     get_virtual_reg_operand() const noexcept;
     const AArch64MachinePhysicalRegOperand *
     get_physical_reg_operand() const noexcept;
     const AArch64MachineConditionCodeOperand *
     get_condition_code_operand() const noexcept;
+    const AArch64MachineImmediateOperand *get_immediate_operand() const noexcept;
+    const AArch64MachineSymbolOperand *get_symbol_operand() const noexcept;
+    const AArch64MachineLabelOperand *get_label_operand() const noexcept;
     const AArch64MachineZeroRegisterOperand *
     get_zero_register_operand() const noexcept;
     const AArch64MachineShiftOperand *get_shift_operand() const noexcept;

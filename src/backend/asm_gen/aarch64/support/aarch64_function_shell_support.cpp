@@ -27,10 +27,128 @@ bool has_exact_instruction_shape(const AArch64MachineInstr &instruction,
         return false;
     }
     for (std::size_t index = 0; index < instruction.get_operands().size(); ++index) {
-        if (instruction.get_operands()[index].get_text() !=
-            expected.get_operands()[index].get_text()) {
+        const AArch64MachineOperand &actual_operand = instruction.get_operands()[index];
+        const AArch64MachineOperand &expected_operand = expected.get_operands()[index];
+        if (actual_operand.get_kind() != expected_operand.get_kind()) {
             return false;
         }
+        if (const auto *actual_virtual = actual_operand.get_virtual_reg_operand();
+            actual_virtual != nullptr) {
+            const auto *expected_virtual = expected_operand.get_virtual_reg_operand();
+            if (expected_virtual == nullptr ||
+                actual_virtual->reg.get_id() != expected_virtual->reg.get_id() ||
+                actual_virtual->reg.get_kind() != expected_virtual->reg.get_kind() ||
+                actual_virtual->is_def != expected_virtual->is_def) {
+                return false;
+            }
+            continue;
+        }
+        if (const auto *actual_physical = actual_operand.get_physical_reg_operand();
+            actual_physical != nullptr) {
+            const auto *expected_physical = expected_operand.get_physical_reg_operand();
+            if (expected_physical == nullptr ||
+                actual_physical->reg_number != expected_physical->reg_number ||
+                actual_physical->kind != expected_physical->kind) {
+                return false;
+            }
+            continue;
+        }
+        if (const auto *actual_immediate = actual_operand.get_immediate_operand();
+            actual_immediate != nullptr) {
+            const auto *expected_immediate = expected_operand.get_immediate_operand();
+            if (expected_immediate == nullptr ||
+                actual_immediate->asm_text != expected_immediate->asm_text) {
+                return false;
+            }
+            continue;
+        }
+        if (const auto *actual_symbol = actual_operand.get_symbol_operand();
+            actual_symbol != nullptr) {
+            const auto *expected_symbol = expected_operand.get_symbol_operand();
+            if (expected_symbol == nullptr ||
+                actual_symbol->symbol_text != expected_symbol->symbol_text) {
+                return false;
+            }
+            continue;
+        }
+        if (const auto *actual_label = actual_operand.get_label_operand();
+            actual_label != nullptr) {
+            const auto *expected_label = expected_operand.get_label_operand();
+            if (expected_label == nullptr ||
+                actual_label->label_text != expected_label->label_text) {
+                return false;
+            }
+            continue;
+        }
+        if (const auto *actual_condition = actual_operand.get_condition_code_operand();
+            actual_condition != nullptr) {
+            const auto *expected_condition =
+                expected_operand.get_condition_code_operand();
+            if (expected_condition == nullptr ||
+                actual_condition->code != expected_condition->code) {
+                return false;
+            }
+            continue;
+        }
+        if (const auto *actual_zero = actual_operand.get_zero_register_operand();
+            actual_zero != nullptr) {
+            const auto *expected_zero = expected_operand.get_zero_register_operand();
+            if (expected_zero == nullptr ||
+                actual_zero->use_64bit != expected_zero->use_64bit) {
+                return false;
+            }
+            continue;
+        }
+        if (const auto *actual_shift = actual_operand.get_shift_operand();
+            actual_shift != nullptr) {
+            const auto *expected_shift = expected_operand.get_shift_operand();
+            if (expected_shift == nullptr ||
+                actual_shift->mnemonic != expected_shift->mnemonic ||
+                actual_shift->amount != expected_shift->amount) {
+                return false;
+            }
+            continue;
+        }
+        if (const auto *actual_stack = actual_operand.get_stack_pointer_operand();
+            actual_stack != nullptr) {
+            const auto *expected_stack = expected_operand.get_stack_pointer_operand();
+            if (expected_stack == nullptr ||
+                actual_stack->use_64bit != expected_stack->use_64bit) {
+                return false;
+            }
+            continue;
+        }
+        if (const auto *actual_memory = actual_operand.get_memory_address_operand();
+            actual_memory != nullptr) {
+            const auto *expected_memory = expected_operand.get_memory_address_operand();
+            if (expected_memory == nullptr ||
+                actual_memory->base_kind != expected_memory->base_kind ||
+                actual_memory->virtual_reg.get_id() !=
+                    expected_memory->virtual_reg.get_id() ||
+                actual_memory->virtual_reg.get_kind() !=
+                    expected_memory->virtual_reg.get_kind() ||
+                actual_memory->physical_reg != expected_memory->physical_reg ||
+                actual_memory->stack_pointer_use_64bit !=
+                    expected_memory->stack_pointer_use_64bit ||
+                actual_memory->address_mode != expected_memory->address_mode) {
+                return false;
+            }
+            if (actual_memory->get_immediate_offset() !=
+                expected_memory->get_immediate_offset()) {
+                return false;
+            }
+            const std::string *actual_symbolic =
+                actual_memory->get_symbolic_offset_text();
+            const std::string *expected_symbolic =
+                expected_memory->get_symbolic_offset_text();
+            if ((actual_symbolic == nullptr) != (expected_symbolic == nullptr) ||
+                (actual_symbolic != nullptr &&
+                 *actual_symbolic != *expected_symbolic)) {
+                return false;
+            }
+            continue;
+        }
+        return false;
     }
     return true;
 }
@@ -49,10 +167,11 @@ bool is_frame_adjust_instruction(const AArch64MachineInstr &instruction,
         instruction.get_operands().size() != 3) {
         return false;
     }
+    const auto *immediate = instruction.get_operands()[2].get_immediate_operand();
     return is_stack_pointer_operand(instruction.get_operands()[0]) &&
            is_stack_pointer_operand(instruction.get_operands()[1]) &&
-           !instruction.get_operands()[2].get_text().empty() &&
-           instruction.get_operands()[2].get_text().front() == '#';
+           immediate != nullptr && !immediate->asm_text.empty() &&
+           immediate->asm_text.front() == '#';
 }
 
 } // namespace
@@ -129,7 +248,7 @@ build_aarch64_standard_prologue_shell(std::size_t frame_size) {
                  static_cast<unsigned>(AArch64PhysicalReg::X30),
                  AArch64VirtualRegKind::General64),
              AArch64MachineOperand::memory_address_stack_pointer(
-                 "#-16", true,
+                 -16, true,
                  AArch64MachineMemoryAddressOperand::AddressMode::PreIndex)})});
     shell.push_back(AArch64StandardFrameShellOp{
         AArch64StandardFrameShellOpKind::EstablishFramePointer,
@@ -176,7 +295,7 @@ build_aarch64_standard_epilogue_shell(std::size_t frame_size) {
                  static_cast<unsigned>(AArch64PhysicalReg::X30),
                  AArch64VirtualRegKind::General64),
              AArch64MachineOperand::memory_address_stack_pointer(
-                 "#16", true,
+                 16, true,
                  AArch64MachineMemoryAddressOperand::AddressMode::PostIndex)})});
     shell.push_back(AArch64StandardFrameShellOp{
         AArch64StandardFrameShellOpKind::Return, AArch64MachineInstr("ret", {})});

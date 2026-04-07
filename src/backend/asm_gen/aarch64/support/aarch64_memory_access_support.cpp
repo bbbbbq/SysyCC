@@ -13,20 +13,21 @@ AArch64MachineOperand memory_operand(const AArch64VirtualReg &base_reg) {
 }
 
 AArch64MachineOperand memory_operand(const AArch64VirtualReg &base_reg,
-                                     const std::string &offset_text) {
-    return AArch64MachineOperand::memory_address_virtual_reg(base_reg, offset_text);
+                                     long long immediate_offset) {
+    return AArch64MachineOperand::memory_address_virtual_reg(base_reg,
+                                                             immediate_offset);
 }
 
 AArch64MachineOperand frame_memory_operand(std::size_t offset) {
     return AArch64MachineOperand::memory_address_physical_reg(
         static_cast<unsigned>(AArch64PhysicalReg::X29),
-        "#-" + std::to_string(offset));
+        -static_cast<long long>(offset));
 }
 
 AArch64MachineOperand incoming_stack_memory_operand(std::size_t offset) {
     return AArch64MachineOperand::memory_address_physical_reg(
         static_cast<unsigned>(AArch64PhysicalReg::X29),
-        "#" + std::to_string(offset));
+        static_cast<long long>(offset));
 }
 
 } // namespace
@@ -72,8 +73,8 @@ bool append_memory_store(AArch64MachineBlock &machine_block,
     if (offset <= 4095) {
         machine_block.append_instruction(AArch64MachineInstr(
             store_mnemonic_for_type(type),
-            {source_operand,
-             memory_operand(address_reg, "#" + std::to_string(offset))}));
+            {source_operand, memory_operand(address_reg,
+                                            static_cast<long long>(offset))}));
         return true;
     }
     const AArch64VirtualReg offset_address_reg =
@@ -223,7 +224,7 @@ bool append_load_from_address(AArch64MachineBlock &machine_block,
         machine_block.append_instruction(AArch64MachineInstr(
             load_mnemonic_for_type(type),
             {def_vreg_operand(target_reg),
-             memory_operand(address_reg, "#" + std::to_string(offset))}));
+             memory_operand(address_reg, static_cast<long long>(offset))}));
         return true;
     }
     const AArch64VirtualReg offset_address_reg =
