@@ -26,6 +26,7 @@ JOB_CASE_INDICES=()
 EXPLICIT_STAGES=()
 
 source "${SCRIPT_DIR}/test_helpers.sh"
+initialize_sysycc_test_session
 
 usage() {
     cat <<'EOF'
@@ -457,6 +458,8 @@ JOBS="${JOBS:-${DEFAULT_JOBS}}"
 
 ensure_positive_integer "${JOBS}" "JOBS"
 
+rm -f "${SUMMARY_FILE}"
+rm -rf "${TEST_RESULT_DIR}" "${TEST_LOG_DIR}"
 mkdir -p "${TEST_RESULT_DIR}" "${TEST_LOG_DIR}"
 
 discover_tests

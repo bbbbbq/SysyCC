@@ -19,10 +19,15 @@ argv0_name="${SYSYCC_TEST_WRAPPED_ARGV0:-}"
 lock_root="${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT:-${TMPDIR:-/tmp}/sysycc-heavy-tool-slots}"
 wait_announced=0
 slot_dir=""
+child_pid=""
 
 mkdir -p "${lock_root}"
 
 cleanup() {
+    if [[ -n "${child_pid}" ]]; then
+        kill "${child_pid}" 2>/dev/null || true
+        wait "${child_pid}" 2>/dev/null || true
+    fi
     if [[ -n "${slot_dir}" ]]; then
         rm -rf "${slot_dir}"
     fi
@@ -48,7 +53,7 @@ prune_stale_slots() {
     done
 }
 
-trap cleanup EXIT
+trap cleanup EXIT HUP INT TERM
 
 while [[ -z "${slot_dir}" ]]; do
     prune_stale_slots
@@ -83,8 +88,13 @@ while [[ -z "${slot_dir}" ]]; do
 done
 
 if [[ -n "${argv0_name}" ]]; then
-    bash -c 'exec -a "$1" "$2" "${@:3}"' _ "${argv0_name}" "${tool_path}" "$@"
-    exit $?
+    bash -c 'exec -a "$1" "$2" "${@:3}"' _ "${argv0_name}" "${tool_path}" "$@" &
+else
+    "${tool_path}" "$@" &
 fi
 
-"${tool_path}" "$@"
+child_pid="$!"
+wait "${child_pid}"
+status="$?"
+child_pid=""
+exit "${status}"

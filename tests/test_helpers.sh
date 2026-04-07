@@ -132,6 +132,73 @@ detect_default_heavy_tool_jobs() {
     printf '4\n'
 }
 
+make_sysycc_test_session_id() {
+    local timestamp
+
+    timestamp="$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || date +%s)"
+    printf '%s-%s\n' "${timestamp}" "${BASHPID:-$$}"
+}
+
+prune_sysycc_test_heavy_tool_sessions() {
+    local lock_root_parent="$1"
+    local active_lock_root="${2:-}"
+    local session_dir=""
+
+    if [[ ! -d "${lock_root_parent}" ]]; then
+        return 0
+    fi
+
+    for session_dir in "${lock_root_parent}"/*; do
+        local has_live_slot=0
+        local slot_dir=""
+
+        if [[ ! -d "${session_dir}" ]]; then
+            continue
+        fi
+
+        if [[ -n "${active_lock_root}" ]] &&
+            [[ "${session_dir}" == "${active_lock_root}" ]]; then
+            continue
+        fi
+
+        for slot_dir in "${session_dir}"/slot.*; do
+            local owner_pid=""
+
+            if [[ ! -d "${slot_dir}" ]]; then
+                continue
+            fi
+
+            owner_pid="$(cat "${slot_dir}/pid" 2>/dev/null || true)"
+            if [[ -n "${owner_pid}" ]] && kill -0 "${owner_pid}" 2>/dev/null; then
+                has_live_slot=1
+                break
+            fi
+        done
+
+        if [[ "${has_live_slot}" -eq 0 ]]; then
+            rm -rf "${session_dir}"
+        fi
+    done
+}
+
+initialize_sysycc_test_session() {
+    local lock_root_parent=""
+    local default_lock_root=""
+
+    if [[ -z "${PROJECT_ROOT:-}" ]]; then
+        return 0
+    fi
+
+    export SYSYCC_TEST_SESSION_ID="${SYSYCC_TEST_SESSION_ID:-$(make_sysycc_test_session_id)}"
+    lock_root_parent="${PROJECT_ROOT}/build/.sysycc_test_heavy_tool_slots"
+    default_lock_root="${lock_root_parent}/${SYSYCC_TEST_SESSION_ID}"
+    export SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT="${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT:-${default_lock_root}}"
+
+    mkdir -p "${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT}"
+    prune_sysycc_test_heavy_tool_sessions "${lock_root_parent}" \
+        "${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT}"
+}
+
 setup_test_host_tool_wrappers() {
     if [[ "${SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS:-0}" == "1" ]]; then
         return 0
@@ -144,6 +211,8 @@ setup_test_host_tool_wrappers() {
     if [[ "${SYSYCC_TEST_TOOL_WRAPPERS_READY:-0}" == "1" ]]; then
         return 0
     fi
+
+    initialize_sysycc_test_session
 
     mkdir -p "${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin"
 
@@ -159,7 +228,6 @@ setup_test_host_tool_wrappers() {
 
     export SYSYCC_TEST_ACTIVE=1
     export SYSYCC_TEST_HEAVY_TOOL_JOBS="${SYSYCC_TEST_HEAVY_TOOL_JOBS:-$(detect_default_heavy_tool_jobs)}"
-    export SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT="${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT:-${PROJECT_ROOT}/build/.sysycc_test_heavy_tool_slots}"
 
     cat >"${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin/clang" <<EOF
 #!/usr/bin/env bash
