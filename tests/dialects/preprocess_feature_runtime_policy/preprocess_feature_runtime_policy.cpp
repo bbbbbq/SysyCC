@@ -3,8 +3,8 @@
 #include <memory>
 #include <string>
 
-#include "frontend/dialects/packs/clang/clang_dialect.hpp"
 #include "frontend/dialects/core/dialect_manager.hpp"
+#include "frontend/dialects/packs/clang/clang_dialect.hpp"
 #include "frontend/dialects/packs/gnu/gnu_dialect.hpp"
 #include "frontend/preprocess/detail/conditional/builtin_probe_evaluator.hpp"
 #include "frontend/preprocess/detail/macro_table.hpp"
@@ -16,7 +16,7 @@ using namespace sysycc::preprocess::detail;
 int main() {
     MacroTable macro_table;
     PreprocessFeatureRegistry no_features;
-    initialize_predefined_macros(macro_table, no_features);
+    initialize_predefined_macros(macro_table, no_features, "");
     assert(!macro_table.has_macro("__STDC__"));
 
     DialectManager empty_dialects;
@@ -65,7 +65,7 @@ int main() {
     gnu_dialects.register_dialect(std::make_unique<GnuDialect>());
     MacroTable gnu_macro_table;
     initialize_predefined_macros(
-        gnu_macro_table, gnu_dialects.get_preprocess_feature_registry());
+        gnu_macro_table, gnu_dialects.get_preprocess_feature_registry(), "");
     assert(gnu_macro_table.has_macro("__STDC__"));
 
     return 0;
