@@ -6,52 +6,13 @@
 #include <unordered_set>
 #include <vector>
 
+#include "backend/asm_gen/aarch64/model/aarch64_target_constraints.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
 
 namespace {
-
-constexpr unsigned kCallerSavedAllocatablePhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::X9),
-    static_cast<unsigned>(AArch64PhysicalReg::X10),
-    static_cast<unsigned>(AArch64PhysicalReg::X11),
-    static_cast<unsigned>(AArch64PhysicalReg::X12),
-    static_cast<unsigned>(AArch64PhysicalReg::X13),
-    static_cast<unsigned>(AArch64PhysicalReg::X14),
-    static_cast<unsigned>(AArch64PhysicalReg::X15),
-};
-constexpr unsigned kCalleeSavedAllocatablePhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::X19),
-    static_cast<unsigned>(AArch64PhysicalReg::X20),
-    static_cast<unsigned>(AArch64PhysicalReg::X21),
-    static_cast<unsigned>(AArch64PhysicalReg::X22),
-    static_cast<unsigned>(AArch64PhysicalReg::X23),
-};
-constexpr unsigned kCallerSavedAllocatableFloatPhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::V16),
-    static_cast<unsigned>(AArch64PhysicalReg::V17),
-    static_cast<unsigned>(AArch64PhysicalReg::V18),
-    static_cast<unsigned>(AArch64PhysicalReg::V19),
-    static_cast<unsigned>(AArch64PhysicalReg::V20),
-    static_cast<unsigned>(AArch64PhysicalReg::V21),
-    static_cast<unsigned>(AArch64PhysicalReg::V22),
-    static_cast<unsigned>(AArch64PhysicalReg::V23),
-    static_cast<unsigned>(AArch64PhysicalReg::V24),
-    static_cast<unsigned>(AArch64PhysicalReg::V25),
-    static_cast<unsigned>(AArch64PhysicalReg::V26),
-    static_cast<unsigned>(AArch64PhysicalReg::V27),
-};
-constexpr unsigned kCalleeSavedAllocatableFloatPhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::V8),
-    static_cast<unsigned>(AArch64PhysicalReg::V9),
-    static_cast<unsigned>(AArch64PhysicalReg::V10),
-    static_cast<unsigned>(AArch64PhysicalReg::V11),
-    static_cast<unsigned>(AArch64PhysicalReg::V12),
-    static_cast<unsigned>(AArch64PhysicalReg::V13),
-    static_cast<unsigned>(AArch64PhysicalReg::V14),
-    static_cast<unsigned>(AArch64PhysicalReg::V15),
-};
 
 std::size_t align_to(std::size_t value, std::size_t alignment) {
     if (alignment == 0) {
@@ -62,38 +23,6 @@ std::size_t align_to(std::size_t value, std::size_t alignment) {
         return value;
     }
     return value + (alignment - remainder);
-}
-
-std::size_t virtual_reg_size(AArch64VirtualRegKind kind) {
-    switch (kind) {
-    case AArch64VirtualRegKind::General32:
-    case AArch64VirtualRegKind::Float32:
-        return 4;
-    case AArch64VirtualRegKind::General64:
-    case AArch64VirtualRegKind::Float64:
-        return 8;
-    case AArch64VirtualRegKind::Float16:
-        return 2;
-    case AArch64VirtualRegKind::Float128:
-        return 16;
-    }
-    return 4;
-}
-
-bool is_live_across_call_callee_saved_capable(AArch64VirtualRegKind kind) {
-    return kind != AArch64VirtualRegKind::Float128;
-}
-
-bool is_callee_saved_allocatable_physical_reg(unsigned reg) {
-    return std::find(std::begin(kCalleeSavedAllocatablePhysicalRegs),
-                     std::end(kCalleeSavedAllocatablePhysicalRegs),
-                     reg) != std::end(kCalleeSavedAllocatablePhysicalRegs);
-}
-
-bool is_callee_saved_allocatable_float_physical_reg(unsigned reg) {
-    return std::find(std::begin(kCalleeSavedAllocatableFloatPhysicalRegs),
-                     std::end(kCalleeSavedAllocatableFloatPhysicalRegs),
-                     reg) != std::end(kCalleeSavedAllocatableFloatPhysicalRegs);
 }
 
 struct AArch64InstructionLiveness {
@@ -437,14 +366,14 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
                     ? (liveness.get_live_across_call().find(virtual_reg_id) !=
                                liveness.get_live_across_call().end() &&
                            is_live_across_call_callee_saved_capable(kind)
-                           ? std::size(kCalleeSavedAllocatableFloatPhysicalRegs)
-                           : std::size(kCallerSavedAllocatableFloatPhysicalRegs) +
-                                 std::size(kCalleeSavedAllocatableFloatPhysicalRegs))
+                           ? std::size(kAArch64CalleeSavedAllocatableFloatPhysicalRegs)
+                           : std::size(kAArch64CallerSavedAllocatableFloatPhysicalRegs) +
+                                 std::size(kAArch64CalleeSavedAllocatableFloatPhysicalRegs))
                     : (liveness.get_live_across_call().find(virtual_reg_id) !=
                                liveness.get_live_across_call().end()
-                           ? std::size(kCalleeSavedAllocatablePhysicalRegs)
-                           : std::size(kCallerSavedAllocatablePhysicalRegs) +
-                                 std::size(kCalleeSavedAllocatablePhysicalRegs));
+                           ? std::size(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs)
+                           : std::size(kAArch64CallerSavedAllocatableGeneralPhysicalRegs) +
+                                 std::size(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs));
             const SimplifyNode candidate{
                 virtual_reg_id, neighbors.size(),
                 liveness.get_live_across_call().find(virtual_reg_id) !=
@@ -507,23 +436,23 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
         if (AArch64VirtualReg(node.virtual_reg_id, kind).is_floating_point()) {
             if (node.live_across_call) {
                 if (is_live_across_call_callee_saved_capable(kind)) {
-                    available.insert(std::begin(kCalleeSavedAllocatableFloatPhysicalRegs),
-                                     std::end(kCalleeSavedAllocatableFloatPhysicalRegs));
+                    available.insert(kAArch64CalleeSavedAllocatableFloatPhysicalRegs.begin(),
+                                     kAArch64CalleeSavedAllocatableFloatPhysicalRegs.end());
                 }
             } else {
-                available.insert(std::begin(kCallerSavedAllocatableFloatPhysicalRegs),
-                                 std::end(kCallerSavedAllocatableFloatPhysicalRegs));
-                available.insert(std::begin(kCalleeSavedAllocatableFloatPhysicalRegs),
-                                 std::end(kCalleeSavedAllocatableFloatPhysicalRegs));
+                available.insert(kAArch64CallerSavedAllocatableFloatPhysicalRegs.begin(),
+                                 kAArch64CallerSavedAllocatableFloatPhysicalRegs.end());
+                available.insert(kAArch64CalleeSavedAllocatableFloatPhysicalRegs.begin(),
+                                 kAArch64CalleeSavedAllocatableFloatPhysicalRegs.end());
             }
         } else if (node.live_across_call) {
-            available.insert(std::begin(kCalleeSavedAllocatablePhysicalRegs),
-                             std::end(kCalleeSavedAllocatablePhysicalRegs));
+            available.insert(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs.begin(),
+                             kAArch64CalleeSavedAllocatableGeneralPhysicalRegs.end());
         } else {
-            available.insert(std::begin(kCallerSavedAllocatablePhysicalRegs),
-                             std::end(kCallerSavedAllocatablePhysicalRegs));
-            available.insert(std::begin(kCalleeSavedAllocatablePhysicalRegs),
-                             std::end(kCalleeSavedAllocatablePhysicalRegs));
+            available.insert(kAArch64CallerSavedAllocatableGeneralPhysicalRegs.begin(),
+                             kAArch64CallerSavedAllocatableGeneralPhysicalRegs.end());
+            available.insert(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs.begin(),
+                             kAArch64CalleeSavedAllocatableGeneralPhysicalRegs.end());
         }
         for (std::size_t neighbor : graph.get_neighbors(node.virtual_reg_id)) {
             const std::optional<unsigned> neighbor_reg =
@@ -536,8 +465,8 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
         if (!available.empty()) {
             const unsigned chosen_reg = *available.begin();
             function.set_virtual_reg_allocation(node.virtual_reg_id, chosen_reg);
-            if (is_callee_saved_allocatable_physical_reg(chosen_reg) ||
-                is_callee_saved_allocatable_float_physical_reg(chosen_reg)) {
+            if (is_aarch64_callee_saved_allocatable_general_physical_reg(chosen_reg) ||
+                is_aarch64_callee_saved_allocatable_float_physical_reg(chosen_reg)) {
                 function.get_frame_info().mark_saved_physical_reg(chosen_reg);
             }
             continue;

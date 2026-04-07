@@ -13,7 +13,6 @@ namespace sysycc {
 class CoreIrCallInst;
 class CoreIrFunction;
 class CoreIrInstruction;
-class CoreIrParameter;
 class CoreIrStackSlot;
 class CoreIrType;
 class CoreIrValue;
@@ -51,10 +50,6 @@ std::size_t allocate_aggregate_value_slot(std::size_t &current_offset,
                                           const CoreIrType *type);
 bool validate_function_lowering_readiness(const CoreIrFunction &function,
                                           AArch64FunctionPlanningContext &context);
-void seed_incoming_stack_argument_offsets(
-    const CoreIrFunction &function, const AArch64FunctionAbiInfo &abi_info,
-    std::unordered_map<const CoreIrParameter *, std::size_t>
-        &incoming_stack_argument_offsets);
 void layout_stack_slots(AArch64MachineFunction &machine_function,
                         const CoreIrFunction &function,
                         std::size_t &current_offset);
