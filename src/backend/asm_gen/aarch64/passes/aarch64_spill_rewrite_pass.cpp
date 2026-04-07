@@ -19,7 +19,7 @@ std::vector<ParsedVirtualRegRef>
 collect_spilled_virtual_refs(const AArch64MachineOperand &operand,
                              const AArch64MachineFunction &function) {
     std::vector<ParsedVirtualRegRef> spilled;
-    for (const ParsedVirtualRegRef &ref : parse_virtual_reg_refs(operand.get_text())) {
+    for (const ParsedVirtualRegRef &ref : collect_virtual_reg_refs(operand)) {
         if (function.get_physical_reg_for_virtual(ref.id).has_value()) {
             continue;
         }
@@ -86,11 +86,28 @@ find_spill_assignment(const AArch64InstructionRewritePlan &plan,
     return nullptr;
 }
 
-std::string substitute_spilled_virtuals(
-    const std::string &text, const std::unordered_map<std::size_t, unsigned> &mapping,
+AArch64MachineOperand rewrite_spilled_operand(
+    const AArch64MachineOperand &operand,
+    const std::unordered_map<std::size_t, unsigned> &mapping,
     const AArch64MachineFunction &function) {
-    std::string rendered = text;
-    const std::vector<ParsedVirtualRegRef> refs = parse_virtual_reg_refs(text);
+    if (const auto *virtual_reg = operand.get_virtual_reg_operand();
+        virtual_reg != nullptr) {
+        if (function.get_physical_reg_for_virtual(virtual_reg->reg.get_id()).has_value()) {
+            return operand;
+        }
+        const auto it = mapping.find(virtual_reg->reg.get_id());
+        if (it == mapping.end()) {
+            return operand;
+        }
+        return AArch64MachineOperand::physical_reg(it->second,
+                                                   virtual_reg->reg.get_kind());
+    }
+    if (!operand.is_raw_text()) {
+        return operand;
+    }
+
+    std::string rendered = operand.get_text();
+    const std::vector<ParsedVirtualRegRef> refs = parse_virtual_reg_refs(rendered);
     std::size_t delta = 0;
     for (const ParsedVirtualRegRef &ref : refs) {
         if (function.get_physical_reg_for_virtual(ref.id).has_value()) {
@@ -105,7 +122,7 @@ std::string substitute_spilled_virtuals(
         rendered.replace(ref.offset + delta, ref.length, reg_name);
         delta += reg_name.size() - ref.length;
     }
-    return rendered;
+    return AArch64MachineOperand::raw_text(std::move(rendered));
 }
 
 AArch64InstructionRewritePlan
@@ -241,8 +258,7 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
     std::vector<AArch64MachineOperand> operands;
     operands.reserve(instruction.get_operands().size());
     for (const AArch64MachineOperand &operand : instruction.get_operands()) {
-        operands.emplace_back(
-            substitute_spilled_virtuals(operand.get_text(), spill_mapping, function));
+        operands.push_back(rewrite_spilled_operand(operand, spill_mapping, function));
     }
     plan.steps.push_back(AArch64SpillRewriteStep{
         AArch64SpillRewriteStep::Kind::EmitInstruction,

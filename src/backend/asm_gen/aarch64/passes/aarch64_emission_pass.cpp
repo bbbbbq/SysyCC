@@ -144,8 +144,8 @@ std::string AArch64EmissionPass::print_module(const AArch64MachineModule &module
                         if (index > 0) {
                             output << ", ";
                         }
-                        std::string rendered_operand = substitute_virtual_registers(
-                            instruction.get_operands()[index].get_text(), function);
+                        std::string rendered_operand = render_machine_operand_for_asm(
+                            instruction.get_operands()[index], function);
                         if (instruction.get_mnemonic() == "mov") {
                             rendered_operand = render_vector_move_operand(rendered_operand);
                         }
