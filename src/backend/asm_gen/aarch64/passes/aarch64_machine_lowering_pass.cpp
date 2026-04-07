@@ -30,6 +30,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_function_planning_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_global_data_lowering_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_instruction_dispatch_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_access_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_memory_value_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_phi_lowering_support.hpp"
@@ -704,87 +705,118 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         return true;
     }
 
+    class InstructionDispatchContext final {
+      private:
+        AArch64LoweringSession &session_;
+
+      public:
+        explicit InstructionDispatchContext(AArch64LoweringSession &session)
+            : session_(session) {}
+
+        void emit_debug_location(AArch64MachineBlock &machine_block,
+                                 const SourceSpan &source_span,
+                                 FunctionState &state) {
+            session_.emit_debug_location(machine_block, source_span, state);
+        }
+
+        std::string resolve_branch_target_label(const FunctionState &state,
+                                                const CoreIrBasicBlock *predecessor,
+                                                const CoreIrBasicBlock *successor) const {
+            return session_.resolve_branch_target_label(state, predecessor, successor);
+        }
+
+        bool emit_load(AArch64MachineBlock &machine_block, const CoreIrLoadInst &load,
+                       const FunctionState &state) {
+            return session_.emit_load(machine_block, load, state);
+        }
+
+        bool emit_store(AArch64MachineBlock &machine_block,
+                        const CoreIrStoreInst &store, FunctionState &state) {
+            return session_.emit_store(machine_block, store, state);
+        }
+
+        bool emit_binary(AArch64MachineBlock &machine_block,
+                         const CoreIrBinaryInst &binary,
+                         const FunctionState &state) {
+            return session_.emit_binary(machine_block, binary, state);
+        }
+
+        bool emit_unary(AArch64MachineBlock &machine_block, const CoreIrUnaryInst &unary,
+                        const FunctionState &state) {
+            return session_.emit_unary(machine_block, unary, state);
+        }
+
+        bool emit_compare(AArch64MachineBlock &machine_block,
+                          const CoreIrCompareInst &compare,
+                          const FunctionState &state) {
+            return session_.emit_compare(machine_block, compare, state);
+        }
+
+        bool emit_cast(AArch64MachineBlock &machine_block, const CoreIrCastInst &cast,
+                       const FunctionState &state) {
+            return session_.emit_cast(machine_block, cast, state);
+        }
+
+        bool emit_call(AArch64MachineBlock &machine_block, const CoreIrCallInst &call,
+                       const FunctionState &state) {
+            return session_.emit_call(machine_block, call, state);
+        }
+
+        bool emit_cond_jump(AArch64MachineBlock &machine_block,
+                            const CoreIrCondJumpInst &cond_jump,
+                            const FunctionState &state,
+                            const CoreIrBasicBlock *current_block) {
+            return session_.emit_cond_jump(machine_block, cond_jump, state,
+                                           current_block);
+        }
+
+        bool emit_return(AArch64MachineFunction &machine_function,
+                         AArch64MachineBlock &machine_block,
+                         const CoreIrReturnInst &return_inst,
+                         const FunctionState &state) {
+            return session_.emit_return(machine_function, machine_block, return_inst,
+                                        state);
+        }
+
+        bool emit_address_of_stack_slot(
+            AArch64MachineBlock &machine_block,
+            const CoreIrAddressOfStackSlotInst &address_of_stack_slot,
+            const FunctionState &state) {
+            return session_.emit_address_of_stack_slot(machine_block,
+                                                       address_of_stack_slot, state);
+        }
+
+        bool emit_address_of_global(AArch64MachineBlock &machine_block,
+                                    const CoreIrAddressOfGlobalInst &address_of_global,
+                                    const FunctionState &state) {
+            return session_.emit_address_of_global(machine_block, address_of_global,
+                                                   state);
+        }
+
+        bool emit_address_of_function(
+            AArch64MachineBlock &machine_block,
+            const CoreIrAddressOfFunctionInst &address_of_function,
+            const FunctionState &state) {
+            return session_.emit_address_of_function(machine_block,
+                                                     address_of_function, state);
+        }
+
+        bool emit_getelementptr(AArch64MachineBlock &machine_block,
+                                const CoreIrGetElementPtrInst &gep,
+                                const FunctionState &state) {
+            return session_.emit_getelementptr(machine_block, gep, state);
+        }
+    };
+
     bool emit_instruction(AArch64MachineFunction &machine_function,
                           AArch64MachineBlock &machine_block,
                           const CoreIrBasicBlock *current_block,
                           const CoreIrInstruction &instruction,
                           FunctionState &state) {
-        switch (instruction.get_opcode()) {
-        case CoreIrOpcode::Phi:
-            return true;
-        case CoreIrOpcode::Load:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_load(machine_block,
-                             static_cast<const CoreIrLoadInst &>(instruction),
-                             state);
-        case CoreIrOpcode::Store:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_store(machine_block,
-                              static_cast<const CoreIrStoreInst &>(instruction),
-                              state);
-        case CoreIrOpcode::Binary:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_binary(machine_block,
-                               static_cast<const CoreIrBinaryInst &>(instruction),
-                               state);
-        case CoreIrOpcode::Unary:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_unary(machine_block,
-                              static_cast<const CoreIrUnaryInst &>(instruction),
-                              state);
-        case CoreIrOpcode::Compare:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_compare(machine_block,
-                                static_cast<const CoreIrCompareInst &>(instruction),
-                                state);
-        case CoreIrOpcode::Cast:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_cast(machine_block,
-                             static_cast<const CoreIrCastInst &>(instruction), state);
-        case CoreIrOpcode::Call:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_call(machine_block,
-                             static_cast<const CoreIrCallInst &>(instruction), state);
-        case CoreIrOpcode::Jump:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            machine_block.append_instruction(
-                "b " + resolve_branch_target_label(
-                          state, current_block,
-                          static_cast<const CoreIrJumpInst &>(instruction)
-                              .get_target_block()));
-            return true;
-        case CoreIrOpcode::CondJump:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_cond_jump(machine_block,
-                                  static_cast<const CoreIrCondJumpInst &>(instruction),
-                                  state, current_block);
-        case CoreIrOpcode::Return:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_return(machine_function, machine_block,
-                               static_cast<const CoreIrReturnInst &>(instruction),
-                               state);
-        case CoreIrOpcode::AddressOfStackSlot:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_address_of_stack_slot(
-                machine_block,
-                static_cast<const CoreIrAddressOfStackSlotInst &>(instruction), state);
-        case CoreIrOpcode::AddressOfGlobal:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_address_of_global(
-                machine_block,
-                static_cast<const CoreIrAddressOfGlobalInst &>(instruction), state);
-        case CoreIrOpcode::AddressOfFunction:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_address_of_function(
-                machine_block,
-                static_cast<const CoreIrAddressOfFunctionInst &>(instruction), state);
-        case CoreIrOpcode::GetElementPtr:
-            emit_debug_location(machine_block, instruction.get_source_span(), state);
-            return emit_getelementptr(machine_block,
-                                      static_cast<const CoreIrGetElementPtrInst &>(instruction),
-                                      state);
-        }
-        return false;
+        InstructionDispatchContext dispatch_context(*this);
+        return sysycc::dispatch_aarch64_lowered_instruction(
+            dispatch_context, machine_function, machine_block, current_block,
+            instruction, state);
     }
 
     bool materialize_value(AArch64MachineBlock &machine_block,
