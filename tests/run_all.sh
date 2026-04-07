@@ -8,6 +8,9 @@ RESULT_DIR="${PROJECT_ROOT}/build/intermediate_results"
 SUMMARY_FILE="${PROJECT_ROOT}/build/test_result.md"
 TEST_RESULT_DIR="${PROJECT_ROOT}/build/test_results"
 TEST_LOG_DIR="${PROJECT_ROOT}/build/test_logs"
+DEFAULT_LAYER="${SYSYCC_TEST_LAYER:-tier1}"
+SELECTED_LAYER=""
+LIST_ONLY=0
 
 TEST_NAMES=()
 TEST_STATUSES=()
@@ -20,8 +23,132 @@ CASE_KEYS=()
 CASE_LOG_FILES=()
 JOB_PIDS=()
 JOB_CASE_INDICES=()
+EXPLICIT_STAGES=()
 
 source "${SCRIPT_DIR}/test_helpers.sh"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ./tests/run_all.sh [--layer tier1|tier2|all] [--stage name ...] [--list]
+
+Layers:
+  tier1 (default): run, cli, dialects
+  tier2: asm, ast, fuzz, ir, lexer, object, parser, preprocess, semantic
+  all: tier1 + tier2
+
+Options:
+  --layer value   Select a regression layer.
+  --stage name    Restrict to one stage. May be repeated. Overrides --layer.
+  --list          Print the selected tests without running them.
+  -h, --help      Show this help message.
+EOF
+}
+
+normalize_layer() {
+    local layer="$1"
+
+    case "${layer}" in
+        1|tier1|fast|quick|smoke)
+            printf 'tier1\n'
+            ;;
+        2|tier2|stage|stages|deep)
+            printf 'tier2\n'
+            ;;
+        all|full)
+            printf 'all\n'
+            ;;
+        *)
+            echo "error: unsupported regression layer '${layer}'" >&2
+            exit 1
+            ;;
+    esac
+}
+
+stage_matches_any() {
+    local candidate="$1"
+    shift
+
+    local stage_name
+    for stage_name in "$@"; do
+        if [[ "${candidate}" == "${stage_name}" ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+is_layer_one_stage() {
+    local stage_name="$1"
+
+    case "${stage_name}" in
+        run|cli|dialects)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+should_include_stage() {
+    local stage_name="$1"
+
+    if [[ "${#EXPLICIT_STAGES[@]}" -ne 0 ]]; then
+        stage_matches_any "${stage_name}" "${EXPLICIT_STAGES[@]}"
+        return $?
+    fi
+
+    case "${SELECTED_LAYER}" in
+        tier1)
+            is_layer_one_stage "${stage_name}"
+            ;;
+        tier2)
+            if is_layer_one_stage "${stage_name}"; then
+                return 1
+            fi
+            return 0
+            ;;
+        all)
+            return 0
+            ;;
+        *)
+            echo "error: unknown regression layer '${SELECTED_LAYER}'" >&2
+            exit 1
+            ;;
+    esac
+}
+
+selected_scope_description() {
+    if [[ "${#EXPLICIT_STAGES[@]}" -ne 0 ]]; then
+        printf 'explicit stages: %s\n' "$(IFS=,; echo "${EXPLICIT_STAGES[*]}")"
+        return 0
+    fi
+
+    case "${SELECTED_LAYER}" in
+        tier1)
+            printf 'layer tier1 (run, cli, dialects)\n'
+            ;;
+        tier2)
+            printf 'layer tier2 (asm, ast, fuzz, ir, lexer, object, parser, preprocess, semantic)\n'
+            ;;
+        all)
+            printf 'layer all (tier1 + tier2)\n'
+            ;;
+    esac
+}
+
+list_selected_tests() {
+    echo "==> Selected ${#RUN_SCRIPTS[@]} tests from $(selected_scope_description)"
+    if [[ "${#STAGE_NAMES[@]}" -eq 0 ]]; then
+        return 0
+    fi
+
+    printf '%s\n' "${STAGE_NAMES[@]}" | sort | uniq -c | while read -r count stage_name; do
+        echo "   - ${stage_name}: ${count}"
+    done
+}
 
 assert_result_file() {
     local file_path="$1"
@@ -65,6 +192,7 @@ write_summary_table() {
         echo "# Test Result"
         echo
         echo "- Overall: ${overall_status}"
+        echo "- Selection: $(selected_scope_description)"
         echo
         echo "| Test | Status | Detail |"
         echo "| --- | --- | --- |"
@@ -140,6 +268,9 @@ discover_tests() {
         test_dir="$(dirname "${run_script}")"
         test_name="$(basename "${test_dir}")"
         stage_name="$(basename "$(dirname "${test_dir}")")"
+        if ! should_include_stage "${stage_name}"; then
+            continue
+        fi
         display_name="${stage_name}/${test_name}"
         case_index="${#RUN_SCRIPTS[@]}"
         case_key="$(make_case_key "${case_index}" "${stage_name}" "${test_name}")"
@@ -284,6 +415,42 @@ collect_one_finished_job() {
     done
 }
 
+SELECTED_LAYER="$(normalize_layer "${DEFAULT_LAYER}")"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --layer)
+            if [[ $# -lt 2 ]]; then
+                echo "error: missing value for --layer" >&2
+                exit 1
+            fi
+            SELECTED_LAYER="$(normalize_layer "$2")"
+            shift 2
+            ;;
+        --stage)
+            if [[ $# -lt 2 ]]; then
+                echo "error: missing value for --stage" >&2
+                exit 1
+            fi
+            EXPLICIT_STAGES+=("$2")
+            shift 2
+            ;;
+        --list)
+            LIST_ONLY=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "error: unknown argument '$1'" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
 OVERALL_FAILURE=0
 DEFAULT_JOBS="$(detect_default_jobs)"
 JOBS="${JOBS:-${DEFAULT_JOBS}}"
@@ -295,13 +462,18 @@ mkdir -p "${TEST_RESULT_DIR}" "${TEST_LOG_DIR}"
 discover_tests
 
 if [[ "${#RUN_SCRIPTS[@]}" -eq 0 ]]; then
-    echo "no executable run.sh test cases found under ${SCRIPT_DIR}" >&2
+    echo "no executable run.sh test cases matched $(selected_scope_description)" >&2
     exit 1
+fi
+
+if [[ "${LIST_ONLY}" -eq 1 ]]; then
+    list_selected_tests
+    exit 0
 fi
 
 export SYSYCC_TEST_DISABLE_NINJA="${SYSYCC_TEST_DISABLE_NINJA:-0}"
 export SYSYCC_TEST_DISABLE_CCACHE="${SYSYCC_TEST_DISABLE_CCACHE:-0}"
-echo "==> Building project once before running ${#RUN_SCRIPTS[@]} tests"
+echo "==> Building project once before running ${#RUN_SCRIPTS[@]} tests from $(selected_scope_description)"
 export SYSYCC_TEST_BUILD_JOBS="${SYSYCC_TEST_BUILD_JOBS:-${JOBS}}"
 build_project "${PROJECT_ROOT}" "${PROJECT_ROOT}/build"
 export SYSYCC_TEST_SKIP_BUILD=1
