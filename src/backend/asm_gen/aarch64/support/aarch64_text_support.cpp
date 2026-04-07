@@ -157,6 +157,14 @@ std::string zero_register_name(bool use_64bit) {
     return use_64bit ? "xzr" : "wzr";
 }
 
+AArch64MachineOperand zero_register_operand(bool use_64bit) {
+    return AArch64MachineOperand::raw_text(zero_register_name(use_64bit));
+}
+
+AArch64MachineOperand condition_code_operand(std::string_view condition) {
+    return AArch64MachineOperand::raw_text(std::string(condition));
+}
+
 namespace {
 
 std::string vreg_token(char role, const AArch64VirtualReg &reg) {
@@ -200,6 +208,40 @@ std::string def_vreg_as_kind(const AArch64VirtualReg &reg,
     return vreg_token_with_kind('d', reg, kind);
 }
 
+AArch64MachineOperand use_vreg_operand(const AArch64VirtualReg &reg) {
+    return AArch64MachineOperand::use_virtual_reg(reg);
+}
+
+AArch64MachineOperand def_vreg_operand(const AArch64VirtualReg &reg) {
+    return AArch64MachineOperand::def_virtual_reg(reg);
+}
+
+AArch64MachineOperand use_vreg_operand_as(const AArch64VirtualReg &reg,
+                                          bool use_64bit) {
+    return use_vreg_operand_as_kind(
+        reg, use_64bit ? AArch64VirtualRegKind::General64
+                       : AArch64VirtualRegKind::General32);
+}
+
+AArch64MachineOperand def_vreg_operand_as(const AArch64VirtualReg &reg,
+                                          bool use_64bit) {
+    return def_vreg_operand_as_kind(
+        reg, use_64bit ? AArch64VirtualRegKind::General64
+                       : AArch64VirtualRegKind::General32);
+}
+
+AArch64MachineOperand use_vreg_operand_as_kind(const AArch64VirtualReg &reg,
+                                               AArch64VirtualRegKind kind) {
+    return AArch64MachineOperand::use_virtual_reg(
+        AArch64VirtualReg(reg.get_id(), kind));
+}
+
+AArch64MachineOperand def_vreg_operand_as_kind(const AArch64VirtualReg &reg,
+                                               AArch64VirtualRegKind kind) {
+    return AArch64MachineOperand::def_virtual_reg(
+        AArch64VirtualReg(reg.get_id(), kind));
+}
+
 std::string fp_move_mnemonic(AArch64VirtualRegKind kind) {
     return kind == AArch64VirtualRegKind::Float128 ? "mov" : "fmov";
 }
@@ -212,47 +254,56 @@ void append_register_copy(AArch64MachineBlock &machine_block,
         return;
     }
     if (dst_reg.is_floating_point() && src_reg.is_floating_point()) {
-        machine_block.append_instruction(fp_move_mnemonic(dst_reg.get_kind()) + " " +
-                                         def_vreg(dst_reg) + ", " +
-                                         use_vreg_as_kind(src_reg, dst_reg.get_kind()));
+        machine_block.append_instruction(AArch64MachineInstr(
+            fp_move_mnemonic(dst_reg.get_kind()),
+            {AArch64MachineOperand::def_virtual_reg(dst_reg),
+             AArch64MachineOperand::use_virtual_reg(
+                 AArch64VirtualReg(src_reg.get_id(), dst_reg.get_kind()))}));
         return;
     }
-    machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
-                                     use_vreg_as_kind(src_reg, dst_reg.get_kind()));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mov",
+        {AArch64MachineOperand::def_virtual_reg(dst_reg),
+         AArch64MachineOperand::use_virtual_reg(
+             AArch64VirtualReg(src_reg.get_id(), dst_reg.get_kind()))}));
 }
 
 void append_copy_from_physical_reg(AArch64MachineBlock &machine_block,
                                    const AArch64VirtualReg &dst_reg,
                                    unsigned physical_reg,
                                    AArch64VirtualRegKind physical_kind) {
-    const std::string physical_name =
-        render_physical_register(physical_reg, physical_kind);
     if (dst_reg.is_floating_point()) {
-        machine_block.append_instruction(fp_move_mnemonic(dst_reg.get_kind()) + " " +
-                                         def_vreg(dst_reg) + ", " + physical_name);
+        machine_block.append_instruction(AArch64MachineInstr(
+            fp_move_mnemonic(dst_reg.get_kind()),
+            {AArch64MachineOperand::def_virtual_reg(dst_reg),
+             AArch64MachineOperand::physical_reg(physical_reg, physical_kind)}));
         return;
     }
-    machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
-                                     physical_name);
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mov",
+        {AArch64MachineOperand::def_virtual_reg(dst_reg),
+         AArch64MachineOperand::physical_reg(physical_reg, physical_kind)}));
 }
 
 void append_copy_to_physical_reg(AArch64MachineBlock &machine_block,
                                  unsigned physical_reg,
                                  AArch64VirtualRegKind physical_kind,
                                  const AArch64VirtualReg &src_reg) {
-    const std::string physical_name =
-        render_physical_register(physical_reg, physical_kind);
     if (src_reg.is_floating_point()) {
-        machine_block.append_instruction(fp_move_mnemonic(src_reg.get_kind()) + " " +
-                                         physical_name + ", " + use_vreg(src_reg));
+        machine_block.append_instruction(AArch64MachineInstr(
+            fp_move_mnemonic(src_reg.get_kind()),
+            {AArch64MachineOperand::physical_reg(physical_reg, physical_kind),
+             AArch64MachineOperand::use_virtual_reg(src_reg)}));
         return;
     }
-    machine_block.append_instruction("mov " + physical_name + ", " +
-                                     use_vreg_as_kind(
-                                         src_reg,
-                                         uses_general_64bit_register(physical_kind)
-                                             ? AArch64VirtualRegKind::General64
-                                             : AArch64VirtualRegKind::General32));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mov",
+        {AArch64MachineOperand::physical_reg(physical_reg, physical_kind),
+         AArch64MachineOperand::use_virtual_reg(AArch64VirtualReg(
+             src_reg.get_id(),
+             uses_general_64bit_register(physical_kind)
+                 ? AArch64VirtualRegKind::General64
+                 : AArch64VirtualRegKind::General32))}));
 }
 
 std::vector<ParsedVirtualRegRef> parse_virtual_reg_refs(const std::string &text) {
@@ -283,12 +334,22 @@ std::vector<ParsedVirtualRegRef> parse_virtual_reg_refs(const std::string &text)
     return refs;
 }
 
+std::vector<ParsedVirtualRegRef>
+collect_virtual_reg_refs(const AArch64MachineOperand &operand) {
+    if (const auto *virtual_reg = operand.get_virtual_reg_operand();
+        virtual_reg != nullptr) {
+        return {{virtual_reg->reg.get_id(), virtual_reg->reg.get_kind(),
+                 virtual_reg->is_def, 0, operand.get_text().size()}};
+    }
+    return parse_virtual_reg_refs(operand.get_text());
+}
+
 std::vector<std::size_t> collect_explicit_vreg_ids(
     const std::vector<AArch64MachineOperand> &operands, bool defs) {
     std::vector<std::size_t> ids;
     std::unordered_set<std::size_t> seen;
     for (const AArch64MachineOperand &operand : operands) {
-        for (const ParsedVirtualRegRef &ref : parse_virtual_reg_refs(operand.get_text())) {
+        for (const ParsedVirtualRegRef &ref : collect_virtual_reg_refs(operand)) {
             if (ref.is_def != defs || seen.find(ref.id) != seen.end()) {
                 continue;
             }
@@ -316,6 +377,27 @@ std::string substitute_virtual_registers(const std::string &text,
         delta += reg_name.size() - ref.length;
     }
     return rendered;
+}
+
+std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
+                                           const AArch64MachineFunction &function) {
+    if (const auto *virtual_reg = operand.get_virtual_reg_operand();
+        virtual_reg != nullptr) {
+        const std::optional<unsigned> physical_reg =
+            function.get_physical_reg_for_virtual(virtual_reg->reg.get_id());
+        if (!physical_reg.has_value()) {
+            return operand.get_text();
+        }
+        return render_physical_register(*physical_reg, virtual_reg->reg.get_kind());
+    }
+    if (const auto *physical_reg = operand.get_physical_reg_operand();
+        physical_reg != nullptr) {
+        return render_physical_register(physical_reg->reg_number, physical_reg->kind);
+    }
+    if (!operand.is_raw_text()) {
+        return operand.get_text();
+    }
+    return substitute_virtual_registers(operand.get_text(), function);
 }
 
 std::string render_vector_move_operand(const std::string &text) {

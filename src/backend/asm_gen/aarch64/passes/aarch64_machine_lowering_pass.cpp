@@ -309,7 +309,7 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
                             const std::string &symbol_name) override {
         record_symbol_reference(symbol_name, AArch64SymbolKind::Helper);
         machine_block.append_instruction(
-            AArch64MachineInstr("bl", {AArch64MachineOperand(symbol_name)},
+            AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(symbol_name)},
                                 AArch64InstructionFlags{.is_call = true}, {},
                                 {}, make_default_aarch64_call_clobber_mask()));
     }
@@ -642,8 +642,9 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
                                               machine_function, facade)) {
             return false;
         }
-        edge_block.append_instruction("b " +
-                                      block_labels_.at(plan.edge.successor));
+        edge_block.append_instruction(AArch64MachineInstr(
+            "b", {AArch64MachineOperand::label(
+                     block_labels_.at(plan.edge.successor))}));
         return true;
     }
 

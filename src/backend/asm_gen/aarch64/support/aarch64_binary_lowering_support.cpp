@@ -29,20 +29,22 @@ bool emit_integer_remainder(AArch64MachineBlock &machine_block,
         function.create_virtual_reg(classify_virtual_reg_kind(binary.get_lhs()->get_type()));
     const AArch64VirtualReg product_reg =
         function.create_virtual_reg(classify_virtual_reg_kind(binary.get_lhs()->get_type()));
-    machine_block.append_instruction("mov " + def_vreg(dst_reg) + ", " +
-                                     use_vreg(lhs_reg));
-    machine_block.append_instruction("mov " + def_vreg(quotient_reg) + ", " +
-                                     use_vreg(lhs_reg));
     machine_block.append_instruction(
-        std::string(opcode == CoreIrBinaryOpcode::SRem ? "sdiv " : "udiv ") +
-        def_vreg(quotient_reg) + ", " + use_vreg(quotient_reg) + ", " +
-        use_vreg(rhs_reg));
-    machine_block.append_instruction("mul " + def_vreg(product_reg) + ", " +
-                                     use_vreg(quotient_reg) + ", " +
-                                     use_vreg(rhs_reg));
-    machine_block.append_instruction("sub " + def_vreg(dst_reg) + ", " +
-                                     use_vreg(dst_reg) + ", " +
-                                     use_vreg(product_reg));
+        AArch64MachineInstr("mov", {def_vreg_operand(dst_reg),
+                                    use_vreg_operand(lhs_reg)}));
+    machine_block.append_instruction(
+        AArch64MachineInstr("mov", {def_vreg_operand(quotient_reg),
+                                    use_vreg_operand(lhs_reg)}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        opcode == CoreIrBinaryOpcode::SRem ? "sdiv" : "udiv",
+        {def_vreg_operand(quotient_reg), use_vreg_operand(quotient_reg),
+         use_vreg_operand(rhs_reg)}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mul", {def_vreg_operand(product_reg), use_vreg_operand(quotient_reg),
+                use_vreg_operand(rhs_reg)}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "sub", {def_vreg_operand(dst_reg), use_vreg_operand(dst_reg),
+                use_vreg_operand(product_reg)}));
     return true;
 }
 
@@ -84,9 +86,9 @@ bool emit_non_float128_binary(AArch64MachineBlock &machine_block,
                     "unsupported _Float16 binary opcode in the AArch64 native backend");
                 return false;
             }
-            machine_block.append_instruction(opcode + " " + def_vreg(result32) + ", " +
-                                             use_vreg(lhs32) + ", " +
-                                             use_vreg(rhs32));
+            machine_block.append_instruction(AArch64MachineInstr(
+                opcode, {def_vreg_operand(result32), use_vreg_operand(lhs32),
+                         use_vreg_operand(rhs32)}));
             demote_float32_to_float16(machine_block, result32, dst_reg);
             return true;
         }
@@ -118,9 +120,9 @@ bool emit_non_float128_binary(AArch64MachineBlock &machine_block,
                 "unsupported floating-point binary opcode in the AArch64 native backend");
             return false;
         }
-        machine_block.append_instruction(opcode + " " + def_vreg(dst_reg) + ", " +
-                                         use_vreg(lhs_reg) + ", " +
-                                         use_vreg(rhs_reg));
+        machine_block.append_instruction(AArch64MachineInstr(
+            opcode, {def_vreg_operand(dst_reg), use_vreg_operand(lhs_reg),
+                     use_vreg_operand(rhs_reg)}));
         return true;
     }
 
@@ -164,9 +166,9 @@ bool emit_non_float128_binary(AArch64MachineBlock &machine_block,
                                       binary, lhs_reg, rhs_reg, dst_reg, function);
     }
 
-    machine_block.append_instruction(opcode + " " + def_vreg(dst_reg) + ", " +
-                                     use_vreg(lhs_reg) + ", " +
-                                     use_vreg(rhs_reg));
+    machine_block.append_instruction(AArch64MachineInstr(
+        opcode, {def_vreg_operand(dst_reg), use_vreg_operand(lhs_reg),
+                 use_vreg_operand(rhs_reg)}));
     return true;
 }
 

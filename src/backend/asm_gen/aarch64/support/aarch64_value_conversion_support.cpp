@@ -15,16 +15,17 @@ void apply_truncate_to_virtual_reg(AArch64MachineBlock &machine_block,
     }
     switch (integer_type->get_bit_width()) {
     case 1:
-        machine_block.append_instruction("and " + def_vreg_as(reg, false) + ", " +
-                                         use_vreg_as(reg, false) + ", #1");
+        machine_block.append_instruction(AArch64MachineInstr(
+            "and", {def_vreg_operand_as(reg, false), use_vreg_operand_as(reg, false),
+                    AArch64MachineOperand::immediate("#1")}));
         break;
     case 8:
-        machine_block.append_instruction("uxtb " + def_vreg_as(reg, false) + ", " +
-                                         use_vreg_as(reg, false));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "uxtb", {def_vreg_operand_as(reg, false), use_vreg_operand_as(reg, false)}));
         break;
     case 16:
-        machine_block.append_instruction("uxth " + def_vreg_as(reg, false) + ", " +
-                                         use_vreg_as(reg, false));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "uxth", {def_vreg_operand_as(reg, false), use_vreg_operand_as(reg, false)}));
         break;
     default:
         break;
@@ -41,16 +42,20 @@ void apply_zero_extend_to_virtual_reg(AArch64MachineBlock &machine_block,
     }
     switch (source_integer->get_bit_width()) {
     case 1:
-        machine_block.append_instruction("and " + def_vreg_as(dst_reg, false) + ", " +
-                                         use_vreg_as(dst_reg, false) + ", #1");
+        machine_block.append_instruction(AArch64MachineInstr(
+            "and",
+            {def_vreg_operand_as(dst_reg, false), use_vreg_operand_as(dst_reg, false),
+             AArch64MachineOperand::immediate("#1")}));
         break;
     case 8:
-        machine_block.append_instruction("uxtb " + def_vreg_as(dst_reg, false) + ", " +
-                                         use_vreg_as(dst_reg, false));
+        machine_block.append_instruction(
+            AArch64MachineInstr("uxtb", {def_vreg_operand_as(dst_reg, false),
+                                         use_vreg_operand_as(dst_reg, false)}));
         break;
     case 16:
-        machine_block.append_instruction("uxth " + def_vreg_as(dst_reg, false) + ", " +
-                                         use_vreg_as(dst_reg, false));
+        machine_block.append_instruction(
+            AArch64MachineInstr("uxth", {def_vreg_operand_as(dst_reg, false),
+                                         use_vreg_operand_as(dst_reg, false)}));
         break;
     case 32:
         break;
@@ -70,26 +75,29 @@ void apply_sign_extend_to_virtual_reg(AArch64MachineBlock &machine_block,
     }
     switch (source_integer->get_bit_width()) {
     case 1:
-        machine_block.append_instruction("and " + def_vreg_as(dst_reg, false) + ", " +
-                                         use_vreg_as(dst_reg, false) + ", #1");
-        machine_block.append_instruction(
-            "neg " + def_vreg_as(dst_reg, target_uses_64bit) + ", " +
-            use_vreg_as(dst_reg, target_uses_64bit));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "and",
+            {def_vreg_operand_as(dst_reg, false), use_vreg_operand_as(dst_reg, false),
+             AArch64MachineOperand::immediate("#1")}));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "neg", {def_vreg_operand_as(dst_reg, target_uses_64bit),
+                    use_vreg_operand_as(dst_reg, target_uses_64bit)}));
         break;
     case 8:
-        machine_block.append_instruction(
-            std::string("sxtb ") + def_vreg_as(dst_reg, target_uses_64bit) + ", " +
-            use_vreg_as(dst_reg, false));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "sxtb", {def_vreg_operand_as(dst_reg, target_uses_64bit),
+                     use_vreg_operand_as(dst_reg, false)}));
         break;
     case 16:
-        machine_block.append_instruction(
-            std::string("sxth ") + def_vreg_as(dst_reg, target_uses_64bit) + ", " +
-            use_vreg_as(dst_reg, false));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "sxth", {def_vreg_operand_as(dst_reg, target_uses_64bit),
+                     use_vreg_operand_as(dst_reg, false)}));
         break;
     case 32:
         if (target_uses_64bit) {
-            machine_block.append_instruction("sxtw " + def_vreg_as(dst_reg, true) +
-                                             ", " + use_vreg_as(dst_reg, false));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "sxtw", {def_vreg_operand_as(dst_reg, true),
+                         use_vreg_operand_as(dst_reg, false)}));
         }
         break;
     default:
@@ -102,16 +110,16 @@ AArch64VirtualReg promote_float16_to_float32(AArch64MachineBlock &machine_block,
                                              AArch64MachineFunction &function) {
     const AArch64VirtualReg promoted =
         function.create_virtual_reg(AArch64VirtualRegKind::Float32);
-    machine_block.append_instruction("fcvt " + def_vreg(promoted) + ", " +
-                                     use_vreg(source_reg));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "fcvt", {def_vreg_operand(promoted), use_vreg_operand(source_reg)}));
     return promoted;
 }
 
 void demote_float32_to_float16(AArch64MachineBlock &machine_block,
                                const AArch64VirtualReg &source_reg,
                                const AArch64VirtualReg &target_reg) {
-    machine_block.append_instruction("fcvt " + def_vreg(target_reg) + ", " +
-                                     use_vreg(source_reg));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "fcvt", {def_vreg_operand(target_reg), use_vreg_operand(source_reg)}));
 }
 
 } // namespace sysycc

@@ -18,8 +18,8 @@ bool prepare_integer_value_for_runtime_helper(AArch64MachineBlock &machine_block
                                               const AArch64VirtualReg &source_reg,
                                               const AArch64VirtualReg &prepared_reg) {
     if (prepared_reg.get_id() != source_reg.get_id()) {
-        machine_block.append_instruction("mov " + def_vreg(prepared_reg) + ", " +
-                                         use_vreg(source_reg));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov", {def_vreg_operand(prepared_reg), use_vreg_operand(source_reg)}));
     }
     if (cast_kind == CoreIrCastKind::SignedIntToFloat) {
         context.apply_sign_extend_to_virtual_reg(
@@ -126,6 +126,13 @@ bool emit_float128_compare_helper(AArch64MachineBlock &machine_block,
         break;
     }
 
+    const AArch64MachineOperand helper_result_reg =
+        AArch64MachineOperand::physical_reg(
+            static_cast<unsigned>(AArch64PhysicalReg::X0),
+            AArch64VirtualRegKind::General32);
+    const AArch64MachineOperand zero_immediate =
+        AArch64MachineOperand::immediate("#0");
+
     context.append_copy_to_physical_reg(
         machine_block, static_cast<unsigned>(AArch64PhysicalReg::V0),
         AArch64VirtualRegKind::Float128, lhs_reg);
@@ -133,7 +140,8 @@ bool emit_float128_compare_helper(AArch64MachineBlock &machine_block,
         machine_block, static_cast<unsigned>(AArch64PhysicalReg::V1),
         AArch64VirtualRegKind::Float128, rhs_reg);
     context.append_helper_call(machine_block, "__unordtf2");
-    machine_block.append_instruction("mov " + def_vreg(unordered_reg) + ", w0");
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mov", {def_vreg_operand(unordered_reg), helper_result_reg}));
 
     context.append_copy_to_physical_reg(
         machine_block, static_cast<unsigned>(AArch64PhysicalReg::V0),
@@ -142,16 +150,22 @@ bool emit_float128_compare_helper(AArch64MachineBlock &machine_block,
         machine_block, static_cast<unsigned>(AArch64PhysicalReg::V1),
         AArch64VirtualRegKind::Float128, rhs_reg);
     context.append_helper_call(machine_block, helper_name);
-    machine_block.append_instruction("mov " + def_vreg(compare_reg) + ", w0");
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mov", {def_vreg_operand(compare_reg), helper_result_reg}));
 
-    machine_block.append_instruction("cmp " + use_vreg(compare_reg) + ", #0");
-    machine_block.append_instruction("cset " + def_vreg(dst_reg) + ", " + condition);
-    machine_block.append_instruction("mov " + def_vreg(unordered_value_reg) + ", #" +
-                                     std::string(unordered_result ? "1" : "0"));
-    machine_block.append_instruction("cmp " + use_vreg(unordered_reg) + ", #0");
-    machine_block.append_instruction("csel " + def_vreg(dst_reg) + ", " +
-                                     use_vreg(unordered_value_reg) + ", " +
-                                     use_vreg(dst_reg) + ", ne");
+    machine_block.append_instruction(AArch64MachineInstr(
+        "cmp", {use_vreg_operand(compare_reg), zero_immediate}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "cset", {def_vreg_operand(dst_reg), condition_code_operand(condition)}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mov", {def_vreg_operand(unordered_value_reg),
+                AArch64MachineOperand::immediate(
+                    std::string(unordered_result ? "#1" : "#0"))}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "cmp", {use_vreg_operand(unordered_reg), zero_immediate}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "csel", {def_vreg_operand(dst_reg), use_vreg_operand(unordered_value_reg),
+                 use_vreg_operand(dst_reg), condition_code_operand("ne")}));
     return true;
 }
 

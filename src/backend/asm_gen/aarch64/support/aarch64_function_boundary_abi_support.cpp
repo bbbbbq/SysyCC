@@ -77,8 +77,9 @@ bool emit_function_return(AArch64MachineFunction &machine_function,
                            machine_function, context)) {
                 return false;
             }
-            machine_block.append_instruction("b " +
-                                             machine_function.get_epilogue_label());
+            machine_block.append_instruction(AArch64MachineInstr(
+                "b", {AArch64MachineOperand::label(
+                         machine_function.get_epilogue_label())}));
             return true;
         }
 
@@ -101,7 +102,9 @@ bool emit_function_return(AArch64MachineFunction &machine_function,
                                             return_location.reg_kind,
                                             return_reg);
     }
-    machine_block.append_instruction("b " + machine_function.get_epilogue_label());
+    machine_block.append_instruction(AArch64MachineInstr(
+        "b",
+        {AArch64MachineOperand::label(machine_function.get_epilogue_label())}));
     return true;
 }
 

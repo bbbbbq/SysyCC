@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "backend/asm_gen/aarch64/model/aarch64_meta_model.hpp"
@@ -15,14 +16,77 @@ namespace sysycc {
 
 class CoreIrStackSlot;
 
+enum class AArch64MachineOperandKind : unsigned char {
+    RawText,
+    VirtualReg,
+    PhysicalReg,
+    Immediate,
+    Symbol,
+    Label,
+};
+
+struct AArch64MachineVirtualRegOperand {
+    AArch64VirtualReg reg;
+    bool is_def = false;
+};
+
+struct AArch64MachinePhysicalRegOperand {
+    unsigned reg_number = 0;
+    AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
+};
+
 class AArch64MachineOperand {
   private:
+    using Payload = std::variant<std::monostate, AArch64MachineVirtualRegOperand,
+                                 AArch64MachinePhysicalRegOperand, std::string>;
+
+    AArch64MachineOperandKind kind_ = AArch64MachineOperandKind::RawText;
     std::string text_;
+    Payload payload_;
+
+    static AArch64MachineOperand make_string_payload_operand(
+        AArch64MachineOperandKind kind, std::string text);
+    AArch64MachineOperand(AArch64MachineOperandKind kind, std::string text,
+                          Payload payload);
 
   public:
-    explicit AArch64MachineOperand(std::string text) : text_(std::move(text)) {}
+    explicit AArch64MachineOperand(std::string text);
+
+    static AArch64MachineOperand raw_text(std::string text);
+    static AArch64MachineOperand use_virtual_reg(const AArch64VirtualReg &reg);
+    static AArch64MachineOperand def_virtual_reg(const AArch64VirtualReg &reg);
+    static AArch64MachineOperand physical_reg(unsigned reg_number,
+                                              AArch64VirtualRegKind kind);
+    static AArch64MachineOperand immediate(std::string text);
+    static AArch64MachineOperand symbol(std::string text);
+    static AArch64MachineOperand label(std::string text);
+
+    AArch64MachineOperandKind get_kind() const noexcept { return kind_; }
+    bool is_raw_text() const noexcept {
+        return kind_ == AArch64MachineOperandKind::RawText;
+    }
+    bool is_virtual_reg() const noexcept {
+        return kind_ == AArch64MachineOperandKind::VirtualReg;
+    }
+    bool is_physical_reg() const noexcept {
+        return kind_ == AArch64MachineOperandKind::PhysicalReg;
+    }
+    bool is_immediate() const noexcept {
+        return kind_ == AArch64MachineOperandKind::Immediate;
+    }
+    bool is_symbol() const noexcept {
+        return kind_ == AArch64MachineOperandKind::Symbol;
+    }
+    bool is_label() const noexcept { return kind_ == AArch64MachineOperandKind::Label; }
 
     const std::string &get_text() const noexcept { return text_; }
+    const std::string *get_string_payload() const noexcept {
+        return std::get_if<std::string>(&payload_);
+    }
+    const AArch64MachineVirtualRegOperand *
+    get_virtual_reg_operand() const noexcept;
+    const AArch64MachinePhysicalRegOperand *
+    get_physical_reg_operand() const noexcept;
 };
 
 class AArch64MachineInstr {
