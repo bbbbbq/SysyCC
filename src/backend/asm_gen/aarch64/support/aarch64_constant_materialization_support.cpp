@@ -141,31 +141,32 @@ bool materialize_integer_constant(AArch64MachineBlock &machine_block,
                                   AArch64ConstantMaterializationContext &context,
                                   const CoreIrType *type, std::uint64_t value,
                                   const AArch64VirtualReg &target_reg) {
+    if (value == 0) {
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov",
+            {def_vreg_operand(target_reg), zero_register_operand(target_reg.get_use_64bit())}));
+        context.apply_truncate_to_virtual_reg(machine_block, target_reg, type);
+        return true;
+    }
+
     const unsigned pieces = target_reg.get_use_64bit() ? 4U : 2U;
-    bool emitted = false;
     for (unsigned piece = 0; piece < pieces; ++piece) {
         const std::uint16_t imm16 =
             static_cast<std::uint16_t>((value >> (piece * 16U)) & 0xFFFFU);
-        if (!emitted) {
-            machine_block.append_instruction(
-                "movz " + def_vreg(target_reg) + ", #" +
-                std::to_string(imm16) + ", lsl #" +
-                std::to_string(piece * 16U));
-            emitted = true;
+        if (piece == 0) {
+            machine_block.append_instruction(AArch64MachineInstr(
+                "movz", {def_vreg_operand(target_reg),
+                         AArch64MachineOperand::immediate("#" + std::to_string(imm16)),
+                         shift_operand("lsl", piece * 16U)}));
             continue;
         }
         if (imm16 == 0) {
             continue;
         }
-        machine_block.append_instruction(
-            "movk " + use_vreg(target_reg) + ", #" +
-            std::to_string(imm16) + ", lsl #" +
-            std::to_string(piece * 16U));
-    }
-    if (!emitted) {
         machine_block.append_instruction(AArch64MachineInstr(
-            "mov",
-            {def_vreg_operand(target_reg), zero_register_operand(target_reg.get_use_64bit())}));
+            "movk", {use_vreg_operand(target_reg),
+                     AArch64MachineOperand::immediate("#" + std::to_string(imm16)),
+                     shift_operand("lsl", piece * 16U)}));
     }
     context.apply_truncate_to_virtual_reg(machine_block, target_reg, type);
     return true;

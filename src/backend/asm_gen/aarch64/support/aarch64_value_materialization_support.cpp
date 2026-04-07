@@ -35,8 +35,9 @@ bool materialize_noncanonical_value(AArch64MachineBlock &machine_block,
     }
     if (dynamic_cast<const CoreIrConstantNull *>(value) != nullptr ||
         dynamic_cast<const CoreIrConstantZeroInitializer *>(value) != nullptr) {
-        machine_block.append_instruction("mov " + def_vreg(target_reg) + ", " +
-                                         zero_register_name(target_reg.get_use_64bit()));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov",
+            {def_vreg_operand(target_reg), zero_register_operand(target_reg.get_use_64bit())}));
         return true;
     }
     if (const auto *global_address =
