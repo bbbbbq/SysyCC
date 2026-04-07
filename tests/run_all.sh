@@ -25,6 +25,8 @@ JOB_PIDS=()
 JOB_CASE_INDICES=()
 EXPLICIT_STAGES=()
 
+export SYSYCC_TEST_SUPERSEDE_OLD_SESSIONS="${SYSYCC_TEST_SUPERSEDE_OLD_SESSIONS:-1}"
+
 source "${SCRIPT_DIR}/test_helpers.sh"
 initialize_sysycc_test_session
 

@@ -139,6 +139,46 @@ make_sysycc_test_session_id() {
     printf '%s-%s\n' "${timestamp}" "${BASHPID:-$$}"
 }
 
+current_sysycc_test_process_group() {
+    local pid="${1:-${BASHPID:-$$}}"
+    ps -o pgid= -p "${pid}" 2>/dev/null | tr -d '[:space:]'
+}
+
+record_sysycc_test_process_group() {
+    local pgid="${1:-}"
+    local pgid_file=""
+
+    if [[ -z "${SYSYCC_TEST_SESSION_ROOT:-}" ]]; then
+        return 0
+    fi
+
+    if [[ -z "${pgid}" ]]; then
+        pgid="$(current_sysycc_test_process_group)"
+    fi
+
+    if [[ -z "${pgid}" ]]; then
+        return 0
+    fi
+
+    pgid_file="${SYSYCC_TEST_SESSION_ROOT}/pgids"
+    mkdir -p "${SYSYCC_TEST_SESSION_ROOT}"
+    if ! grep -qx "${pgid}" "${pgid_file}" 2>/dev/null; then
+        printf '%s\n' "${pgid}" >>"${pgid_file}"
+    fi
+}
+
+reap_sysycc_test_process_group() {
+    local pgid="$1"
+
+    if [[ -z "${pgid}" ]] || [[ ! "${pgid}" =~ ^[0-9]+$ ]]; then
+        return 0
+    fi
+
+    kill -TERM -- "-${pgid}" 2>/dev/null || true
+    sleep 0.2
+    kill -KILL -- "-${pgid}" 2>/dev/null || true
+}
+
 prune_sysycc_test_heavy_tool_sessions() {
     local lock_root_parent="$1"
     local active_lock_root="${2:-}"
@@ -181,9 +221,52 @@ prune_sysycc_test_heavy_tool_sessions() {
     done
 }
 
+prune_sysycc_test_process_sessions() {
+    local session_root_parent="$1"
+    local active_session_root="${2:-}"
+    local supersede_old_sessions="${3:-0}"
+    local session_dir=""
+
+    if [[ ! -d "${session_root_parent}" ]]; then
+        return 0
+    fi
+
+    for session_dir in "${session_root_parent}"/*; do
+        local owner_pid=""
+        local pgid_file=""
+
+        if [[ ! -d "${session_dir}" ]]; then
+            continue
+        fi
+
+        if [[ -n "${active_session_root}" ]] &&
+            [[ "${session_dir}" == "${active_session_root}" ]]; then
+            continue
+        fi
+
+        owner_pid="$(cat "${session_dir}/owner.pid" 2>/dev/null || true)"
+        if [[ "${supersede_old_sessions}" != "1" ]] &&
+            [[ -n "${owner_pid}" ]] &&
+            kill -0 "${owner_pid}" 2>/dev/null; then
+            continue
+        fi
+
+        pgid_file="${session_dir}/pgids"
+        if [[ -f "${pgid_file}" ]]; then
+            while IFS= read -r pgid; do
+                reap_sysycc_test_process_group "${pgid}"
+            done <"${pgid_file}"
+        fi
+
+        rm -rf "${session_dir}"
+    done
+}
+
 initialize_sysycc_test_session() {
     local lock_root_parent=""
     local default_lock_root=""
+    local session_root_parent=""
+    local default_session_root=""
 
     if [[ -z "${PROJECT_ROOT:-}" ]]; then
         return 0
@@ -192,11 +275,20 @@ initialize_sysycc_test_session() {
     export SYSYCC_TEST_SESSION_ID="${SYSYCC_TEST_SESSION_ID:-$(make_sysycc_test_session_id)}"
     lock_root_parent="${PROJECT_ROOT}/build/.sysycc_test_heavy_tool_slots"
     default_lock_root="${lock_root_parent}/${SYSYCC_TEST_SESSION_ID}"
+    session_root_parent="${PROJECT_ROOT}/build/.sysycc_test_sessions"
+    default_session_root="${session_root_parent}/${SYSYCC_TEST_SESSION_ID}"
     export SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT="${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT:-${default_lock_root}}"
+    export SYSYCC_TEST_SESSION_ROOT="${SYSYCC_TEST_SESSION_ROOT:-${default_session_root}}"
 
     mkdir -p "${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT}"
+    mkdir -p "${SYSYCC_TEST_SESSION_ROOT}"
+    printf '%s\n' "${BASHPID:-$$}" >"${SYSYCC_TEST_SESSION_ROOT}/owner.pid"
+    record_sysycc_test_process_group
     prune_sysycc_test_heavy_tool_sessions "${lock_root_parent}" \
         "${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT}"
+    prune_sysycc_test_process_sessions "${session_root_parent}" \
+        "${SYSYCC_TEST_SESSION_ROOT}" \
+        "${SYSYCC_TEST_SUPERSEDE_OLD_SESSIONS:-0}"
 }
 
 setup_test_host_tool_wrappers() {
