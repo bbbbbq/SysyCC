@@ -94,6 +94,31 @@ bool assemble_aarch64_object(const std::filesystem::path &asm_file,
     return true;
 }
 
+void append_rendered_instruction(std::ostringstream &output,
+                                 const AArch64MachineInstr &instruction,
+                                 const AArch64MachineFunction &function) {
+    output << "  " << instruction.get_mnemonic();
+    if (instruction.get_operands().empty()) {
+        output << "\n";
+        return;
+    }
+
+    const bool use_space_separated_operands = instruction.get_mnemonic() == ".loc";
+    output << " ";
+    for (std::size_t index = 0; index < instruction.get_operands().size(); ++index) {
+        if (index > 0) {
+            output << (use_space_separated_operands ? " " : ", ");
+        }
+        std::string rendered_operand =
+            render_machine_operand_for_asm(instruction.get_operands()[index], function);
+        if (instruction.get_mnemonic() == "mov") {
+            rendered_operand = render_vector_move_operand(rendered_operand);
+        }
+        output << rendered_operand;
+    }
+    output << "\n";
+}
+
 } // namespace
 
 std::string AArch64EmissionPass::print_module(const AArch64MachineModule &module) const {
@@ -136,23 +161,7 @@ std::string AArch64EmissionPass::print_module(const AArch64MachineModule &module
         for (const AArch64MachineBlock &block : function.get_blocks()) {
             output << block.get_label() << ":\n";
             for (const AArch64MachineInstr &instruction : block.get_instructions()) {
-                output << "  " << instruction.get_mnemonic();
-                if (!instruction.get_operands().empty()) {
-                    output << " ";
-                    for (std::size_t index = 0;
-                         index < instruction.get_operands().size(); ++index) {
-                        if (index > 0) {
-                            output << ", ";
-                        }
-                        std::string rendered_operand = render_machine_operand_for_asm(
-                            instruction.get_operands()[index], function);
-                        if (instruction.get_mnemonic() == "mov") {
-                            rendered_operand = render_vector_move_operand(rendered_operand);
-                        }
-                        output << rendered_operand;
-                    }
-                }
-                output << "\n";
+                append_rendered_instruction(output, instruction, function);
             }
         }
         output << ".size " << function.get_name() << ", .-" << function.get_name()

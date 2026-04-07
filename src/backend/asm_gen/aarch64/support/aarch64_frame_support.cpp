@@ -19,6 +19,16 @@ std::size_t align_to(std::size_t value, std::size_t alignment) {
     return value + (alignment - remainder);
 }
 
+AArch64MachineOperand frame_memory_operand(std::size_t offset) {
+    return AArch64MachineOperand::memory_address_physical_reg(
+        static_cast<unsigned>(AArch64PhysicalReg::X29),
+        "#-" + std::to_string(offset));
+}
+
+AArch64MachineOperand memory_operand(unsigned address_reg) {
+    return AArch64MachineOperand::memory_address_physical_reg(address_reg);
+}
+
 } // namespace
 
 std::string load_mnemonic_for_kind(AArch64VirtualRegKind kind, std::size_t size) {
@@ -58,72 +68,95 @@ std::string store_mnemonic_for_kind(AArch64VirtualRegKind kind, std::size_t size
 void append_materialize_physical_integer_constant(
     std::vector<AArch64MachineInstr> &instructions, unsigned physical_reg,
     std::uint64_t value) {
-    const std::string reg = render_physical_register(physical_reg, true);
-    bool emitted = false;
+    const AArch64MachineOperand reg_operand =
+        AArch64MachineOperand::physical_reg(physical_reg,
+                                            AArch64VirtualRegKind::General64);
+    if (value == 0) {
+        instructions.emplace_back(
+            AArch64MachineInstr("mov", {reg_operand, zero_register_operand(true)}));
+        return;
+    }
+
     for (unsigned piece = 0; piece < 4U; ++piece) {
         const std::uint16_t imm16 =
             static_cast<std::uint16_t>((value >> (piece * 16U)) & 0xFFFFU);
-        if (!emitted) {
-            instructions.emplace_back("movz " + reg + ", #" +
-                                      std::to_string(imm16) + ", lsl #" +
-                                      std::to_string(piece * 16U));
-            emitted = true;
+        if (piece == 0) {
+            instructions.emplace_back(AArch64MachineInstr(
+                "movz", {reg_operand,
+                         AArch64MachineOperand::immediate("#" + std::to_string(imm16)),
+                         shift_operand("lsl", piece * 16U)}));
             continue;
         }
         if (imm16 == 0) {
             continue;
         }
-        instructions.emplace_back("movk " + reg + ", #" +
-                                  std::to_string(imm16) + ", lsl #" +
-                                  std::to_string(piece * 16U));
-    }
-    if (!emitted) {
-        instructions.emplace_back("mov " + reg + ", xzr");
+        instructions.emplace_back(AArch64MachineInstr(
+            "movk", {reg_operand,
+                     AArch64MachineOperand::immediate("#" + std::to_string(imm16)),
+                     shift_operand("lsl", piece * 16U)}));
     }
 }
 
 void append_frame_address_into_physical_reg(
     std::vector<AArch64MachineInstr> &instructions, unsigned address_reg,
     std::size_t offset) {
-    const std::string reg = render_physical_register(address_reg, true);
+    const AArch64MachineOperand reg_operand =
+        AArch64MachineOperand::physical_reg(address_reg,
+                                            AArch64VirtualRegKind::General64);
     if (offset <= 4095) {
-        instructions.emplace_back("sub " + reg + ", x29, #" + std::to_string(offset));
+        instructions.emplace_back(AArch64MachineInstr(
+            "sub", {reg_operand,
+                    AArch64MachineOperand::physical_reg(
+                        static_cast<unsigned>(AArch64PhysicalReg::X29),
+                        AArch64VirtualRegKind::General64),
+                    AArch64MachineOperand::immediate("#" + std::to_string(offset))}));
         return;
     }
     append_materialize_physical_integer_constant(instructions, address_reg, offset);
-    instructions.emplace_back("sub " + reg + ", x29, " + reg);
+    instructions.emplace_back(AArch64MachineInstr(
+        "sub", {reg_operand,
+                AArch64MachineOperand::physical_reg(
+                    static_cast<unsigned>(AArch64PhysicalReg::X29),
+                    AArch64VirtualRegKind::General64),
+                reg_operand}));
 }
 
 void append_physical_frame_load(std::vector<AArch64MachineInstr> &instructions,
                                 unsigned value_reg, AArch64VirtualRegKind kind,
                                 std::size_t size, std::size_t offset,
                                 unsigned address_temp_reg) {
-    const std::string reg = render_physical_register(value_reg, kind);
     const std::string mnemonic = load_mnemonic_for_kind(kind, size);
     if (offset <= 255) {
-        instructions.emplace_back(mnemonic + " " + reg + ", [x29, #-" +
-                                  std::to_string(offset) + "]");
+        instructions.emplace_back(AArch64MachineInstr(
+            mnemonic,
+            {AArch64MachineOperand::physical_reg(value_reg, kind),
+             frame_memory_operand(offset)}));
         return;
     }
     append_frame_address_into_physical_reg(instructions, address_temp_reg, offset);
-    instructions.emplace_back(mnemonic + " " + reg + ", [" +
-                              render_physical_register(address_temp_reg, true) + "]");
+    instructions.emplace_back(AArch64MachineInstr(
+        mnemonic,
+        {AArch64MachineOperand::physical_reg(value_reg, kind),
+         memory_operand(address_temp_reg)}));
 }
 
 void append_physical_frame_store(std::vector<AArch64MachineInstr> &instructions,
                                  unsigned value_reg, AArch64VirtualRegKind kind,
                                  std::size_t size, std::size_t offset,
                                  unsigned address_temp_reg) {
-    const std::string reg = render_physical_register(value_reg, kind);
     const std::string mnemonic = store_mnemonic_for_kind(kind, size);
     if (offset <= 255) {
-        instructions.emplace_back(mnemonic + " " + reg + ", [x29, #-" +
-                                  std::to_string(offset) + "]");
+        instructions.emplace_back(AArch64MachineInstr(
+            mnemonic,
+            {AArch64MachineOperand::physical_reg(value_reg, kind),
+             frame_memory_operand(offset)}));
         return;
     }
     append_frame_address_into_physical_reg(instructions, address_temp_reg, offset);
-    instructions.emplace_back(mnemonic + " " + reg + ", [" +
-                              render_physical_register(address_temp_reg, true) + "]");
+    instructions.emplace_back(AArch64MachineInstr(
+        mnemonic,
+        {AArch64MachineOperand::physical_reg(value_reg, kind),
+         memory_operand(address_temp_reg)}));
 }
 
 } // namespace sysycc

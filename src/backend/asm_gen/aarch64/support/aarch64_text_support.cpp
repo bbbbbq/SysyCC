@@ -103,40 +103,6 @@ AArch64VirtualRegKind virtual_reg_kind_from_suffix(char suffix) {
     }
 }
 
-std::pair<std::string, std::vector<AArch64MachineOperand>>
-parse_machine_instruction_text(std::string text) {
-    const std::size_t separator = text.find(' ');
-    if (separator == std::string::npos) {
-        return {std::move(text), {}};
-    }
-
-    std::string mnemonic = text.substr(0, separator);
-    std::vector<AArch64MachineOperand> operands;
-    const std::string operand_text = text.substr(separator + 1);
-    std::string current_operand;
-    int bracket_depth = 0;
-    for (std::size_t index = 0; index < operand_text.size(); ++index) {
-        const char ch = operand_text[index];
-        if (ch == '[') {
-            ++bracket_depth;
-        } else if (ch == ']') {
-            --bracket_depth;
-        }
-        if (ch == ',' && bracket_depth == 0 &&
-            index + 1 < operand_text.size() && operand_text[index + 1] == ' ') {
-            operands.emplace_back(std::move(current_operand));
-            current_operand.clear();
-            ++index;
-            continue;
-        }
-        current_operand.push_back(ch);
-    }
-    if (!current_operand.empty()) {
-        operands.emplace_back(std::move(current_operand));
-    }
-    return {std::move(mnemonic), std::move(operands)};
-}
-
 std::string render_physical_register(unsigned reg_number, AArch64VirtualRegKind kind) {
     if (reg_number >= static_cast<unsigned>(AArch64PhysicalReg::V0) &&
         reg_number <= static_cast<unsigned>(AArch64PhysicalReg::V31)) {
@@ -153,16 +119,28 @@ std::string render_physical_register(unsigned reg_number, bool use_64bit) {
                               : AArch64VirtualRegKind::General32);
 }
 
+std::string stack_pointer_name(bool use_64bit) {
+    return use_64bit ? "sp" : "wsp";
+}
+
 std::string zero_register_name(bool use_64bit) {
     return use_64bit ? "xzr" : "wzr";
 }
 
+AArch64MachineOperand stack_pointer_operand(bool use_64bit) {
+    return AArch64MachineOperand::stack_pointer(use_64bit);
+}
+
 AArch64MachineOperand zero_register_operand(bool use_64bit) {
-    return AArch64MachineOperand::raw_text(zero_register_name(use_64bit));
+    return AArch64MachineOperand::zero_register(use_64bit);
 }
 
 AArch64MachineOperand condition_code_operand(std::string_view condition) {
-    return AArch64MachineOperand::raw_text(std::string(condition));
+    return AArch64MachineOperand::condition_code(std::string(condition));
+}
+
+AArch64MachineOperand shift_operand(std::string_view mnemonic, unsigned amount) {
+    return AArch64MachineOperand::shift(std::string(mnemonic), amount);
 }
 
 namespace {
@@ -306,43 +284,71 @@ void append_copy_to_physical_reg(AArch64MachineBlock &machine_block,
                  : AArch64VirtualRegKind::General32))}));
 }
 
-std::vector<ParsedVirtualRegRef> parse_virtual_reg_refs(const std::string &text) {
-    std::vector<ParsedVirtualRegRef> refs;
-    for (std::size_t index = 0; index + 3 < text.size(); ++index) {
-        if (text[index] != '%' || (text[index + 1] != 'u' && text[index + 1] != 'd')) {
-            continue;
-        }
-        std::size_t cursor = index + 2;
-        if (!std::isdigit(static_cast<unsigned char>(text[cursor]))) {
-            continue;
-        }
-        std::size_t id = 0;
-        while (cursor < text.size() &&
-               std::isdigit(static_cast<unsigned char>(text[cursor])) != 0) {
-            id = (id * 10) + static_cast<std::size_t>(text[cursor] - '0');
-            ++cursor;
-        }
-        if (cursor >= text.size() ||
-            (text[cursor] != 'x' && text[cursor] != 'w' && text[cursor] != 'h' &&
-             text[cursor] != 's' && text[cursor] != 'd' && text[cursor] != 'q')) {
-            continue;
-        }
-        refs.push_back({id, virtual_reg_kind_from_suffix(text[cursor]),
-                        text[index + 1] == 'd', index, cursor - index + 1});
-        index = cursor;
-    }
-    return refs;
-}
-
 std::vector<ParsedVirtualRegRef>
 collect_virtual_reg_refs(const AArch64MachineOperand &operand) {
     if (const auto *virtual_reg = operand.get_virtual_reg_operand();
         virtual_reg != nullptr) {
         return {{virtual_reg->reg.get_id(), virtual_reg->reg.get_kind(),
-                 virtual_reg->is_def, 0, operand.get_text().size()}};
+                 virtual_reg->is_def}};
     }
-    return parse_virtual_reg_refs(operand.get_text());
+    if (const auto *memory = operand.get_memory_address_operand(); memory != nullptr) {
+        if (memory->base_kind !=
+            AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg) {
+            return {};
+        }
+        return {{memory->virtual_reg.get_id(), memory->virtual_reg.get_kind(), false}};
+    }
+    if (operand.get_physical_reg_operand() != nullptr ||
+        operand.get_condition_code_operand() != nullptr ||
+        operand.get_zero_register_operand() != nullptr ||
+        operand.get_shift_operand() != nullptr ||
+        operand.get_stack_pointer_operand() != nullptr) {
+        return {};
+    }
+    return {};
 }
+
+namespace {
+
+std::string render_memory_address_operand_for_asm(
+    const AArch64MachineMemoryAddressOperand &memory,
+    const AArch64MachineOperand &fallback_operand,
+    const AArch64MachineFunction &function) {
+    std::string base_text;
+    switch (memory.base_kind) {
+    case AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg: {
+        const std::optional<unsigned> physical_reg =
+            function.get_physical_reg_for_virtual(memory.virtual_reg.get_id());
+        if (!physical_reg.has_value()) {
+            return fallback_operand.get_text();
+        }
+        base_text =
+            render_physical_register(*physical_reg, memory.virtual_reg.get_kind());
+        break;
+    }
+    case AArch64MachineMemoryAddressOperand::BaseKind::PhysicalReg:
+        base_text = render_physical_register(memory.physical_reg, true);
+        break;
+    case AArch64MachineMemoryAddressOperand::BaseKind::StackPointer:
+        base_text = stack_pointer_name(memory.stack_pointer_use_64bit);
+        break;
+    }
+
+    if (memory.offset_text.empty()) {
+        return "[" + base_text + "]";
+    }
+    switch (memory.address_mode) {
+    case AArch64MachineMemoryAddressOperand::AddressMode::Offset:
+        return "[" + base_text + ", " + memory.offset_text + "]";
+    case AArch64MachineMemoryAddressOperand::AddressMode::PreIndex:
+        return "[" + base_text + ", " + memory.offset_text + "]!";
+    case AArch64MachineMemoryAddressOperand::AddressMode::PostIndex:
+        return "[" + base_text + "], " + memory.offset_text;
+    }
+    return "[" + base_text + ", " + memory.offset_text + "]";
+}
+
+} // namespace
 
 std::vector<std::size_t> collect_explicit_vreg_ids(
     const std::vector<AArch64MachineOperand> &operands, bool defs) {
@@ -360,25 +366,6 @@ std::vector<std::size_t> collect_explicit_vreg_ids(
     return ids;
 }
 
-std::string substitute_virtual_registers(const std::string &text,
-                                         const AArch64MachineFunction &function) {
-    std::string rendered = text;
-    const std::vector<ParsedVirtualRegRef> refs = parse_virtual_reg_refs(text);
-    std::size_t delta = 0;
-    for (const ParsedVirtualRegRef &ref : refs) {
-        const std::optional<unsigned> physical_reg =
-            function.get_physical_reg_for_virtual(ref.id);
-        if (!physical_reg.has_value()) {
-            continue;
-        }
-        const std::string reg_name =
-            render_physical_register(*physical_reg, ref.kind);
-        rendered.replace(ref.offset + delta, ref.length, reg_name);
-        delta += reg_name.size() - ref.length;
-    }
-    return rendered;
-}
-
 std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
                                            const AArch64MachineFunction &function) {
     if (const auto *virtual_reg = operand.get_virtual_reg_operand();
@@ -394,10 +381,25 @@ std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
         physical_reg != nullptr) {
         return render_physical_register(physical_reg->reg_number, physical_reg->kind);
     }
-    if (!operand.is_raw_text()) {
-        return operand.get_text();
+    if (const auto *condition_code = operand.get_condition_code_operand();
+        condition_code != nullptr) {
+        return condition_code->code;
     }
-    return substitute_virtual_registers(operand.get_text(), function);
+    if (const auto *zero_register = operand.get_zero_register_operand();
+        zero_register != nullptr) {
+        return zero_register_name(zero_register->use_64bit);
+    }
+    if (const auto *shift = operand.get_shift_operand(); shift != nullptr) {
+        return shift->mnemonic + " #" + std::to_string(shift->amount);
+    }
+    if (const auto *stack_pointer = operand.get_stack_pointer_operand();
+        stack_pointer != nullptr) {
+        return stack_pointer_name(stack_pointer->use_64bit);
+    }
+    if (const auto *memory = operand.get_memory_address_operand(); memory != nullptr) {
+        return render_memory_address_operand_for_asm(*memory, operand, function);
+    }
+    return operand.get_text();
 }
 
 std::string render_vector_move_operand(const std::string &text) {

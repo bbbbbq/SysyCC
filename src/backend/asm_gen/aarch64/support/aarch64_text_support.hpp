@@ -17,13 +17,14 @@ std::string quote_asm_string(const std::string &text);
 bool uses_general_64bit_register(AArch64VirtualRegKind kind);
 char virtual_reg_suffix(AArch64VirtualRegKind kind);
 AArch64VirtualRegKind virtual_reg_kind_from_suffix(char suffix);
-std::pair<std::string, std::vector<AArch64MachineOperand>>
-parse_machine_instruction_text(std::string text);
 std::string render_physical_register(unsigned reg_number, AArch64VirtualRegKind kind);
 std::string render_physical_register(unsigned reg_number, bool use_64bit);
+std::string stack_pointer_name(bool use_64bit);
 std::string zero_register_name(bool use_64bit);
+AArch64MachineOperand stack_pointer_operand(bool use_64bit = true);
 AArch64MachineOperand zero_register_operand(bool use_64bit);
 AArch64MachineOperand condition_code_operand(std::string_view condition);
+AArch64MachineOperand shift_operand(std::string_view mnemonic, unsigned amount);
 std::string fp_move_mnemonic(AArch64VirtualRegKind kind);
 std::string use_vreg(const AArch64VirtualReg &reg);
 std::string def_vreg(const AArch64VirtualReg &reg);
@@ -57,17 +58,12 @@ struct ParsedVirtualRegRef {
     std::size_t id = 0;
     AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
     bool is_def = false;
-    std::size_t offset = 0;
-    std::size_t length = 0;
 };
 
-std::vector<ParsedVirtualRegRef> parse_virtual_reg_refs(const std::string &text);
 std::vector<ParsedVirtualRegRef>
 collect_virtual_reg_refs(const AArch64MachineOperand &operand);
 std::vector<std::size_t> collect_explicit_vreg_ids(
     const std::vector<AArch64MachineOperand> &operands, bool defs);
-std::string substitute_virtual_registers(const std::string &text,
-                                         const AArch64MachineFunction &function);
 std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
                                            const AArch64MachineFunction &function);
 std::string render_vector_move_operand(const std::string &text);

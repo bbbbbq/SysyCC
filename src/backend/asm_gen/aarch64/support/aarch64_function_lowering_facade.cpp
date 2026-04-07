@@ -34,8 +34,10 @@ void append_stack_pointer_adjust(AArch64MachineBlock &machine_block,
     std::size_t remaining = stack_arg_bytes;
     while (remaining > 0) {
         const std::size_t chunk = std::min(remaining, kMaxImmediate);
-        machine_block.append_instruction(std::string(mnemonic) + " sp, sp, #" +
-                                         std::to_string(chunk));
+        machine_block.append_instruction(AArch64MachineInstr(
+            mnemonic, {stack_pointer_operand(true),
+                       stack_pointer_operand(true),
+                       AArch64MachineOperand::immediate("#" + std::to_string(chunk))}));
         remaining -= chunk;
     }
 }
@@ -283,12 +285,20 @@ bool AArch64FunctionLoweringFacade::materialize_incoming_stack_address(
     AArch64MachineBlock &machine_block, const AArch64VirtualReg &target_reg,
     std::size_t stack_offset, AArch64MachineFunction &function) {
     if (stack_offset <= 4095) {
-        machine_block.append_instruction("add " + def_vreg(target_reg) +
-                                         ", x29, #" +
-                                         std::to_string(stack_offset));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "add", {def_vreg_operand(target_reg),
+                    AArch64MachineOperand::physical_reg(
+                        static_cast<unsigned>(AArch64PhysicalReg::X29),
+                        AArch64VirtualRegKind::General64),
+                    AArch64MachineOperand::immediate("#" +
+                                                     std::to_string(stack_offset))}));
         return true;
     }
-    machine_block.append_instruction("mov " + def_vreg(target_reg) + ", x29");
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mov", {def_vreg_operand(target_reg),
+                AArch64MachineOperand::physical_reg(
+                    static_cast<unsigned>(AArch64PhysicalReg::X29),
+                    AArch64VirtualRegKind::General64)}));
     return services_.add_constant_offset(machine_block, target_reg,
                                          static_cast<long long>(stack_offset),
                                          function);
@@ -318,7 +328,9 @@ AArch64FunctionLoweringFacade::prepare_stack_argument_area(
     }
     append_stack_pointer_adjust(machine_block, "sub", stack_arg_bytes);
     const AArch64VirtualReg stack_base = create_pointer_virtual_reg(function);
-    machine_block.append_instruction("mov " + def_vreg(stack_base) + ", sp");
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mov", {def_vreg_operand(stack_base),
+                stack_pointer_operand(true)}));
     return stack_base;
 }
 

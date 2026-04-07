@@ -68,7 +68,7 @@ void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
         count_aarch64_standard_prologue_prefix(existing_prologue);
 
     std::vector<AArch64MachineInstr> prologue;
-    prologue.emplace_back(".cfi_startproc");
+    prologue.emplace_back(".cfi_startproc", std::vector<AArch64MachineOperand>{});
     const std::size_t frame_size = function.get_frame_info().get_frame_size();
     for (const AArch64StandardFrameShellOp &op :
          build_aarch64_standard_prologue_shell(frame_size)) {
@@ -78,10 +78,14 @@ void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
     for (unsigned reg : function.get_frame_info().get_saved_physical_regs()) {
         append_saved_reg_store(prologue, reg,
                                function.get_frame_info().get_saved_physical_reg_offset(reg));
-        prologue.emplace_back(".cfi_offset " +
-                              std::to_string(dwarf_register_number(reg)) + ", -" +
-                              std::to_string(16 + function.get_frame_info()
-                                                     .get_saved_physical_reg_offset(reg)));
+        prologue.emplace_back(
+            ".cfi_offset",
+            std::vector<AArch64MachineOperand>{
+                AArch64MachineOperand::immediate(
+                    std::to_string(dwarf_register_number(reg))),
+                AArch64MachineOperand::immediate(
+                    "-" + std::to_string(16 + function.get_frame_info()
+                                                  .get_saved_physical_reg_offset(reg)))});
     }
     for (std::size_t index = prologue_prefix_size; index < existing_prologue.size();
          ++index) {
@@ -94,8 +98,11 @@ void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
          it != function.get_frame_info().get_saved_physical_regs().rend(); ++it) {
         append_saved_reg_load(epilogue, *it,
                               function.get_frame_info().get_saved_physical_reg_offset(*it));
-        epilogue.emplace_back(".cfi_restore " +
-                              std::to_string(dwarf_register_number(*it)));
+        epilogue.emplace_back(
+            ".cfi_restore",
+            std::vector<AArch64MachineOperand>{
+                AArch64MachineOperand::immediate(
+                    std::to_string(dwarf_register_number(*it)))});
     }
     for (const AArch64StandardFrameShellOp &op :
          build_aarch64_standard_epilogue_shell(frame_size)) {

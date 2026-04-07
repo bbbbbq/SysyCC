@@ -15,6 +15,11 @@ long long to_signed_offset(std::size_t value) {
     return static_cast<long long>(value);
 }
 
+AArch64MachineInstr cfi_instruction(
+    std::string mnemonic, std::vector<AArch64MachineOperand> operands = {}) {
+    return AArch64MachineInstr(std::move(mnemonic), std::move(operands));
+}
+
 bool has_exact_instruction_shape(const AArch64MachineInstr &instruction,
                                  const AArch64MachineInstr &expected) {
     if (instruction.get_mnemonic() != expected.get_mnemonic() ||
@@ -30,14 +35,22 @@ bool has_exact_instruction_shape(const AArch64MachineInstr &instruction,
     return true;
 }
 
+bool is_stack_pointer_operand(const AArch64MachineOperand &operand) {
+    if (const auto *stack_pointer = operand.get_stack_pointer_operand();
+        stack_pointer != nullptr) {
+        return stack_pointer->use_64bit;
+    }
+    return false;
+}
+
 bool is_frame_adjust_instruction(const AArch64MachineInstr &instruction,
                                  const char *mnemonic) {
     if (instruction.get_mnemonic() != mnemonic ||
         instruction.get_operands().size() != 3) {
         return false;
     }
-    return instruction.get_operands()[0].get_text() == "sp" &&
-           instruction.get_operands()[1].get_text() == "sp" &&
+    return is_stack_pointer_operand(instruction.get_operands()[0]) &&
+           is_stack_pointer_operand(instruction.get_operands()[1]) &&
            !instruction.get_operands()[2].get_text().empty() &&
            instruction.get_operands()[2].get_text().front() == '#';
 }
@@ -107,14 +120,34 @@ build_aarch64_standard_prologue_shell(std::size_t frame_size) {
     std::vector<AArch64StandardFrameShellOp> shell;
     shell.push_back(AArch64StandardFrameShellOp{
         AArch64StandardFrameShellOpKind::SaveFrameRecord,
-        AArch64MachineInstr("stp x29, x30, [sp, #-16]!")});
+        AArch64MachineInstr(
+            "stp",
+            {AArch64MachineOperand::physical_reg(
+                 static_cast<unsigned>(AArch64PhysicalReg::X29),
+                 AArch64VirtualRegKind::General64),
+             AArch64MachineOperand::physical_reg(
+                 static_cast<unsigned>(AArch64PhysicalReg::X30),
+                 AArch64VirtualRegKind::General64),
+             AArch64MachineOperand::memory_address_stack_pointer(
+                 "#-16", true,
+                 AArch64MachineMemoryAddressOperand::AddressMode::PreIndex)})});
     shell.push_back(AArch64StandardFrameShellOp{
         AArch64StandardFrameShellOpKind::EstablishFramePointer,
-        AArch64MachineInstr("mov x29, sp")});
+        AArch64MachineInstr(
+            "mov",
+            {AArch64MachineOperand::physical_reg(
+                 static_cast<unsigned>(AArch64PhysicalReg::X29),
+                 AArch64VirtualRegKind::General64),
+             AArch64MachineOperand::stack_pointer(true)})});
     if (frame_size > 0) {
         shell.push_back(AArch64StandardFrameShellOp{
             AArch64StandardFrameShellOpKind::AllocateLocalFrame,
-            AArch64MachineInstr("sub sp, sp, #" + std::to_string(frame_size))});
+            AArch64MachineInstr(
+                "sub",
+                {AArch64MachineOperand::stack_pointer(true),
+                 AArch64MachineOperand::stack_pointer(true),
+                 AArch64MachineOperand::immediate("#" +
+                                                  std::to_string(frame_size))})});
     }
     return shell;
 }
@@ -125,13 +158,28 @@ build_aarch64_standard_epilogue_shell(std::size_t frame_size) {
     if (frame_size > 0) {
         shell.push_back(AArch64StandardFrameShellOp{
             AArch64StandardFrameShellOpKind::DeallocateLocalFrame,
-            AArch64MachineInstr("add sp, sp, #" + std::to_string(frame_size))});
+            AArch64MachineInstr(
+                "add",
+                {AArch64MachineOperand::stack_pointer(true),
+                 AArch64MachineOperand::stack_pointer(true),
+                 AArch64MachineOperand::immediate("#" +
+                                                  std::to_string(frame_size))})});
     }
     shell.push_back(AArch64StandardFrameShellOp{
         AArch64StandardFrameShellOpKind::RestoreFrameRecord,
-        AArch64MachineInstr("ldp x29, x30, [sp], #16")});
+        AArch64MachineInstr(
+            "ldp",
+            {AArch64MachineOperand::physical_reg(
+                 static_cast<unsigned>(AArch64PhysicalReg::X29),
+                 AArch64VirtualRegKind::General64),
+             AArch64MachineOperand::physical_reg(
+                 static_cast<unsigned>(AArch64PhysicalReg::X30),
+                 AArch64VirtualRegKind::General64),
+             AArch64MachineOperand::memory_address_stack_pointer(
+                 "#16", true,
+                 AArch64MachineMemoryAddressOperand::AddressMode::PostIndex)})});
     shell.push_back(AArch64StandardFrameShellOp{
-        AArch64StandardFrameShellOpKind::Return, AArch64MachineInstr("ret")});
+        AArch64StandardFrameShellOpKind::Return, AArch64MachineInstr("ret", {})});
     return shell;
 }
 
@@ -150,34 +198,54 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
         bundle.frame_record_directives.push_back(
             AArch64CfiDirective{AArch64CfiDirectiveKind::Offset,
                                 static_cast<unsigned>(AArch64PhysicalReg::X30), -8});
-        bundle.asm_instructions.emplace_back(".cfi_def_cfa_offset 16");
-        bundle.asm_instructions.emplace_back(".cfi_offset 29, -16");
-        bundle.asm_instructions.emplace_back(".cfi_offset 30, -8");
+        bundle.asm_instructions.push_back(
+            cfi_instruction(".cfi_def_cfa_offset",
+                            {AArch64MachineOperand::immediate("16")}));
+        bundle.asm_instructions.push_back(
+            cfi_instruction(".cfi_offset",
+                            {AArch64MachineOperand::immediate("29"),
+                             AArch64MachineOperand::immediate("-16")}));
+        bundle.asm_instructions.push_back(
+            cfi_instruction(".cfi_offset",
+                            {AArch64MachineOperand::immediate("30"),
+                             AArch64MachineOperand::immediate("-8")}));
         break;
     case AArch64StandardFrameShellOpKind::EstablishFramePointer:
         bundle.frame_record_directives.push_back(
             AArch64CfiDirective{AArch64CfiDirectiveKind::DefCfaRegister,
                                 static_cast<unsigned>(AArch64PhysicalReg::X29), 0});
-        bundle.asm_instructions.emplace_back(".cfi_def_cfa_register 29");
+        bundle.asm_instructions.push_back(
+            cfi_instruction(".cfi_def_cfa_register",
+                            {AArch64MachineOperand::immediate("29")}));
         break;
     case AArch64StandardFrameShellOpKind::AllocateLocalFrame:
         bundle.frame_record_directives.push_back(
             AArch64CfiDirective{AArch64CfiDirectiveKind::DefCfaOffset,
                                 static_cast<unsigned>(AArch64PhysicalReg::X29),
                                 to_signed_offset(frame_size + 16)});
-        bundle.asm_instructions.emplace_back(".cfi_def_cfa_offset " +
-                                             std::to_string(frame_size + 16));
+        bundle.asm_instructions.push_back(cfi_instruction(
+            ".cfi_def_cfa_offset",
+            {AArch64MachineOperand::immediate(std::to_string(frame_size + 16))}));
         break;
     case AArch64StandardFrameShellOpKind::DeallocateLocalFrame:
-        bundle.asm_instructions.emplace_back(".cfi_def_cfa_offset 16");
+        bundle.asm_instructions.push_back(
+            cfi_instruction(".cfi_def_cfa_offset",
+                            {AArch64MachineOperand::immediate("16")}));
         break;
     case AArch64StandardFrameShellOpKind::RestoreFrameRecord:
-        bundle.asm_instructions.emplace_back(".cfi_restore 29");
-        bundle.asm_instructions.emplace_back(".cfi_restore 30");
-        bundle.asm_instructions.emplace_back(".cfi_def_cfa sp, 0");
+        bundle.asm_instructions.push_back(
+            cfi_instruction(".cfi_restore",
+                            {AArch64MachineOperand::immediate("29")}));
+        bundle.asm_instructions.push_back(
+            cfi_instruction(".cfi_restore",
+                            {AArch64MachineOperand::immediate("30")}));
+        bundle.asm_instructions.push_back(
+            cfi_instruction(".cfi_def_cfa",
+                            {AArch64MachineOperand::stack_pointer(true),
+                             AArch64MachineOperand::immediate("0")}));
         break;
     case AArch64StandardFrameShellOpKind::Return:
-        bundle.asm_instructions.emplace_back(".cfi_endproc");
+        bundle.asm_instructions.push_back(cfi_instruction(".cfi_endproc"));
         break;
     }
     return bundle;

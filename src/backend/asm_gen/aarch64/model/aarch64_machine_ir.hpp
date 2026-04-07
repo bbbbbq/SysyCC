@@ -17,12 +17,16 @@ namespace sysycc {
 class CoreIrStackSlot;
 
 enum class AArch64MachineOperandKind : unsigned char {
-    RawText,
     VirtualReg,
     PhysicalReg,
     Immediate,
     Symbol,
     Label,
+    ConditionCode,
+    ZeroRegister,
+    Shift,
+    StackPointer,
+    MemoryAddress,
 };
 
 struct AArch64MachineVirtualRegOperand {
@@ -35,12 +39,56 @@ struct AArch64MachinePhysicalRegOperand {
     AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
 };
 
+struct AArch64MachineConditionCodeOperand {
+    std::string code;
+};
+
+struct AArch64MachineZeroRegisterOperand {
+    bool use_64bit = false;
+};
+
+struct AArch64MachineShiftOperand {
+    std::string mnemonic;
+    unsigned amount = 0;
+};
+
+struct AArch64MachineStackPointerOperand {
+    bool use_64bit = true;
+};
+
+struct AArch64MachineMemoryAddressOperand {
+    enum class AddressMode : unsigned char {
+        Offset,
+        PreIndex,
+        PostIndex,
+    };
+
+    enum class BaseKind : unsigned char {
+        VirtualReg,
+        PhysicalReg,
+        StackPointer,
+    };
+
+    BaseKind base_kind = BaseKind::VirtualReg;
+    AArch64VirtualReg virtual_reg;
+    unsigned physical_reg = 0;
+    bool stack_pointer_use_64bit = true;
+    std::string offset_text;
+    AddressMode address_mode = AddressMode::Offset;
+};
+
 class AArch64MachineOperand {
   private:
     using Payload = std::variant<std::monostate, AArch64MachineVirtualRegOperand,
-                                 AArch64MachinePhysicalRegOperand, std::string>;
+                                 AArch64MachinePhysicalRegOperand,
+                                 AArch64MachineConditionCodeOperand,
+                                 AArch64MachineZeroRegisterOperand,
+                                 AArch64MachineShiftOperand,
+                                 AArch64MachineStackPointerOperand,
+                                 AArch64MachineMemoryAddressOperand,
+                                 std::string>;
 
-    AArch64MachineOperandKind kind_ = AArch64MachineOperandKind::RawText;
+    AArch64MachineOperandKind kind_ = AArch64MachineOperandKind::Immediate;
     std::string text_;
     Payload payload_;
 
@@ -50,9 +98,6 @@ class AArch64MachineOperand {
                           Payload payload);
 
   public:
-    explicit AArch64MachineOperand(std::string text);
-
-    static AArch64MachineOperand raw_text(std::string text);
     static AArch64MachineOperand use_virtual_reg(const AArch64VirtualReg &reg);
     static AArch64MachineOperand def_virtual_reg(const AArch64VirtualReg &reg);
     static AArch64MachineOperand physical_reg(unsigned reg_number,
@@ -60,11 +105,24 @@ class AArch64MachineOperand {
     static AArch64MachineOperand immediate(std::string text);
     static AArch64MachineOperand symbol(std::string text);
     static AArch64MachineOperand label(std::string text);
+    static AArch64MachineOperand condition_code(std::string code);
+    static AArch64MachineOperand zero_register(bool use_64bit);
+    static AArch64MachineOperand shift(std::string mnemonic, unsigned amount);
+    static AArch64MachineOperand stack_pointer(bool use_64bit = true);
+    static AArch64MachineOperand memory_address_virtual_reg(
+        const AArch64VirtualReg &reg, std::string offset_text = {},
+        AArch64MachineMemoryAddressOperand::AddressMode address_mode =
+            AArch64MachineMemoryAddressOperand::AddressMode::Offset);
+    static AArch64MachineOperand memory_address_physical_reg(
+        unsigned reg_number, std::string offset_text = {},
+        AArch64MachineMemoryAddressOperand::AddressMode address_mode =
+            AArch64MachineMemoryAddressOperand::AddressMode::Offset);
+    static AArch64MachineOperand memory_address_stack_pointer(
+        std::string offset_text = {}, bool use_64bit = true,
+        AArch64MachineMemoryAddressOperand::AddressMode address_mode =
+            AArch64MachineMemoryAddressOperand::AddressMode::Offset);
 
     AArch64MachineOperandKind get_kind() const noexcept { return kind_; }
-    bool is_raw_text() const noexcept {
-        return kind_ == AArch64MachineOperandKind::RawText;
-    }
     bool is_virtual_reg() const noexcept {
         return kind_ == AArch64MachineOperandKind::VirtualReg;
     }
@@ -78,6 +136,19 @@ class AArch64MachineOperand {
         return kind_ == AArch64MachineOperandKind::Symbol;
     }
     bool is_label() const noexcept { return kind_ == AArch64MachineOperandKind::Label; }
+    bool is_condition_code() const noexcept {
+        return kind_ == AArch64MachineOperandKind::ConditionCode;
+    }
+    bool is_zero_register() const noexcept {
+        return kind_ == AArch64MachineOperandKind::ZeroRegister;
+    }
+    bool is_shift() const noexcept { return kind_ == AArch64MachineOperandKind::Shift; }
+    bool is_stack_pointer() const noexcept {
+        return kind_ == AArch64MachineOperandKind::StackPointer;
+    }
+    bool is_memory_address() const noexcept {
+        return kind_ == AArch64MachineOperandKind::MemoryAddress;
+    }
 
     const std::string &get_text() const noexcept { return text_; }
     const std::string *get_string_payload() const noexcept {
@@ -87,6 +158,15 @@ class AArch64MachineOperand {
     get_virtual_reg_operand() const noexcept;
     const AArch64MachinePhysicalRegOperand *
     get_physical_reg_operand() const noexcept;
+    const AArch64MachineConditionCodeOperand *
+    get_condition_code_operand() const noexcept;
+    const AArch64MachineZeroRegisterOperand *
+    get_zero_register_operand() const noexcept;
+    const AArch64MachineShiftOperand *get_shift_operand() const noexcept;
+    const AArch64MachineStackPointerOperand *
+    get_stack_pointer_operand() const noexcept;
+    const AArch64MachineMemoryAddressOperand *
+    get_memory_address_operand() const noexcept;
 };
 
 class AArch64MachineInstr {
@@ -101,7 +181,6 @@ class AArch64MachineInstr {
     std::optional<AArch64CallClobberMask> call_clobber_mask_;
 
   public:
-    explicit AArch64MachineInstr(std::string text);
     AArch64MachineInstr(std::string mnemonic,
                         std::vector<AArch64MachineOperand> operands,
                         AArch64InstructionFlags flags = {},
@@ -150,9 +229,6 @@ class AArch64MachineBlock {
         return instructions_;
     }
 
-    void append_instruction(std::string text) {
-        instructions_.emplace_back(std::move(text));
-    }
     void append_instruction(AArch64MachineInstr instruction) {
         instructions_.push_back(std::move(instruction));
     }

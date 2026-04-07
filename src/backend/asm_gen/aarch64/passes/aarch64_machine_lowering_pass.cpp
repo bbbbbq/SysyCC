@@ -74,18 +74,6 @@ bool is_byte_string_global(const CoreIrGlobal &global) {
            byte_string->get_bytes().size() == array_type->get_element_count();
 }
 
-std::string general_register_name(unsigned index, bool use_64bit) {
-    return std::string(use_64bit ? "x" : "w") + std::to_string(index);
-}
-
-std::string floating_register_name(unsigned index, AArch64VirtualRegKind kind) {
-    return std::string(1, virtual_reg_suffix(kind)) + std::to_string(index);
-}
-
-std::string zero_register_name(bool use_64bit) {
-    return use_64bit ? "xzr" : "wzr";
-}
-
 std::string scalar_directive(const CoreIrType *type) {
     if (is_pointer_type(type) || get_storage_size(type) == 8) {
         return ".xword";
@@ -408,8 +396,11 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
             return;
         }
         machine_block.append_instruction(
-            ".loc " + std::to_string(debug_file_id) + " " +
-            std::to_string(line) + " " + std::to_string(column));
+            AArch64MachineInstr(
+                ".loc",
+                {AArch64MachineOperand::immediate(std::to_string(debug_file_id)),
+                 AArch64MachineOperand::immediate(std::to_string(line)),
+                 AArch64MachineOperand::immediate(std::to_string(column))}));
         state.debug_state.last_debug_file_id = debug_file_id;
         state.debug_state.last_debug_line = line;
         state.debug_state.last_debug_column = column;
@@ -664,12 +655,12 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
 
     bool append_memory_store(AArch64MachineBlock &machine_block,
                              const CoreIrType *type,
-                             const std::string &source_reg,
+                             const AArch64MachineOperand &source_operand,
                              const AArch64VirtualReg &address_reg,
                              std::size_t offset,
                              AArch64MachineFunction &function) {
         return sysycc::append_memory_store(machine_block, *this, type,
-                                           source_reg, address_reg, offset,
+                                           source_operand, address_reg, offset,
                                            function);
     }
 
@@ -764,9 +755,12 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
                               std::size_t offset,
                               AArch64MachineFunction &function) override {
         if (offset <= 4095) {
-            machine_block.append_instruction("sub " + def_vreg(target_reg) +
-                                             ", x29, #" +
-                                             std::to_string(offset));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "sub", {def_vreg_operand(target_reg),
+                        AArch64MachineOperand::physical_reg(
+                            static_cast<unsigned>(AArch64PhysicalReg::X29),
+                            AArch64VirtualRegKind::General64),
+                        AArch64MachineOperand::immediate("#" + std::to_string(offset))}));
             return;
         }
         const AArch64VirtualReg offset_reg =
@@ -774,8 +768,12 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         sysycc::materialize_integer_constant(
             machine_block, *this, create_fake_pointer_type(),
             static_cast<std::uint64_t>(offset), offset_reg);
-        machine_block.append_instruction("sub " + def_vreg(target_reg) +
-                                         ", x29, " + use_vreg(offset_reg));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "sub", {def_vreg_operand(target_reg),
+                    AArch64MachineOperand::physical_reg(
+                        static_cast<unsigned>(AArch64PhysicalReg::X29),
+                        AArch64VirtualRegKind::General64),
+                    use_vreg_operand(offset_reg)}));
     }
 
     bool add_constant_offset(AArch64MachineBlock &machine_block,
@@ -786,10 +784,10 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
             return true;
         }
         if (magnitude <= 4095) {
-            machine_block.append_instruction(
-                std::string(is_negative ? "sub " : "add ") +
-                def_vreg(base_reg) + ", " + use_vreg(base_reg) + ", #" +
-                std::to_string(magnitude));
+            machine_block.append_instruction(AArch64MachineInstr(
+                is_negative ? "sub" : "add",
+                {def_vreg_operand(base_reg), use_vreg_operand(base_reg),
+                 AArch64MachineOperand::immediate("#" + std::to_string(magnitude))}));
             return true;
         }
         const AArch64VirtualReg offset_reg =
@@ -799,9 +797,10 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
                                                   magnitude, offset_reg)) {
             return false;
         }
-        machine_block.append_instruction(
-            std::string(is_negative ? "sub " : "add ") + def_vreg(base_reg) +
-            ", " + use_vreg(base_reg) + ", " + use_vreg(offset_reg));
+        machine_block.append_instruction(AArch64MachineInstr(
+            is_negative ? "sub" : "add",
+            {def_vreg_operand(base_reg), use_vreg_operand(base_reg),
+             use_vreg_operand(offset_reg)}));
         return true;
     }
 
