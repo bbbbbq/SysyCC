@@ -473,5 +473,75 @@ int main() {
                std::string::npos);
         assert(text6.find("%sum.loop.") == std::string::npos);
     }
+    {
+        auto context7 = std::make_unique<CoreIrContext>();
+        auto *void_type7 = context7->create_type<CoreIrVoidType>();
+        auto *i1_type7 = context7->create_type<CoreIrIntegerType>(1);
+        auto *i32_type7 = context7->create_type<CoreIrIntegerType>(32);
+        auto *i32_type7_alt = context7->create_type<CoreIrIntegerType>(32);
+        auto *function_type7 = context7->create_type<CoreIrFunctionType>(
+            i32_type7, std::vector<const CoreIrType *>{}, false);
+        auto *module7 = context7->create_module<CoreIrModule>(
+            "ir_core_loop_memory_promotion_whole_slot_conditional_reset");
+        auto *function7 =
+            module7->create_function<CoreIrFunction>("main", function_type7, false);
+        auto *entry7 = function7->create_basic_block<CoreIrBasicBlock>("entry");
+        auto *header7 = function7->create_basic_block<CoreIrBasicBlock>("header");
+        auto *body7 = function7->create_basic_block<CoreIrBasicBlock>("body");
+        auto *reset7 = function7->create_basic_block<CoreIrBasicBlock>("reset");
+        auto *latch7 = function7->create_basic_block<CoreIrBasicBlock>("latch");
+        auto *exit7 = function7->create_basic_block<CoreIrBasicBlock>("exit");
+        auto *tank_slot7 =
+            function7->create_stack_slot<CoreIrStackSlot>("tank", i32_type7, 4);
+        auto *zero7 = context7->create_constant<CoreIrConstantInt>(i32_type7, 0);
+        auto *zero7_alt =
+            context7->create_constant<CoreIrConstantInt>(i32_type7_alt, 0);
+        auto *one7 = context7->create_constant<CoreIrConstantInt>(i32_type7, 1);
+        auto *two7 = context7->create_constant<CoreIrConstantInt>(i32_type7, 2);
+
+        entry7->create_instruction<CoreIrStoreInst>(void_type7, zero7, tank_slot7);
+        entry7->create_instruction<CoreIrJumpInst>(void_type7, header7);
+        auto *iv7 = header7->create_instruction<CoreIrPhiInst>(i32_type7, "iv");
+        auto *cmp7 = header7->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::SignedLess, i1_type7, "cmp", iv7, two7);
+        header7->create_instruction<CoreIrCondJumpInst>(void_type7, cmp7, body7, exit7);
+
+        auto *tank_load7 =
+            body7->create_instruction<CoreIrLoadInst>(i32_type7, "tank.load", tank_slot7);
+        auto *tank_next7 = body7->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type7, "tank.next", tank_load7, one7);
+        body7->create_instruction<CoreIrStoreInst>(void_type7, tank_next7, tank_slot7);
+        auto *reset_cmp7 = body7->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::Equal, i1_type7, "reset.cmp", iv7, zero7);
+        body7->create_instruction<CoreIrCondJumpInst>(void_type7, reset_cmp7, reset7,
+                                                      latch7);
+
+        reset7->create_instruction<CoreIrStoreInst>(void_type7, zero7_alt, tank_slot7);
+        reset7->create_instruction<CoreIrJumpInst>(void_type7, latch7);
+
+        auto *next_iv7 = latch7->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type7, "iv.next", iv7, one7);
+        latch7->create_instruction<CoreIrJumpInst>(void_type7, header7);
+
+        auto *tank_exit7 =
+            exit7->create_instruction<CoreIrLoadInst>(i32_type7, "tank.exit", tank_slot7);
+        exit7->create_instruction<CoreIrReturnInst>(void_type7, tank_exit7);
+        iv7->add_incoming(entry7, zero7);
+        iv7->add_incoming(latch7, next_iv7);
+
+        CompilerContext compiler_context7;
+        compiler_context7.set_core_ir_build_result(
+            std::make_unique<CoreIrBuildResult>(std::move(context7), module7));
+        CoreIrLcssaPass lcssa7;
+        assert(lcssa7.Run(compiler_context7).ok);
+        CoreIrLoopMemoryPromotionPass pass7;
+        assert(pass7.Run(compiler_context7).ok);
+
+        const std::string text7 = printer.print_module(*module7);
+        assert(text7.find("%tank.load = load i32, %tank") != std::string::npos);
+        assert(text7.find("store i32 %tank.next, %tank") != std::string::npos);
+        assert(text7.find("store i32 0, %tank") != std::string::npos);
+        assert(text7.find("%tank.loop.") == std::string::npos);
+    }
     return 0;
 }

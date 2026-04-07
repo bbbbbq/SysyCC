@@ -10,6 +10,7 @@
 #include "backend/ir/analysis/cfg_analysis.hpp"
 #include "backend/ir/analysis/dominance_frontier_analysis.hpp"
 #include "backend/ir/analysis/dominator_tree_analysis.hpp"
+#include "backend/ir/shared/detail/core_ir_rewrite_utils.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -498,7 +499,7 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
             const CoreIrType *leaf_type =
                 resolve_access_path_type(slot->get_allocated_type(), access.access_path);
             if (leaf_type == nullptr || !is_scalar_promotable_type(leaf_type) ||
-                access.value_type != leaf_type) {
+                !detail::are_equivalent_types(access.value_type, leaf_type)) {
                 rejected_slot_list.push_back(
                     CoreIrRejectedStackSlot{slot.get(),
                                             leaf_type == nullptr

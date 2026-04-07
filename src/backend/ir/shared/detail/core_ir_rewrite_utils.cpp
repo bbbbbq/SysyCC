@@ -16,6 +16,71 @@ const CoreIrIntegerType *as_integer_type(const CoreIrType *type) {
     return dynamic_cast<const CoreIrIntegerType *>(type);
 }
 
+bool are_equivalent_types(const CoreIrType *lhs, const CoreIrType *rhs) {
+    if (lhs == rhs) {
+        return true;
+    }
+    if (lhs == nullptr || rhs == nullptr || lhs->get_kind() != rhs->get_kind()) {
+        return false;
+    }
+    switch (lhs->get_kind()) {
+    case CoreIrTypeKind::Void:
+        return true;
+    case CoreIrTypeKind::Integer:
+        return static_cast<const CoreIrIntegerType *>(lhs)->get_bit_width() ==
+               static_cast<const CoreIrIntegerType *>(rhs)->get_bit_width();
+    case CoreIrTypeKind::Float:
+        return static_cast<const CoreIrFloatType *>(lhs)->get_float_kind() ==
+               static_cast<const CoreIrFloatType *>(rhs)->get_float_kind();
+    case CoreIrTypeKind::Pointer:
+        return are_equivalent_types(
+            static_cast<const CoreIrPointerType *>(lhs)->get_pointee_type(),
+            static_cast<const CoreIrPointerType *>(rhs)->get_pointee_type());
+    case CoreIrTypeKind::Array:
+        return static_cast<const CoreIrArrayType *>(lhs)->get_element_count() ==
+                   static_cast<const CoreIrArrayType *>(rhs)->get_element_count() &&
+               are_equivalent_types(
+                   static_cast<const CoreIrArrayType *>(lhs)->get_element_type(),
+                   static_cast<const CoreIrArrayType *>(rhs)->get_element_type());
+    case CoreIrTypeKind::Struct: {
+        const auto &lhs_elements =
+            static_cast<const CoreIrStructType *>(lhs)->get_element_types();
+        const auto &rhs_elements =
+            static_cast<const CoreIrStructType *>(rhs)->get_element_types();
+        if (lhs_elements.size() != rhs_elements.size()) {
+            return false;
+        }
+        for (std::size_t index = 0; index < lhs_elements.size(); ++index) {
+            if (!are_equivalent_types(lhs_elements[index], rhs_elements[index])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    case CoreIrTypeKind::Function: {
+        const auto *lhs_function = static_cast<const CoreIrFunctionType *>(lhs);
+        const auto *rhs_function = static_cast<const CoreIrFunctionType *>(rhs);
+        if (lhs_function->get_is_variadic() != rhs_function->get_is_variadic() ||
+            !are_equivalent_types(lhs_function->get_return_type(),
+                                  rhs_function->get_return_type())) {
+            return false;
+        }
+        const auto &lhs_parameters = lhs_function->get_parameter_types();
+        const auto &rhs_parameters = rhs_function->get_parameter_types();
+        if (lhs_parameters.size() != rhs_parameters.size()) {
+            return false;
+        }
+        for (std::size_t index = 0; index < lhs_parameters.size(); ++index) {
+            if (!are_equivalent_types(lhs_parameters[index], rhs_parameters[index])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    }
+    return false;
+}
+
 const CoreIrConstantInt *as_integer_constant(const CoreIrValue *value) {
     return dynamic_cast<const CoreIrConstantInt *>(value);
 }

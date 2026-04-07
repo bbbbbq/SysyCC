@@ -141,7 +141,7 @@ bool access_info_matches_path(const UnitLoopAccessInfo &access_info,
                               const std::vector<std::uint64_t> &path,
                               const CoreIrType *value_type) {
     if (stack_slot == nullptr || access_info.slot != stack_slot ||
-        access_info.value_type != value_type) {
+        !detail::are_equivalent_types(access_info.value_type, value_type)) {
         return false;
     }
     if (access_info.kind == CoreIrPromotionUnitKind::WholeSlot) {
@@ -311,7 +311,8 @@ collect_loop_unit_accesses(const CoreIrLoopInfo &loop,
 
             const CoreIrType *leaf_type =
                 resolve_access_path_type(stack_slot->get_allocated_type(), path);
-            if (leaf_type == nullptr || value_type != leaf_type) {
+            if (leaf_type == nullptr ||
+                !detail::are_equivalent_types(value_type, leaf_type)) {
                 continue;
             }
 
@@ -955,6 +956,31 @@ bool exit_blocks_contain_local_store_conflict(const CoreIrLoopInfo &loop,
     return false;
 }
 
+bool whole_slot_has_multiple_loop_local_stores(const CoreIrLoopInfo &loop,
+                                               const UnitLoopAccessInfo &access_info) {
+    if (access_info.kind != CoreIrPromotionUnitKind::WholeSlot) {
+        return false;
+    }
+
+    std::size_t matching_stores = 0;
+    for (CoreIrBasicBlock *block : loop.get_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+            if (store == nullptr || !instruction_matches_access_info(*store, access_info)) {
+                continue;
+            }
+            ++matching_stores;
+            if (matching_stores > 1) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool whole_slot_accesses_nested_subloop(const CoreIrLoopInfo &loop,
                                         const UnitLoopAccessInfo &access_info) {
     if (access_info.kind != CoreIrPromotionUnitKind::WholeSlot) {
@@ -1004,6 +1030,14 @@ bool can_promote_slot_in_loop(const CoreIrFunction &function,
     }
     if (access_info.kind == CoreIrPromotionUnitKind::WholeSlot &&
         access_info.def_blocks.size() > 1) {
+        return false;
+    }
+    // Whole-slot promotion currently tracks one live value per renamed path.
+    // Once a loop writes the same slot twice in one iteration, especially
+    // across a conditional reset edge, that single-stack model can bypass the
+    // later store. Keep those shapes in memory until the promotion logic grows
+    // a per-edge merge model for whole-slot scalars.
+    if (whole_slot_has_multiple_loop_local_stores(loop, access_info)) {
         return false;
     }
     // Outer-loop promotion can bypass loop-local reset stores on the edge into an

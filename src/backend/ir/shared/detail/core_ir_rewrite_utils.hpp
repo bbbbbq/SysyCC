@@ -21,6 +21,7 @@ enum class CoreIrCastKind : unsigned char;
 namespace detail {
 
 const CoreIrIntegerType *as_integer_type(const CoreIrType *type);
+bool are_equivalent_types(const CoreIrType *lhs, const CoreIrType *rhs);
 const CoreIrConstantInt *as_integer_constant(const CoreIrValue *value);
 bool is_zero_integer_constant(const CoreIrValue *value);
 bool is_one_integer_constant(const CoreIrValue *value);
