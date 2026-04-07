@@ -5,44 +5,15 @@
 #include <unordered_map>
 #include <vector>
 
+#include "backend/asm_gen/aarch64/model/aarch64_target_constraints.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_frame_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
 
 namespace {
-
-constexpr unsigned kSpillScratchPhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::X24),
-    static_cast<unsigned>(AArch64PhysicalReg::X25),
-    static_cast<unsigned>(AArch64PhysicalReg::X26),
-    static_cast<unsigned>(AArch64PhysicalReg::X27),
-};
-constexpr unsigned kSpillAddressPhysicalReg =
-    static_cast<unsigned>(AArch64PhysicalReg::X28);
-constexpr unsigned kSpillScratchFloatPhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::V28),
-    static_cast<unsigned>(AArch64PhysicalReg::V29),
-    static_cast<unsigned>(AArch64PhysicalReg::V30),
-    static_cast<unsigned>(AArch64PhysicalReg::V31),
-};
-
-std::size_t virtual_reg_size(AArch64VirtualRegKind kind) {
-    switch (kind) {
-    case AArch64VirtualRegKind::General32:
-    case AArch64VirtualRegKind::Float32:
-        return 4;
-    case AArch64VirtualRegKind::General64:
-    case AArch64VirtualRegKind::Float64:
-        return 8;
-    case AArch64VirtualRegKind::Float16:
-        return 2;
-    case AArch64VirtualRegKind::Float128:
-        return 16;
-    }
-    return 4;
-}
 
 std::vector<ParsedVirtualRegRef>
 collect_spilled_virtual_refs(const AArch64MachineOperand &operand,
@@ -187,8 +158,8 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
     }
 
     if (large_general_operands.size() + small_general_operands.size() >
-            std::size(kSpillScratchPhysicalRegs) ||
-        float_operands.size() > std::size(kSpillScratchFloatPhysicalRegs)) {
+            std::size(kAArch64SpillScratchGeneralPhysicalRegs) ||
+        float_operands.size() > std::size(kAArch64SpillScratchFloatPhysicalRegs)) {
         plan.unassigned_operands = plan.operands;
         return plan;
     }
@@ -202,15 +173,15 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
 
     for (const AArch64SpillRewriteOperand *operand : large_general_operands) {
         assign_general_operand(*operand,
-                               kSpillScratchPhysicalRegs[next_general_scratch++]);
+                               kAArch64SpillScratchGeneralPhysicalRegs[next_general_scratch++]);
     }
     for (const AArch64SpillRewriteOperand *operand : small_general_operands) {
         assign_general_operand(*operand,
-                               kSpillScratchPhysicalRegs[next_general_scratch++]);
+                               kAArch64SpillScratchGeneralPhysicalRegs[next_general_scratch++]);
     }
     for (std::size_t index = 0; index < float_operands.size(); ++index) {
         plan.assignments.push_back(AArch64ScratchAssignment{
-            float_operands[index]->ref.id, kSpillScratchFloatPhysicalRegs[index],
+            float_operands[index]->ref.id, kAArch64SpillScratchFloatPhysicalRegs[index],
             float_operands[index]->ref.kind});
     }
 
@@ -344,7 +315,7 @@ bool AArch64SpillRewritePass::run(AArch64MachineFunction &function,
             }
             if (rewrite_plan.needs_address_scratch) {
                 function.get_frame_info().mark_saved_physical_reg(
-                    kSpillAddressPhysicalReg);
+                    kAArch64SpillAddressPhysicalReg);
             }
 
             for (const AArch64SpillRewriteStep &step : rewrite_plan.steps) {
@@ -359,7 +330,7 @@ bool AArch64SpillRewritePass::run(AArch64MachineFunction &function,
                     append_physical_frame_load(
                         rewritten, step.physical_reg, step.virtual_reg_kind,
                         virtual_reg_size(step.virtual_reg_kind), *maybe_offset,
-                        kSpillAddressPhysicalReg);
+                        kAArch64SpillAddressPhysicalReg);
                     break;
                 }
                 case AArch64SpillRewriteStep::Kind::EmitInstruction:
@@ -377,7 +348,7 @@ bool AArch64SpillRewritePass::run(AArch64MachineFunction &function,
                     append_physical_frame_store(
                         rewritten, step.physical_reg, step.virtual_reg_kind,
                         virtual_reg_size(step.virtual_reg_kind), *maybe_offset,
-                        kSpillAddressPhysicalReg);
+                        kAArch64SpillAddressPhysicalReg);
                     break;
                 }
                 }
