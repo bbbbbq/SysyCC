@@ -163,8 +163,9 @@ bool materialize_integer_constant(AArch64MachineBlock &machine_block,
             std::to_string(piece * 16U));
     }
     if (!emitted) {
-        machine_block.append_instruction("mov " + def_vreg(target_reg) + ", " +
-                                         zero_register_name(target_reg.get_use_64bit()));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov",
+            {def_vreg_operand(target_reg), zero_register_operand(target_reg.get_use_64bit())}));
     }
     context.apply_truncate_to_virtual_reg(machine_block, target_reg, type);
     return true;
@@ -197,10 +198,11 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
                                              temp_bits)) {
                 return false;
             }
-            machine_block.append_instruction("fmov " + def_vreg(temp_float) + ", " +
-                                             use_vreg(temp_bits));
-            machine_block.append_instruction("fcvtn " + def_vreg(target_reg) + ", " +
-                                             use_vreg(temp_float));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "fmov", {def_vreg_operand(temp_float), use_vreg_operand(temp_bits)}));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "fcvtn", {def_vreg_operand(target_reg),
+                          use_vreg_operand(temp_float)}));
             return true;
         }
         case CoreIrFloatKind::Float32: {
@@ -214,8 +216,8 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
                                              temp)) {
                 return false;
             }
-            machine_block.append_instruction("fmov " + def_vreg(target_reg) + ", " +
-                                             use_vreg(temp));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "fmov", {def_vreg_operand(target_reg), use_vreg_operand(temp)}));
             return true;
         }
         case CoreIrFloatKind::Float64: {
@@ -229,8 +231,8 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
                                              temp)) {
                 return false;
             }
-            machine_block.append_instruction("fmov " + def_vreg(target_reg) + ", " +
-                                             use_vreg(temp));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "fmov", {def_vreg_operand(target_reg), use_vreg_operand(temp)}));
             return true;
         }
         case CoreIrFloatKind::Float128: {
@@ -252,8 +254,8 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
                                              temp_bits)) {
                 return false;
             }
-            machine_block.append_instruction("fmov " + def_vreg(temp_double) + ", " +
-                                             use_vreg(temp_bits));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "fmov", {def_vreg_operand(temp_double), use_vreg_operand(temp_bits)}));
             context.append_copy_to_physical_reg(
                 machine_block, static_cast<unsigned>(AArch64PhysicalReg::V0),
                 AArch64VirtualRegKind::Float64, temp_double);
