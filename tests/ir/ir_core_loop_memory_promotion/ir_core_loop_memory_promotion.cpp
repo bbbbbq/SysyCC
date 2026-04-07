@@ -543,5 +543,92 @@ int main() {
         assert(text7.find("store i32 0, %tank") != std::string::npos);
         assert(text7.find("%tank.loop.") == std::string::npos);
     }
+    {
+        auto context8 = std::make_unique<CoreIrContext>();
+        auto *void_type8 = context8->create_type<CoreIrVoidType>();
+        auto *i1_type8 = context8->create_type<CoreIrIntegerType>(1);
+        auto *i32_type8 = context8->create_type<CoreIrIntegerType>(32);
+        auto *array2_i32_8 = context8->create_type<CoreIrArrayType>(i32_type8, 2);
+        auto *ptr_array2_i32_8 =
+            context8->create_type<CoreIrPointerType>(array2_i32_8);
+        auto *ptr_i32_type8 = context8->create_type<CoreIrPointerType>(i32_type8);
+        auto *function_type8 = context8->create_type<CoreIrFunctionType>(
+            i32_type8, std::vector<const CoreIrType *>{}, false);
+        auto *module8 = context8->create_module<CoreIrModule>(
+            "ir_core_loop_memory_promotion_access_path_exit_store");
+        auto *function8 =
+            module8->create_function<CoreIrFunction>("main", function_type8, false);
+        auto *entry8 = function8->create_basic_block<CoreIrBasicBlock>("entry");
+        auto *header8 = function8->create_basic_block<CoreIrBasicBlock>("header");
+        auto *body8 = function8->create_basic_block<CoreIrBasicBlock>("body");
+        auto *exit8 = function8->create_basic_block<CoreIrBasicBlock>("exit");
+        auto *state8 =
+            function8->create_stack_slot<CoreIrStackSlot>("state", array2_i32_8, 4);
+        auto *zero8 = context8->create_constant<CoreIrConstantInt>(i32_type8, 0);
+        auto *one8 = context8->create_constant<CoreIrConstantInt>(i32_type8, 1);
+        auto *three8 = context8->create_constant<CoreIrConstantInt>(i32_type8, 3);
+        auto *five8 = context8->create_constant<CoreIrConstantInt>(i32_type8, 5);
+
+        auto *entry_state_addr8 =
+            entry8->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_8, "state.addr", state8);
+        auto *entry_field0_addr8 = entry8->create_instruction<CoreIrGetElementPtrInst>(
+            ptr_i32_type8, "field0.addr", entry_state_addr8,
+            std::vector<CoreIrValue *>{zero8, zero8});
+        entry8->create_instruction<CoreIrStoreInst>(void_type8, zero8,
+                                                    entry_field0_addr8);
+        entry8->create_instruction<CoreIrJumpInst>(void_type8, header8);
+        auto *iv8 = header8->create_instruction<CoreIrPhiInst>(i32_type8, "iv");
+        auto *cmp8 = header8->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::SignedLess, i1_type8, "cmp", iv8, three8);
+        header8->create_instruction<CoreIrCondJumpInst>(void_type8, cmp8, body8, exit8);
+
+        auto *loop_state_addr8 =
+            body8->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_8, "state.addr.loop", state8);
+        auto *loop_field0_addr8 = body8->create_instruction<CoreIrGetElementPtrInst>(
+            ptr_i32_type8, "field0.addr.loop", loop_state_addr8,
+            std::vector<CoreIrValue *>{zero8, zero8});
+        auto *field0_load8 = body8->create_instruction<CoreIrLoadInst>(
+            i32_type8, "field0.load", loop_field0_addr8);
+        auto *field0_next8 = body8->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type8, "field0.next", field0_load8, one8);
+        body8->create_instruction<CoreIrStoreInst>(void_type8, field0_next8,
+                                                   loop_field0_addr8);
+        auto *next_iv8 = body8->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type8, "iv.next", iv8, one8);
+        body8->create_instruction<CoreIrJumpInst>(void_type8, header8);
+
+        auto *exit_state_addr8 =
+            exit8->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_8, "state.addr.exit", state8);
+        auto *exit_field0_addr8 = exit8->create_instruction<CoreIrGetElementPtrInst>(
+            ptr_i32_type8, "field0.addr.exit", exit_state_addr8,
+            std::vector<CoreIrValue *>{zero8, zero8});
+        auto *exit_load8 = exit8->create_instruction<CoreIrLoadInst>(
+            i32_type8, "field0.exit", exit_field0_addr8);
+        auto *exit_value8 = exit8->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type8, "field0.after", exit_load8, five8);
+        exit8->create_instruction<CoreIrStoreInst>(void_type8, exit_value8,
+                                                   exit_field0_addr8);
+        exit8->create_instruction<CoreIrReturnInst>(void_type8, exit_value8);
+        iv8->add_incoming(entry8, zero8);
+        iv8->add_incoming(body8, next_iv8);
+
+        CompilerContext compiler_context8;
+        compiler_context8.set_core_ir_build_result(
+            std::make_unique<CoreIrBuildResult>(std::move(context8), module8));
+        CoreIrLcssaPass lcssa8;
+        assert(lcssa8.Run(compiler_context8).ok);
+        CoreIrLoopMemoryPromotionPass pass8;
+        assert(pass8.Run(compiler_context8).ok);
+
+        const std::string text8 = printer.print_module(*module8);
+        assert(text8.find("%field0.load = load i32") == std::string::npos);
+        assert(text8.find("store i32 %field0.next") == std::string::npos);
+        assert(text8.find("%field0.exit = load i32") == std::string::npos);
+        assert(text8.find("%state.loop.") != std::string::npos);
+        assert(text8.find("store i32 %field0.after") != std::string::npos);
+    }
     return 0;
 }
