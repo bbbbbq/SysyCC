@@ -51,10 +51,14 @@ struct ParsedVirtualRegRef {
 };
 
 std::vector<ParsedVirtualRegRef> parse_virtual_reg_refs(const std::string &text);
+std::vector<ParsedVirtualRegRef>
+collect_virtual_reg_refs(const AArch64MachineOperand &operand);
 std::vector<std::size_t> collect_explicit_vreg_ids(
     const std::vector<AArch64MachineOperand> &operands, bool defs);
 std::string substitute_virtual_registers(const std::string &text,
                                          const AArch64MachineFunction &function);
+std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
+                                           const AArch64MachineFunction &function);
 std::string render_vector_move_operand(const std::string &text);
 
 } // namespace sysycc
