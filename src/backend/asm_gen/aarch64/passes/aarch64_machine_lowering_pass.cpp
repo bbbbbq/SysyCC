@@ -415,6 +415,58 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         return function.create_virtual_reg(AArch64VirtualRegKind::General64);
     }
 
+    auto make_function_planning_context() {
+        return make_aarch64_function_planning_context(
+            [this](const std::string &message) {
+                add_backend_error(diagnostic_engine_, message);
+            },
+            [this](AArch64MachineFunction &function, const CoreIrType *type) {
+                return create_virtual_reg(function, type);
+            },
+            [this](AArch64MachineFunction &function) {
+                return create_pointer_virtual_reg(function);
+            },
+            [this](const CoreIrCallInst &call) {
+                return abi_lowering_pass_.classify_call(call);
+            });
+    }
+
+    auto make_phi_plan_context() {
+        return make_aarch64_phi_plan_context(
+            [this](const std::string &message) {
+                add_backend_error(diagnostic_engine_, message);
+            },
+            [this](const CoreIrBasicBlock *block) -> const std::string & {
+                return block_labels_.at(block);
+            });
+    }
+
+    auto make_phi_copy_context(const FunctionState &state) {
+        return make_aarch64_phi_copy_lowering_context(
+            [this](const std::string &message) {
+                add_backend_error(diagnostic_engine_, message);
+            },
+            [this, &state](const CoreIrValue *value, AArch64VirtualReg &out) {
+                return require_canonical_vreg(state, value, out);
+            },
+            [this, &state](const CoreIrValue *value, AArch64VirtualReg &out) {
+                if (const AArch64ValueLocation *location =
+                        lookup_value_location(state, value);
+                    location != nullptr &&
+                    location->kind == AArch64ValueLocationKind::VirtualReg &&
+                    location->virtual_reg.is_valid()) {
+                    out = location->virtual_reg;
+                    return true;
+                }
+                return false;
+            },
+            [this, &state](AArch64MachineBlock &machine_block,
+                           const CoreIrValue *value,
+                           const AArch64VirtualReg &target_reg) {
+                return materialize_value(machine_block, value, target_reg, state);
+            });
+    }
+
     void append_copy_from_physical_reg(AArch64MachineBlock &machine_block,
                                        const AArch64VirtualReg &target_reg,
                                        unsigned physical_reg,
@@ -497,19 +549,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
     bool seed_function_value_locations(const CoreIrFunction &function,
                                        FunctionState &state,
                                        std::size_t &current_offset) {
-        auto planning_context = make_aarch64_function_planning_context(
-            [this](const std::string &message) {
-                add_backend_error(diagnostic_engine_, message);
-            },
-            [this](AArch64MachineFunction &function, const CoreIrType *type) {
-                return create_virtual_reg(function, type);
-            },
-            [this](AArch64MachineFunction &function) {
-                return create_pointer_virtual_reg(function);
-            },
-            [this](const CoreIrCallInst &call) {
-                return abi_lowering_pass_.classify_call(call);
-            });
+        auto planning_context = make_function_planning_context();
         return sysycc::seed_function_value_locations(
             function, *state.machine_function, state.value_locations,
             state.aggregate_value_offsets, current_offset, planning_context);
@@ -572,19 +612,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         if (function.get_basic_blocks().empty()) {
             return true;
         }
-        auto planning_context = make_aarch64_function_planning_context(
-            [this](const std::string &message) {
-                add_backend_error(diagnostic_engine_, message);
-            },
-            [this](AArch64MachineFunction &function, const CoreIrType *type) {
-                return create_virtual_reg(function, type);
-            },
-            [this](AArch64MachineFunction &function) {
-                return create_pointer_virtual_reg(function);
-            },
-            [this](const CoreIrCallInst &call) {
-                return abi_lowering_pass_.classify_call(call);
-            });
+        auto planning_context = make_function_planning_context();
         if (!sysycc::validate_function_lowering_readiness(function,
                                                           planning_context)) {
             return false;
@@ -609,19 +637,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         if (!seed_function_value_locations(function, state, current_offset)) {
             return false;
         }
-        auto copy_slot_planning_context = make_aarch64_function_planning_context(
-            [this](const std::string &message) {
-                add_backend_error(diagnostic_engine_, message);
-            },
-            [this](AArch64MachineFunction &function, const CoreIrType *type) {
-                return create_virtual_reg(function, type);
-            },
-            [this](AArch64MachineFunction &function) {
-                return create_pointer_virtual_reg(function);
-            },
-            [this](const CoreIrCallInst &call) {
-                return abi_lowering_pass_.classify_call(call);
-            });
+        auto copy_slot_planning_context = make_function_planning_context();
         sysycc::seed_call_argument_copy_slots(
             function, state.indirect_call_argument_copy_offsets, current_offset,
             copy_slot_planning_context);
@@ -636,13 +652,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         block_labels_ = build_aarch64_function_block_labels(function, function_name);
         state.phi_edge_labels.clear();
         state.phi_edge_plans.clear();
-        auto phi_plan_context = make_aarch64_phi_plan_context(
-            [this](const std::string &message) {
-                add_backend_error(diagnostic_engine_, message);
-            },
-            [this](const CoreIrBasicBlock *block) -> const std::string & {
-                return block_labels_.at(block);
-            });
+        auto phi_plan_context = make_phi_plan_context();
         if (!sysycc::build_phi_edge_plans(function, phi_plan_context,
                                           state.phi_edge_labels,
                                           state.phi_edge_plans)) {
@@ -863,29 +873,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                              const FunctionState &state) {
         AArch64MachineBlock &edge_block =
             machine_function.append_block(plan.edge_label);
-        auto phi_context = make_aarch64_phi_copy_lowering_context(
-            [this](const std::string &message) {
-                add_backend_error(diagnostic_engine_, message);
-            },
-            [this, &state](const CoreIrValue *value, AArch64VirtualReg &out) {
-                return require_canonical_vreg(state, value, out);
-            },
-            [this, &state](const CoreIrValue *value, AArch64VirtualReg &out) {
-                if (const AArch64ValueLocation *location =
-                        lookup_value_location(state, value);
-                    location != nullptr &&
-                    location->kind == AArch64ValueLocationKind::VirtualReg &&
-                    location->virtual_reg.is_valid()) {
-                    out = location->virtual_reg;
-                    return true;
-                }
-                return false;
-            },
-            [this, &state](AArch64MachineBlock &machine_block,
-                           const CoreIrValue *value,
-                           const AArch64VirtualReg &target_reg) {
-                return materialize_value(machine_block, value, target_reg, state);
-            });
+        auto phi_context = make_phi_copy_context(state);
         if (!sysycc::emit_parallel_phi_copies(edge_block, plan, machine_function,
                                               phi_context)) {
             return false;
