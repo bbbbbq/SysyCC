@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "backend/asm_gen/aarch64/support/aarch64_frame_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 
 namespace sysycc {
@@ -63,30 +64,16 @@ void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
 
     const std::vector<AArch64MachineInstr> existing_prologue =
         function.get_blocks().front().get_instructions();
-    std::size_t prologue_prefix_size = 0;
-    if (existing_prologue.size() >= 2 &&
-        existing_prologue[0].get_mnemonic() == "stp" &&
-        existing_prologue[1].get_mnemonic() == "mov") {
-        prologue_prefix_size = 2;
-        if (existing_prologue.size() >= 3 &&
-            existing_prologue[2].get_mnemonic() == "sub") {
-            prologue_prefix_size = 3;
-        }
-    }
+    const std::size_t prologue_prefix_size =
+        count_aarch64_standard_prologue_prefix(existing_prologue);
 
     std::vector<AArch64MachineInstr> prologue;
     prologue.emplace_back(".cfi_startproc");
-    prologue.emplace_back("stp x29, x30, [sp, #-16]!");
-    prologue.emplace_back(".cfi_def_cfa_offset 16");
-    prologue.emplace_back(".cfi_offset 29, -16");
-    prologue.emplace_back(".cfi_offset 30, -8");
-    prologue.emplace_back("mov x29, sp");
-    prologue.emplace_back(".cfi_def_cfa_register 29");
-    if (function.get_frame_info().get_frame_size() > 0) {
-        prologue.emplace_back("sub sp, sp, #" +
-                              std::to_string(function.get_frame_info().get_frame_size()));
-        prologue.emplace_back(".cfi_def_cfa_offset " +
-                              std::to_string(function.get_frame_info().get_frame_size() + 16));
+    const std::size_t frame_size = function.get_frame_info().get_frame_size();
+    for (const AArch64StandardFrameShellOp &op :
+         build_aarch64_standard_prologue_shell(frame_size)) {
+        prologue.push_back(op.instruction);
+        append_aarch64_asm_cfi_for_shell_op(prologue, op.kind, frame_size);
     }
     for (unsigned reg : function.get_frame_info().get_saved_physical_regs()) {
         append_saved_reg_store(prologue, reg,
@@ -110,17 +97,11 @@ void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
         epilogue.emplace_back(".cfi_restore " +
                               std::to_string(dwarf_register_number(*it)));
     }
-    if (function.get_frame_info().get_frame_size() > 0) {
-        epilogue.emplace_back("add sp, sp, #" +
-                              std::to_string(function.get_frame_info().get_frame_size()));
-        epilogue.emplace_back(".cfi_def_cfa_offset 16");
+    for (const AArch64StandardFrameShellOp &op :
+         build_aarch64_standard_epilogue_shell(frame_size)) {
+        epilogue.push_back(op.instruction);
+        append_aarch64_asm_cfi_for_shell_op(epilogue, op.kind, frame_size);
     }
-    epilogue.emplace_back("ldp x29, x30, [sp], #16");
-    epilogue.emplace_back(".cfi_restore 29");
-    epilogue.emplace_back(".cfi_restore 30");
-    epilogue.emplace_back(".cfi_def_cfa sp, 0");
-    epilogue.emplace_back("ret");
-    epilogue.emplace_back(".cfi_endproc");
     function.get_blocks().back().get_instructions() = std::move(epilogue);
 }
 
