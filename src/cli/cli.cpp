@@ -79,6 +79,23 @@ bool parse_language_mode(const std::string &mode_name,
     return false;
 }
 
+bool parse_optimization_level(const std::string &arg,
+                              sysycc::OptimizationLevel &optimization_level,
+                              std::string &unsupported_level) {
+    if (arg == "-O" || arg == "-O1") {
+        optimization_level = sysycc::OptimizationLevel::O1;
+        return true;
+    }
+    if (arg == "-O0") {
+        optimization_level = sysycc::OptimizationLevel::O0;
+        return true;
+    }
+    if (arg.rfind("-O", 0) == 0) {
+        unsupported_level = arg.substr(2);
+    }
+    return false;
+}
+
 void apply_language_mode_defaults(sysycc::LanguageMode language_mode,
                                   bool &enable_gnu_dialect,
                                   bool &enable_clang_dialect,
@@ -124,17 +141,20 @@ bool is_valid_identifier(const std::string &text) {
 
 std::string detect_program_name(const char *argv0) {
     if (argv0 == nullptr || argv0[0] == '\0') {
-        return "sysycc";
+        return "compiler";
     }
     const std::filesystem::path executable_path(argv0);
     const std::string file_name = executable_path.filename().string();
     if (file_name.empty()) {
-        return "sysycc";
+        return "compiler";
     }
 
     std::string normalized_name = file_name;
     for (char &ch : normalized_name) {
         ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    if (normalized_name == "sysycc") {
+        return "compiler";
     }
     return normalized_name;
 }
@@ -185,9 +205,7 @@ bool Cli::finalize_driver_mode() {
     } else if (request_syntax_only_) {
         driver_action_ = sysycc::DriverAction::SyntaxOnly;
     } else if (request_compile_only_) {
-        driver_action_ = sysycc::DriverAction::CompileOnlyUnsupported;
-        emit_error("object emission is not supported yet; use -E, -fsyntax-only, -S, or -S -emit-llvm");
-        return false;
+        driver_action_ = sysycc::DriverAction::CompileOnly;
     } else if (request_emit_assembly_ && request_emit_llvm_) {
         driver_action_ = sysycc::DriverAction::EmitLlvmIr;
     } else if (request_emit_assembly_) {
@@ -197,9 +215,14 @@ bool Cli::finalize_driver_mode() {
             driver_action_ = sysycc::DriverAction::InternalPipeline;
         } else {
             driver_action_ = sysycc::DriverAction::FullCompile;
-            emit_error("linking is not supported yet; use -E, -fsyntax-only, -S, or -S -emit-llvm");
+            emit_error("linking is not supported yet; use -E, -fsyntax-only, -c, -S, or -S -emit-llvm");
             return false;
         }
+    }
+
+    if (!explicit_optimization_level_ &&
+        driver_action_ == sysycc::DriverAction::InternalPipeline) {
+        optimization_level_ = sysycc::OptimizationLevel::O1;
     }
 
     if (!explicit_stop_after_) {
@@ -218,21 +241,26 @@ bool Cli::finalize_driver_mode() {
             break;
         case sysycc::DriverAction::InternalPipeline:
         case sysycc::DriverAction::FullCompile:
-        case sysycc::DriverAction::CompileOnlyUnsupported:
+        case sysycc::DriverAction::CompileOnly:
             stop_after_stage_ = sysycc::StopAfterStage::None;
             break;
         }
     }
 
     emit_asm_ = driver_action_ == sysycc::DriverAction::EmitAssembly;
+    if (driver_action_ == sysycc::DriverAction::CompileOnly) {
+        emit_asm_ = false;
+    }
 
     if (!explicit_backend_) {
-        backend_kind_ = driver_action_ == sysycc::DriverAction::EmitAssembly
+        backend_kind_ = (driver_action_ == sysycc::DriverAction::EmitAssembly ||
+                         driver_action_ == sysycc::DriverAction::CompileOnly)
                             ? sysycc::BackendKind::AArch64Native
                             : sysycc::BackendKind::LlvmIr;
     }
 
-    if (driver_action_ == sysycc::DriverAction::EmitAssembly &&
+    if ((driver_action_ == sysycc::DriverAction::EmitAssembly ||
+         driver_action_ == sysycc::DriverAction::CompileOnly) &&
         target_triple_.empty()) {
         target_triple_ = "aarch64-unknown-linux-gnu";
     }
@@ -260,6 +288,8 @@ void Cli::Run(int argc, char *argv[]) {
     internal_pipeline_requested_ = false;
     driver_action_ = sysycc::DriverAction::InternalPipeline;
     language_mode_ = sysycc::LanguageMode::Sysy;
+    optimization_level_ = sysycc::OptimizationLevel::O0;
+    explicit_optimization_level_ = false;
     enable_gnu_dialect_ = true;
     enable_clang_dialect_ = true;
     enable_builtin_type_extension_pack_ = true;
@@ -273,6 +303,8 @@ void Cli::Run(int argc, char *argv[]) {
     request_emit_assembly_ = false;
     request_emit_llvm_ = false;
     request_compile_only_ = false;
+    request_position_independent_ = false;
+    request_debug_info_ = false;
     is_help_ = false;
     is_version_ = false;
     has_error_ = false;
@@ -318,8 +350,30 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
+        std::string unsupported_optimization_level;
+        if (parse_optimization_level(arg, optimization_level_,
+                                     unsupported_optimization_level)) {
+            explicit_optimization_level_ = true;
+            continue;
+        }
+        if (arg.rfind("-O", 0) == 0) {
+            emit_error("argument to '-O' is not supported: '" +
+                       unsupported_optimization_level + "'");
+            return;
+        }
+
         if (arg == "-c") {
             request_compile_only_ = true;
+            continue;
+        }
+
+        if (arg == "-fPIC") {
+            request_position_independent_ = true;
+            continue;
+        }
+
+        if (arg == "-g") {
+            request_debug_info_ = true;
             continue;
         }
 

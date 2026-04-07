@@ -38,8 +38,8 @@ The same helper now also installs a bounded shared slot controller for heavy
 test tools such as `SysyCC`, `clang`, and `clang++`, and its default test/build
 parallelism is intentionally memory-conservative so manually launching several
 single-case scripts is less likely to freeze the host.
-The top-level regression entry [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh) now also writes a summary table to `build/test_result.md`.
-For day-to-day local development, the top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now drives a dedicated Ninja build under `build-ninja/`, while test and intermediate-result flows continue to use `build/`.
+The top-level regression entry [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh) now defaults to the tier-1 regression lane (`run`, `cli`, and `dialects`), still writes a summary table to `build/test_result.md`, and is paired with [tests/run_tier2.sh](/Users/caojunze424/code/SysyCC/tests/run_tier2.sh) plus [tests/run_full.sh](/Users/caojunze424/code/SysyCC/tests/run_full.sh) for deeper or full-suite passes.
+For day-to-day local development, the top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now drives a dedicated Ninja build under `build-ninja/`, exposes `make test-tier1`, `make test-tier2`, and `make test-full`, and leaves test/intermediate-result flows on `build/`.
 
 ## Project Overview
 
@@ -82,6 +82,10 @@ main
       -> LowerIrPass
       -> AArch64AsmGenPass
 ```
+
+The default public build artifact is now `build/compiler`. The build also keeps
+`build/SysyCC` as a compatibility alias for existing local scripts while the
+repository transitions toward the public driver name.
 
 ## Module Map
 
@@ -138,7 +142,7 @@ main
   set per invocation, including strict C99 mode and explicit GNU/Clang/
   builtin-type pack toggles.
 - The CLI can collect `-I` include directories and `-isystem` system include directories into compiler options and the preprocess stage now consumes them for include-path resolution.
-- The top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now provides `make check`, which runs `clang-tidy`, `cppcheck`, and `include-what-you-use` through helper scripts under [scripts/](/Users/caojunze424/code/SysyCC/scripts).
+- The top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now provides `make test-tier1`, `make test-tier2`, `make test-full`, and `make check`, with `make test` aliased to the tier-1 fast lane.
 - The static-check pipeline excludes generated parser headers from blocking `clang-tidy` diagnostics and keeps `cppcheck` focused on warning/performance/portability findings.
 - Token dumps are written to `build/intermediate_results/*.tokens.txt`.
 - Parse tree dumps are written to `build/intermediate_results/*.parse.txt`.
@@ -149,6 +153,10 @@ main
   lets preprocess include-trace notes surface in CLI diagnostics alongside the
   primary error, and the rendering policy now lives in a dedicated
   `DiagnosticFormatter`
+- the public CLI now accepts `-O0` and `-O1`, where `-O0` preserves only the
+  minimum Core IR normalization needed by later lowering and `-O1` additionally
+  enables the current `CoreIrCanonicalizePass`, `CoreIrConstFoldPass`, and
+  `CoreIrDcePass` batch
 - successful runs now also surface shared non-fatal diagnostics such as
   preprocess `#warning` through the same formatter path
 - IR results are now stored in memory as an `IRResult` attached to `CompilerContext`.

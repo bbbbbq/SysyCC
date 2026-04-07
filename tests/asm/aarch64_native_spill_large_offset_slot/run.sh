@@ -29,7 +29,7 @@ assert_file_nonempty "${ASM_FILE}"
 
 grep -Eq '^[[:space:]]*sub x[0-9]+, x29, #3(84|88)$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*add x[0-9]+, x[0-9]+, #380$' "${ASM_FILE}"
-grep -Eq '^[[:space:]]*str w[0-9]+, \[x[0-9]+\]$' "${ASM_FILE}"
-grep -Eq '^[[:space:]]*(ldr w[0-9]+, \[x[0-9]+\]|mov w0, w[0-9]+)$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*str w[0-9]+, \[x[0-9]+(, #0)?\]$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*(ldr w[0-9]+, \[x[0-9]+(, #0)?\]|mov w0, w[0-9]+)$' "${ASM_FILE}"
 
 echo "verified: large local-object offsets still lower through explicit address materialization"

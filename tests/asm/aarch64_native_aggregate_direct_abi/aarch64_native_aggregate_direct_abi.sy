@@ -1,0 +1,13 @@
+struct Pair {
+    long long left;
+    long long right;
+};
+
+struct Pair keep_pair(struct Pair value) {
+    return value;
+}
+
+long long use_pair(struct Pair value) {
+    keep_pair(value);
+    return value.right;
+}

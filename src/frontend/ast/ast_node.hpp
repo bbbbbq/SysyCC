@@ -154,11 +154,14 @@ class FunctionTypeNode : public TypeNode {
 class StructTypeNode : public TypeNode {
   private:
     std::string name_;
+    std::vector<std::unique_ptr<Decl>> fields_;
 
   public:
-    explicit StructTypeNode(std::string name, SourceSpan source_span = {});
+    StructTypeNode(std::string name, std::vector<std::unique_ptr<Decl>> fields = {},
+                   SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
+    const std::vector<std::unique_ptr<Decl>> &get_fields() const noexcept;
 };
 
 // Represents a union type, optionally with inline field declarations.

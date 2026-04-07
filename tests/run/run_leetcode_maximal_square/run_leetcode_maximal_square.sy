@@ -1,0 +1,66 @@
+// Source: LeetCode 221. Maximal Square
+// Problem: https://leetcode.com/problems/maximal-square/
+// Adapted for SysyCC runtime regression: read rows, cols, and a 0/1 matrix,
+// then print the area of the largest all-ones square using 2D DP.
+
+int grid_values[8][8];
+int dp_values[8][8];
+
+int min_int(int lhs, int rhs) {
+    if (lhs < rhs) {
+        return lhs;
+    }
+    return rhs;
+}
+
+int max_int(int lhs, int rhs) {
+    if (lhs > rhs) {
+        return lhs;
+    }
+    return rhs;
+}
+
+int main() {
+    int rows = 0;
+    int cols = 0;
+    int best_side = 0;
+    int i = 0;
+    int j = 0;
+
+    rows = getint();
+    cols = getint();
+
+    i = 0;
+    while (i < rows) {
+        j = 0;
+        while (j < cols) {
+            grid_values[i][j] = getint();
+            dp_values[i][j] = 0;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < rows) {
+        j = 0;
+        while (j < cols) {
+            if (grid_values[i][j] == 1) {
+                if (i == 0 || j == 0) {
+                    dp_values[i][j] = 1;
+                } else {
+                    dp_values[i][j] = 1 + min_int(dp_values[i - 1][j],
+                                                  min_int(dp_values[i][j - 1],
+                                                          dp_values[i - 1][j - 1]));
+                }
+                best_side = max_int(best_side, dp_values[i][j]);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    putint(best_side * best_side);
+    putch(10);
+    return 0;
+}

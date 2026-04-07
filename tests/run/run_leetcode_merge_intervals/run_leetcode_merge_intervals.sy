@@ -1,3 +1,8 @@
+// Source: LeetCode 56. Merge Intervals
+// Problem: https://leetcode.com/problems/merge-intervals/
+// Adapted for SysyCC runtime regression: read n intervals, sort them by start,
+// merge overlaps, then print merged intervals as start/end pairs.
+
 int starts[32];
 int ends[32];
 

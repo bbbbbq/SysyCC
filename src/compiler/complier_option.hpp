@@ -76,7 +76,7 @@ enum class StopAfterStage : uint8_t {
 enum class DriverAction : uint8_t {
     InternalPipeline,
     FullCompile,
-    CompileOnlyUnsupported,
+    CompileOnly,
     PreprocessOnly,
     SyntaxOnly,
     EmitAssembly,
@@ -87,6 +87,11 @@ enum class LanguageMode : uint8_t {
     Sysy,
     C99,
     Gnu99,
+};
+
+enum class OptimizationLevel : uint8_t {
+    O0,
+    O1,
 };
 
 enum class CommandLineMacroActionKind : uint8_t {
@@ -139,9 +144,11 @@ class ComplierOption {
     bool dump_ir_ = false;
     bool dump_core_ir_ = false;
     bool emit_asm_ = false;
+    bool emit_object_ = false;
     StopAfterStage stop_after_stage_ = StopAfterStage::None;
     DriverAction driver_action_ = DriverAction::InternalPipeline;
     LanguageMode language_mode_ = LanguageMode::Sysy;
+    OptimizationLevel optimization_level_ = OptimizationLevel::O0;
     bool enable_gnu_dialect_ = true;
     bool enable_clang_dialect_ = true;
     bool enable_builtin_type_extension_pack_ = true;
@@ -243,6 +250,10 @@ class ComplierOption {
 
     void set_emit_asm(bool emit_asm) noexcept { emit_asm_ = emit_asm; }
 
+    bool emit_object() const noexcept { return emit_object_; }
+
+    void set_emit_object(bool emit_object) noexcept { emit_object_ = emit_object; }
+
     StopAfterStage get_stop_after_stage() const noexcept {
         return stop_after_stage_;
     }
@@ -261,6 +272,14 @@ class ComplierOption {
 
     void set_language_mode(LanguageMode language_mode) noexcept {
         language_mode_ = language_mode;
+    }
+
+    OptimizationLevel get_optimization_level() const noexcept {
+        return optimization_level_;
+    }
+
+    void set_optimization_level(OptimizationLevel optimization_level) noexcept {
+        optimization_level_ = optimization_level;
     }
 
     bool get_enable_gnu_dialect() const noexcept {

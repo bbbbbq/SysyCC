@@ -67,6 +67,9 @@ void append_attributes(const ParsedAttributeList &source,
     destination.insert(destination.end(), attributes.begin(), attributes.end());
 }
 
+void collect_type_qualifiers(const ParseTreeNode *node, bool &is_const,
+                             bool &is_volatile);
+
 const ParseTreeNode *find_parameter_list_node(const ParseTreeNode *node) {
     if (node == nullptr) {
         return nullptr;
@@ -83,18 +86,20 @@ const ParseTreeNode *find_parameter_list_node(const ParseTreeNode *node) {
         node, "function_parameter_list_opt");
 }
 
-const ParseTreeNode *find_type_qualifier_node(const ParseTreeNode *node) {
+void collect_declaration_type_qualifiers(const ParseTreeNode *node,
+                                         bool &is_const,
+                                         bool &is_volatile) {
     if (node == nullptr) {
-        return nullptr;
+        return;
     }
-    const ParseTreeNode *qualifier_opt =
-        ParseTreeMatcher::find_first_child_with_label(node,
-                                                      "type_qualifier_seq_opt");
-    if (qualifier_opt != nullptr) {
-        return qualifier_opt;
+
+    for (const auto &child : node->children) {
+        if (ParseTreeMatcher::label_equals(child.get(),
+                                           "type_qualifier_seq_opt") ||
+            ParseTreeMatcher::label_equals(child.get(), "type_qualifier_seq")) {
+            collect_type_qualifiers(child.get(), is_const, is_volatile);
+        }
     }
-    return ParseTreeMatcher::find_first_child_with_label(node,
-                                                         "type_qualifier_seq");
 }
 
 bool is_parameter_list_node(const ParseTreeNode *node) {
@@ -1013,6 +1018,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
     if (const ParseTreeNode *struct_specifier =
             ParseTreeMatcher::find_first_child_with_label(node, "struct_specifier")) {
         std::string name = "<anonymous>";
+        std::vector<std::unique_ptr<Decl>> fields;
         for (const auto &child : struct_specifier->children) {
             if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
                 const std::string suffix = ParseTreeMatcher::extract_terminal_suffix(
@@ -1020,9 +1026,13 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
                 if (!suffix.empty()) {
                     name = suffix;
                 }
+                continue;
+            }
+            if (ParseTreeMatcher::label_equals(child.get(), "struct_field_list_opt")) {
+                fields = build_struct_fields(child.get());
             }
         }
-        return std::make_unique<StructTypeNode>(name,
+        return std::make_unique<StructTypeNode>(name, std::move(fields),
                                                 get_node_source_span(struct_specifier));
     }
 
@@ -1439,9 +1449,9 @@ AstBuilder::build_struct_fields(const ParseTreeNode *node) const {
             ParseTreeMatcher::find_first_child_with_label(field_node,
                                                           "struct_field_declarator_list");
         TypeQualifierFlags leading_qualifiers;
-        const ParseTreeNode *qualifier_node = find_type_qualifier_node(field_node);
-        collect_type_qualifiers(qualifier_node, leading_qualifiers.is_const,
-                                leading_qualifiers.is_volatile);
+        collect_declaration_type_qualifiers(field_node,
+                                            leading_qualifiers.is_const,
+                                            leading_qualifiers.is_volatile);
         std::vector<const ParseTreeNode *> declarators;
         std::vector<const ParseTreeNode *> declarator_stack;
         if (declarator_list != nullptr) {
@@ -1528,9 +1538,9 @@ AstBuilder::build_union_fields(const ParseTreeNode *node) const {
             ParseTreeMatcher::find_first_child_with_label(field_node,
                                                           "union_field_declarator_list");
         TypeQualifierFlags leading_qualifiers;
-        const ParseTreeNode *qualifier_node = find_type_qualifier_node(field_node);
-        collect_type_qualifiers(qualifier_node, leading_qualifiers.is_const,
-                                leading_qualifiers.is_volatile);
+        collect_declaration_type_qualifiers(field_node,
+                                            leading_qualifiers.is_const,
+                                            leading_qualifiers.is_volatile);
         std::vector<const ParseTreeNode *> declarators;
         std::vector<const ParseTreeNode *> declarator_stack;
         if (declarator_list != nullptr) {
@@ -2061,9 +2071,8 @@ std::unique_ptr<TypeNode> AstBuilder::build_cast_target_type(
     const ParseTreeNode *type_specifier =
         ParseTreeMatcher::find_first_child_with_label(node, "type_specifier");
     TypeQualifierFlags pointee_qualifiers;
-    const ParseTreeNode *qualifier_node = find_type_qualifier_node(node);
-    collect_type_qualifiers(qualifier_node, pointee_qualifiers.is_const,
-                            pointee_qualifiers.is_volatile);
+    collect_declaration_type_qualifiers(node, pointee_qualifiers.is_const,
+                                        pointee_qualifiers.is_volatile);
 
     if (type_specifier == nullptr) {
         return std::make_unique<UnknownTypeNode>("missing cast target type",

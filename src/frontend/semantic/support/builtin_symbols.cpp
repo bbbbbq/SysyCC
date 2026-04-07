@@ -83,17 +83,33 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
                              signed_char_type);
     register_builtin_typedef(semantic_model, scope_stack, "uint8_t",
                              unsigned_char_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__int8_t",
+                             signed_char_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__uint8_t",
+                             unsigned_char_type);
     register_builtin_typedef(semantic_model, scope_stack, "int16_t",
                              short_type);
     register_builtin_typedef(semantic_model, scope_stack, "uint16_t",
+                             unsigned_short_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__int16_t",
+                             short_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__uint16_t",
                              unsigned_short_type);
     register_builtin_typedef(semantic_model, scope_stack, "int32_t",
                              int_type_alias);
     register_builtin_typedef(semantic_model, scope_stack, "uint32_t",
                              unsigned_int_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__int32_t",
+                             int_type_alias);
+    register_builtin_typedef(semantic_model, scope_stack, "__uint32_t",
+                             unsigned_int_type);
     register_builtin_typedef(semantic_model, scope_stack, "int64_t",
                              long_long_type);
     register_builtin_typedef(semantic_model, scope_stack, "uint64_t",
+                             unsigned_long_long_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__int64_t",
+                             long_long_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__uint64_t",
                              unsigned_long_long_type);
     register_builtin_typedef(semantic_model, scope_stack, "intptr_t",
                              long_type);
@@ -103,12 +119,44 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
                              long_type);
     register_builtin_typedef(semantic_model, scope_stack, "size_t",
                              unsigned_long_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__darwin_intptr_t",
+                             long_type);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_natural_t", unsigned_int_type);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_ptrdiff_t", long_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__darwin_size_t",
+                             unsigned_long_type);
     register_builtin_typedef(semantic_model, scope_stack, "va_list",
                              va_list_type);
     register_builtin_typedef(semantic_model, scope_stack, "__builtin_va_list",
                              va_list_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__darwin_va_list",
+                             va_list_type);
     register_builtin_typedef(semantic_model, scope_stack, "wchar_t",
                              int_type_alias);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_ct_rune_t", int_type_alias);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_wchar_t", int_type_alias);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_rune_t", int_type_alias);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_wint_t", int_type_alias);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_clock_t", unsigned_long_type);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_socklen_t", unsigned_int_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__darwin_ssize_t",
+                             long_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__darwin_time_t",
+                             long_type);
+    register_builtin_typedef(semantic_model, scope_stack, "__darwin_nl_item",
+                             int_type_alias);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_wctrans_t", int_type_alias);
+    register_builtin_typedef(semantic_model, scope_stack,
+                             "__darwin_wctype_t", unsigned_int_type);
 
     register_builtin_function(semantic_model, scope_stack, "getint", int_type,
                               {});

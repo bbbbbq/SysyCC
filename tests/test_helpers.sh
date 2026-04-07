@@ -132,6 +132,165 @@ detect_default_heavy_tool_jobs() {
     printf '4\n'
 }
 
+make_sysycc_test_session_id() {
+    local timestamp
+
+    timestamp="$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || date +%s)"
+    printf '%s-%s\n' "${timestamp}" "${BASHPID:-$$}"
+}
+
+current_sysycc_test_process_group() {
+    local pid="${1:-${BASHPID:-$$}}"
+    ps -o pgid= -p "${pid}" 2>/dev/null | tr -d '[:space:]'
+}
+
+record_sysycc_test_process_group() {
+    local pgid="${1:-}"
+    local pgid_file=""
+
+    if [[ -z "${SYSYCC_TEST_SESSION_ROOT:-}" ]]; then
+        return 0
+    fi
+
+    if [[ -z "${pgid}" ]]; then
+        pgid="$(current_sysycc_test_process_group)"
+    fi
+
+    if [[ -z "${pgid}" ]]; then
+        return 0
+    fi
+
+    pgid_file="${SYSYCC_TEST_SESSION_ROOT}/pgids"
+    mkdir -p "${SYSYCC_TEST_SESSION_ROOT}"
+    if ! grep -qx "${pgid}" "${pgid_file}" 2>/dev/null; then
+        printf '%s\n' "${pgid}" >>"${pgid_file}"
+    fi
+}
+
+reap_sysycc_test_process_group() {
+    local pgid="$1"
+
+    if [[ -z "${pgid}" ]] || [[ ! "${pgid}" =~ ^[0-9]+$ ]]; then
+        return 0
+    fi
+
+    kill -TERM -- "-${pgid}" 2>/dev/null || true
+    sleep 0.2
+    kill -KILL -- "-${pgid}" 2>/dev/null || true
+}
+
+prune_sysycc_test_heavy_tool_sessions() {
+    local lock_root_parent="$1"
+    local active_lock_root="${2:-}"
+    local session_dir=""
+
+    if [[ ! -d "${lock_root_parent}" ]]; then
+        return 0
+    fi
+
+    for session_dir in "${lock_root_parent}"/*; do
+        local has_live_slot=0
+        local slot_dir=""
+
+        if [[ ! -d "${session_dir}" ]]; then
+            continue
+        fi
+
+        if [[ -n "${active_lock_root}" ]] &&
+            [[ "${session_dir}" == "${active_lock_root}" ]]; then
+            continue
+        fi
+
+        for slot_dir in "${session_dir}"/slot.*; do
+            local owner_pid=""
+
+            if [[ ! -d "${slot_dir}" ]]; then
+                continue
+            fi
+
+            owner_pid="$(cat "${slot_dir}/pid" 2>/dev/null || true)"
+            if [[ -n "${owner_pid}" ]] && kill -0 "${owner_pid}" 2>/dev/null; then
+                has_live_slot=1
+                break
+            fi
+        done
+
+        if [[ "${has_live_slot}" -eq 0 ]]; then
+            rm -rf "${session_dir}"
+        fi
+    done
+}
+
+prune_sysycc_test_process_sessions() {
+    local session_root_parent="$1"
+    local active_session_root="${2:-}"
+    local supersede_old_sessions="${3:-0}"
+    local session_dir=""
+
+    if [[ ! -d "${session_root_parent}" ]]; then
+        return 0
+    fi
+
+    for session_dir in "${session_root_parent}"/*; do
+        local owner_pid=""
+        local pgid_file=""
+
+        if [[ ! -d "${session_dir}" ]]; then
+            continue
+        fi
+
+        if [[ -n "${active_session_root}" ]] &&
+            [[ "${session_dir}" == "${active_session_root}" ]]; then
+            continue
+        fi
+
+        owner_pid="$(cat "${session_dir}/owner.pid" 2>/dev/null || true)"
+        if [[ "${supersede_old_sessions}" != "1" ]] &&
+            [[ -n "${owner_pid}" ]] &&
+            kill -0 "${owner_pid}" 2>/dev/null; then
+            continue
+        fi
+
+        pgid_file="${session_dir}/pgids"
+        if [[ -f "${pgid_file}" ]]; then
+            while IFS= read -r pgid; do
+                reap_sysycc_test_process_group "${pgid}"
+            done <"${pgid_file}"
+        fi
+
+        rm -rf "${session_dir}"
+    done
+}
+
+initialize_sysycc_test_session() {
+    local lock_root_parent=""
+    local default_lock_root=""
+    local session_root_parent=""
+    local default_session_root=""
+
+    if [[ -z "${PROJECT_ROOT:-}" ]]; then
+        return 0
+    fi
+
+    export SYSYCC_TEST_SESSION_ID="${SYSYCC_TEST_SESSION_ID:-$(make_sysycc_test_session_id)}"
+    lock_root_parent="${PROJECT_ROOT}/build/.sysycc_test_heavy_tool_slots"
+    default_lock_root="${lock_root_parent}/${SYSYCC_TEST_SESSION_ID}"
+    session_root_parent="${PROJECT_ROOT}/build/.sysycc_test_sessions"
+    default_session_root="${session_root_parent}/${SYSYCC_TEST_SESSION_ID}"
+    export SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT="${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT:-${default_lock_root}}"
+    export SYSYCC_TEST_SESSION_ROOT="${SYSYCC_TEST_SESSION_ROOT:-${default_session_root}}"
+
+    mkdir -p "${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT}"
+    mkdir -p "${SYSYCC_TEST_SESSION_ROOT}"
+    printf '%s\n' "${BASHPID:-$$}" >"${SYSYCC_TEST_SESSION_ROOT}/owner.pid"
+    record_sysycc_test_process_group
+    prune_sysycc_test_heavy_tool_sessions "${lock_root_parent}" \
+        "${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT}"
+    prune_sysycc_test_process_sessions "${session_root_parent}" \
+        "${SYSYCC_TEST_SESSION_ROOT}" \
+        "${SYSYCC_TEST_SUPERSEDE_OLD_SESSIONS:-0}"
+}
+
 setup_test_host_tool_wrappers() {
     if [[ "${SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS:-0}" == "1" ]]; then
         return 0
@@ -144,6 +303,8 @@ setup_test_host_tool_wrappers() {
     if [[ "${SYSYCC_TEST_TOOL_WRAPPERS_READY:-0}" == "1" ]]; then
         return 0
     fi
+
+    initialize_sysycc_test_session
 
     mkdir -p "${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin"
 
@@ -159,7 +320,6 @@ setup_test_host_tool_wrappers() {
 
     export SYSYCC_TEST_ACTIVE=1
     export SYSYCC_TEST_HEAVY_TOOL_JOBS="${SYSYCC_TEST_HEAVY_TOOL_JOBS:-$(detect_default_heavy_tool_jobs)}"
-    export SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT="${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT:-${PROJECT_ROOT}/build/.sysycc_test_heavy_tool_slots}"
 
     cat >"${PROJECT_ROOT}/build/.sysycc_test_wrappers/bin/clang" <<EOF
 #!/usr/bin/env bash
@@ -223,6 +383,7 @@ install_sysycc_test_binary_wrapper() {
     local wrapper_dir="${build_dir}/.sysycc_test_wrappers"
     local wrapper_path="${build_dir}/SysyCC"
     local real_binary_path="${wrapper_dir}/SysyCC.real"
+    local public_binary_path="${build_dir}/compiler"
     local install_lock_dir="${wrapper_dir}/.install.lock"
 
     if [[ "${SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS:-0}" == "1" ]]; then
@@ -235,7 +396,8 @@ install_sysycc_test_binary_wrapper() {
     (
         trap 'release_named_lock "${install_lock_dir}"' EXIT
 
-        if [[ ! -e "${wrapper_path}" && ! -e "${real_binary_path}" ]]; then
+        if [[ ! -e "${wrapper_path}" && ! -e "${real_binary_path}" &&
+              ! -e "${public_binary_path}" ]]; then
             return 0
         fi
 
@@ -243,9 +405,11 @@ install_sysycc_test_binary_wrapper() {
             rm -f "${real_binary_path}"
         fi
 
-        if [[ -e "${wrapper_path}" ]] &&
-           ! is_sysycc_test_wrapper_file "${wrapper_path}" &&
-           [[ ! -e "${real_binary_path}" ]]; then
+        if [[ -e "${public_binary_path}" ]]; then
+            cp "${public_binary_path}" "${real_binary_path}"
+        elif [[ -e "${wrapper_path}" ]] &&
+             ! is_sysycc_test_wrapper_file "${wrapper_path}" &&
+             [[ ! -e "${real_binary_path}" ]]; then
             mv "${wrapper_path}" "${real_binary_path}"
         fi
 
@@ -423,6 +587,211 @@ build_and_link_ir_executable() {
     clang "${ir_file}" "${runtime_source}" -fno-builtin -o "${output_binary}"
 }
 
+find_aarch64_sysroot() {
+    local candidate=""
+
+    if [[ -n "${SYSYCC_AARCH64_SYSROOT:-}" ]] &&
+        [[ -d "${SYSYCC_AARCH64_SYSROOT}" ]]; then
+        printf '%s\n' "${SYSYCC_AARCH64_SYSROOT}"
+        return 0
+    fi
+
+    if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+        candidate="$(aarch64-linux-gnu-gcc -print-sysroot 2>/dev/null || true)"
+        if [[ -n "${candidate}" ]] && [[ "${candidate}" != "/" ]] &&
+            [[ -d "${candidate}" ]]; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    fi
+
+    for candidate in \
+        /usr/aarch64-linux-gnu \
+        /usr/aarch64-linux-gnu/libc \
+        /usr/local/aarch64-linux-gnu \
+        /opt/aarch64-linux-gnu \
+        /opt/homebrew/aarch64-linux-gnu \
+        /opt/homebrew/opt/aarch64-linux-gnu-toolchain/aarch64-linux-gnu/sysroot \
+        /opt/homebrew/opt/aarch64-unknown-linux-gnu \
+        /opt/homebrew/opt/aarch64-linux-gnu-toolchain/aarch64-unknown-linux-gnu/sysroot; do
+        if [[ -d "${candidate}" ]]; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+find_aarch64_cc() {
+    if [[ -n "${SYSYCC_AARCH64_CC:-}" ]] &&
+        command -v "${SYSYCC_AARCH64_CC}" >/dev/null 2>&1; then
+        printf '%s\n' "$(command -v "${SYSYCC_AARCH64_CC}")"
+        return 0
+    fi
+
+    if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+        command -v aarch64-linux-gnu-gcc
+        return 0
+    fi
+
+    if command -v clang >/dev/null 2>&1; then
+        command -v clang
+        return 0
+    fi
+
+    return 1
+}
+
+find_qemu_aarch64() {
+    if [[ -n "${SYSYCC_QEMU_AARCH64:-}" ]] &&
+        command -v "${SYSYCC_QEMU_AARCH64}" >/dev/null 2>&1; then
+        printf '%s\n' "$(command -v "${SYSYCC_QEMU_AARCH64}")"
+        return 0
+    fi
+
+    command -v qemu-aarch64 >/dev/null 2>&1 || return 1
+    command -v qemu-aarch64
+}
+
+run_aarch64_cc() {
+    local cc="$1"
+    shift
+
+    if [[ "$(basename "${cc}")" == "clang" ]]; then
+        local sysroot=""
+        sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+        if [[ -n "${sysroot}" ]]; then
+            "${cc}" --target=aarch64-unknown-linux-gnu --sysroot="${sysroot}" "$@"
+            return
+        fi
+        "${cc}" --target=aarch64-unknown-linux-gnu "$@"
+        return
+    fi
+
+    local sysroot=""
+    sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+    if [[ -n "${sysroot}" ]]; then
+        "${cc}" --sysroot="${sysroot}" "$@"
+        return
+    fi
+    "${cc}" "$@"
+}
+
+build_aarch64_native_object() {
+    local asm_file="$1"
+    local output_object="$2"
+    local cc=""
+
+    cc="$(find_aarch64_cc 2>/dev/null || true)"
+    if [[ -z "${cc}" ]]; then
+        return 125
+    fi
+
+    mkdir -p "$(dirname "${output_object}")"
+    run_aarch64_cc "${cc}" -c "${asm_file}" -o "${output_object}"
+}
+
+link_aarch64_native_smoke_binary() {
+    local input_object="$1"
+    local runtime_source="$2"
+    local output_binary="$3"
+    local cc=""
+    local sysroot=""
+
+    if [[ "${input_object}" == *.bin ]] && [[ "${runtime_source}" == *.o ]]; then
+        output_binary="${input_object}"
+        input_object="${runtime_source}"
+        runtime_source="$3"
+    fi
+
+    cc="$(find_aarch64_cc 2>/dev/null || true)"
+    sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+    if [[ -z "${cc}" ]] || [[ -z "${sysroot}" ]]; then
+        return 125
+    fi
+
+    mkdir -p "$(dirname "${output_binary}")"
+    run_aarch64_cc "${cc}" "${input_object}" "${runtime_source}" \
+        -fno-builtin -o "${output_binary}"
+}
+
+run_aarch64_native_smoke_if_available() {
+    local input_binary="$1"
+    local expected_output="$2"
+    local input_payload="${3:-}"
+    local qemu=""
+    local sysroot=""
+    local output=""
+
+    qemu="$(find_qemu_aarch64 2>/dev/null || true)"
+    sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+    if [[ -z "${qemu}" ]] || [[ -z "${sysroot}" ]]; then
+        return 125
+    fi
+
+    if [[ -n "${input_payload}" ]]; then
+        output="$(printf '%s' "${input_payload}" | \
+            QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${input_binary}")"
+    else
+        output="$(QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${input_binary}")"
+    fi
+
+    if [[ "${output}" != "${expected_output}" ]]; then
+        echo "unexpected AArch64 smoke output: expected '${expected_output}', got '${output}'" >&2
+        return 1
+    fi
+}
+
+have_aarch64_native_smoke_toolchain() {
+    find_aarch64_cc >/dev/null 2>&1 && find_aarch64_sysroot >/dev/null 2>&1
+}
+
+find_aarch64_readelf() {
+    if command -v aarch64-linux-gnu-readelf >/dev/null 2>&1; then
+        command -v aarch64-linux-gnu-readelf
+        return 0
+    fi
+    if command -v readelf >/dev/null 2>&1; then
+        command -v readelf
+        return 0
+    fi
+    if command -v llvm-readelf >/dev/null 2>&1; then
+        command -v llvm-readelf
+        return 0
+    fi
+    return 1
+}
+
+assert_aarch64_relocations() {
+    local object_file="$1"
+    local symbol_pattern="$2"
+    local readelf_tool
+    local objdump_tool
+    local dump_output=""
+
+    readelf_tool="$(find_aarch64_readelf 2>/dev/null || true)"
+    if [[ -n "${readelf_tool}" ]]; then
+        if dump_output="$("${readelf_tool}" -r "${object_file}" 2>/dev/null)"; then
+            grep -Eq "${symbol_pattern}" <<<"${dump_output}"
+            return
+        fi
+    fi
+
+    objdump_tool="$(command -v aarch64-linux-gnu-objdump 2>/dev/null || true)"
+    if [[ -z "${objdump_tool}" ]]; then
+        objdump_tool="$(command -v llvm-objdump 2>/dev/null || true)"
+    fi
+    if [[ -n "${objdump_tool}" ]]; then
+        if dump_output="$("${objdump_tool}" -dr "${object_file}" 2>/dev/null)"; then
+            grep -Eq "${symbol_pattern}" <<<"${dump_output}"
+            return
+        fi
+    fi
+
+    echo "skipped: no target-capable readelf/objdump tool available for relocation inspection"
+}
+
 copy_basic_frontend_outputs() {
     local build_dir="$1"
     local test_name="$2"
@@ -459,6 +828,27 @@ assert_file_nonempty() {
 
     if [[ ! -s "${file_path}" ]]; then
         echo "empty file: ${file_path}" >&2
+        return 1
+    fi
+}
+
+assert_no_illegal_aarch64_index_forms() {
+    local asm_file="$1"
+
+    if grep -Eq '^[[:space:]]*sxtw w[0-9]+, w[0-9]+$' "${asm_file}"; then
+        echo "found illegal AArch64 sign-extension into a w register in ${asm_file}" >&2
+        return 1
+    fi
+    if grep -Eq '^[[:space:]]*add x[0-9]+, x[0-9]+, w[0-9]+, lsl #[0-9]+$' "${asm_file}"; then
+        echo "found illegal mixed-width scaled add in ${asm_file}" >&2
+        return 1
+    fi
+    if grep -Eq '^[[:space:]]*mul w[0-9]+, w[0-9]+, x[0-9]+$' "${asm_file}"; then
+        echo "found illegal mixed-width multiply in ${asm_file}" >&2
+        return 1
+    fi
+    if grep -Eq '^[[:space:]]*add x[0-9]+, x[0-9]+, w[0-9]+$' "${asm_file}"; then
+        echo "found illegal mixed-width add in ${asm_file}" >&2
         return 1
     fi
 }

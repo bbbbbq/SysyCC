@@ -11,7 +11,7 @@ namespace ClI {
 // Parses command line arguments and translates them into compiler options.
 class Cli {
   private:
-    std::string program_name_ = "sysycc";
+    std::string program_name_ = "compiler";
     std::string input_file_;
     std::string output_file_;
     std::vector<std::string> include_directories_;
@@ -30,6 +30,9 @@ class Cli {
     bool internal_pipeline_requested_ = false;
     sysycc::DriverAction driver_action_ = sysycc::DriverAction::InternalPipeline;
     sysycc::LanguageMode language_mode_ = sysycc::LanguageMode::Sysy;
+    sysycc::OptimizationLevel optimization_level_ =
+        sysycc::OptimizationLevel::O0;
+    bool explicit_optimization_level_ = false;
     bool enable_gnu_dialect_ = true;
     bool enable_clang_dialect_ = true;
     bool enable_builtin_type_extension_pack_ = true;
@@ -43,6 +46,8 @@ class Cli {
     bool request_emit_assembly_ = false;
     bool request_emit_llvm_ = false;
     bool request_compile_only_ = false;
+    bool request_position_independent_ = false;
+    bool request_debug_info_ = false;
     bool is_help_ = false;
     bool is_version_ = false;
     bool has_error_ = false;
@@ -64,14 +69,18 @@ class Cli {
     const std::string &get_program_name() const noexcept { return program_name_; }
     const std::string &get_version() const noexcept { return version_; }
 
-    static void PrintHelp() {
-        std::cout << "Usage: sysycc [options] <input_file>\n"
+    void PrintHelp() const {
+        std::cout << "Usage: " << program_name_ << " [options] <input_file>\n"
                   << "Options:\n"
                   << "  -E                 Preprocess only; write to stdout or -o\n"
                   << "  -fsyntax-only      Run through semantic analysis only\n"
                   << "  -S                 Emit assembly output\n"
                   << "  -emit-llvm         Emit LLVM IR (requires -S)\n"
-                  << "  -c                 Parse as compile-only mode (currently unsupported)\n"
+                  << "  -O0                Disable optional Core IR optimization passes\n"
+                  << "  -O1                Enable current Core IR optimization passes\n"
+                  << "  -c                 Emit object output\n"
+                  << "  -fPIC              Emit position-independent AArch64 code\n"
+                  << "  -g                 Emit basic debug information on native AArch64 outputs\n"
                   << "  -I<dir>            Add include search directory\n"
                   << "  -I <dir>           Add include search directory\n"
                   << "  -isystem <dir>     Add system include search directory\n"
@@ -102,7 +111,7 @@ class Cli {
                   << "  -v                 Show verbose driver configuration while compiling\n";
     }
     void PrintVersion() {
-        std::cout << "sysycc version " << version_ << '\n';
+        std::cout << program_name_ << " version " << version_ << '\n';
     }
 
     void set_compiler_option(sysycc::ComplierOption &option) const {
@@ -130,8 +139,10 @@ class Cli {
         option.set_dump_core_ir(dump_core_ir_);
         option.set_driver_action(driver_action_);
         option.set_emit_asm(emit_asm_);
+        option.set_emit_object(driver_action_ == sysycc::DriverAction::CompileOnly);
         option.set_stop_after_stage(stop_after_stage_);
         option.set_language_mode(language_mode_);
+        option.set_optimization_level(optimization_level_);
         option.set_enable_gnu_dialect(enable_gnu_dialect_);
         option.set_enable_clang_dialect(enable_clang_dialect_);
         option.set_enable_builtin_type_extension_pack(
@@ -141,9 +152,12 @@ class Cli {
         sysycc::BackendOptions backend_options;
         backend_options.set_backend_kind(backend_kind_);
         backend_options.set_target_triple(target_triple_);
-        if (driver_action_ == sysycc::DriverAction::EmitAssembly) {
+        if (driver_action_ == sysycc::DriverAction::EmitAssembly ||
+            driver_action_ == sysycc::DriverAction::CompileOnly) {
             backend_options.set_output_file(output_file_);
         }
+        backend_options.set_position_independent(request_position_independent_);
+        backend_options.set_debug_info(request_debug_info_);
         option.set_backend_options(std::move(backend_options));
     }
 };

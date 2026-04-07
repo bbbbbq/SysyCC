@@ -6,6 +6,7 @@
 #include <string>
 
 #include "backend/ir/shared/core/core_ir_builder.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "backend/ir/shared/ir_kind.hpp"
 #include "backend/ir/shared/ir_result.hpp"
 #include "backend/ir/lower/lowering/core_ir_target_backend.hpp"
@@ -26,6 +27,28 @@ PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name)
     return PassResult::Failure(message);
 }
 
+PassResult maybe_dump_core_ir(CompilerContext &context, const CoreIrModule &module) {
+    context.set_core_ir_dump_file_path("");
+    if (!context.get_dump_core_ir()) {
+        return PassResult::Success();
+    }
+
+    const std::filesystem::path output_dir("build/intermediate_results");
+    std::filesystem::create_directories(output_dir);
+    const std::filesystem::path input_path(context.get_input_file());
+    const std::filesystem::path output_file =
+        output_dir / (input_path.stem().string() + ".core-ir.txt");
+    std::ofstream ofs(output_file);
+    if (!ofs.is_open()) {
+        return PassResult::Failure("failed to open core ir dump file");
+    }
+
+    CoreIrRawPrinter printer;
+    ofs << printer.print_module(module);
+    context.set_core_ir_dump_file_path(output_file.string());
+    return PassResult::Success();
+}
+
 } // namespace
 
 PassKind LowerIrPass::Kind() const { return PassKind::LowerIr; }
@@ -44,6 +67,11 @@ PassResult LowerIrPass::Run(CompilerContext &context) {
     CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
         return fail_missing_core_ir(context, Name());
+    }
+
+    PassResult core_ir_dump_result = maybe_dump_core_ir(context, *module);
+    if (!core_ir_dump_result.ok) {
+        return core_ir_dump_result;
     }
 
     context.clear_ir_result();

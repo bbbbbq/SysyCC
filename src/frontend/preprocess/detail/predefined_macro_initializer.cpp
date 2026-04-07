@@ -3,7 +3,9 @@
 #include <cfloat>
 #include <climits>
 #include <cstdint>
+#include <filesystem>
 #include <string>
+#include <vector>
 
 namespace sysycc::preprocess::detail {
 
@@ -19,19 +21,57 @@ void define_object_like_macro(MacroTable &macro_table, const std::string &name,
     (void)result;
 }
 
+void define_function_like_macro(MacroTable &macro_table, const std::string &name,
+                                const std::string &replacement,
+                                std::vector<std::string> parameters) {
+    const PassResult result = macro_table.define_macro(
+        MacroDefinition(name, replacement, true, false, std::move(parameters)));
+    (void)result;
+}
+
+std::string escape_string_literal(std::string text) {
+    std::string escaped;
+    escaped.reserve(text.size() + 2);
+    escaped.push_back('"');
+    for (char ch : text) {
+        if (ch == '\\' || ch == '"') {
+            escaped.push_back('\\');
+        }
+        escaped.push_back(ch);
+    }
+    escaped.push_back('"');
+    return escaped;
+}
+
 } // namespace
 
 void initialize_predefined_macros(
     MacroTable &macro_table,
-    const PreprocessFeatureRegistry &preprocess_feature_registry) {
+    const PreprocessFeatureRegistry &preprocess_feature_registry,
+    const std::string &primary_input_file) {
     if (!preprocess_feature_registry.has_feature(
             PreprocessFeature::GnuPredefinedMacros)) {
         return;
     }
 
+    const std::string input_file_name =
+        primary_input_file.empty()
+            ? std::string("<unknown>")
+            : std::filesystem::path(primary_input_file).filename().string();
+
     define_object_like_macro(macro_table, "__STDC__", "1");
     define_object_like_macro(macro_table, "__STDC_HOSTED__", "1");
     define_object_like_macro(macro_table, "__STDC_VERSION__", "201710L");
+    define_object_like_macro(
+        macro_table, "__FILE__",
+        escape_string_literal(primary_input_file.empty() ? "<unknown>"
+                                                         : primary_input_file));
+    define_object_like_macro(macro_table, "__FILE_NAME__",
+                             escape_string_literal(input_file_name));
+    define_object_like_macro(macro_table, "__LINE__", "1");
+    define_object_like_macro(macro_table, "__func__", "\"\"");
+    define_function_like_macro(macro_table, "__builtin_expect", "(__value)",
+                               {"__value", "__expected"});
 
 #if defined(__APPLE__)
     define_object_like_macro(macro_table, "__APPLE__", "1");

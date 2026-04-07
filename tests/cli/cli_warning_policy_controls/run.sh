@@ -12,7 +12,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 set +e
-NO_WARNING_OUTPUT="$("${BUILD_DIR}/SysyCC" -fsyntax-only -Wall -Wno-sign-compare "${INPUT_FILE}" 2>&1)"
+NO_WARNING_OUTPUT="$("${BUILD_DIR}/compiler" -fsyntax-only -Wall -Wno-sign-compare "${INPUT_FILE}" 2>&1)"
 NO_WARNING_RC=$?
 set -e
 
@@ -29,7 +29,7 @@ if grep -Fq "comparison of integers of different signs" <<<"${NO_WARNING_OUTPUT}
 fi
 
 set +e
-WERROR_OUTPUT="$("${BUILD_DIR}/SysyCC" -fsyntax-only -Werror=sign-compare "${INPUT_FILE}" 2>&1)"
+WERROR_OUTPUT="$("${BUILD_DIR}/compiler" -fsyntax-only -Werror=sign-compare "${INPUT_FILE}" 2>&1)"
 WERROR_RC=$?
 set -e
 
@@ -44,7 +44,7 @@ grep -Fq "error: comparison of integers of different signs [-Werror=sign-compare
 ASM_OUTPUT_FILE="${BUILD_DIR}/cli_warning_policy_controls.s"
 rm -f "${ASM_OUTPUT_FILE}"
 set +e
-ASM_WERROR_OUTPUT="$("${BUILD_DIR}/SysyCC" -S -Werror=sign-compare -o "${ASM_OUTPUT_FILE}" "${INPUT_FILE}" 2>&1)"
+ASM_WERROR_OUTPUT="$("${BUILD_DIR}/compiler" -S -Werror=sign-compare -o "${ASM_OUTPUT_FILE}" "${INPUT_FILE}" 2>&1)"
 ASM_WERROR_RC=$?
 set -e
 
@@ -65,7 +65,7 @@ grep -Fq "error: comparison of integers of different signs [-Werror=sign-compare
 
 CONVERSION_INPUT="${PROJECT_ROOT}/tests/semantic/semantic_narrowing_initializer_warning/semantic_narrowing_initializer_warning.sy"
 set +e
-CONVERSION_OUTPUT="$("${BUILD_DIR}/SysyCC" -fsyntax-only -Wconversion "${CONVERSION_INPUT}" 2>&1)"
+CONVERSION_OUTPUT="$("${BUILD_DIR}/compiler" -fsyntax-only -Wconversion "${CONVERSION_INPUT}" 2>&1)"
 CONVERSION_RC=$?
 set -e
 

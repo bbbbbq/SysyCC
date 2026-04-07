@@ -1,0 +1,44 @@
+// Source: LeetCode 35. Search Insert Position
+// Problem: https://leetcode.com/problems/search-insert-position/
+// Discuss reference: https://leetcode.com/discuss/post/6974402/search-insert-position-explained-with-bi-dfci/
+// Adapted for SysyCC runtime regression: read n, a sorted array, and one
+// target; print the insertion position computed by binary search.
+
+int search_insert(int values[16], int count, int target) {
+    int left = 0;
+    int right = 0;
+    int mid = 0;
+
+    right = count - 1;
+    while (left <= right) {
+        mid = left + (right - left) / 2;
+        if (values[mid] == target) {
+            return mid;
+        }
+        if (values[mid] < target) {
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+
+    return left;
+}
+
+int main() {
+    int values[16];
+    int count = 0;
+    int target = 0;
+    int i = 0;
+
+    count = getint();
+    while (i < count) {
+        values[i] = getint();
+        i = i + 1;
+    }
+    target = getint();
+
+    putint(search_insert(values, count, target));
+    putch(10);
+    return 0;
+}

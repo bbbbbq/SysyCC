@@ -335,11 +335,19 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
     }
     case AstKind::NamedType:
         return true;
+    case AstKind::StructType: {
+        const auto *struct_type = static_cast<const StructTypeNode *>(node);
+        for (const auto &field : struct_type->get_fields()) {
+            if (!validate_node(field.get(), feature_registry, error_info)) {
+                return false;
+            }
+        }
+        return true;
+    }
     case AstKind::UnknownDecl:
     case AstKind::UnknownStmt:
     case AstKind::UnknownExpr:
     case AstKind::UnknownType:
-    case AstKind::StructType:
     case AstKind::EnumType:
     case AstKind::CastExpr:
     case AstKind::BreakStmt:

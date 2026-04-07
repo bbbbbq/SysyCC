@@ -7,6 +7,7 @@
 
 #include "backend/asm_gen/asm_result.hpp"
 #include "backend/asm_gen/backend_options.hpp"
+#include "backend/asm_gen/object_result.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/ir_result.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
@@ -452,7 +453,9 @@ class CompilerContext {
     bool dump_ir_ = false;
     bool dump_core_ir_ = false;
     bool emit_asm_ = false;
+    bool emit_object_ = false;
     StopAfterStage stop_after_stage_ = StopAfterStage::None;
+    OptimizationLevel optimization_level_ = OptimizationLevel::O0;
     bool ast_complete_ = false;
     BackendOptions backend_options_;
     std::string token_dump_file_path_;
@@ -461,12 +464,14 @@ class CompilerContext {
     std::string core_ir_dump_file_path_;
     std::string ir_dump_file_path_;
     std::string asm_dump_file_path_;
+    std::string object_dump_file_path_;
     std::unique_ptr<ParseTreeNode> parse_tree_root_;
     std::unique_ptr<AstNode> ast_root_;
     std::unique_ptr<SemanticModel> semantic_model_;
     std::unique_ptr<CoreIrBuildResult> core_ir_build_result_;
     std::unique_ptr<IRResult> ir_result_;
     std::unique_ptr<AsmResult> asm_result_;
+    std::unique_ptr<ObjectResult> object_result_;
     DiagnosticEngine diagnostic_engine_;
     SourceManager source_manager_;
     SourceLocationService source_location_service_;
@@ -600,12 +605,24 @@ class CompilerContext {
 
     void set_emit_asm(bool emit_asm) noexcept { emit_asm_ = emit_asm; }
 
+    bool get_emit_object() const noexcept { return emit_object_; }
+
+    void set_emit_object(bool emit_object) noexcept { emit_object_ = emit_object; }
+
     StopAfterStage get_stop_after_stage() const noexcept {
         return stop_after_stage_;
     }
 
     void set_stop_after_stage(StopAfterStage stop_after_stage) noexcept {
         stop_after_stage_ = stop_after_stage;
+    }
+
+    OptimizationLevel get_optimization_level() const noexcept {
+        return optimization_level_;
+    }
+
+    void set_optimization_level(OptimizationLevel optimization_level) noexcept {
+        optimization_level_ = optimization_level;
     }
 
     bool get_ast_complete() const noexcept { return ast_complete_; }
@@ -674,6 +691,14 @@ class CompilerContext {
         asm_dump_file_path_ = std::move(asm_dump_file_path);
     }
 
+    const std::string &get_object_dump_file_path() const noexcept {
+        return object_dump_file_path_;
+    }
+
+    void set_object_dump_file_path(std::string object_dump_file_path) {
+        object_dump_file_path_ = std::move(object_dump_file_path);
+    }
+
     const AstNode *get_ast_root() const noexcept { return ast_root_.get(); }
 
     void set_ast_root(std::unique_ptr<AstNode> ast_root) {
@@ -731,6 +756,18 @@ class CompilerContext {
     }
 
     void clear_asm_result() { asm_result_.reset(); }
+
+    const ObjectResult *get_object_result() const noexcept {
+        return object_result_.get();
+    }
+
+    ObjectResult *get_object_result() noexcept { return object_result_.get(); }
+
+    void set_object_result(std::unique_ptr<ObjectResult> object_result) {
+        object_result_ = std::move(object_result);
+    }
+
+    void clear_object_result() { object_result_.reset(); }
 
     const BackendOptions &get_backend_options() const noexcept {
         return backend_options_;

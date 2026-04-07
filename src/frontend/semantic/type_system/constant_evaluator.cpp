@@ -77,6 +77,18 @@ bool is_character_semantic_type(const SemanticType *type) {
     return name == "char" || name == "signed char" || name == "unsigned char";
 }
 
+bool consumes_array_subinitializer_directly(const Expr *expr,
+                                            const ArraySemanticType *array_type) {
+    if (expr == nullptr || array_type == nullptr) {
+        return false;
+    }
+    if (expr->get_kind() == AstKind::InitListExpr) {
+        return true;
+    }
+    return expr->get_kind() == AstKind::StringLiteralExpr &&
+           is_character_semantic_type(array_type->get_element_type());
+}
+
 bool is_global_storage_symbol(const SemanticSymbol *symbol,
                               const SemanticModel &semantic_model) {
     if (symbol == nullptr) {
@@ -659,7 +671,8 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
                         ? current_init_list->get_elements()[cursor].get()
                         : nullptr;
                 if (nested_array_type != nullptr && element_initializer != nullptr &&
-                    element_initializer->get_kind() != AstKind::InitListExpr) {
+                    !consumes_array_subinitializer_directly(
+                        element_initializer, nested_array_type)) {
                     if (!validate_array_initializer(nested_array_type,
                                                     current_init_list, cursor)) {
                         return false;

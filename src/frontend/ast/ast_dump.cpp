@@ -223,6 +223,9 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         write_indent(os, indent);
         os << "StructType " << struct_type->get_name() << "\n";
         dump_source_span(node, os, indent + 2);
+        for (const auto &field : struct_type->get_fields()) {
+            dump_node(field.get(), os, indent + 2);
+        }
         return;
     }
     case AstKind::UnionType: {

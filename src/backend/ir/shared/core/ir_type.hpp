@@ -49,15 +49,18 @@ class CoreIrVoidType final : public CoreIrType {
 class CoreIrIntegerType final : public CoreIrType {
   private:
     std::size_t bit_width_ = 0;
+    bool is_signed_ = true;
 
   public:
-    explicit CoreIrIntegerType(std::size_t bit_width) : bit_width_(bit_width) {}
+    explicit CoreIrIntegerType(std::size_t bit_width, bool is_signed = true)
+        : bit_width_(bit_width), is_signed_(is_signed) {}
 
     CoreIrTypeKind get_kind() const noexcept override {
         return CoreIrTypeKind::Integer;
     }
 
     std::size_t get_bit_width() const noexcept { return bit_width_; }
+    bool get_is_signed() const noexcept { return is_signed_; }
 };
 
 class CoreIrFloatType final : public CoreIrType {

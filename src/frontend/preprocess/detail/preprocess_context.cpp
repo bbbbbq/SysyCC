@@ -21,7 +21,8 @@ void PreprocessContext::clear() {
 void PreprocessContext::initialize_predefined_macros() {
     detail::initialize_predefined_macros(
         macro_table_,
-        compiler_context_.get_dialect_manager().get_preprocess_feature_registry());
+        compiler_context_.get_dialect_manager().get_preprocess_feature_registry(),
+        compiler_context_.get_input_file());
 }
 
 CompilerContext &PreprocessContext::get_compiler_context() noexcept {

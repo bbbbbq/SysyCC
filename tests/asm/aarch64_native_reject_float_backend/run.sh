@@ -7,17 +7,28 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 TEST_NAME="$(basename "${SCRIPT_DIR}")"
 INPUT_FILE="${SCRIPT_DIR}/${TEST_NAME}.sy"
+TEST_BUILD_DIR="${SCRIPT_DIR}/build"
+TEST_SOURCE="${SCRIPT_DIR}/${TEST_NAME}.cpp"
+TEST_BINARY="${TEST_BUILD_DIR}/${TEST_NAME}"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
+mkdir -p "${TEST_BUILD_DIR}"
 
-assert_compiler_fails_with_message \
-    "${BUILD_DIR}/SysyCC" \
-    -S \
-    --backend=aarch64-native \
-    --target=aarch64-unknown-linux-gnu \
-    "${INPUT_FILE}" \
-    "unsupported stack slot type in AArch64 native backend for function 'main'"
+"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse
+assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 
-echo "verified: native AArch64 backend fails fast on unsupported float lowering"
+OBJECT_FILES=()
+while IFS= read -r -d '' object_file; do
+    OBJECT_FILES+=("${object_file}")
+done < <(find "${BUILD_DIR}/CMakeFiles/SysyCC.dir" -name '*.o' ! -name 'main.cpp.o' -print0)
+
+clang++ -std=c++17 -I"${PROJECT_ROOT}" -I"${PROJECT_ROOT}/src" \
+    "${TEST_SOURCE}" \
+    "${OBJECT_FILES[@]}" \
+    -o "${TEST_BINARY}"
+
+"${TEST_BINARY}"
+
+echo "verified: native AArch64 backend still fails fast on non-zero float128 global initializers"

@@ -47,6 +47,9 @@ struct BlockedPrefix {
     CoreIrPromotionFailureReason reason = CoreIrPromotionFailureReason::AddressEscaped;
 };
 
+CoreIrPromotionFailureReason classify_non_load_store_user(
+    const CoreIrInstruction &instruction);
+
 CoreIrPromotionFailureReason classify_non_load_store_user_or_default(
     const CoreIrInstruction *user) {
     if (user == nullptr) {
@@ -177,8 +180,8 @@ bool trace_stack_slot_prefix(CoreIrValue *value, CoreIrStackSlot *&stack_slot,
 }
 
 CoreIrPromotionFailureReason classify_non_load_store_user(
-    CoreIrInstruction &instruction) {
-    if (dynamic_cast<CoreIrGetElementPtrInst *>(&instruction) != nullptr) {
+    const CoreIrInstruction &instruction) {
+    if (dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction) != nullptr) {
         return CoreIrPromotionFailureReason::DynamicIndex;
     }
     return CoreIrPromotionFailureReason::NonLoadStoreUser;

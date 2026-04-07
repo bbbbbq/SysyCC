@@ -407,9 +407,13 @@ LLVM IR lowering path:
   chains, pointer-difference lowering through `ptrtoint/sub/sdiv`, internal
   linkage on staged function definitions and declarations, and explicit
   direct-call function signatures for variadic callees such as `printf`
-- `CoreIrAArch64TargetBackend` now exists as an explicit placeholder that
-  reports a compiler diagnostic instead of pretending ARM lowering is already
-  implemented
+- the native `AArch64AsmGenPass` path now lowers one growing Linux AArch64
+  subset directly from `CoreIrModule`, including integer/pointer codegen,
+  floating-point scalar call/return lowering, `_Float16` arithmetic through
+  float32 legalization, `long double` / fp128 helper-call lowering for common
+  constants, casts, arithmetic, and compares, variadic call signatures that do
+  not read `va_list`, and aggregate by-value ABI cases through direct-register,
+  HFA, and indirect/sret conventions where supported
 - `CoreIrBuilder` currently lowers a deliberately small staged subset:
   - `TranslationUnit`
   - top-level scalar `VarDecl` with constant initializer or zero-initialized
@@ -708,13 +712,41 @@ LLVM IR lowering path:
 - `-S --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now emits a
   native `.s` file directly from optimized `CoreIrModule` without round-tripping
   through LLVM IR text
+- `-c --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now also
+  assembles that native backend output into an ELF relocatable object and keeps
+  the produced bytes in compiler state as an `ObjectResult`
+- `-g` on the native AArch64 path now emits basic debug line information:
+  assembly output carries `.file` / `.loc`, and object output carries
+  assembler-generated DWARF line tables
 - the native AArch64 backend now lowers through backend-local machine blocks
   with virtual registers, CFG-aware liveness, interference-driven allocation,
   and spill-backed rewrite before final asm printing
+- the native AArch64 backend now carries structured section/symbol/data-fragment
+  metadata internally, so the asm printer is no longer the only consumer of the
+  codegen result
+- the native AArch64 path now supports basic PIC-oriented external symbol
+  address materialization for object emission, including GOT-based external data
+  references and relocation-bearing external calls
+- the native AArch64 printer now also emits `.cfi_*` directives so assembled
+  object output carries unwind frame information in `.eh_frame`
+- the native AArch64 object path now also emits basic source line stepping
+  metadata through DWARF `.debug_line`, enough for `readelf
+  --debug-dump=decodedline` inspection and basic debugger line stepping
+- the native AArch64 backend is no longer organized only as one monolithic file:
+  its internal layout now starts to separate
+  - `model/` for machine/object/debug carrier types
+  - `support/` for shared text/frame helpers
+  - `passes/` for backend-internal emission and frame-finalization steps
+  while still keeping one public `AArch64AsmGenPass` entry at the compiler
+  pipeline boundary
 - the native AArch64 backend now also models call instructions as clobber points,
   saves/restores actually used callee-saved scratch/allocation registers in the
   function frame, and lowers integer cast legalization through explicit
   sign-/zero-extension instructions instead of generic `mov` copies
+- spill rewrite currently uses a fixed backend-local scratch partition of
+  `x24-x27` for integer value rewrite, `x28` for spill-slot address
+  materialization, and `v28-v31` for floating / `q` rewrite, so large-offset
+  and helper-heavy floating paths share the same frame-address helpers
 - parameters, value-producing instructions, and address-producing instructions
   now also prefer canonical machine virtual registers over default frame slots,
   so more native-backend live ranges survive into regalloc/spill instead of
@@ -722,6 +754,15 @@ LLVM IR lowering path:
 - the native AArch64 backend now seeds canonical machine virtual registers for
   parameters and value/address-producing Core IR nodes, so many uses flow
   through machine vregs directly instead of defaulting to per-value frame slots
+- selected `_Float16`, `double`, and `long double` native-backend asm tests now
+  also have optional AArch64 object/link/qemu smoke via `tests/test_helpers.sh`
+  and a target-only runtime support file, so host `long double` stubs are no
+  longer the only evidence for helper-lowered floating paths
+- compile-only object smoke now also covers `.o` generation, relocation
+  inspection for external PIC references, and `.eh_frame` presence in native
+  AArch64 object output
+- native debug-info smoke now also covers `.file` / `.loc` assembly emission and
+  decoded DWARF line tables in native AArch64 object output
 
 ## Notes
 
@@ -730,12 +771,33 @@ LLVM IR lowering path:
   therefore belong after
   [SemanticPass](/Users/caojunze424/code/SysyCC/src/frontend/semantic/semantic_pass.hpp).
 - The staged `CoreIrAArch64TargetBackend` placeholder still exists for the old
-  lower-to-IR interface, but the current native asm implementation is a
-  separate `AArch64AsmGenPass` pipeline that consumes `CoreIrModule` directly.
+  lower-to-IR interface, but the active native asm implementation is the
+  separate `AArch64AsmGenPass` pipeline that consumes `CoreIrModule`
+  directly.
+- That native AArch64 path now also has an internal backend pipeline shape:
+  `machine lowering -> regalloc/spill -> frame finalize -> emission`, even
+  though only one external compiler pass is exposed today.
+- Internally that native backend is no longer a single monolithic source file:
+  `AArch64AbiLoweringPass`, `AArch64MachineLoweringPass`,
+  `AArch64RegisterAllocationPass`, `AArch64SpillRewritePass`,
+  `AArch64FrameFinalizePass`, and `AArch64EmissionPass` now form the
+  backend-local pipeline under the single public `AArch64AsmGenPass`.
+- `AArch64MachineLoweringPass` now only builds machine IR/module state; it no
+  longer runs register allocation or frame finalization on the side. Those
+  stages are driven only by the internal backend pipeline.
+- Aggregate ABI memory/register move recipes are also being pulled behind
+  backend-local support helpers, so `call` / `return` / entry-parameter
+  lowering no longer needs to keep all aggregate ABI copy details inline in
+  the main lowering file.
+- Those ABI helpers now also share a typed backend-local emission context and a
+  lower-level memory/address helper layer, instead of each support file owning
+  its own callback bundle for frame/address/materialization operations.
 - The current lowering is intentionally conservative: unsupported functions are
   skipped instead of emitting partial or malformed IR.
-  - Arrays, richer aggregate/object lowering, and richer runtime-library IR
-  emission are still pending.
+  - Remaining native-backend gaps are now narrower and mostly sit around
+    precise `fp128` constant/global modeling, richer variadic runtime support,
+    TLS-specific lowering, and more complete cross-toolchain end-to-end
+    verification.
 - Integer coercion is still limited to the currently modeled builtin integer
   family; it is not yet a complete ISO C99 implicit-conversion
   implementation.

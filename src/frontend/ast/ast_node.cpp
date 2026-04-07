@@ -116,11 +116,17 @@ FunctionTypeNode::get_parameter_types() const noexcept {
 
 bool FunctionTypeNode::get_is_variadic() const noexcept { return is_variadic_; }
 
-StructTypeNode::StructTypeNode(std::string name, SourceSpan source_span)
-    : TypeNode(AstKind::StructType, source_span),
-      name_(std::move(name)) {}
+StructTypeNode::StructTypeNode(std::string name,
+                               std::vector<std::unique_ptr<Decl>> fields,
+                               SourceSpan source_span)
+    : TypeNode(AstKind::StructType, source_span), name_(std::move(name)),
+      fields_(std::move(fields)) {}
 
 const std::string &StructTypeNode::get_name() const noexcept { return name_; }
+
+const std::vector<std::unique_ptr<Decl>> &StructTypeNode::get_fields() const noexcept {
+    return fields_;
+}
 
 UnionTypeNode::UnionTypeNode(std::string name,
                              std::vector<std::unique_ptr<Decl>> fields,

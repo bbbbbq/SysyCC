@@ -27,8 +27,10 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-test "$(grep -Ec '^[[:space:]]*add x[0-9]+, x[0-9]+, w[0-9]+, lsl #2$' "${ASM_FILE}")" -ge 6
-test "$(grep -Ec '^[[:space:]]*ldr w[0-9]+, \[x[0-9]+\]$' "${ASM_FILE}")" -ge 6
+assert_no_illegal_aarch64_index_forms "${ASM_FILE}"
+test "$(grep -Ec '^[[:space:]]*sxtw x[0-9]+, w[0-9]+$' "${ASM_FILE}")" -ge 6
+test "$(grep -Ec '^[[:space:]]*add x[0-9]+, x[0-9]+, x[0-9]+, lsl #2$' "${ASM_FILE}")" -ge 6
+test "$(grep -Ec '^[[:space:]]*ldr w[0-9]+, \[x[0-9]+(, #0)?\]$' "${ASM_FILE}")" -ge 6
 if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then
     echo "unexpected virtual register token leaked into final asm" >&2
     exit 1

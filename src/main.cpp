@@ -22,13 +22,24 @@ std::string language_mode_name(sysycc::LanguageMode language_mode) {
     return "unknown";
 }
 
+std::string optimization_level_name(
+    sysycc::OptimizationLevel optimization_level) {
+    switch (optimization_level) {
+    case sysycc::OptimizationLevel::O0:
+        return "O0";
+    case sysycc::OptimizationLevel::O1:
+        return "O1";
+    }
+    return "unknown";
+}
+
 std::string driver_action_name(sysycc::DriverAction driver_action) {
     switch (driver_action) {
     case sysycc::DriverAction::InternalPipeline:
         return "internal-pipeline";
     case sysycc::DriverAction::FullCompile:
         return "full-compile";
-    case sysycc::DriverAction::CompileOnlyUnsupported:
+    case sysycc::DriverAction::CompileOnly:
         return "compile-only";
     case sysycc::DriverAction::PreprocessOnly:
         return "preprocess-only";
@@ -50,6 +61,9 @@ void print_verbose_configuration(const ClI::Cli &cli,
               << driver_action_name(option.get_driver_action()) << '\n';
     std::cerr << "language mode: "
               << language_mode_name(option.get_language_mode()) << '\n';
+    std::cerr << "optimization level: "
+              << optimization_level_name(option.get_optimization_level())
+              << '\n';
     std::cerr << "gnu extensions: "
               << (option.get_enable_gnu_dialect() ? "enabled" : "disabled")
               << '\n';
@@ -131,6 +145,8 @@ std::string default_output_file_for_action(
         return input_path.stem().string() + ".ll";
     case sysycc::DriverAction::EmitAssembly:
         return input_path.stem().string() + ".s";
+    case sysycc::DriverAction::CompileOnly:
+        return input_path.stem().string() + ".o";
     default:
         return option.get_output_file();
     }
@@ -164,6 +180,10 @@ bool emit_driver_primary_output(const ClI::Cli &cli,
                 : option.get_output_file();
         return emit_primary_text_output(cli.get_program_name(), output_file,
                                         context.get_ir_result()->get_text());
+    }
+
+    if (option.get_driver_action() == sysycc::DriverAction::CompileOnly) {
+        return context.get_object_result() != nullptr;
     }
 
     return true;

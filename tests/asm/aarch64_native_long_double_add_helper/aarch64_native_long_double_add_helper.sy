@@ -1,0 +1,10 @@
+long double add_one(long double x) {
+    return x + (long double)1;
+}
+
+int main() {
+    long double value;
+    value = (long double)getint();
+    putint((int)add_one(value));
+    return 0;
+}

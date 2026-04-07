@@ -39,6 +39,9 @@ tests/
 ├── semantic/
 │   └── <case>/
 ├── run_all.sh
+├── run_tier1.sh
+├── run_tier2.sh
+├── run_full.sh
 └── test_helpers.sh
 ```
 
@@ -62,7 +65,9 @@ rather than inside, the regular `tests/<stage>/<case>/run.sh` tree. The
 current scripts cover:
 
 - the original correctness harness for the recovered `functional` and
-  `h_functional` suites
+  `h_functional` suites, now executed through SysyCC-generated native AArch64
+  assembly plus cross assemble/link and qemu user-mode execution rather than
+  the older host-side `--dump-ir` fallback
 - an ARM-performance correctness runner that treats
   `tests/compiler2025/extracted/ARM-性能` as a case root and checks the
   generated program output against the bundled `.out` files
@@ -132,6 +137,26 @@ includes:
   cases where the first initialized field is narrower than the union storage
 - IR/runtime coverage for aggregate assignment expressions used directly as
   fixed-parameter call arguments
+- runtime coverage for LeetCode-inspired array algorithms adapted to the
+  SysyCC stdin/stdout harness, including in-place duplicate compaction,
+  binary-search insertion index lookup, Kadane maximum subarray, single-pass
+  stock-profit scanning, and Boyer-Moore majority voting
+- bug-reproducer coverage for direct standard-library heap allocation through
+  `malloc` / `free`, preserving the current failure mode where the compiler
+  still chokes on transitive macOS system-header constructs while trying to
+  compile a dynamically allocated integer-buffer sum program
+- currently failing standard-library compatibility coverage for additional
+  macOS system-header and builtin expansion gaps, including `string.h`
+  `memcpy`, `math.h` `isnan`, `ctype.h` classification macros, and
+  `assert.h` predefined-builtin usage
+- currently failing standard-library compatibility coverage for compiler
+  builtin-type and declaration forms surfaced by common headers, including
+  `stddef.h` `ptrdiff_t`, `time.h` declaration aliases, `float.h` builtin
+  floating macros, and `stdalign.h` `alignas`
+- runtime coverage for longer LeetCode-inspired composite problems including
+  dynamic 2D union-find, multi-source grid BFS, handwritten heap-based graph
+  shortest path, interval-room scheduling with paired heaps, and 2D dynamic
+  programming over matrix state
 - IR failure coverage for unsupported function bodies, which must now stop
   compilation with a diagnostic instead of being silently skipped
 - IR failure coverage for internal backend emission failures, which must now
@@ -952,8 +977,18 @@ Native Linux AArch64 asm regressions, including:
   serializes concurrent local `cmake` / compiler invocations per build
   directory so later test runs wait for the active build instead of colliding.
 - [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh)
-  recursively discovers every executable `tests/<stage>/<case>/run.sh`,
-  executes them, and writes a Markdown summary to `build/test_result.md`.
+  recursively discovers executable `tests/<stage>/<case>/run.sh`, defaults to
+  the tier-1 regression lane (`run`, `cli`, `dialects`), supports
+  `--layer tier1|tier2|all`, and writes a Markdown summary to
+  `build/test_result.md`.
+- [tests/run_tier1.sh](/Users/caojunze424/code/SysyCC/tests/run_tier1.sh)
+  is the explicit day-to-day fast lane for `run`, `cli`, and `dialects`
+  regressions.
+- [tests/run_tier2.sh](/Users/caojunze424/code/SysyCC/tests/run_tier2.sh)
+  runs the stage-focused second layer covering `asm`, `ast`, `fuzz`, `ir`,
+  `lexer`, `object`, `parser`, `preprocess`, and `semantic`.
+- [tests/run_full.sh](/Users/caojunze424/code/SysyCC/tests/run_full.sh)
+  preserves the old full-suite behavior by running both layers together.
 
 ## Artifact Checks
 

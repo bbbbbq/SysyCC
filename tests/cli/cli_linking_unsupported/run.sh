@@ -12,8 +12,8 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_compiler_fails_with_message \
-    "${BUILD_DIR}/SysyCC" \
+    "${BUILD_DIR}/compiler" \
     "${INPUT_FILE}" \
-    "linking is not supported yet; use -E, -fsyntax-only, -S, or -S -emit-llvm"
+    "linking is not supported yet; use -E, -fsyntax-only, -c, -S, or -S -emit-llvm"
 
 echo "verified: bare public driver invocations fail with explicit linking guidance"

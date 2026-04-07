@@ -1,0 +1,7 @@
+int main() {
+    _Float16 value;
+    value = (_Float16)getint();
+    value = value + (_Float16)2;
+    putint((int)value);
+    return 0;
+}

@@ -1,0 +1,7 @@
+int read_at(int *base, unsigned int index) {
+    return base[index];
+}
+
+int read_cast(int *base, int index) {
+    return base[(unsigned int)index];
+}

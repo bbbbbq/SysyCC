@@ -1,0 +1,51 @@
+// Source: LeetCode 33. Search in Rotated Sorted Array
+// Problem: https://leetcode.com/problems/search-in-rotated-sorted-array/
+// Adapted for SysyCC runtime regression: read n, a rotated sorted array, and a
+// target, then print the found index or -1.
+
+int search_rotated(int values[32], int count, int target) {
+    int left = 0;
+    int right = count - 1;
+    int mid = 0;
+
+    while (left <= right) {
+        mid = left + (right - left) / 2;
+        if (values[mid] == target) {
+            return mid;
+        }
+
+        if (values[left] <= values[mid]) {
+            if (values[left] <= target && target < values[mid]) {
+                right = mid - 1;
+            } else {
+                left = mid + 1;
+            }
+        } else {
+            if (values[mid] < target && target <= values[right]) {
+                left = mid + 1;
+            } else {
+                right = mid - 1;
+            }
+        }
+    }
+
+    return -1;
+}
+
+int main() {
+    int values[32];
+    int count = 0;
+    int target = 0;
+    int i = 0;
+
+    count = getint();
+    while (i < count) {
+        values[i] = getint();
+        i = i + 1;
+    }
+    target = getint();
+
+    putint(search_rotated(values, count, target));
+    putch(10);
+    return 0;
+}

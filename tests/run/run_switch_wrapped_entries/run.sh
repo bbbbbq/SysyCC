@@ -25,6 +25,9 @@ assert_file_nonempty "${IR_FILE}"
 build_and_link_ir_executable "${IR_FILE}" "${RUNTIME_SOURCE}" "${PROGRAM_FILE}"
 assert_program_output "${PROGRAM_FILE}" /dev/null "${EXPECTED_OUTPUT}"
 
-grep -Eq 'switch\.case|call void @putint\(i32 23\)' "${IR_FILE}"
+if ! grep -Eq 'switch\.case|call void @putint\(i32 23\)|store i32 23, ptr %y\.addr' "${IR_FILE}"; then
+    echo "expected wrapped switch lowering to preserve either explicit switch cases, the selected store, or a constant putint call" >&2
+    exit 1
+fi
 
 echo "verified: runtime executes wrapped switch entries with trailing statements"

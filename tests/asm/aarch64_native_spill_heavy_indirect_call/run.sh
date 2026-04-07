@@ -27,6 +27,7 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
+assert_no_illegal_aarch64_index_forms "${ASM_FILE}"
 grep -Eq '^[[:space:]]*blr x[0-9]+$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*str x19, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*str x20, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
