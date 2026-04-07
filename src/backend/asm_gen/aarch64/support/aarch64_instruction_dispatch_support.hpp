@@ -51,11 +51,11 @@ bool dispatch_aarch64_lowered_instruction(DispatchContext &context,
                                  static_cast<const CoreIrCallInst &>(instruction), state);
     case CoreIrOpcode::Jump:
         context.emit_debug_location(machine_block, instruction.get_source_span(), state);
-        machine_block.append_instruction(
-            "b " + context.resolve_branch_target_label(
-                      state, current_block,
-                      static_cast<const CoreIrJumpInst &>(instruction)
-                          .get_target_block()));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "b",
+            {AArch64MachineOperand::label(context.resolve_branch_target_label(
+                state, current_block,
+                static_cast<const CoreIrJumpInst &>(instruction).get_target_block()))}));
         return true;
     case CoreIrOpcode::CondJump:
         context.emit_debug_location(machine_block, instruction.get_source_span(), state);

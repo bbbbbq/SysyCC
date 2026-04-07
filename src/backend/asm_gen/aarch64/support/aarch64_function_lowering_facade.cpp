@@ -334,7 +334,7 @@ void AArch64FunctionLoweringFacade::emit_direct_call(
     AArch64MachineBlock &machine_block, const std::string &callee_name) {
     services_.record_symbol_reference(callee_name, AArch64SymbolKind::Function);
     machine_block.append_instruction(
-        AArch64MachineInstr("bl", {AArch64MachineOperand(callee_name)},
+        AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(callee_name)},
                             AArch64InstructionFlags{.is_call = true}, {}, {},
                             make_default_aarch64_call_clobber_mask()));
 }
@@ -342,7 +342,7 @@ void AArch64FunctionLoweringFacade::emit_direct_call(
 bool AArch64FunctionLoweringFacade::emit_indirect_call(
     AArch64MachineBlock &machine_block, const AArch64VirtualReg &callee_reg) {
     machine_block.append_instruction(AArch64MachineInstr(
-        "blr", {AArch64MachineOperand(use_vreg(callee_reg))},
+        "blr", {AArch64MachineOperand::use_virtual_reg(callee_reg)},
         AArch64InstructionFlags{.is_call = true}, {}, {},
         make_default_aarch64_call_clobber_mask()));
     return true;
@@ -352,7 +352,7 @@ void AArch64FunctionLoweringFacade::append_helper_call(
     AArch64MachineBlock &machine_block, const std::string &symbol_name) {
     services_.record_symbol_reference(symbol_name, AArch64SymbolKind::Helper);
     machine_block.append_instruction(
-        AArch64MachineInstr("bl", {AArch64MachineOperand(symbol_name)},
+        AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(symbol_name)},
                             AArch64InstructionFlags{.is_call = true}, {}, {},
                             make_default_aarch64_call_clobber_mask()));
 }
@@ -546,12 +546,15 @@ bool AArch64FunctionLoweringFacade::emit_cond_jump(
         return false;
     }
     machine_block.append_instruction(
-        "cbnz " + use_vreg(condition_reg) + ", " +
-        resolve_branch_target_label(state_, current_block,
-                                    cond_jump.get_true_block()));
-    machine_block.append_instruction(
-        "b " + resolve_branch_target_label(state_, current_block,
-                                           cond_jump.get_false_block()));
+        AArch64MachineInstr(
+            "cbnz",
+            {AArch64MachineOperand::use_virtual_reg(condition_reg),
+             AArch64MachineOperand::label(resolve_branch_target_label(
+                 state_, current_block, cond_jump.get_true_block()))}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "b",
+        {AArch64MachineOperand::label(resolve_branch_target_label(
+            state_, current_block, cond_jump.get_false_block()))}));
     return true;
 }
 
