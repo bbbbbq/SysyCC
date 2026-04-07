@@ -120,6 +120,12 @@ void CoreIrBuildResult::invalidate_core_ir_analyses(CoreIrFunction &) noexcept {
 
 void CoreIrBuildResult::invalidate_all_core_ir_analyses() noexcept {}
 
+// Test-only compatibility stubs: this dialect sync fixture does not exercise
+// the real analysis cache, but it must stay link-complete as the surface grows.
+void CoreIrAnalysisManager::invalidate_all() noexcept {}
+
+void CoreIrAnalysisManager::invalidate(CoreIrAnalysisKind) noexcept {}
+
 void CoreIrAnalysisManager::invalidate(CoreIrFunction &,
                                        CoreIrAnalysisKind) noexcept {}
 

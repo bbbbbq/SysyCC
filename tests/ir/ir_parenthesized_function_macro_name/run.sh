@@ -17,7 +17,9 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
-grep -Eq 'define internal i32 @safe_add\(i32 %x, i32 %y\)' "${IR_FILE}"
-grep -Eq 'call i32 @safe_add\(i32 1, i32 2\)' "${IR_FILE}"
+grep -Eq '^static int \(safe_add\)\(int x, int y\) \{$' \
+    "${BUILD_DIR}/intermediate_results/${TEST_NAME}.preprocessed.sy"
+grep -Eq '^define i32 @main\(\) \{$' "${IR_FILE}"
+grep -Eq '^  ret i32 3$' "${IR_FILE}"
 
-echo "verified: ir lowers macro-expanded parenthesized function names"
+echo "verified: parenthesized macro-expanded function names preprocess and lower correctly through optimization"

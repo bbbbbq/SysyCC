@@ -14,8 +14,13 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
+assert_basic_frontend_outputs "${BUILD_DIR}" "ir_static_top_level_decls"
 assert_file_nonempty "${IR_FILE}"
 grep -q '^@g = internal global i32 1$' "${IR_FILE}"
-grep -q '^define internal void @helper() {' "${IR_FILE}"
+if grep -q '@helper' "${IR_FILE}"; then
+    grep -q '^define internal void @helper() {' "${IR_FILE}"
+fi
+grep -q '^define i32 @main() {' "${IR_FILE}"
+grep -Eq '^  %t[0-9]+ = load i32, ptr @g$' "${IR_FILE}"
 
-echo "verified: ir lowers static globals and functions with internal linkage"
+echo "verified: ir keeps static globals internal and allows dead static helpers to be removed"

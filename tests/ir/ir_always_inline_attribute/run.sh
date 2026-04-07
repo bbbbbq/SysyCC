@@ -20,6 +20,10 @@ assert_file_nonempty "${IR_FILE}"
 
 grep -Eq '^define i32 @foo\(\) alwaysinline \{$' "${IR_FILE}"
 grep -Eq '^define i32 @main\(\) \{$' "${IR_FILE}"
-grep -Eq 'call i32 @foo\(\)' "${IR_FILE}"
+if grep -Eq 'call i32 @foo\(\)' "${IR_FILE}"; then
+    echo "expected always_inline call to be consumed by the Core IR inliner" >&2
+    exit 1
+fi
+grep -Eq '^  ret i32 7$' "${IR_FILE}"
 
-echo "verified: __always_inline__ lowers to LLVM alwaysinline"
+echo "verified: __always_inline__ lowers to LLVM alwaysinline and is honored by the Core IR inliner"

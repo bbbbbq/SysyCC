@@ -8,11 +8,16 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 TEST_BUILD_DIR="${SCRIPT_DIR}/build"
 TEST_BINARY="${TEST_BUILD_DIR}/ir_core_global_dce_pass"
 TEST_SOURCE="${SCRIPT_DIR}/ir_core_global_dce_pass.cpp"
+INPUT_FILE="${SCRIPT_DIR}/ir_core_global_dce_pass.sy"
+TEST_NAME="$(basename "${SCRIPT_DIR}")"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 mkdir -p "${TEST_BUILD_DIR}"
+
+"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
+assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 
 OBJECT_FILES=()
 while IFS= read -r -d '' object_file; do
