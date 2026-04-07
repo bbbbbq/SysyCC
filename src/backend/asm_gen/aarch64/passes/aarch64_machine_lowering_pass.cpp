@@ -16,6 +16,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "backend/asm_gen/aarch64/model/aarch64_target_constraints.hpp"
+#include "backend/asm_gen/aarch64/model/aarch64_machine_lowering_state.hpp"
 #include "backend/asm_gen/aarch64/passes/aarch64_abi_lowering_pass.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_address_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_aggregate_abi_move_support.hpp"
@@ -55,96 +57,6 @@ namespace sysycc {
 namespace {
 
 constexpr const char *kDefaultTargetTriple = "aarch64-unknown-linux-gnu";
-constexpr unsigned kCallerSavedAllocatablePhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::X9),
-    static_cast<unsigned>(AArch64PhysicalReg::X10),
-    static_cast<unsigned>(AArch64PhysicalReg::X11),
-    static_cast<unsigned>(AArch64PhysicalReg::X12),
-    static_cast<unsigned>(AArch64PhysicalReg::X13),
-    static_cast<unsigned>(AArch64PhysicalReg::X14),
-    static_cast<unsigned>(AArch64PhysicalReg::X15),
-};
-constexpr unsigned kCalleeSavedAllocatablePhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::X19),
-    static_cast<unsigned>(AArch64PhysicalReg::X20),
-    static_cast<unsigned>(AArch64PhysicalReg::X21),
-    static_cast<unsigned>(AArch64PhysicalReg::X22),
-    static_cast<unsigned>(AArch64PhysicalReg::X23),
-};
-constexpr unsigned kCallerSavedAllocatableFloatPhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::V16),
-    static_cast<unsigned>(AArch64PhysicalReg::V17),
-    static_cast<unsigned>(AArch64PhysicalReg::V18),
-    static_cast<unsigned>(AArch64PhysicalReg::V19),
-    static_cast<unsigned>(AArch64PhysicalReg::V20),
-    static_cast<unsigned>(AArch64PhysicalReg::V21),
-    static_cast<unsigned>(AArch64PhysicalReg::V22),
-    static_cast<unsigned>(AArch64PhysicalReg::V23),
-    static_cast<unsigned>(AArch64PhysicalReg::V24),
-    static_cast<unsigned>(AArch64PhysicalReg::V25),
-    static_cast<unsigned>(AArch64PhysicalReg::V26),
-    static_cast<unsigned>(AArch64PhysicalReg::V27),
-};
-constexpr unsigned kCalleeSavedAllocatableFloatPhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::V8),
-    static_cast<unsigned>(AArch64PhysicalReg::V9),
-    static_cast<unsigned>(AArch64PhysicalReg::V10),
-    static_cast<unsigned>(AArch64PhysicalReg::V11),
-    static_cast<unsigned>(AArch64PhysicalReg::V12),
-    static_cast<unsigned>(AArch64PhysicalReg::V13),
-    static_cast<unsigned>(AArch64PhysicalReg::V14),
-    static_cast<unsigned>(AArch64PhysicalReg::V15),
-};
-constexpr unsigned kSpillScratchPhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::X24),
-    static_cast<unsigned>(AArch64PhysicalReg::X25),
-    static_cast<unsigned>(AArch64PhysicalReg::X26),
-    static_cast<unsigned>(AArch64PhysicalReg::X27),
-};
-constexpr unsigned kSpillAddressPhysicalReg =
-    static_cast<unsigned>(AArch64PhysicalReg::X28);
-constexpr unsigned kSpillScratchFloatPhysicalRegs[] = {
-    static_cast<unsigned>(AArch64PhysicalReg::V28),
-    static_cast<unsigned>(AArch64PhysicalReg::V29),
-    static_cast<unsigned>(AArch64PhysicalReg::V30),
-    static_cast<unsigned>(AArch64PhysicalReg::V31),
-};
-
-bool is_float_physical_reg(unsigned reg) {
-    return reg >= static_cast<unsigned>(AArch64PhysicalReg::V0) &&
-           reg <= static_cast<unsigned>(AArch64PhysicalReg::V31);
-}
-
-bool is_callee_saved_allocatable_physical_reg(unsigned reg) {
-    return std::find(std::begin(kCalleeSavedAllocatablePhysicalRegs),
-                     std::end(kCalleeSavedAllocatablePhysicalRegs),
-                     reg) != std::end(kCalleeSavedAllocatablePhysicalRegs);
-}
-
-bool is_callee_saved_allocatable_float_physical_reg(unsigned reg) {
-    return std::find(std::begin(kCalleeSavedAllocatableFloatPhysicalRegs),
-                     std::end(kCalleeSavedAllocatableFloatPhysicalRegs),
-                     reg) != std::end(kCalleeSavedAllocatableFloatPhysicalRegs);
-}
-
-AArch64CallClobberMask make_default_call_clobber_mask() {
-    std::set<unsigned> regs = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-                               13, 14, 15, 16, 17};
-    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V0));
-    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V1));
-    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V2));
-    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V3));
-    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V4));
-    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V5));
-    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V6));
-    regs.insert(static_cast<unsigned>(AArch64PhysicalReg::V7));
-    regs.insert(std::begin(kCallerSavedAllocatableFloatPhysicalRegs),
-                std::end(kCallerSavedAllocatableFloatPhysicalRegs));
-    regs.insert(std::begin(kSpillScratchFloatPhysicalRegs),
-                std::end(kSpillScratchFloatPhysicalRegs));
-    return AArch64CallClobberMask(std::move(regs));
-}
-
 std::size_t align_to(std::size_t value, std::size_t alignment) {
     if (alignment == 0) {
         return value;
@@ -279,27 +191,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
     AArch64AbiLoweringPass abi_lowering_pass_;
     AArch64MachineModule *machine_module_ = nullptr;
     std::unordered_map<const CoreIrBasicBlock *, std::string> block_labels_;
-
-    struct FunctionState {
-        AArch64MachineFunction *machine_function = nullptr;
-        AArch64FunctionAbiInfo abi_info;
-        AArch64VirtualReg indirect_result_address;
-        std::unordered_map<const CoreIrParameter *, std::size_t>
-            incoming_stack_argument_offsets;
-        std::unordered_map<const CoreIrValue *, AArch64ValueLocation> value_locations;
-        std::unordered_map<const CoreIrValue *, std::size_t> aggregate_value_offsets;
-        std::unordered_map<const CoreIrCallInst *, std::vector<std::size_t>>
-            indirect_call_argument_copy_offsets;
-        std::unordered_set<const CoreIrStackSlot *> promoted_stack_slots;
-        std::unordered_map<const CoreIrStackSlot *, AArch64VirtualReg>
-            promoted_stack_slot_values;
-        std::unordered_map<AArch64PhiEdgeKey, std::string, AArch64PhiEdgeKeyHash>
-            phi_edge_labels;
-        std::vector<AArch64PhiEdgePlan> phi_edge_plans;
-        unsigned last_debug_file_id = 0;
-        int last_debug_line = 0;
-        int last_debug_column = 0;
-    };
+    using FunctionState = AArch64FunctionLoweringState;
 
   public:
     AArch64LoweringSession(AArch64CodegenContext &codegen_context)
@@ -493,14 +385,14 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         machine_block.append_instruction(AArch64MachineInstr(
             "bl", {AArch64MachineOperand(symbol_name)},
             AArch64InstructionFlags{.is_call = true}, {}, {},
-            make_default_call_clobber_mask()));
+            make_default_aarch64_call_clobber_mask()));
     }
 
     const AArch64ValueLocation *
     lookup_value_location(const FunctionState &state,
                           const CoreIrValue *value) const {
-        const auto it = state.value_locations.find(value);
-        if (it == state.value_locations.end()) {
+        const auto it = state.value_state.value_locations.find(value);
+        if (it == state.value_state.value_locations.end()) {
             return nullptr;
         }
         return &it->second;
@@ -534,8 +426,8 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                 "missing canonical AArch64 aggregate memory location for Core IR value");
             return false;
         }
-        const auto offset_it = state.aggregate_value_offsets.find(value);
-        if (offset_it == state.aggregate_value_offsets.end()) {
+        const auto offset_it = state.value_state.aggregate_value_offsets.find(value);
+        if (offset_it == state.value_state.aggregate_value_offsets.end()) {
             add_backend_error(
                 diagnostic_engine_,
                 "missing frame offset for canonical AArch64 aggregate value");
@@ -551,16 +443,18 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                                        std::size_t &current_offset) {
         auto planning_context = make_function_planning_context();
         return sysycc::seed_function_value_locations(
-            function, *state.machine_function, state.value_locations,
-            state.aggregate_value_offsets, current_offset, planning_context);
+            function, *state.machine_function, state.value_state.value_locations,
+            state.value_state.aggregate_value_offsets, current_offset,
+            planning_context);
     }
 
     std::string resolve_branch_target_label(const FunctionState &state,
                                             const CoreIrBasicBlock *predecessor,
                                             const CoreIrBasicBlock *successor) const {
         const auto edge_it =
-            state.phi_edge_labels.find(AArch64PhiEdgeKey{predecessor, successor});
-        if (edge_it != state.phi_edge_labels.end()) {
+            state.control_state.phi_edge_labels.find(
+                AArch64PhiEdgeKey{predecessor, successor});
+        if (edge_it != state.control_state.phi_edge_labels.end()) {
             return edge_it->second;
         }
         return block_labels_.at(successor);
@@ -578,24 +472,24 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         if (debug_file_id == 0 || line <= 0) {
             return;
         }
-        if (state.last_debug_file_id == debug_file_id &&
-            state.last_debug_line == line &&
-            state.last_debug_column == column) {
+        if (state.debug_state.last_debug_file_id == debug_file_id &&
+            state.debug_state.last_debug_line == line &&
+            state.debug_state.last_debug_column == column) {
             return;
         }
         machine_block.append_instruction(".loc " + std::to_string(debug_file_id) + " " +
                                          std::to_string(line) + " " +
                                          std::to_string(column));
-        state.last_debug_file_id = debug_file_id;
-        state.last_debug_line = line;
-        state.last_debug_column = column;
+        state.debug_state.last_debug_file_id = debug_file_id;
+        state.debug_state.last_debug_line = line;
+        state.debug_state.last_debug_column = column;
     }
 
     bool is_promoted_stack_slot(const FunctionState &state,
                                 const CoreIrStackSlot *stack_slot) const {
         return stack_slot != nullptr &&
-               state.promoted_stack_slots.find(stack_slot) !=
-                   state.promoted_stack_slots.end();
+               state.value_state.promoted_stack_slots.find(stack_slot) !=
+                   state.value_state.promoted_stack_slots.end();
     }
 
     bool append_functions(AArch64MachineModule &machine_module) {
@@ -607,17 +501,9 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         return true;
     }
 
-    bool append_function(AArch64MachineModule &machine_module,
-                         const CoreIrFunction &function) {
-        if (function.get_basic_blocks().empty()) {
-            return true;
-        }
-        auto planning_context = make_function_planning_context();
-        if (!sysycc::validate_function_lowering_readiness(function,
-                                                          planning_context)) {
-            return false;
-        }
-
+    AArch64MachineFunction &
+    append_machine_function(AArch64MachineModule &machine_module,
+                            const CoreIrFunction &function) {
         const std::string function_name = function.get_name();
         AArch64MachineFunction &machine_function = machine_module.append_function(
             function_name, !function.get_is_internal_linkage(),
@@ -625,64 +511,109 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         record_symbol_definition(function_name, AArch64SymbolKind::Function,
                                  AArch64SectionKind::Text,
                                  !function.get_is_internal_linkage());
-        FunctionState state;
-        state.machine_function = &machine_function;
-        state.abi_info = abi_lowering_pass_.classify_function(function);
+        machine_function.set_section_kind(AArch64SectionKind::Text);
+        return machine_function;
+    }
 
+    void finalize_function_frame_layout(AArch64MachineFunction &machine_function,
+                                        std::size_t current_offset) {
+        const std::size_t frame_size = align_to(current_offset, 16);
+        machine_function.get_frame_info().set_local_size(current_offset);
+        machine_function.get_frame_info().set_frame_size(frame_size);
+        initialize_aarch64_function_frame_record(machine_function, frame_size);
+    }
+
+    bool plan_function_stack_and_values(const CoreIrFunction &function,
+                                        FunctionState &state) {
         std::size_t current_offset = 0;
-        sysycc::seed_incoming_stack_argument_offsets(
-            function, state.abi_info, state.incoming_stack_argument_offsets);
-        sysycc::layout_stack_slots(machine_function, function, current_offset);
+        sysycc::layout_stack_slots(*state.machine_function, function, current_offset);
 
         if (!seed_function_value_locations(function, state, current_offset)) {
             return false;
         }
         auto copy_slot_planning_context = make_function_planning_context();
         sysycc::seed_call_argument_copy_slots(
-            function, state.indirect_call_argument_copy_offsets, current_offset,
+            function, state.call_state.indirect_call_argument_copy_offsets,
+            current_offset,
             copy_slot_planning_context);
-        const std::size_t frame_size = align_to(current_offset, 16);
-        machine_function.get_frame_info().set_local_size(current_offset);
-        machine_function.get_frame_info().set_frame_size(frame_size);
-        machine_function.set_section_kind(AArch64SectionKind::Text);
-        initialize_aarch64_function_frame_record(machine_function, frame_size);
-        sysycc::seed_promoted_stack_slots(function, state.value_locations,
-                                          state.promoted_stack_slots);
+        sysycc::seed_promoted_stack_slots(function, state.value_state.value_locations,
+                                          state.value_state.promoted_stack_slots);
+        finalize_function_frame_layout(*state.machine_function, current_offset);
+        return true;
+    }
 
-        block_labels_ = build_aarch64_function_block_labels(function, function_name);
-        state.phi_edge_labels.clear();
-        state.phi_edge_plans.clear();
+    bool plan_function_control_flow(const CoreIrFunction &function,
+                                    FunctionState &state) {
+        block_labels_ =
+            build_aarch64_function_block_labels(function, function.get_name());
+        state.control_state.phi_edge_labels.clear();
+        state.control_state.phi_edge_plans.clear();
         auto phi_plan_context = make_phi_plan_context();
         if (!sysycc::build_phi_edge_plans(function, phi_plan_context,
-                                          state.phi_edge_labels,
-                                          state.phi_edge_plans)) {
+                                          state.control_state.phi_edge_labels,
+                                          state.control_state.phi_edge_plans)) {
+            return false;
+        }
+        return true;
+    }
+
+    bool initialize_function_state(AArch64MachineModule &machine_module,
+                                   const CoreIrFunction &function,
+                                   FunctionState &state) {
+        auto planning_context = make_function_planning_context();
+        if (!sysycc::validate_function_lowering_readiness(function,
+                                                          planning_context)) {
             return false;
         }
 
-        return emit_function(machine_function, function, state);
+        state.machine_function = &append_machine_function(machine_module, function);
+        state.call_state.abi_info = abi_lowering_pass_.classify_function(function);
+
+        if (!plan_function_stack_and_values(function, state)) {
+            return false;
+        }
+
+        return plan_function_control_flow(function, state);
     }
 
-    bool emit_function(AArch64MachineFunction &machine_function,
-                       const CoreIrFunction &function, FunctionState &state) {
+    bool append_function(AArch64MachineModule &machine_module,
+                         const CoreIrFunction &function) {
+        if (function.get_basic_blocks().empty()) {
+            return true;
+        }
+
+        FunctionState state;
+        if (!initialize_function_state(machine_module, function, state)) {
+            return false;
+        }
+
+        return emit_function(*state.machine_function, function, state);
+    }
+
+    bool emit_function_entry(AArch64MachineFunction &machine_function,
+                             const CoreIrFunction &function,
+                             FunctionState &state) {
         AbiEmissionContext abi_context(*this, state);
         AArch64MachineBlock &prologue_block =
             machine_function.append_block(function.get_name());
         append_aarch64_standard_prologue(
             prologue_block, machine_function.get_frame_info().get_frame_size());
-        if (state.abi_info.return_value.is_indirect) {
-            state.indirect_result_address =
+        if (state.call_state.abi_info.return_value.is_indirect) {
+            state.value_state.indirect_result_address =
                 create_pointer_virtual_reg(machine_function);
             append_copy_from_physical_reg(
-                prologue_block, state.indirect_result_address,
+                prologue_block, state.value_state.indirect_result_address,
                 static_cast<unsigned>(AArch64PhysicalReg::X8),
                 AArch64VirtualRegKind::General64);
         }
-        if (!lower_function_entry_parameters(prologue_block, function, state.abi_info,
-                                             *state.machine_function,
-                                             abi_context)) {
-            return false;
-        }
+        return lower_function_entry_parameters(prologue_block, function,
+                                               state.call_state.abi_info,
+                                               *state.machine_function,
+                                               abi_context);
+    }
 
+    bool emit_function_body(AArch64MachineFunction &machine_function,
+                            const CoreIrFunction &function, FunctionState &state) {
         for (const auto &basic_block : function.get_basic_blocks()) {
             AArch64MachineBlock &machine_block =
                 machine_function.append_block(block_labels_.at(basic_block.get()));
@@ -693,16 +624,38 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                 }
             }
         }
-        for (const AArch64PhiEdgePlan &plan : state.phi_edge_plans) {
+        return true;
+    }
+
+    bool emit_phi_edge_blocks(AArch64MachineFunction &machine_function,
+                              const FunctionState &state) {
+        for (const AArch64PhiEdgePlan &plan : state.control_state.phi_edge_plans) {
             if (!emit_phi_edge_block(machine_function, plan, state)) {
                 return false;
             }
         }
+        return true;
+    }
 
+    void emit_function_exit(AArch64MachineFunction &machine_function) {
         AArch64MachineBlock &epilogue_block =
             machine_function.append_block(machine_function.get_epilogue_label());
         append_aarch64_standard_epilogue(
             epilogue_block, machine_function.get_frame_info().get_frame_size());
+    }
+
+    bool emit_function(AArch64MachineFunction &machine_function,
+                       const CoreIrFunction &function, FunctionState &state) {
+        if (!emit_function_entry(machine_function, function, state)) {
+            return false;
+        }
+        if (!emit_function_body(machine_function, function, state)) {
+            return false;
+        }
+        if (!emit_phi_edge_blocks(machine_function, state)) {
+            return false;
+        }
+        emit_function_exit(machine_function);
         return true;
     }
 
@@ -1051,7 +1004,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
             machine_block.append_instruction(AArch64MachineInstr(
                 "bl", {AArch64MachineOperand(callee_name)},
                 AArch64InstructionFlags{.is_call = true}, {}, {},
-                make_default_call_clobber_mask()));
+                make_default_aarch64_call_clobber_mask()));
         }
 
         bool emit_indirect_call(AArch64MachineBlock &machine_block,
@@ -1059,7 +1012,7 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
             machine_block.append_instruction(AArch64MachineInstr(
                 "blr", {AArch64MachineOperand(use_vreg(callee_reg))},
                 AArch64InstructionFlags{.is_call = true}, {}, {},
-                make_default_call_clobber_mask()));
+                make_default_aarch64_call_clobber_mask()));
             return true;
         }
 
@@ -1722,8 +1675,8 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                     return false;
                 }
                 const auto value_it =
-                    state.promoted_stack_slot_values.find(load.get_stack_slot());
-                if (value_it == state.promoted_stack_slot_values.end()) {
+                    state.value_state.promoted_stack_slot_values.find(load.get_stack_slot());
+                if (value_it == state.value_state.promoted_stack_slot_values.end()) {
                     add_backend_error(
                         diagnostic_engine_,
                         "promoted stack slot loaded before it has a canonical value");
@@ -1748,7 +1701,8 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
             if (!ensure_value_in_vreg(machine_block, store.get_value(), state, value_reg)) {
                 return false;
             }
-            state.promoted_stack_slot_values[store.get_stack_slot()] = value_reg;
+            state.value_state.promoted_stack_slot_values[store.get_stack_slot()] =
+                value_reg;
             return true;
         }
         MemoryValueLoweringContext memory_context(*this, state);
@@ -1915,9 +1869,9 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
         AbiEmissionContext abi_context(*this, state);
         const AArch64FunctionAbiInfo abi_info = abi_lowering_pass_.classify_call(call);
         const auto call_copy_it =
-            state.indirect_call_argument_copy_offsets.find(&call);
+            state.call_state.indirect_call_argument_copy_offsets.find(&call);
         const std::vector<std::size_t> *indirect_copy_offsets =
-            call_copy_it == state.indirect_call_argument_copy_offsets.end()
+            call_copy_it == state.call_state.indirect_call_argument_copy_offsets.end()
                 ? nullptr
                 : &call_copy_it->second;
         return sysycc::emit_call_with_abi(
@@ -1950,8 +1904,8 @@ class AArch64LoweringSession : public AArch64MemoryAccessContext,
                      const FunctionState &state) {
         AbiEmissionContext abi_context(*this, state);
         return sysycc::emit_function_return(
-            machine_function, machine_block, return_inst, state.abi_info,
-            state.indirect_result_address, abi_context);
+            machine_function, machine_block, return_inst, state.call_state.abi_info,
+            state.value_state.indirect_result_address, abi_context);
     }
 };
 

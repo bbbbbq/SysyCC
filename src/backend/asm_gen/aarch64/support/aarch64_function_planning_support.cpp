@@ -104,21 +104,6 @@ bool validate_function_lowering_readiness(const CoreIrFunction &function,
     return true;
 }
 
-void seed_incoming_stack_argument_offsets(
-    const CoreIrFunction &function, const AArch64FunctionAbiInfo &abi_info,
-    std::unordered_map<const CoreIrParameter *, std::size_t>
-        &incoming_stack_argument_offsets) {
-    for (std::size_t index = 0; index < function.get_parameters().size(); ++index) {
-        const AArch64AbiAssignment &assignment = abi_info.parameters[index];
-        if (!assignment.locations.empty() &&
-            assignment.locations.front().kind == AArch64AbiLocationKind::Stack) {
-            incoming_stack_argument_offsets.emplace(
-                function.get_parameters()[index].get(),
-                assignment.locations.front().stack_offset);
-        }
-    }
-}
-
 void layout_stack_slots(AArch64MachineFunction &machine_function,
                         const CoreIrFunction &function,
                         std::size_t &current_offset) {
