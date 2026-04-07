@@ -67,6 +67,17 @@ std::vector<CoreIrBasicBlock *> collect_inside_predecessors(
     return predecessors;
 }
 
+bool exit_block_has_outside_predecessor(const CoreIrCfgAnalysisResult &cfg,
+                                        const CoreIrLoopInfo &loop,
+                                        CoreIrBasicBlock *exit_block) {
+    for (CoreIrBasicBlock *predecessor : cfg.get_predecessors(exit_block)) {
+        if (!loop_contains_block(loop, predecessor)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool dominates_all_inside_predecessors(
     const CoreIrDominatorTreeAnalysisResult &dominator_tree,
     const CoreIrInstruction &instruction,
@@ -132,6 +143,9 @@ bool run_lcssa_on_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
     const std::vector<CoreIrBasicBlock *> inside_predecessors =
         collect_inside_predecessors(cfg, loop, exit_block);
     if (inside_predecessors.empty()) {
+        return false;
+    }
+    if (exit_block_has_outside_predecessor(cfg, loop, exit_block)) {
         return false;
     }
 
@@ -216,4 +230,3 @@ PassResult CoreIrLcssaPass::Run(CompilerContext &context) {
 }
 
 } // namespace sysycc
-

@@ -47,6 +47,14 @@ struct BlockedPrefix {
     CoreIrPromotionFailureReason reason = CoreIrPromotionFailureReason::AddressEscaped;
 };
 
+CoreIrPromotionFailureReason classify_non_load_store_user_or_default(
+    const CoreIrInstruction *user) {
+    if (user == nullptr) {
+        return CoreIrPromotionFailureReason::AddressEscaped;
+    }
+    return classify_non_load_store_user(*user);
+}
+
 std::string build_path_key(const std::vector<std::uint64_t> &path) {
     std::string key;
     for (std::uint64_t index : path) {
@@ -449,7 +457,7 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                     }
                     add_blocked_prefix(
                         blocked_prefixes, address->get_stack_slot(), {},
-                        classify_non_load_store_user(*user));
+                        classify_non_load_store_user_or_default(user));
                 }
             }
 
@@ -468,9 +476,13 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                         is_safe_address_user(*user, use.get_operand_index())) {
                         continue;
                     }
+                    // Once a derived subobject address escapes to an unknown user such as
+                    // a call, later pointer arithmetic can legally or effectively observe
+                    // sibling elements through that escaped base. Keep the whole aggregate
+                    // intact instead of promoting only the exact leaf path.
                     add_blocked_prefix(
-                        blocked_prefixes, root_slot, prefix_path,
-                        exact_path ? classify_non_load_store_user(*user)
+                        blocked_prefixes, root_slot, {},
+                        exact_path ? classify_non_load_store_user_or_default(user)
                                    : CoreIrPromotionFailureReason::DynamicIndex);
                 }
             }

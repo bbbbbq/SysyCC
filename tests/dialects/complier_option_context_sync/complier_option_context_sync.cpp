@@ -157,6 +157,10 @@ void append_default_core_ir_pipeline(PassManager &pass_manager) {
     pass_manager.AddPass(std::make_unique<BuildCoreIrPass>());
 }
 
+void append_default_core_ir_pipeline(PassManager &pass_manager, BackendKind) {
+    append_default_core_ir_pipeline(pass_manager);
+}
+
 PassKind CoreIrCanonicalizePass::Kind() const {
     return PassKind::CoreIrCanonicalize;
 }

@@ -63,13 +63,20 @@ void Complier::InitializePasses() {
         return;
     }
 
+    const BackendKind backend_kind =
+        context_.get_backend_options().get_backend_kind();
+    const StopAfterStage stop_after_stage = context_.get_stop_after_stage();
+
     pass_manager_.AddPass(std::make_unique<PreprocessPass>());
     pass_manager_.AddPass(std::make_unique<LexerPass>());
     pass_manager_.AddPass(std::make_unique<ParserPass>());
     pass_manager_.AddPass(std::make_unique<AstPass>());
     pass_manager_.AddPass(std::make_unique<SemanticPass>());
-    append_default_core_ir_pipeline(pass_manager_);
-    pass_manager_.AddPass(std::make_unique<AArch64AsmGenPass>());
+    append_default_core_ir_pipeline(pass_manager_, backend_kind);
+    if (!(backend_kind == BackendKind::AArch64Native &&
+          stop_after_stage == StopAfterStage::CoreIr)) {
+        pass_manager_.AddPass(std::make_unique<AArch64AsmGenPass>());
+    }
     pipeline_initialized_ = true;
 }
 

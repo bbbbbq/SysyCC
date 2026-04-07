@@ -47,6 +47,9 @@ PassResult AArch64AsmGenPass::Run(CompilerContext &context) {
             BackendKind::AArch64Native) {
         return PassResult::Success();
     }
+    if (context.get_stop_after_stage() == StopAfterStage::CoreIr) {
+        return PassResult::Success();
+    }
 
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
     CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();

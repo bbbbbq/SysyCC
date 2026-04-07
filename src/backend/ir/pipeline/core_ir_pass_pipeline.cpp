@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 
+#include "backend/asm_gen/backend_kind.hpp"
 #include "backend/ir/build/build_core_ir_pass.hpp"
 #include "backend/ir/function_attrs/core_ir_function_attrs_pass.hpp"
 #include "backend/ir/global_dce/core_ir_global_dce_pass.hpp"
@@ -38,20 +39,25 @@ namespace sysycc {
 
 namespace {
 
-void append_pre_ssa_pipeline(PassManager &pass_manager) {
+void append_pre_ssa_pipeline(PassManager &pass_manager, bool enable_sroa,
+                             bool enable_mem2reg) {
     pass_manager.AddPass(std::make_unique<BuildCoreIrPass>());
     pass_manager.AddPass(std::make_unique<CoreIrCanonicalizePass>());
     pass_manager.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
     pass_manager.AddPass(std::make_unique<CoreIrLoopSimplifyPass>());
-    pass_manager.AddPass(std::make_unique<CoreIrSroaPass>());
+    if (enable_sroa) {
+        pass_manager.AddPass(std::make_unique<CoreIrSroaPass>());
+    }
     pass_manager.AddPass(std::make_unique<CoreIrInstCombinePass>());
     pass_manager.AddPass(std::make_unique<CoreIrStackSlotForwardPass>());
     pass_manager.AddPass(std::make_unique<CoreIrDeadStoreEliminationPass>());
     pass_manager.AddPass(std::make_unique<CoreIrInstCombinePass>());
-    pass_manager.AddPass(std::make_unique<CoreIrMem2RegPass>());
+    if (enable_mem2reg) {
+        pass_manager.AddPass(std::make_unique<CoreIrMem2RegPass>());
+    }
 }
 
-void append_post_ssa_fixed_point_pipeline(PassManager &pass_manager) {
+void append_llvm_post_ssa_fixed_point_pipeline(PassManager &pass_manager) {
     std::vector<std::unique_ptr<Pass>> post_ssa_fixed_point_passes;
     post_ssa_fixed_point_passes.push_back(
         std::make_unique<CoreIrCopyPropagationPass>());
@@ -106,6 +112,10 @@ void append_post_ssa_fixed_point_pipeline(PassManager &pass_manager) {
                                           4);
 }
 
+void append_aarch64_native_post_ssa_fixed_point_pipeline(PassManager &pass_manager) {
+    pass_manager.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
+}
+
 void append_module_fixed_point_pipeline(PassManager &pass_manager) {
     std::vector<std::unique_ptr<Pass>> module_fixed_point_passes;
     module_fixed_point_passes.push_back(
@@ -126,9 +136,20 @@ void append_lowering_pipeline(PassManager &pass_manager) {
 } // namespace
 
 void append_default_core_ir_pipeline(PassManager &pass_manager) {
-    append_pre_ssa_pipeline(pass_manager);
-    append_module_fixed_point_pipeline(pass_manager);
-    append_post_ssa_fixed_point_pipeline(pass_manager);
+    append_default_core_ir_pipeline(pass_manager, BackendKind::LlvmIr);
+}
+
+void append_default_core_ir_pipeline(PassManager &pass_manager,
+                                     BackendKind backend_kind) {
+    const bool use_llvm_optimization_lane = backend_kind != BackendKind::AArch64Native;
+    append_pre_ssa_pipeline(pass_manager, use_llvm_optimization_lane,
+                            use_llvm_optimization_lane);
+    if (use_llvm_optimization_lane) {
+        append_module_fixed_point_pipeline(pass_manager);
+        append_llvm_post_ssa_fixed_point_pipeline(pass_manager);
+    } else {
+        append_aarch64_native_post_ssa_fixed_point_pipeline(pass_manager);
+    }
     append_lowering_pipeline(pass_manager);
 }
 

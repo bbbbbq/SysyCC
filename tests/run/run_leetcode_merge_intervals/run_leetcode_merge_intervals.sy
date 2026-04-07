@@ -1,0 +1,71 @@
+int starts[32];
+int ends[32];
+
+void swap_int(int values[32], int lhs, int rhs) {
+    int temp = values[lhs];
+    values[lhs] = values[rhs];
+    values[rhs] = temp;
+}
+
+void sort_intervals(int count) {
+    int i = 0;
+    int j = 0;
+
+    i = 0;
+    while (i < count) {
+        j = i + 1;
+        while (j < count) {
+            if (starts[j] < starts[i]) {
+                swap_int(starts, i, j);
+                swap_int(ends, i, j);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
+int main() {
+    int count = 0;
+    int merged_starts[32];
+    int merged_ends[32];
+    int merged_count = 0;
+    int i = 0;
+
+    count = getint();
+    while (i < count) {
+        starts[i] = getint();
+        ends[i] = getint();
+        i = i + 1;
+    }
+
+    sort_intervals(count);
+
+    merged_starts[0] = starts[0];
+    merged_ends[0] = ends[0];
+    merged_count = 1;
+
+    i = 1;
+    while (i < count) {
+        if (starts[i] <= merged_ends[merged_count - 1]) {
+            if (ends[i] > merged_ends[merged_count - 1]) {
+                merged_ends[merged_count - 1] = ends[i];
+            }
+        } else {
+            merged_starts[merged_count] = starts[i];
+            merged_ends[merged_count] = ends[i];
+            merged_count = merged_count + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < merged_count) {
+        putint(merged_starts[i]);
+        putch(10);
+        putint(merged_ends[i]);
+        putch(10);
+        i = i + 1;
+    }
+    return 0;
+}
