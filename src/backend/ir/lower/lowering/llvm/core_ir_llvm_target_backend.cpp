@@ -4,7 +4,9 @@
 #include <cctype>
 #include <cstdint>
 #include <iomanip>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -63,6 +65,90 @@ std::string encode_llvm_string_bytes(const std::vector<std::uint8_t> &bytes) {
         encoded << '\\' << std::setw(2) << static_cast<int>(byte);
     }
     return encoded.str();
+}
+
+std::size_t get_integer_bit_width(const CoreIrType *type) {
+    const auto *integer_type = dynamic_cast<const CoreIrIntegerType *>(type);
+    return integer_type == nullptr ? 0 : integer_type->get_bit_width();
+}
+
+std::uint64_t get_integer_mask(std::size_t bit_width) {
+    if (bit_width == 0) {
+        return 0;
+    }
+    if (bit_width >= 64) {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    return (std::uint64_t{1} << bit_width) - 1;
+}
+
+std::uint64_t truncate_to_bit_width(std::uint64_t value, std::size_t bit_width) {
+    return value & get_integer_mask(bit_width);
+}
+
+std::int64_t sign_extend_to_i64(std::uint64_t value, std::size_t bit_width) {
+    if (bit_width == 0) {
+        return 0;
+    }
+    value = truncate_to_bit_width(value, bit_width);
+    if (bit_width >= 64) {
+        return static_cast<std::int64_t>(value);
+    }
+    const std::uint64_t sign_bit = std::uint64_t{1} << (bit_width - 1);
+    if ((value & sign_bit) != 0) {
+        value |= ~get_integer_mask(bit_width);
+    }
+    return static_cast<std::int64_t>(value);
+}
+
+std::string format_signed_integer_literal(std::uint64_t value,
+                                          std::size_t bit_width) {
+    if (bit_width == 1) {
+        return (value & 1U) == 0 ? "0" : "1";
+    }
+    return std::to_string(sign_extend_to_i64(value, bit_width));
+}
+
+std::optional<std::string>
+try_format_folded_integer_cast_literal(const CoreIrCastInst &cast_instruction) {
+    const auto *operand_constant =
+        dynamic_cast<const CoreIrConstantInt *>(cast_instruction.get_operand());
+    if (operand_constant == nullptr) {
+        return std::nullopt;
+    }
+    const std::size_t source_width =
+        get_integer_bit_width(cast_instruction.get_operand()->get_type());
+    const std::size_t target_width =
+        get_integer_bit_width(cast_instruction.get_type());
+    if (source_width == 0 || target_width == 0) {
+        return std::nullopt;
+    }
+
+    const std::uint64_t source_bits =
+        truncate_to_bit_width(operand_constant->get_value(), source_width);
+    switch (cast_instruction.get_cast_kind()) {
+    case CoreIrCastKind::SignExtend:
+        return format_signed_integer_literal(
+            truncate_to_bit_width(static_cast<std::uint64_t>(
+                                      sign_extend_to_i64(source_bits, source_width)),
+                                  target_width),
+            target_width);
+    case CoreIrCastKind::ZeroExtend:
+        return std::to_string(source_bits);
+    case CoreIrCastKind::Truncate:
+        return format_signed_integer_literal(
+            truncate_to_bit_width(source_bits, target_width), target_width);
+    case CoreIrCastKind::SignedIntToFloat:
+    case CoreIrCastKind::UnsignedIntToFloat:
+    case CoreIrCastKind::FloatToSignedInt:
+    case CoreIrCastKind::FloatToUnsignedInt:
+    case CoreIrCastKind::FloatExtend:
+    case CoreIrCastKind::FloatTruncate:
+    case CoreIrCastKind::PtrToInt:
+    case CoreIrCastKind::IntToPtr:
+        return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 std::string format_binary_opcode(CoreIrBinaryOpcode opcode) {
@@ -747,6 +833,19 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         case CoreIrCastKind::IntToPtr:
             cast_opcode = "inttoptr";
             break;
+        }
+
+        if (const std::optional<std::string> folded_literal =
+                try_format_folded_integer_cast_literal(cast_instruction);
+            folded_literal.has_value()) {
+            // Materialize folded narrow-int cast literals through a trivial
+            // instruction so LLVM sees the signed spelling we intend.
+            text += "  %" + get_emitted_value_name(&cast_instruction) + " = add ";
+            text += format_type(target_type);
+            text += " 0, ";
+            text += *folded_literal;
+            text += "\n";
+            return true;
         }
 
         text += "  %" + get_emitted_value_name(&cast_instruction) + " = ";

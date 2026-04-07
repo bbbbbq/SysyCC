@@ -476,18 +476,48 @@ CoreIrValue *try_fold_compare(CoreIrContext &context, const CoreIrCompareInst &i
 
 CoreIrValue *try_fold_cast(CoreIrContext &context, const CoreIrCastInst &inst) {
     const auto *operand = as_integer_constant(inst.get_operand());
-    if (operand == nullptr || !is_safe_nonnegative_integer_constant(operand)) {
+    if (operand == nullptr) {
         return nullptr;
     }
 
     switch (inst.get_cast_kind()) {
-    case CoreIrCastKind::SignExtend:
-    case CoreIrCastKind::ZeroExtend:
-    case CoreIrCastKind::Truncate:
-        if (!is_safe_nonnegative_integer_value(inst.get_type(), operand->get_value())) {
+    case CoreIrCastKind::SignExtend: {
+        const auto operand_width = get_integer_bit_width(inst.get_operand()->get_type());
+        if (!operand_width.has_value()) {
             return nullptr;
         }
-        return create_int_constant(context, inst.get_type(), operand->get_value());
+        const std::uint64_t truncated =
+            operand->get_value() & get_integer_mask(*operand_width);
+        // CoreIrConstantInt still stores raw bits, so keep negative narrow-int
+        // results in IR form until the constant model becomes signed-aware.
+        if (has_sign_bit(truncated, *operand_width)) {
+            return nullptr;
+        }
+        return create_int_constant(context, inst.get_type(), truncated);
+    }
+    case CoreIrCastKind::ZeroExtend: {
+        const auto operand_width = get_integer_bit_width(inst.get_operand()->get_type());
+        if (!operand_width.has_value()) {
+            return nullptr;
+        }
+        return create_int_constant(
+            context, inst.get_type(),
+            operand->get_value() & get_integer_mask(*operand_width));
+    }
+    case CoreIrCastKind::Truncate: {
+        const auto cast_width = get_integer_bit_width(inst.get_type());
+        if (!cast_width.has_value()) {
+            return nullptr;
+        }
+        const std::uint64_t truncated =
+            operand->get_value() & get_integer_mask(*cast_width);
+        // Avoid folding signed-negative truncated literals into the current
+        // raw-bit constant representation.
+        if (has_sign_bit(truncated, *cast_width)) {
+            return nullptr;
+        }
+        return create_int_constant(context, inst.get_type(), truncated);
+    }
     case CoreIrCastKind::SignedIntToFloat:
     case CoreIrCastKind::UnsignedIntToFloat:
     case CoreIrCastKind::FloatToSignedInt:

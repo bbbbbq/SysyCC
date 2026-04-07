@@ -407,11 +407,45 @@ SccpLatticeValue evaluate_instruction(
             return make_overdefined();
         }
         switch (cast->get_cast_kind()) {
-        case CoreIrCastKind::SignExtend:
-        case CoreIrCastKind::ZeroExtend:
-        case CoreIrCastKind::Truncate:
+        case CoreIrCastKind::SignExtend: {
+            const std::size_t operand_width =
+                get_integer_bit_width(cast->get_operand()->get_type());
+            if (operand_width == 0) {
+                return make_overdefined();
+            }
+            const std::uint64_t truncated =
+                truncate_to_bit_width(operand_int->get_value(), operand_width);
+            // Keep negative sign-extended results in IR form until the constant
+            // representation grows signed-aware printing/lowering helpers.
+            if (sign_extend_to_i64(truncated, operand_width) < 0) {
+                return make_overdefined();
+            }
             return make_constant(context.create_constant<CoreIrConstantInt>(
-                cast->get_type(), operand_int->get_value()));
+                cast->get_type(), truncated));
+        }
+        case CoreIrCastKind::ZeroExtend: {
+            const std::size_t operand_width =
+                get_integer_bit_width(cast->get_operand()->get_type());
+            if (operand_width == 0) {
+                return make_overdefined();
+            }
+            return make_constant(context.create_constant<CoreIrConstantInt>(
+                cast->get_type(),
+                truncate_to_bit_width(operand_int->get_value(), operand_width)));
+        }
+        case CoreIrCastKind::Truncate: {
+            const std::size_t result_width = get_integer_bit_width(cast->get_type());
+            if (result_width == 0) {
+                return make_overdefined();
+            }
+            const std::uint64_t truncated =
+                truncate_to_bit_width(operand_int->get_value(), result_width);
+            if (sign_extend_to_i64(truncated, result_width) < 0) {
+                return make_overdefined();
+            }
+            return make_constant(context.create_constant<CoreIrConstantInt>(
+                cast->get_type(), truncated));
+        }
         case CoreIrCastKind::SignedIntToFloat:
         case CoreIrCastKind::UnsignedIntToFloat:
         case CoreIrCastKind::FloatToSignedInt:
