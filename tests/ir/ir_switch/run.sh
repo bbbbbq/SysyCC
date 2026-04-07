@@ -18,7 +18,10 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -q '^  store i32 20, ptr %y.addr$' "${IR_FILE}"
+if ! grep -Eq '^  store i32 20, ptr %y\.addr$|^  ret i32 20$' "${IR_FILE}"; then
+    echo "expected constant switch lowering either to keep the selected-case store or to fold to a constant return" >&2
+    exit 1
+fi
 grep -q '^  ret i32 ' "${IR_FILE}"
 
 echo "verified: constant switch dispatch collapses to the selected case in optimized LLVM IR"

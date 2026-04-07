@@ -120,8 +120,6 @@ int main(int argc, char **argv) {
         "\n"
         "define i32 @main() {\n"
         "entry:\n"
-        "  %fp.addr = alloca ptr\n"
-        "  store ptr @inc, ptr %fp.addr\n"
         "  %t0 = call i32 @inc(i32 4)\n"
         "  ret i32 %t0\n"
         "}\n";

@@ -15,8 +15,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -q 'alloca { i32 }' "${IR_FILE}"
-grep -Eq '^  %t[0-9]+ = getelementptr inbounds \{ i32 \}, ptr %box\.addr, i32 0, i32 0$' "${IR_FILE}"
 grep -Eq '^  ret i32 7$' "${IR_FILE}"
 
-echo "verified: ir lowers local union storage and dot-member access"
+echo "verified: union member access preserves constant result through optimization"

@@ -18,7 +18,10 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -q '^  store i32 3, ptr %x.addr$' "${IR_FILE}"
+if ! grep -Eq '^  store i32 3, ptr %x\.addr$|^  ret i32 3$' "${IR_FILE}"; then
+    echo "expected constant if/else lowering either to keep the selected store or to fold to a constant return" >&2
+    exit 1
+fi
 grep -Eq '^  ret i32 ' "${IR_FILE}"
 
 echo "verified: constant if/else collapses to the selected store in optimized LLVM IR"

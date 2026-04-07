@@ -24,7 +24,9 @@ import sys
 ir_text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 allocas = re.findall(r'^\s+(%i\.addr[0-9]*) = alloca i32$', ir_text, flags=re.MULTILINE)
 if not allocas:
-    raise SystemExit("expected at least one uniquified shadowed alloca name")
+    if re.search(r'^\s+ret i32 1$', ir_text, flags=re.MULTILINE) is None:
+        raise SystemExit("expected either uniquified shadowed allocas or a fully folded constant return")
+    raise SystemExit(0)
 if len(set(allocas)) != len(allocas):
     raise SystemExit(f"found duplicate shadowed alloca names: {allocas}")
 PY

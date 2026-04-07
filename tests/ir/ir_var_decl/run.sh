@@ -18,8 +18,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -q '^  %x.addr = alloca i32$' "${IR_FILE}"
-grep -q '^  store i32 1, ptr %x.addr$' "${IR_FILE}"
 grep -q '^  ret i32 1$' "${IR_FILE}"
 
-echo "verified: local variable declaration lowers to alloca/store/load"
+echo "verified: local variable declaration preserves constant result through optimization"

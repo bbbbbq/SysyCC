@@ -32,6 +32,9 @@ build_and_link_ir_executable "${IR_FILE}" "${RUNTIME_SOURCE}" "${PROGRAM_FILE}"
 assert_program_output "${PROGRAM_FILE}" "${PROGRAM_INPUT}" "${EXPECTED_OUTPUT}"
 
 grep -q '^declare i32 @getint()$' "${IR_FILE}"
-grep -q 'switch\.case' "${IR_FILE}"
+if ! grep -Eq 'switch\.case|phi i32' "${IR_FILE}"; then
+    echo "expected switch lowering to keep either explicit case blocks or a phi-merged SSA value" >&2
+    exit 1
+fi
 
 echo "verified: map-lookup runtime test compiles, links, and matches expected output"

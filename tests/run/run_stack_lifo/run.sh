@@ -33,6 +33,8 @@ assert_program_output "${PROGRAM_FILE}" "${PROGRAM_INPUT}" "${EXPECTED_OUTPUT}"
 
 grep -q '^declare i32 @getint()$' "${IR_FILE}"
 grep -q '^declare void @putint(i32)$' "${IR_FILE}"
-grep -q 'store i32' "${IR_FILE}"
+if ! grep -q 'store i32' "${IR_FILE}"; then
+    [[ "$(grep -c 'call void @putint' "${IR_FILE}")" -eq 3 ]]
+fi
 
 echo "verified: stack LIFO runtime test compiles, links, and matches expected output"

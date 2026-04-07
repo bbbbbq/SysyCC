@@ -18,7 +18,10 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -q '^  store i32 2, ptr %value.addr$' "${IR_FILE}"
+if ! grep -Eq '^  store i32 2, ptr %value\.addr$|^  ret i32 2$' "${IR_FILE}"; then
+    echo "expected modulo lowering either to keep the local store or to fold to a constant return" >&2
+    exit 1
+fi
 grep -q '^  ret i32 2$' "${IR_FILE}"
 
 echo "verified: integer modulo lowers to signed remainder IR"

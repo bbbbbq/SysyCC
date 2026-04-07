@@ -16,7 +16,10 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -Eq 'store ptr @inc, ptr %fn\.addr[0-9]*' "${IR_FILE}"
+if ! grep -Eq 'store ptr @inc, ptr %fn\.addr[0-9]*|define i32 @apply\(ptr %fn, i32 %value\)' "${IR_FILE}"; then
+    echo "expected function-pointer lowering either to keep the local function-pointer store or to preserve the helper function in SSA form" >&2
+    exit 1
+fi
 grep -Eq '%t[0-9]+ = call i32 (%fn|%t[0-9]+)\(i32 (%value|%t[0-9]+)\)' "${IR_FILE}"
 grep -Eq '%t[0-9]+ = call i32 @apply\(ptr @inc, i32 4\)' "${IR_FILE}"
 

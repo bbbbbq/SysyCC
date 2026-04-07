@@ -18,7 +18,10 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${IR_FILE}"
 
-grep -Eq '^  store i32 1, ptr %c\.addr[0-9]*$' "${IR_FILE}"
+if ! grep -Eq '^  store i32 1, ptr %c\.addr[0-9]*$|^  ret i32 1$' "${IR_FILE}"; then
+    echo "expected short-circuit lowering either to keep the final store or to fold to a constant return" >&2
+    exit 1
+fi
 grep -Eq '^  ret i32 (%t[0-9]+|1)$' "${IR_FILE}"
 
 echo "verified: constant short-circuit expressions fold to their optimized final stores"

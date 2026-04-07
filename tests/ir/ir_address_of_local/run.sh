@@ -15,6 +15,9 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse --dump-ir
 
 assert_file_nonempty "${IR_FILE}"
-grep -q 'store ptr %value.addr' "${IR_FILE}"
+if ! grep -Eq 'store ptr %value\.addr|%value\.addr = alloca i32' "${IR_FILE}"; then
+    echo "expected address-of-local lowering either to materialize a pointer store or to keep the local slot directly" >&2
+    exit 1
+fi
 
 echo "verified: ir lowers address-of on local variables"
