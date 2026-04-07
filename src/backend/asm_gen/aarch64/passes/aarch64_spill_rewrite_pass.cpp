@@ -102,27 +102,24 @@ AArch64MachineOperand rewrite_spilled_operand(
         return AArch64MachineOperand::physical_reg(it->second,
                                                    virtual_reg->reg.get_kind());
     }
-    if (!operand.is_raw_text()) {
-        return operand;
-    }
-
-    std::string rendered = operand.get_text();
-    const std::vector<ParsedVirtualRegRef> refs = parse_virtual_reg_refs(rendered);
-    std::size_t delta = 0;
-    for (const ParsedVirtualRegRef &ref : refs) {
-        if (function.get_physical_reg_for_virtual(ref.id).has_value()) {
-            continue;
+    if (const auto *memory = operand.get_memory_address_operand(); memory != nullptr) {
+        if (memory->base_kind !=
+            AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg) {
+            return operand;
         }
-        const auto it = mapping.find(ref.id);
+        if (function
+                .get_physical_reg_for_virtual(memory->virtual_reg.get_id())
+                .has_value()) {
+            return operand;
+        }
+        const auto it = mapping.find(memory->virtual_reg.get_id());
         if (it == mapping.end()) {
-            continue;
+            return operand;
         }
-        const std::string reg_name =
-            render_physical_register(it->second, ref.kind);
-        rendered.replace(ref.offset + delta, ref.length, reg_name);
-        delta += reg_name.size() - ref.length;
+        return AArch64MachineOperand::memory_address_physical_reg(
+            it->second, memory->offset_text, memory->address_mode);
     }
-    return AArch64MachineOperand::raw_text(std::move(rendered));
+    return operand;
 }
 
 AArch64InstructionRewritePlan

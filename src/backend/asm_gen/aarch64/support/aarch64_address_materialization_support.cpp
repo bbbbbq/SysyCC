@@ -70,6 +70,15 @@ scale_integer_constant_value(const AArch64IntegerConstantValue &value,
         .is_negative = value.is_negative};
 }
 
+AArch64MachineOperand memory_operand(const AArch64VirtualReg &base_reg) {
+    return AArch64MachineOperand::memory_address_virtual_reg(base_reg);
+}
+
+AArch64MachineOperand memory_operand(const AArch64VirtualReg &base_reg,
+                                     const std::string &offset_text) {
+    return AArch64MachineOperand::memory_address_virtual_reg(base_reg, offset_text);
+}
+
 bool materialize_index_as_pointer_offset(
     AArch64MachineBlock &machine_block, AArch64AddressMaterializationContext &context,
     const CoreIrValue *index_value, AArch64VirtualReg &out,
@@ -84,16 +93,18 @@ bool materialize_index_as_pointer_offset(
         index_integer_type != nullptr) {
         const unsigned bit_width = index_integer_type->get_bit_width();
         if (bit_width == 64) {
-            machine_block.append_instruction("mov " + def_vreg(out) + ", " +
-                                             use_vreg_as(index_reg, true));
+            machine_block.append_instruction(
+                AArch64MachineInstr("mov", {def_vreg_operand(out),
+                                            use_vreg_operand_as(index_reg, true)}));
             return true;
         }
         if (bit_width > 64) {
             context.report_error("unsupported integer index width in AArch64 native backend");
             return false;
         }
-        machine_block.append_instruction("mov " + def_vreg_as(out, false) + ", " +
-                                         use_vreg_as(index_reg, false));
+        machine_block.append_instruction(
+            AArch64MachineInstr("mov", {def_vreg_operand_as(out, false),
+                                        use_vreg_operand_as(index_reg, false)}));
         if (index_integer_type->get_is_signed()) {
             context.apply_sign_extend_to_virtual_reg(machine_block, out,
                                                      index_value->get_type(),
@@ -107,8 +118,9 @@ bool materialize_index_as_pointer_offset(
     }
 
     if (is_pointer_type(index_value->get_type())) {
-        machine_block.append_instruction("mov " + def_vreg(out) + ", " +
-                                         use_vreg_as(index_reg, true));
+        machine_block.append_instruction(
+            AArch64MachineInstr("mov", {def_vreg_operand(out),
+                                        use_vreg_operand_as(index_reg, true)}));
         return true;
     }
 
@@ -128,9 +140,9 @@ bool add_scaled_index(AArch64MachineBlock &machine_block,
     }
 
     if (scale == 1) {
-        machine_block.append_instruction("add " + def_vreg(base_reg) + ", " +
-                                         use_vreg(base_reg) + ", " +
-                                         use_vreg(index_reg));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "add", {def_vreg_operand(base_reg), use_vreg_operand(base_reg),
+                    use_vreg_operand(index_reg)}));
         return true;
     }
 
@@ -142,10 +154,9 @@ bool add_scaled_index(AArch64MachineBlock &machine_block,
             remaining >>= 1U;
             ++shift;
         }
-        machine_block.append_instruction("add " + def_vreg(base_reg) + ", " +
-                                         use_vreg(base_reg) + ", " +
-                                         use_vreg(index_reg) + ", lsl #" +
-                                         std::to_string(shift));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "add", {def_vreg_operand(base_reg), use_vreg_operand(base_reg),
+                    use_vreg_operand(index_reg), shift_operand("lsl", shift)}));
         return true;
     }
 
@@ -156,12 +167,12 @@ bool add_scaled_index(AArch64MachineBlock &machine_block,
                                               scale_reg, function)) {
         return false;
     }
-    machine_block.append_instruction("mul " + def_vreg(index_reg) + ", " +
-                                     use_vreg(index_reg) + ", " +
-                                     use_vreg(scale_reg));
-    machine_block.append_instruction("add " + def_vreg(base_reg) + ", " +
-                                     use_vreg(base_reg) + ", " +
-                                     use_vreg(index_reg));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mul", {def_vreg_operand(index_reg), use_vreg_operand(index_reg),
+                use_vreg_operand(scale_reg)}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "add", {def_vreg_operand(base_reg), use_vreg_operand(base_reg),
+                use_vreg_operand(index_reg)}));
     return true;
 }
 
@@ -304,18 +315,20 @@ bool materialize_global_address(AArch64MachineBlock &machine_block,
             ? context.is_nonpreemptible_function_symbol(symbol_name)
             : context.is_nonpreemptible_global_symbol(symbol_name);
     if (context.is_position_independent() && !is_nonpreemptible) {
-        machine_block.append_instruction("adrp " + def_vreg(target_reg) + ", :got:" +
-                                         symbol_name);
-        machine_block.append_instruction("ldr " + def_vreg(target_reg) + ", [" +
-                                         use_vreg(target_reg) + ", :got_lo12:" +
-                                         symbol_name + "]");
+        machine_block.append_instruction(AArch64MachineInstr(
+            "adrp", {def_vreg_operand(target_reg),
+                     AArch64MachineOperand::symbol(":got:" + symbol_name)}));
+        machine_block.append_instruction(AArch64MachineInstr(
+            "ldr", {def_vreg_operand(target_reg),
+                    memory_operand(target_reg, ":got_lo12:" + symbol_name)}));
         return true;
     }
-    machine_block.append_instruction("adrp " + def_vreg(target_reg) + ", " +
-                                     symbol_name);
-    machine_block.append_instruction("add " + def_vreg(target_reg) + ", " +
-                                     use_vreg(target_reg) + ", :lo12:" +
-                                     symbol_name);
+    machine_block.append_instruction(AArch64MachineInstr(
+        "adrp", {def_vreg_operand(target_reg),
+                 AArch64MachineOperand::symbol(symbol_name)}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "add", {def_vreg_operand(target_reg), use_vreg_operand(target_reg),
+                AArch64MachineOperand::symbol(":lo12:" + symbol_name)}));
     return true;
 }
 
@@ -330,8 +343,7 @@ bool materialize_gep_value(
         return false;
     }
     if (base_reg.get_id() != target_reg.get_id()) {
-        machine_block.append_instruction("mov " + def_vreg(target_reg) + ", " +
-                                         use_vreg(base_reg));
+        append_register_copy(machine_block, target_reg, base_reg);
     }
 
     const CoreIrType *current_type = base_type;

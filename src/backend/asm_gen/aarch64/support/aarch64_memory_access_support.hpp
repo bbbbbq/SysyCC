@@ -14,7 +14,8 @@ std::string store_mnemonic_for_type(const CoreIrType *type);
 
 bool append_memory_store(AArch64MachineBlock &machine_block,
                          AArch64MemoryAccessContext &context,
-                         const CoreIrType *type, const std::string &source_reg,
+                         const CoreIrType *type,
+                         const AArch64MachineOperand &source_operand,
                          const AArch64VirtualReg &address_reg, std::size_t offset,
                          AArch64MachineFunction &function);
 
