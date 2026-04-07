@@ -493,6 +493,9 @@ bool ConversionChecker::is_castable_type(const SemanticType *target,
     if (target == nullptr || value == nullptr) {
         return false;
     }
+    if (is_void_type(target)) {
+        return true;
+    }
     if (is_same_type(target, value)) {
         return true;
     }

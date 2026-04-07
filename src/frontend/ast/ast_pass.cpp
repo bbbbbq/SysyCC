@@ -298,7 +298,6 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
     }
     case AstKind::BuiltinType:
     case AstKind::NamedType:
-    case AstKind::StructType:
     case AstKind::EnumType:
     case AstKind::BreakStmt:
     case AstKind::ContinueStmt:
@@ -309,6 +308,15 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
     case AstKind::StringLiteralExpr:
     case AstKind::IdentifierExpr:
         return false;
+    case AstKind::StructType: {
+        const auto *struct_type = static_cast<const StructTypeNode *>(node);
+        for (const auto &field : struct_type->get_fields()) {
+            if (ast_contains_unknown_nodes(field.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
     }
 
     return false;

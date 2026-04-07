@@ -48,10 +48,13 @@ build_struct_semantic_fields(const StructDecl *struct_decl,
                 bit_width = static_cast<int>(*width_value);
             }
         }
-        fields.emplace_back(
-            field_decl->get_name(),
+        const SemanticType *field_type = type_resolver.apply_array_dimensions(
             type_resolver.resolve_type(field_decl->get_declared_type(),
                                        semantic_context, &scope_stack),
+            field_decl->get_dimensions(), semantic_context);
+        fields.emplace_back(
+            field_decl->get_name(),
+            field_type,
             bit_width);
     }
     return fields;
@@ -82,10 +85,13 @@ build_union_semantic_fields(const UnionDecl *union_decl,
                 bit_width = static_cast<int>(*width_value);
             }
         }
-        fields.emplace_back(
-            field_decl->get_name(),
+        const SemanticType *field_type = type_resolver.apply_array_dimensions(
             type_resolver.resolve_type(field_decl->get_declared_type(),
                                        semantic_context, &scope_stack),
+            field_decl->get_dimensions(), semantic_context);
+        fields.emplace_back(
+            field_decl->get_name(),
+            field_type,
             bit_width);
     }
     return fields;

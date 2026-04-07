@@ -21,7 +21,8 @@ namespace {
 std::vector<SemanticFieldInfo>
 build_semantic_fields(const std::vector<std::unique_ptr<Decl>> &fields,
                       const TypeResolver &type_resolver,
-                      SemanticContext &semantic_context) {
+                      SemanticContext &semantic_context,
+                      const ScopeStack *scope_stack) {
     std::vector<SemanticFieldInfo> semantic_fields;
     semantic_fields.reserve(fields.size());
     for (const auto &field : fields) {
@@ -29,10 +30,13 @@ build_semantic_fields(const std::vector<std::unique_ptr<Decl>> &fields,
             continue;
         }
         const auto *field_decl = static_cast<const FieldDecl *>(field.get());
+        const SemanticType *field_type = type_resolver.apply_array_dimensions(
+            type_resolver.resolve_type(field_decl->get_declared_type(),
+                                       semantic_context, scope_stack),
+            field_decl->get_dimensions(), semantic_context);
         semantic_fields.emplace_back(
             field_decl->get_name(),
-            type_resolver.resolve_type(field_decl->get_declared_type(),
-                                       semantic_context, nullptr));
+            field_type);
     }
     return semantic_fields;
 }
@@ -117,7 +121,7 @@ const SemanticType *TypeResolver::resolve_type(
     }
     case AstKind::StructType: {
         const auto *struct_type = static_cast<const StructTypeNode *>(type_node);
-        if (scope_stack != nullptr) {
+        if (struct_type->get_fields().empty() && scope_stack != nullptr) {
             const SemanticSymbol *symbol =
                 scope_stack->lookup(struct_type->get_name());
             if (symbol != nullptr && symbol->get_kind() == SymbolKind::StructName) {
@@ -125,7 +129,9 @@ const SemanticType *TypeResolver::resolve_type(
             }
         }
         return semantic_model.own_type(std::make_unique<StructSemanticType>(
-            struct_type->get_name()));
+            struct_type->get_name(),
+            build_semantic_fields(struct_type->get_fields(), *this,
+                                  semantic_context, scope_stack)));
     }
     case AstKind::UnionType: {
         const auto *union_type = static_cast<const UnionTypeNode *>(type_node);
@@ -139,7 +145,7 @@ const SemanticType *TypeResolver::resolve_type(
         return semantic_model.own_type(std::make_unique<UnionSemanticType>(
             union_type->get_name(),
             build_semantic_fields(union_type->get_fields(), *this,
-                                  semantic_context)));
+                                  semantic_context, scope_stack)));
     }
     case AstKind::EnumType: {
         const auto *enum_type = static_cast<const EnumTypeNode *>(type_node);
