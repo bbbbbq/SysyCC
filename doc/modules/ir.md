@@ -198,6 +198,10 @@ The current IR module is intentionally a staged optimization pipeline:
 - `lower/lowering/CoreIrTargetBackend` now defines the retargetable Core-IR backend
   boundary, with one staged LLVM backend plus one explicit AArch64
   placeholder backend
+- the native AArch64 `ir -> asm/object` path under `src/backend/asm_gen/aarch64/`
+  now routes one function through a session-backed lowering facade that owns the
+  per-function ABI/value/memory/scalar/call-return services directly, instead of
+  rebuilding callback/factory context tables inside the monolithic lowering pass
 - `shared/printer/CoreIrRawPrinter` can dump that Core IR into a stable textual
   representation for regression tests and future raw/optimized IR dumps
 - `IRBuilder` now validates that every top-level function/global requiring
