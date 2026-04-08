@@ -48,6 +48,12 @@ AArch64MachineOperand AArch64MachineOperand::symbol(std::string text) {
 }
 
 AArch64MachineOperand
+AArch64MachineOperand::symbol(AArch64SymbolReference reference) {
+    return AArch64MachineOperand::symbol(
+        AArch64MachineSymbolReference::plain(std::move(reference)));
+}
+
+AArch64MachineOperand
 AArch64MachineOperand::symbol(AArch64MachineSymbolReference reference) {
     return AArch64MachineOperand(AArch64MachineOperandKind::Symbol,
                                  AArch64MachineSymbolOperand{std::move(reference)});

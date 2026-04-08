@@ -15,6 +15,26 @@ long long to_signed_offset(std::size_t value) {
     return static_cast<long long>(value);
 }
 
+bool same_symbol_descriptor(const AArch64SymbolDescriptor &actual,
+                            const AArch64SymbolDescriptor &expected) {
+    return actual.name == expected.name && actual.kind == expected.kind &&
+           actual.section_kind == expected.section_kind &&
+           actual.binding == expected.binding &&
+           actual.is_defined == expected.is_defined;
+}
+
+bool same_symbol_reference(const AArch64SymbolReference &actual,
+                           const AArch64SymbolReference &expected) {
+    return same_symbol_descriptor(actual.symbol, expected.symbol) &&
+           actual.addend == expected.addend;
+}
+
+bool same_machine_symbol_reference(const AArch64MachineSymbolReference &actual,
+                                   const AArch64MachineSymbolReference &expected) {
+    return same_symbol_reference(actual.target, expected.target) &&
+           actual.modifier == expected.modifier;
+}
+
 AArch64MachineInstr cfi_instruction(
     std::string mnemonic, std::vector<AArch64MachineOperand> operands = {}) {
     return AArch64MachineInstr(std::move(mnemonic), std::move(operands));
@@ -66,10 +86,8 @@ bool has_exact_instruction_shape(const AArch64MachineInstr &instruction,
             actual_symbol != nullptr) {
             const auto *expected_symbol = expected_operand.get_symbol_operand();
             if (expected_symbol == nullptr ||
-                actual_symbol->reference.symbol_name !=
-                    expected_symbol->reference.symbol_name ||
-                actual_symbol->reference.modifier !=
-                    expected_symbol->reference.modifier) {
+                !same_machine_symbol_reference(actual_symbol->reference,
+                                               expected_symbol->reference)) {
                 return false;
             }
             continue;
@@ -146,8 +164,8 @@ bool has_exact_instruction_shape(const AArch64MachineInstr &instruction,
                 expected_memory->get_symbolic_offset();
             if ((actual_symbolic == nullptr) != (expected_symbolic == nullptr) ||
                 (actual_symbolic != nullptr &&
-                 (actual_symbolic->symbol_name != expected_symbolic->symbol_name ||
-                  actual_symbolic->modifier != expected_symbolic->modifier))) {
+                 !same_machine_symbol_reference(*actual_symbolic,
+                                               *expected_symbolic))) {
                 return false;
             }
             continue;

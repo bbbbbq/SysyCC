@@ -26,5 +26,7 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "aarch64_native_object_data_relocation"
 assert_file_nonempty "${OBJ_FILE}"
 assert_aarch64_relocations "${OBJ_FILE}" 'ext'
+READELF_TOOL="$(find_aarch64_readelf)"
+"${READELF_TOOL}" -r "${OBJ_FILE}" | grep -Eq 'ext \+ 4'
 
-echo "verified: native AArch64 object emission now writes relocatable data initializers into the final object"
+echo "verified: native AArch64 object emission keeps structured symbol relocation addends in the final object"

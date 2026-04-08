@@ -298,8 +298,10 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
     void append_helper_call(AArch64MachineBlock &machine_block,
                             const std::string &symbol_name) override {
         record_symbol_reference(symbol_name, AArch64SymbolKind::Helper);
+        const AArch64SymbolReference helper_symbol =
+            AArch64SymbolReference::direct(symbol_name, AArch64SymbolKind::Helper);
         machine_block.append_instruction(
-            AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(symbol_name)},
+            AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(helper_symbol)},
                                 AArch64InstructionFlags{.is_call = true}, {},
                                 {}, make_default_aarch64_call_clobber_mask()));
     }

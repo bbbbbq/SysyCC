@@ -315,25 +315,30 @@ bool materialize_global_address(AArch64MachineBlock &machine_block,
         symbol_kind == AArch64SymbolKind::Function
             ? context.is_nonpreemptible_function_symbol(symbol_name)
             : context.is_nonpreemptible_global_symbol(symbol_name);
+    const AArch64SymbolReference symbol_reference =
+        AArch64SymbolReference::direct(
+            symbol_name, symbol_kind,
+            is_nonpreemptible ? AArch64SymbolBinding::Local
+                              : AArch64SymbolBinding::Global);
     if (context.is_position_independent() && !is_nonpreemptible) {
         machine_block.append_instruction(AArch64MachineInstr(
             "adrp", {def_vreg_operand(target_reg),
                      AArch64MachineOperand::symbol(
-                         AArch64MachineSymbolReference::got(symbol_name))}));
+                         AArch64MachineSymbolReference::got(symbol_reference))}));
         machine_block.append_instruction(AArch64MachineInstr(
             "ldr", {def_vreg_operand(target_reg),
                     memory_operand(target_reg,
                                    AArch64MachineSymbolReference::got_lo12(
-                                       symbol_name))}));
+                                       symbol_reference))}));
         return true;
     }
     machine_block.append_instruction(AArch64MachineInstr(
         "adrp", {def_vreg_operand(target_reg),
-                 AArch64MachineOperand::symbol(symbol_name)}));
+                 AArch64MachineOperand::symbol(symbol_reference)}));
     machine_block.append_instruction(AArch64MachineInstr(
         "add", {def_vreg_operand(target_reg), use_vreg_operand(target_reg),
                 AArch64MachineOperand::symbol(
-                    AArch64MachineSymbolReference::lo12(symbol_name))}));
+                    AArch64MachineSymbolReference::lo12(symbol_reference))}));
     return true;
 }
 

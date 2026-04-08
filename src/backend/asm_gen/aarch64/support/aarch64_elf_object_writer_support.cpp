@@ -138,6 +138,23 @@ struct SymbolEntry {
     std::uint32_t index = 0;
 };
 
+void merge_symbol_descriptor(AArch64SymbolDescriptor &dst,
+                             const AArch64SymbolDescriptor &src) {
+    if (dst.kind == AArch64SymbolKind::Object && src.kind != AArch64SymbolKind::Object) {
+        dst.kind = src.kind;
+    }
+    if (!dst.section_kind.has_value() && src.section_kind.has_value()) {
+        dst.section_kind = src.section_kind;
+    }
+    if (dst.binding == AArch64SymbolBinding::Unknown &&
+        src.binding != AArch64SymbolBinding::Unknown) {
+        dst.binding = src.binding;
+    }
+    if (!dst.is_defined && src.is_defined) {
+        dst.is_defined = true;
+    }
+}
+
 template <typename T>
 void append_pod(std::vector<std::uint8_t> &bytes, const T &value) {
     const auto *raw = reinterpret_cast<const std::uint8_t *>(&value);
@@ -314,16 +331,28 @@ bool build_symbol_entries(
     std::unordered_map<std::string, std::uint32_t> &symbol_indices) {
     std::vector<std::string> needed_symbol_names;
     needed_symbol_names.reserve(data_symbol_definitions.size());
+    std::unordered_map<std::string, AArch64SymbolDescriptor> referenced_symbols;
+    auto note_symbol_descriptor = [&](const AArch64SymbolDescriptor &descriptor) {
+        auto [it, inserted] =
+            referenced_symbols.emplace(descriptor.name, descriptor);
+        if (!inserted) {
+            merge_symbol_descriptor(it->second, descriptor);
+        }
+    };
     for (const auto &[name, definition] : data_symbol_definitions) {
         (void)definition;
         needed_symbol_names.push_back(name);
+        note_symbol_descriptor(
+            AArch64SymbolDescriptor::named(name, AArch64SymbolKind::Object,
+                                           AArch64SymbolBinding::Local));
     }
     for (const SectionImage &section : data_sections) {
         for (const PendingRelocation &relocation : section.relocations) {
+            note_symbol_descriptor(relocation.record.target.symbol);
             if (std::find(needed_symbol_names.begin(), needed_symbol_names.end(),
-                          relocation.record.symbol_name) ==
+                          relocation.record.target.get_name()) ==
                 needed_symbol_names.end()) {
-                needed_symbol_names.push_back(relocation.record.symbol_name);
+                needed_symbol_names.push_back(relocation.record.target.get_name());
             }
         }
     }
@@ -334,11 +363,18 @@ bool build_symbol_entries(
         const auto module_symbol_it = object_module.get_symbols().find(name);
         const bool has_module_symbol =
             module_symbol_it != object_module.get_symbols().end();
+        const auto referenced_symbol_it = referenced_symbols.find(name);
         const AArch64SymbolKind symbol_kind =
             has_module_symbol ? module_symbol_it->second.get_kind()
-                              : AArch64SymbolKind::Object;
-        const bool symbol_is_global =
-            has_module_symbol ? module_symbol_it->second.get_is_global() : true;
+                              : (referenced_symbol_it != referenced_symbols.end()
+                                     ? referenced_symbol_it->second.kind
+                                     : AArch64SymbolKind::Object);
+        const AArch64SymbolBinding symbol_binding =
+            has_module_symbol
+                ? module_symbol_it->second.get_binding()
+                : (referenced_symbol_it != referenced_symbols.end()
+                       ? referenced_symbol_it->second.binding
+                       : AArch64SymbolBinding::Unknown);
 
         SymbolEntry entry;
         entry.name = name;
@@ -358,11 +394,15 @@ bool build_symbol_entries(
             entry.section_index = section_it->section_index;
             entry.value = definition.offset;
             entry.size = definition.size;
-            entry.binding = (options.force_defined_symbols_global || symbol_is_global)
+            entry.binding = (options.force_defined_symbols_global ||
+                             symbol_binding == AArch64SymbolBinding::Global)
                                 ? kElfSymbolBindingGlobal
                                 : kElfSymbolBindingLocal;
         } else {
-            entry.binding = kElfSymbolBindingGlobal;
+            entry.binding =
+                symbol_binding == AArch64SymbolBinding::Local
+                    ? kElfSymbolBindingLocal
+                    : kElfSymbolBindingGlobal;
         }
 
         if (entry.binding == kElfSymbolBindingLocal) {
@@ -506,11 +546,12 @@ bool write_aarch64_data_only_object(
                 return false;
             }
             const auto symbol_index_it =
-                symbol_indices.find(relocation.record.symbol_name);
+                symbol_indices.find(relocation.record.target.get_name());
             if (symbol_index_it == symbol_indices.end()) {
                 diagnostic_engine.add_error(
                     DiagnosticStage::Compiler,
-                    "missing relocation symbol '" + relocation.record.symbol_name +
+                    "missing relocation symbol '" +
+                        relocation.record.target.get_name() +
                         "' while writing the AArch64 native data-only object");
                 return false;
             }
@@ -518,7 +559,7 @@ bool write_aarch64_data_only_object(
             rela.offset = relocation.offset;
             rela.info = (static_cast<std::uint64_t>(symbol_index_it->second) << 32) |
                         reloc_type;
-            rela.addend = relocation.record.addend;
+            rela.addend = relocation.record.target.addend;
             append_pod(rela_section.bytes, rela);
         }
         rela_section.logical_size = rela_section.bytes.size();
