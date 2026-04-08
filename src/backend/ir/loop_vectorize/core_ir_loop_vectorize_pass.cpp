@@ -24,6 +24,7 @@ namespace sysycc {
 namespace {
 
 constexpr std::size_t kVectorWidth = 4;
+constexpr std::size_t kVectorInterleaveFactor = 4;
 
 using sysycc::detail::erase_instruction;
 using sysycc::detail::insert_instruction_before;
@@ -668,10 +669,11 @@ bool match_reduction_loop_pattern(const CoreIrLoopInfo &loop,
 
 CoreIrValue *materialize_vector_load(CoreIrBasicBlock &body, CoreIrInstruction *anchor,
                                      CoreIrContext &context, const AccessInfo &access,
-                                     CoreIrPhiInst &iv, const CoreIrType *vector_type,
+                                     CoreIrValue *index_value,
+                                     const CoreIrType *vector_type,
                                      const std::string &name) {
     std::vector<CoreIrValue *> indices = access.prefix_indices;
-    indices.push_back(&iv);
+    indices.push_back(index_value);
     auto *ptr_type = context.create_type<CoreIrPointerType>(
         static_cast<const CoreIrVectorType *>(vector_type)->get_element_type());
     auto gep = std::make_unique<CoreIrGetElementPtrInst>(ptr_type, name + ".addr",
@@ -680,6 +682,14 @@ CoreIrValue *materialize_vector_load(CoreIrBasicBlock &body, CoreIrInstruction *
         insert_instruction_before(body, anchor, std::move(gep));
     auto load = std::make_unique<CoreIrLoadInst>(vector_type, name, addr_inst);
     return insert_instruction_before(body, anchor, std::move(load));
+}
+
+CoreIrValue *materialize_vector_load(CoreIrBasicBlock &body, CoreIrInstruction *anchor,
+                                     CoreIrContext &context, const AccessInfo &access,
+                                     CoreIrPhiInst &iv, const CoreIrType *vector_type,
+                                     const std::string &name) {
+    return materialize_vector_load(body, anchor, context, access, &iv, vector_type,
+                                   name);
 }
 
 CoreIrValue *materialize_broadcast_value(CoreIrBasicBlock &body,
@@ -827,8 +837,11 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
     auto *i1_type = context.create_type<CoreIrIntegerType>(1);
     auto *i64_type = context.create_type<CoreIrIntegerType>(64);
     auto *zero32 = context.create_constant<CoreIrConstantInt>(i32_type, 0);
-    auto *three32 = context.create_constant<CoreIrConstantInt>(i32_type, 3);
     auto *four32 = context.create_constant<CoreIrConstantInt>(i32_type, kVectorWidth);
+    auto *fifteen32 = context.create_constant<CoreIrConstantInt>(
+        i32_type, kVectorWidth * kVectorInterleaveFactor - 1);
+    auto *sixteen32 = context.create_constant<CoreIrConstantInt>(
+        i32_type, kVectorWidth * kVectorInterleaveFactor);
 
     auto *header_branch = dynamic_cast<CoreIrCondJumpInst *>(
         pattern.header->get_instructions().empty()
@@ -844,24 +857,16 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
     CoreIrValue *n_value = header_compare->get_lhs() == pattern.iv
                                ? header_compare->get_rhs()
                                : header_compare->get_lhs();
-    auto mod_inst = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::And, i32_type,
-                                                       "vec.n.mod", n_value, three32);
-    CoreIrInstruction *mod_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(mod_inst));
-    auto aligned = std::make_unique<CoreIrCompareInst>(
-        CoreIrComparePredicate::Equal, i1_type, "vec.n.aligned", mod_value, zero32);
-    CoreIrInstruction *aligned_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(aligned));
-    auto big_enough = std::make_unique<CoreIrCompareInst>(
-        CoreIrComparePredicate::SignedGreaterEqual, i1_type, "vec.n.ge4", n_value,
-        four32);
-    CoreIrInstruction *big_enough_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(big_enough));
-    auto shape_ok = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::And, i1_type,
-                                                       "vec.shape.ok", aligned_value,
-                                                       big_enough_value);
-    CoreIrInstruction *shape_ok_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(shape_ok));
+    auto rem_inst = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::And, i32_type,
+                                                       "vec.n.rem", n_value,
+                                                       fifteen32);
+    CoreIrInstruction *rem_value =
+        insert_instruction_before(*guard_block_ptr, nullptr, std::move(rem_inst));
+    auto vec_trip_inst = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Sub, i32_type, "vec.n.trip", n_value, rem_value);
+    CoreIrInstruction *vec_trip_value =
+        insert_instruction_before(*guard_block_ptr, nullptr,
+                                  std::move(vec_trip_inst));
 
     auto *ptr_i32 = context.create_type<CoreIrPointerType>(i32_type);
     CoreIrInstruction *c_row_base = materialize_prefixed_gep(
@@ -918,19 +923,16 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
                                                          scalar_safe_value);
     CoreIrInstruction *alias_safe_value =
         insert_instruction_before(*guard_block_ptr, nullptr, std::move(alias_safe));
-    auto guard = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::And, i1_type,
-                                                    "vec.guard", shape_ok_value,
-                                                    alias_safe_value);
-    CoreIrInstruction *guard_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(guard));
     guard_block_ptr->append_instruction(
-        std::make_unique<CoreIrCondJumpInst>(void_type, guard_value, vector_header_ptr,
+        std::make_unique<CoreIrCondJumpInst>(void_type, alias_safe_value,
+                                             vector_header_ptr,
                                              pattern.header));
 
     auto *vec_type = context.create_type<CoreIrVectorType>(i32_type, kVectorWidth);
     auto *vec_iv = vector_header_ptr->create_instruction<CoreIrPhiInst>(i32_type, "vec.iv");
     auto *vec_cmp = vector_header_ptr->create_instruction<CoreIrCompareInst>(
-        CoreIrComparePredicate::SignedLess, i1_type, "vec.cmp", vec_iv, n_value);
+        CoreIrComparePredicate::SignedLess, i1_type, "vec.cmp", vec_iv,
+        vec_trip_value);
     vector_header_ptr->create_instruction<CoreIrCondJumpInst>(void_type, vec_cmp,
                                                               vector_body_ptr,
                                                               pattern.header);
@@ -969,12 +971,6 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
         }
     }
 
-    CoreIrValue *acc_vec = materialize_vector_load(*vector_body_ptr, nullptr, context,
-                                                   pattern.store_access, *vec_iv,
-                                                   vec_type, "vec.acc");
-    CoreIrValue *lane_vec = materialize_vector_load(*vector_body_ptr, nullptr, context,
-                                                    pattern.lane_access, *vec_iv,
-                                                    vec_type, "vec.lane");
     CoreIrValue *scalar_vec = hoisted_scalar_value != nullptr
                                   ? materialize_broadcast_value(*vector_body_ptr, nullptr,
                                                                 context, vec_type,
@@ -983,20 +979,41 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
                                   : static_cast<CoreIrValue *>(
                                         make_splat_vector_constant(context, vec_type,
                                                                    pattern.scalar_constant));
-    auto *vec_mul = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
-        pattern.mul_binary->get_binary_opcode(), vec_type, "vec.mul", lane_vec,
-        scalar_vec);
-    auto *vec_add = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
-        pattern.final_binary->get_binary_opcode(), vec_type, "vec.add", acc_vec,
-        vec_mul);
-    std::vector<CoreIrValue *> indices = pattern.store_access.prefix_indices;
-    indices.push_back(vec_iv);
-    auto *vec_store_addr = vector_body_ptr->create_instruction<CoreIrGetElementPtrInst>(
-        ptr_i32, "vec.store.addr", pattern.store_access.root_base, std::move(indices));
-    vector_body_ptr->create_instruction<CoreIrStoreInst>(void_type, vec_add,
-                                                         vec_store_addr);
+    for (std::size_t lane_group = 0; lane_group < kVectorInterleaveFactor;
+         ++lane_group) {
+        CoreIrValue *lane_index = vec_iv;
+        if (lane_group != 0) {
+            auto *lane_offset = context.create_constant<CoreIrConstantInt>(
+                i32_type, lane_group * kVectorWidth);
+            lane_index = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
+                CoreIrBinaryOpcode::Add, i32_type,
+                "vec.iv.offset." + std::to_string(lane_group), vec_iv,
+                lane_offset);
+        }
+
+        CoreIrValue *acc_vec = materialize_vector_load(
+            *vector_body_ptr, nullptr, context, pattern.store_access, lane_index,
+            vec_type, "vec.acc." + std::to_string(lane_group));
+        CoreIrValue *lane_vec = materialize_vector_load(
+            *vector_body_ptr, nullptr, context, pattern.lane_access, lane_index,
+            vec_type, "vec.lane." + std::to_string(lane_group));
+        auto *vec_mul = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
+            pattern.mul_binary->get_binary_opcode(), vec_type,
+            "vec.mul." + std::to_string(lane_group), lane_vec, scalar_vec);
+        auto *vec_add = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
+            pattern.final_binary->get_binary_opcode(), vec_type,
+            "vec.add." + std::to_string(lane_group), acc_vec, vec_mul);
+        std::vector<CoreIrValue *> indices = pattern.store_access.prefix_indices;
+        indices.push_back(lane_index);
+        auto *vec_store_addr =
+            vector_body_ptr->create_instruction<CoreIrGetElementPtrInst>(
+                ptr_i32, "vec.store.addr." + std::to_string(lane_group),
+                pattern.store_access.root_base, std::move(indices));
+        vector_body_ptr->create_instruction<CoreIrStoreInst>(void_type, vec_add,
+                                                             vec_store_addr);
+    }
     auto *vec_next = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
-        CoreIrBinaryOpcode::Add, i32_type, "vec.iv.next", vec_iv, four32);
+        CoreIrBinaryOpcode::Add, i32_type, "vec.iv.next", vec_iv, sixteen32);
     vector_body_ptr->create_instruction<CoreIrJumpInst>(void_type, vector_header_ptr);
     vec_iv->add_incoming(vector_body_ptr, vec_next);
     return true;
