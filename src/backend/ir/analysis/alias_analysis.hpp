@@ -5,33 +5,13 @@
 #include <unordered_map>
 #include <vector>
 
+#include "backend/ir/effect/core_ir_memory_location.hpp"
+
 namespace sysycc {
 
 class CoreIrFunction;
-class CoreIrGlobal;
 class CoreIrInstruction;
-class CoreIrStackSlot;
 class CoreIrValue;
-
-enum class CoreIrMemoryLocationRootKind : unsigned char {
-    StackSlot,
-    Global,
-    ArgumentDerived,
-    Unknown,
-};
-
-struct CoreIrMemoryLocation {
-    CoreIrMemoryLocationRootKind root_kind =
-        CoreIrMemoryLocationRootKind::Unknown;
-    CoreIrStackSlot *stack_slot = nullptr;
-    CoreIrGlobal *global = nullptr;
-    std::size_t parameter_index = 0;
-    std::vector<std::uint64_t> access_path;
-
-    static CoreIrMemoryLocation make_unknown() noexcept {
-        return CoreIrMemoryLocation{};
-    }
-};
 
 enum class CoreIrAliasKind : unsigned char {
     NoAlias,
@@ -39,13 +19,15 @@ enum class CoreIrAliasKind : unsigned char {
     MustAlias,
 };
 
-CoreIrAliasKind alias_core_ir_memory_locations(
-    const CoreIrMemoryLocation &lhs, const CoreIrMemoryLocation &rhs) noexcept;
+CoreIrAliasKind
+alias_core_ir_memory_locations(const CoreIrMemoryLocation &lhs,
+                               const CoreIrMemoryLocation &rhs) noexcept;
 
 class CoreIrAliasAnalysisResult {
   private:
     const CoreIrFunction *function_ = nullptr;
-    std::unordered_map<const CoreIrValue *, CoreIrMemoryLocation> value_locations_;
+    std::unordered_map<const CoreIrValue *, CoreIrMemoryLocation>
+        value_locations_;
     std::unordered_map<const CoreIrInstruction *, CoreIrMemoryLocation>
         instruction_locations_;
 
@@ -53,7 +35,8 @@ class CoreIrAliasAnalysisResult {
     CoreIrAliasAnalysisResult() = default;
     CoreIrAliasAnalysisResult(
         const CoreIrFunction *function,
-        std::unordered_map<const CoreIrValue *, CoreIrMemoryLocation> value_locations,
+        std::unordered_map<const CoreIrValue *, CoreIrMemoryLocation>
+            value_locations,
         std::unordered_map<const CoreIrInstruction *, CoreIrMemoryLocation>
             instruction_locations) noexcept;
 
@@ -68,8 +51,9 @@ class CoreIrAliasAnalysisResult {
     CoreIrAliasKind alias_values(const CoreIrValue *lhs,
                                  const CoreIrValue *rhs) const noexcept;
 
-    CoreIrAliasKind alias_instructions(const CoreIrInstruction *lhs,
-                                       const CoreIrInstruction *rhs) const noexcept;
+    CoreIrAliasKind
+    alias_instructions(const CoreIrInstruction *lhs,
+                       const CoreIrInstruction *rhs) const noexcept;
 };
 
 class CoreIrAliasAnalysis {

@@ -82,6 +82,7 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/analysis/cfg_analysis.cpp
     src/backend/ir/analysis/dominance_frontier_analysis.cpp
     src/backend/ir/analysis/dominator_tree_analysis.cpp
+    src/backend/ir/analysis/escape_analysis.cpp
     src/backend/ir/analysis/function_effect_summary_analysis.cpp
     src/backend/ir/analysis/function_attrs_analysis.cpp
     src/backend/ir/analysis/induction_var_analysis.cpp
@@ -91,6 +92,7 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/analysis/scalar_evolution_lite_analysis.cpp
     src/backend/ir/effect/core_ir_effect.cpp
     src/backend/ir/effect/core_ir_memory_location.cpp
+    src/backend/ir/effect/core_ir_memory_query.cpp
     src/backend/ir/shared/core/core_ir_builder.cpp
     src/backend/ir/lower/lowering/core_ir_target_backend_factory.cpp
     src/backend/ir/lower/lowering/aarch64/core_ir_aarch64_target_backend.cpp

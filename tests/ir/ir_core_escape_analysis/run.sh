@@ -6,9 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 TEST_BUILD_DIR="${SCRIPT_DIR}/build"
-TEST_BINARY="${TEST_BUILD_DIR}/ir_core_alias_analysis"
-TEST_SOURCE="${SCRIPT_DIR}/ir_core_alias_analysis.cpp"
-INPUT_FILE="${SCRIPT_DIR}/ir_core_alias_analysis.sy"
+TEST_BINARY="${TEST_BUILD_DIR}/ir_core_escape_analysis"
+TEST_SOURCE="${SCRIPT_DIR}/ir_core_escape_analysis.cpp"
+INPUT_FILE="${SCRIPT_DIR}/ir_core_escape_analysis.sy"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
@@ -29,4 +29,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: alias analysis keeps stack slots precise while treating parameter/global roots conservatively"
+echo "verified: escape analysis distinguishes non-escaping locals, returned pointers, stored captures, and direct-call captures"
