@@ -56,9 +56,11 @@ void test_reports_addrec_and_constant_trip_count() {
     CoreIrCfgAnalysis cfg_runner;
     const CoreIrCfgAnalysisResult cfg = cfg_runner.Run(*function);
     CoreIrDominatorTreeAnalysis dom_runner;
-    const CoreIrDominatorTreeAnalysisResult dom = dom_runner.Run(*function, cfg);
+    const CoreIrDominatorTreeAnalysisResult dom =
+        dom_runner.Run(*function, cfg);
     CoreIrLoopInfoAnalysis loop_runner;
-    const CoreIrLoopInfoAnalysisResult loop_info = loop_runner.Run(*function, cfg, dom);
+    const CoreIrLoopInfoAnalysisResult loop_info =
+        loop_runner.Run(*function, cfg, dom);
     assert(loop_info.get_loops().size() == 1);
     const CoreIrLoopInfo &loop = *loop_info.get_loops().front();
 
@@ -123,9 +125,11 @@ void test_reports_symbolic_non_constant_trip_count() {
     CoreIrCfgAnalysis cfg_runner;
     const CoreIrCfgAnalysisResult cfg = cfg_runner.Run(*function);
     CoreIrDominatorTreeAnalysis dom_runner;
-    const CoreIrDominatorTreeAnalysisResult dom = dom_runner.Run(*function, cfg);
+    const CoreIrDominatorTreeAnalysisResult dom =
+        dom_runner.Run(*function, cfg);
     CoreIrLoopInfoAnalysis loop_runner;
-    const CoreIrLoopInfoAnalysisResult loop_info = loop_runner.Run(*function, cfg, dom);
+    const CoreIrLoopInfoAnalysisResult loop_info =
+        loop_runner.Run(*function, cfg, dom);
     assert(loop_info.get_loops().size() == 1);
     const CoreIrLoopInfo &loop = *loop_info.get_loops().front();
 
@@ -143,11 +147,75 @@ void test_reports_symbolic_non_constant_trip_count() {
     assert(scev.is_loop_invariant(bound_param, loop));
 }
 
+void test_reports_descending_trip_count_through_split_latch() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("scev_descending");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *latch = function->create_basic_block<CoreIrBasicBlock>("latch");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *two = context->create_constant<CoreIrConstantInt>(i32_type, 2);
+    auto *ten = context->create_constant<CoreIrConstantInt>(i32_type, 10);
+
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *iv = header->create_instruction<CoreIrPhiInst>(i32_type, "iv");
+    auto *cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedGreater, i1_type, "cmp", iv, zero);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cmp, body, exit);
+    auto *offset = body->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Sub, i32_type, "offset", iv, two);
+    body->create_instruction<CoreIrJumpInst>(void_type, latch);
+    auto *next = latch->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Sub, i32_type, "next", iv, two);
+    latch->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+    iv->add_incoming(entry, ten);
+    iv->add_incoming(latch, next);
+
+    CoreIrCfgAnalysis cfg_runner;
+    const CoreIrCfgAnalysisResult cfg = cfg_runner.Run(*function);
+    CoreIrDominatorTreeAnalysis dom_runner;
+    const CoreIrDominatorTreeAnalysisResult dom =
+        dom_runner.Run(*function, cfg);
+    CoreIrLoopInfoAnalysis loop_runner;
+    const CoreIrLoopInfoAnalysisResult loop_info =
+        loop_runner.Run(*function, cfg, dom);
+    assert(loop_info.get_loops().size() == 1);
+    const CoreIrLoopInfo &loop = *loop_info.get_loops().front();
+
+    CoreIrInductionVarAnalysis iv_runner;
+    const CoreIrInductionVarAnalysisResult iv_result =
+        iv_runner.Run(*function, cfg, dom, loop_info);
+    CoreIrScalarEvolutionLiteAnalysis scev_runner;
+    const CoreIrScalarEvolutionLiteAnalysisResult scev =
+        scev_runner.Run(*function, cfg, loop_info, iv_result);
+
+    const CoreIrCanonicalInductionVarInfo *iv_info =
+        scev.get_canonical_induction_var(loop);
+    assert(iv_info != nullptr);
+    assert(iv_info->step == -2);
+    assert(scev.get_constant_trip_count(loop).has_value());
+    assert(*scev.get_constant_trip_count(loop) == 5);
+
+    const CoreIrScevExpr offset_expr = scev.get_expr(offset, loop);
+    assert(offset_expr.kind == CoreIrScevExprKind::AddRec);
+    assert(offset_expr.step == -2);
+}
+
 } // namespace
 
 int main() {
     test_reports_addrec_and_constant_trip_count();
     test_reports_symbolic_non_constant_trip_count();
+    test_reports_descending_trip_count_through_split_latch();
     return 0;
 }
-

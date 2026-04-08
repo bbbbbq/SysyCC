@@ -22,10 +22,12 @@ namespace sysycc {
 
 namespace {
 
-PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
+PassResult fail_missing_core_ir(CompilerContext &context,
+                                const char *pass_name) {
     const std::string message =
         std::string(pass_name) + " requires a built core ir result";
-    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler, message);
+    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                              message);
     return PassResult::Failure(message);
 }
 
@@ -83,13 +85,14 @@ bool header_instructions_only_feed_condition(const CoreIrBasicBlock &header) {
     if (header.get_instructions().empty()) {
         return false;
     }
-    const CoreIrInstruction *terminator = header.get_instructions().back().get();
+    const CoreIrInstruction *terminator =
+        header.get_instructions().back().get();
     auto *branch = dynamic_cast<const CoreIrCondJumpInst *>(terminator);
     if (branch == nullptr) {
         return false;
     }
 
-    std::unordered_set<const CoreIrInstruction *> allowed_users{branch};
+    std::vector<const CoreIrInstruction *> header_instructions;
     for (const auto &instruction : header.get_instructions()) {
         const CoreIrInstruction *current = instruction.get();
         if (current == nullptr || current == terminator) {
@@ -98,6 +101,13 @@ bool header_instructions_only_feed_condition(const CoreIrBasicBlock &header) {
         if (!is_cloneable_header_instruction(*current)) {
             return false;
         }
+        header_instructions.push_back(current);
+    }
+
+    std::unordered_set<const CoreIrInstruction *> allowed_users{branch};
+    for (auto it = header_instructions.rbegin();
+         it != header_instructions.rend(); ++it) {
+        const CoreIrInstruction *current = *it;
         for (const CoreIrUse &use : current->get_uses()) {
             if (allowed_users.find(use.get_user()) == allowed_users.end()) {
                 return false;
@@ -134,7 +144,8 @@ CoreIrInstruction *clone_instruction_with_map(
         return clone.release();
     }
     case CoreIrOpcode::Compare: {
-        const auto &compare = static_cast<const CoreIrCompareInst &>(instruction);
+        const auto &compare =
+            static_cast<const CoreIrCompareInst &>(instruction);
         auto clone = std::make_unique<CoreIrCompareInst>(
             compare.get_predicate(), compare.get_type(), compare.get_name(),
             remap(compare.get_lhs()), remap(compare.get_rhs()));
@@ -157,15 +168,17 @@ CoreIrInstruction *clone_instruction_with_map(
 bool rotate_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop) {
     CoreIrBasicBlock *preheader = loop.get_preheader();
     CoreIrBasicBlock *header = loop.get_header();
-    if (preheader == nullptr || header == nullptr || loop.get_latches().size() != 1 ||
-        block_has_phi(*header) || header->get_instructions().empty() ||
+    if (preheader == nullptr || header == nullptr ||
+        loop.get_latches().size() != 1 || block_has_phi(*header) ||
+        header->get_instructions().empty() ||
         !header_instructions_only_feed_condition(*header)) {
         return false;
     }
 
     auto *preheader_jump = dynamic_cast<CoreIrJumpInst *>(
-        preheader->get_instructions().empty() ? nullptr
-                                              : preheader->get_instructions().back().get());
+        preheader->get_instructions().empty()
+            ? nullptr
+            : preheader->get_instructions().back().get());
     auto *header_branch = dynamic_cast<CoreIrCondJumpInst *>(
         header->get_instructions().back().get());
     if (preheader_jump == nullptr || header_branch == nullptr ||
@@ -231,18 +244,24 @@ bool rotate_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop) {
 
 } // namespace
 
-PassKind CoreIrLoopRotatePass::Kind() const { return PassKind::CoreIrLoopRotate; }
+PassKind CoreIrLoopRotatePass::Kind() const {
+    return PassKind::CoreIrLoopRotate;
+}
 
-const char *CoreIrLoopRotatePass::Name() const { return "CoreIrLoopRotatePass"; }
+const char *CoreIrLoopRotatePass::Name() const {
+    return "CoreIrLoopRotatePass";
+}
 
 PassResult CoreIrLoopRotatePass::Run(CompilerContext &context) {
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
-    CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();
+    CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
         return fail_missing_core_ir(context, Name());
     }
 
-    CoreIrAnalysisManager *analysis_manager = build_result->get_analysis_manager();
+    CoreIrAnalysisManager *analysis_manager =
+        build_result->get_analysis_manager();
     if (analysis_manager == nullptr) {
         return PassResult::Failure("missing core ir loop rotate dependencies");
     }
@@ -265,7 +284,8 @@ PassResult CoreIrLoopRotatePass::Run(CompilerContext &context) {
 
         bool function_changed = false;
         for (const CoreIrLoopInfo *loop : ordered_loops) {
-            function_changed = rotate_loop(*function, *loop) || function_changed;
+            function_changed =
+                rotate_loop(*function, *loop) || function_changed;
         }
         if (function_changed) {
             effects.changed_functions.insert(function.get());
@@ -280,4 +300,3 @@ PassResult CoreIrLoopRotatePass::Run(CompilerContext &context) {
 }
 
 } // namespace sysycc
-
