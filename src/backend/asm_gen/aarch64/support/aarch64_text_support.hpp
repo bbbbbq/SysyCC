@@ -19,6 +19,7 @@ char virtual_reg_suffix(AArch64VirtualRegKind kind);
 AArch64VirtualRegKind virtual_reg_kind_from_suffix(char suffix);
 std::string render_physical_register(unsigned reg_number, AArch64VirtualRegKind kind);
 std::string render_physical_register(unsigned reg_number, bool use_64bit);
+std::string render_symbol_reference_for_asm(const AArch64SymbolReference &reference);
 std::string
 render_symbol_reference_for_asm(const AArch64MachineSymbolReference &reference);
 std::string stack_pointer_name(bool use_64bit);

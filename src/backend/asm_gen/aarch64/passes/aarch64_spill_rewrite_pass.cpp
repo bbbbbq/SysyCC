@@ -1,6 +1,8 @@
 #include "backend/asm_gen/aarch64/passes/aarch64_spill_rewrite_pass.hpp"
 
+#include <array>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -16,31 +18,19 @@ namespace sysycc {
 
 namespace {
 
-std::vector<ParsedVirtualRegRef>
-collect_spilled_virtual_refs(const AArch64MachineOperand &operand,
-                             const AArch64MachineFunction &function) {
-    std::vector<ParsedVirtualRegRef> spilled;
-    for (const ParsedVirtualRegRef &ref : collect_virtual_reg_refs(operand)) {
-        if (function.get_physical_reg_for_virtual(ref.id).has_value()) {
-            continue;
-        }
-        if (!function.get_frame_info().get_virtual_reg_spill_offset(ref.id).has_value()) {
-            continue;
-        }
-        spilled.push_back(ref);
-    }
-    return spilled;
-}
-
-struct AArch64SpillRewriteOperand {
-    ParsedVirtualRegRef ref;
-    bool has_use = false;
-    bool has_def = false;
+enum class AArch64SpillOperandRole : unsigned char {
+    ValueUse = 1U << 0U,
+    ValueDef = 1U << 1U,
+    AddressBaseUse = 1U << 2U,
+    AddressBaseDef = 1U << 3U,
 };
 
-enum class AArch64SpillScratchClass : unsigned char {
-    GeneralValue,
-    FloatingValue,
+using AArch64SpillOperandRoles = unsigned char;
+
+struct AArch64SpillRewriteOperand {
+    std::size_t virtual_reg_id = 0;
+    AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
+    AArch64SpillOperandRoles roles = 0;
 };
 
 struct AArch64ScratchAssignment {
@@ -60,7 +50,6 @@ struct AArch64SpillRewriteStep {
     std::size_t virtual_reg_id = 0;
     unsigned physical_reg = 0;
     AArch64VirtualRegKind virtual_reg_kind = AArch64VirtualRegKind::General32;
-    AArch64SpillScratchClass scratch_class = AArch64SpillScratchClass::GeneralValue;
     std::optional<AArch64MachineInstr> instruction;
 };
 
@@ -69,49 +58,93 @@ struct AArch64InstructionRewritePlan {
     std::vector<AArch64ScratchAssignment> assignments;
     bool needs_address_scratch = false;
     std::vector<AArch64SpillRewriteStep> steps;
-    std::vector<AArch64SpillRewriteOperand> unassigned_operands;
+    std::string failure_reason;
 };
 
-struct AArch64InstructionSpillOccurrence {
-    std::size_t operand_index = 0;
-    ParsedVirtualRegRef ref;
-};
+bool has_role(AArch64SpillOperandRoles roles, AArch64SpillOperandRole role) {
+    return (roles & static_cast<AArch64SpillOperandRoles>(role)) != 0;
+}
 
-enum class AArch64SpillOperandRoleKind : unsigned char {
-    ValueUse,
-    ValueDef,
-    AddressBaseUse,
-    ConditionCode,
-    Label,
-    Other,
-};
-
-struct AArch64InstructionSpillShape {
-    enum class Kind : unsigned char {
-        Unsupported,
-        SingleValueDef,
-        MultiValueDef,
-        Compare,
-        SetFromCondition,
-        SelectFromCondition,
-        Load,
-        Store,
-        BranchOnValue,
-        IndirectCallTarget,
-    };
-
-    Kind kind = Kind::Unsupported;
-    std::vector<std::size_t> use_operand_indices;
-    std::vector<std::size_t> def_operand_indices;
-};
+void add_role(AArch64SpillOperandRoles &roles, AArch64SpillOperandRole role) {
+    roles |= static_cast<AArch64SpillOperandRoles>(role);
+}
 
 bool spill_slot_requires_address_scratch(std::size_t offset) {
     return offset > 255;
 }
 
-AArch64InstructionRewritePlan
-build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
-                               const AArch64MachineFunction &function);
+bool spill_operand_has_any_use(const AArch64SpillRewriteOperand &operand) {
+    return has_role(operand.roles, AArch64SpillOperandRole::ValueUse) ||
+           has_role(operand.roles, AArch64SpillOperandRole::AddressBaseUse);
+}
+
+bool spill_operand_has_any_def(const AArch64SpillRewriteOperand &operand) {
+    return has_role(operand.roles, AArch64SpillOperandRole::ValueDef) ||
+           has_role(operand.roles, AArch64SpillOperandRole::AddressBaseDef);
+}
+
+bool spill_operand_is_floating(const AArch64SpillRewriteOperand &operand) {
+    return AArch64VirtualReg(operand.virtual_reg_id, operand.kind).is_floating_point();
+}
+
+bool memory_address_writes_back_base(
+    const AArch64MachineMemoryAddressOperand &memory) {
+    return memory.address_mode !=
+           AArch64MachineMemoryAddressOperand::AddressMode::Offset;
+}
+
+bool is_spilled_virtual_reg(const AArch64VirtualReg &reg,
+                            const AArch64MachineFunction &function) {
+    return !function.get_physical_reg_for_virtual(reg.get_id()).has_value() &&
+           function.get_frame_info().get_virtual_reg_spill_offset(reg.get_id()).has_value();
+}
+
+AArch64SpillRewriteOperand *
+find_or_append_spill_operand(AArch64InstructionRewritePlan &plan,
+                             std::unordered_map<std::size_t, std::size_t> &operand_indices,
+                             const AArch64VirtualReg &reg) {
+    const auto existing = operand_indices.find(reg.get_id());
+    if (existing != operand_indices.end()) {
+        return &plan.operands[existing->second];
+    }
+    operand_indices.emplace(reg.get_id(), plan.operands.size());
+    plan.operands.push_back(AArch64SpillRewriteOperand{
+        reg.get_id(),
+        reg.get_kind(),
+        0});
+    return &plan.operands.back();
+}
+
+void record_spilled_operand_roles(
+    AArch64InstructionRewritePlan &plan,
+    std::unordered_map<std::size_t, std::size_t> &operand_indices,
+    const AArch64MachineOperand &operand, const AArch64MachineFunction &function) {
+    if (const auto *virtual_reg = operand.get_virtual_reg_operand();
+        virtual_reg != nullptr) {
+        if (!is_spilled_virtual_reg(virtual_reg->reg, function)) {
+            return;
+        }
+        AArch64SpillRewriteOperand *entry =
+            find_or_append_spill_operand(plan, operand_indices, virtual_reg->reg);
+        add_role(entry->roles, virtual_reg->is_def ? AArch64SpillOperandRole::ValueDef
+                                                   : AArch64SpillOperandRole::ValueUse);
+        return;
+    }
+
+    const auto *memory = operand.get_memory_address_operand();
+    if (memory == nullptr || memory->base_kind !=
+                                AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg ||
+        !is_spilled_virtual_reg(memory->virtual_reg, function)) {
+        return;
+    }
+
+    AArch64SpillRewriteOperand *entry =
+        find_or_append_spill_operand(plan, operand_indices, memory->virtual_reg);
+    add_role(entry->roles, AArch64SpillOperandRole::AddressBaseUse);
+    if (memory_address_writes_back_base(*memory)) {
+        add_role(entry->roles, AArch64SpillOperandRole::AddressBaseDef);
+    }
+}
 
 const AArch64ScratchAssignment *
 find_spill_assignment(const AArch64InstructionRewritePlan &plan,
@@ -140,6 +173,7 @@ AArch64MachineOperand rewrite_spilled_operand(
         return AArch64MachineOperand::physical_reg(it->second,
                                                    virtual_reg->reg.get_kind());
     }
+
     if (const auto *memory = operand.get_memory_address_operand(); memory != nullptr) {
         if (memory->base_kind !=
             AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg) {
@@ -169,363 +203,110 @@ AArch64MachineOperand rewrite_spilled_operand(
         return AArch64MachineOperand::memory_address_physical_reg(
             it->second, std::nullopt, memory->address_mode);
     }
+
     return operand;
 }
 
-std::vector<AArch64InstructionSpillOccurrence>
-collect_spill_occurrences(const AArch64MachineInstr &instruction,
-                         const AArch64MachineFunction &function) {
-    std::vector<AArch64InstructionSpillOccurrence> occurrences;
-    const std::vector<AArch64MachineOperand> &operands = instruction.get_operands();
-    for (std::size_t operand_index = 0; operand_index < operands.size(); ++operand_index) {
-        const AArch64MachineOperand &operand = operands[operand_index];
-        std::vector<ParsedVirtualRegRef> refs =
-            collect_spilled_virtual_refs(operand, function);
-        if (refs.empty()) {
-            continue;
+std::string build_spill_assignment_error(const AArch64MachineInstr &instruction,
+                                         std::size_t general_role_refs,
+                                         std::size_t float_role_refs) {
+    std::ostringstream message;
+    message << "AArch64 spill rewrite could not assign the available scratch registers";
+    bool emitted_clause = false;
+    if (general_role_refs != 0) {
+        message << " for " << general_role_refs << " general role reference";
+        if (general_role_refs != 1) {
+            message << "s";
         }
-        for (const ParsedVirtualRegRef &ref : refs) {
-            occurrences.push_back(AArch64InstructionSpillOccurrence{
-                operand_index,
-                ref});
-        }
+        emitted_clause = true;
     }
-    return occurrences;
+    if (float_role_refs != 0) {
+        if (emitted_clause) {
+            message << " and ";
+        }
+        message << float_role_refs << " floating role reference";
+        if (float_role_refs != 1) {
+            message << "s";
+        }
+        emitted_clause = true;
+    }
+    if (!emitted_clause) {
+        message << " for an unsupported scratch-role configuration";
+    }
+    message << " in AArch64 instruction '" << instruction.get_mnemonic() << "'";
+    return message.str();
 }
 
-AArch64SpillOperandRoleKind
-classify_spill_operand_role(const AArch64MachineOperand &operand) {
-    if (const auto *virtual_reg = operand.get_virtual_reg_operand();
-        virtual_reg != nullptr) {
-        return virtual_reg->is_def ? AArch64SpillOperandRoleKind::ValueDef
-                                   : AArch64SpillOperandRoleKind::ValueUse;
-    }
-    if (const auto *memory = operand.get_memory_address_operand(); memory != nullptr) {
-        return memory->base_kind ==
-                       AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg
-                   ? AArch64SpillOperandRoleKind::AddressBaseUse
-                   : AArch64SpillOperandRoleKind::Other;
-    }
-    if (operand.get_condition_code_operand() != nullptr) {
-        return AArch64SpillOperandRoleKind::ConditionCode;
-    }
-    if (operand.get_label_operand() != nullptr) {
-        return AArch64SpillOperandRoleKind::Label;
-    }
-    return AArch64SpillOperandRoleKind::Other;
-}
+template <std::size_t N>
+bool assign_spill_bank_operands(
+    AArch64InstructionRewritePlan &plan,
+    const std::vector<const AArch64SpillRewriteOperand *> &use_operands,
+    const std::vector<const AArch64SpillRewriteOperand *> &def_operands,
+    const std::vector<const AArch64SpillRewriteOperand *> &aliasable_use_operands,
+    const std::array<unsigned, N> &scratch_regs) {
+    std::size_t next_scratch = 0;
+    std::unordered_set<std::size_t> consumed_alias_sources;
 
-const AArch64InstructionSpillOccurrence *
-find_spill_occurrence(const std::vector<AArch64InstructionSpillOccurrence> &occurrences,
-                     std::size_t operand_index) {
-    for (const AArch64InstructionSpillOccurrence &occurrence : occurrences) {
-        if (occurrence.operand_index == operand_index) {
-            return &occurrence;
+    auto assign_fresh_scratch =
+        [&](const AArch64SpillRewriteOperand &operand) -> bool {
+        if (find_spill_assignment(plan, operand.virtual_reg_id) != nullptr) {
+            return true;
         }
-    }
-    return nullptr;
-}
-
-AArch64InstructionSpillShape
-classify_spill_instruction_shape(const AArch64MachineInstr &instruction) {
-    AArch64InstructionSpillShape shape;
-    const std::vector<AArch64MachineOperand> &operands = instruction.get_operands();
-    std::vector<std::size_t> value_use_indices;
-    std::vector<std::size_t> value_def_indices;
-    std::vector<std::size_t> address_use_indices;
-    std::vector<std::size_t> condition_code_indices;
-    std::vector<std::size_t> label_indices;
-    std::vector<std::size_t> memory_indices;
-
-    for (std::size_t operand_index = 0; operand_index < operands.size(); ++operand_index) {
-        const AArch64MachineOperand &operand = operands[operand_index];
-        switch (classify_spill_operand_role(operand)) {
-        case AArch64SpillOperandRoleKind::ValueUse:
-            value_use_indices.push_back(operand_index);
-            break;
-        case AArch64SpillOperandRoleKind::ValueDef:
-            value_def_indices.push_back(operand_index);
-            break;
-        case AArch64SpillOperandRoleKind::AddressBaseUse:
-            address_use_indices.push_back(operand_index);
-            memory_indices.push_back(operand_index);
-            break;
-        case AArch64SpillOperandRoleKind::ConditionCode:
-            condition_code_indices.push_back(operand_index);
-            break;
-        case AArch64SpillOperandRoleKind::Label:
-            label_indices.push_back(operand_index);
-            break;
-        case AArch64SpillOperandRoleKind::Other:
-            if (operand.get_memory_address_operand() != nullptr) {
-                memory_indices.push_back(operand_index);
-            }
-            break;
-        }
-    }
-
-    if (instruction.get_flags().is_call) {
-        if (value_use_indices.size() == 1 && value_def_indices.empty() &&
-            memory_indices.empty() && condition_code_indices.empty() &&
-            label_indices.empty()) {
-            shape.kind = AArch64InstructionSpillShape::Kind::IndirectCallTarget;
-            shape.use_operand_indices = value_use_indices;
-        }
-        return shape;
-    }
-
-    if (!memory_indices.empty()) {
-        if (memory_indices.size() != 1 || !condition_code_indices.empty() ||
-            !label_indices.empty()) {
-            return shape;
-        }
-        if (!value_def_indices.empty() && value_use_indices.empty() &&
-            value_def_indices.size() <= 2) {
-            shape.kind = AArch64InstructionSpillShape::Kind::Load;
-            shape.use_operand_indices = address_use_indices;
-            shape.def_operand_indices = value_def_indices;
-            return shape;
-        }
-        if (value_def_indices.empty() && !value_use_indices.empty() &&
-            value_use_indices.size() <= 2) {
-            shape.kind = AArch64InstructionSpillShape::Kind::Store;
-            shape.use_operand_indices = value_use_indices;
-            shape.use_operand_indices.insert(shape.use_operand_indices.end(),
-                                             address_use_indices.begin(),
-                                             address_use_indices.end());
-            return shape;
-        }
-        return shape;
-    }
-
-    if (!label_indices.empty()) {
-        if (label_indices.size() == 1 && value_def_indices.empty() &&
-            value_use_indices.size() == 1 && condition_code_indices.empty()) {
-            shape.kind = AArch64InstructionSpillShape::Kind::BranchOnValue;
-            shape.use_operand_indices = value_use_indices;
-        }
-        return shape;
-    }
-
-    if (!condition_code_indices.empty()) {
-        if (condition_code_indices.size() == 1 && value_def_indices.size() == 1 &&
-            value_use_indices.empty()) {
-            shape.kind = AArch64InstructionSpillShape::Kind::SetFromCondition;
-            shape.def_operand_indices = value_def_indices;
-            return shape;
-        }
-        if (condition_code_indices.size() == 1 && value_def_indices.size() == 1 &&
-            value_use_indices.size() == 2) {
-            shape.kind = AArch64InstructionSpillShape::Kind::SelectFromCondition;
-            shape.use_operand_indices = value_use_indices;
-            shape.def_operand_indices = value_def_indices;
-            return shape;
-        }
-        return shape;
-    }
-
-    if (value_def_indices.empty() && !value_use_indices.empty() &&
-        value_use_indices.size() <= 2) {
-        shape.kind = AArch64InstructionSpillShape::Kind::Compare;
-        shape.use_operand_indices = value_use_indices;
-        return shape;
-    }
-    if (value_def_indices.size() == 1 && value_use_indices.size() <= 1) {
-        shape.kind = AArch64InstructionSpillShape::Kind::SingleValueDef;
-        shape.use_operand_indices = value_use_indices;
-        shape.def_operand_indices = value_def_indices;
-        return shape;
-    }
-    if (value_def_indices.size() == 1 && value_use_indices.size() >= 2) {
-        shape.kind = AArch64InstructionSpillShape::Kind::MultiValueDef;
-        shape.use_operand_indices = value_use_indices;
-        shape.def_operand_indices = value_def_indices;
-        return shape;
-    }
-    return shape;
-}
-
-bool assign_split_scratch(AArch64InstructionRewritePlan &plan,
-                          std::size_t &next_general_scratch,
-                          std::size_t &next_float_scratch,
-                          std::size_t virtual_reg_id,
-                          AArch64VirtualRegKind kind) {
-    if (find_spill_assignment(plan, virtual_reg_id) != nullptr) {
-        return true;
-    }
-
-    const bool is_float = AArch64VirtualReg(virtual_reg_id, kind).is_floating_point();
-    if (is_float) {
-        if (next_float_scratch >= std::size(kAArch64SpillScratchFloatPhysicalRegs)) {
+        if (next_scratch >= scratch_regs.size()) {
             return false;
         }
         plan.assignments.push_back(AArch64ScratchAssignment{
-            virtual_reg_id, kAArch64SpillScratchFloatPhysicalRegs[next_float_scratch++],
-            kind});
+            operand.virtual_reg_id,
+            scratch_regs[next_scratch++],
+            operand.kind});
         return true;
+    };
+
+    for (const AArch64SpillRewriteOperand *operand : use_operands) {
+        if (!assign_fresh_scratch(*operand)) {
+            return false;
+        }
     }
 
-    if (next_general_scratch >= std::size(kAArch64SpillScratchGeneralPhysicalRegs)) {
-        return false;
-    }
-    plan.assignments.push_back(AArch64ScratchAssignment{
-        virtual_reg_id, kAArch64SpillScratchGeneralPhysicalRegs[next_general_scratch++],
-        kind});
-    return true;
-}
-
-void append_split_use_step(AArch64InstructionRewritePlan &plan,
-                           std::size_t virtual_reg_id,
-                           AArch64VirtualRegKind kind) {
-    const AArch64ScratchAssignment *assignment =
-        find_spill_assignment(plan, virtual_reg_id);
-    if (assignment == nullptr) {
-        return;
-    }
-    const AArch64SpillScratchClass scratch_class =
-        AArch64VirtualReg(virtual_reg_id, kind).is_floating_point()
-            ? AArch64SpillScratchClass::FloatingValue
-            : AArch64SpillScratchClass::GeneralValue;
-    plan.steps.push_back(AArch64SpillRewriteStep{
-        AArch64SpillRewriteStep::Kind::LoadUse,
-        virtual_reg_id,
-        assignment->physical_reg,
-        kind,
-        scratch_class,
-        std::nullopt});
-}
-
-void append_split_def_step(AArch64InstructionRewritePlan &plan,
-                           std::size_t virtual_reg_id,
-                           AArch64VirtualRegKind kind) {
-    const AArch64ScratchAssignment *assignment =
-        find_spill_assignment(plan, virtual_reg_id);
-    if (assignment == nullptr) {
-        return;
-    }
-    const AArch64SpillScratchClass scratch_class =
-        AArch64VirtualReg(virtual_reg_id, kind).is_floating_point()
-            ? AArch64SpillScratchClass::FloatingValue
-            : AArch64SpillScratchClass::GeneralValue;
-    plan.steps.push_back(AArch64SpillRewriteStep{
-        AArch64SpillRewriteStep::Kind::StoreDef,
-        virtual_reg_id,
-        assignment->physical_reg,
-        kind,
-        scratch_class,
-        std::nullopt});
-}
-
-void append_split_steps_for_operands(
-    AArch64InstructionRewritePlan &plan,
-    const std::vector<AArch64InstructionSpillOccurrence> &occurrences,
-    const std::vector<std::size_t> &operand_indices, bool defs) {
-    std::unordered_set<std::size_t> seen_virtual_regs;
-    for (std::size_t operand_index : operand_indices) {
-        const AArch64InstructionSpillOccurrence *occurrence =
-            find_spill_occurrence(occurrences, operand_index);
-        if (occurrence == nullptr ||
-            !seen_virtual_regs.insert(occurrence->ref.id).second) {
+    for (const AArch64SpillRewriteOperand *operand : def_operands) {
+        if (find_spill_assignment(plan, operand->virtual_reg_id) != nullptr) {
             continue;
         }
-        if (defs) {
-            append_split_def_step(plan, occurrence->ref.id, occurrence->ref.kind);
-        } else {
-            append_split_use_step(plan, occurrence->ref.id, occurrence->ref.kind);
+        if (assign_fresh_scratch(*operand)) {
+            continue;
         }
-    }
-}
 
-void mark_address_scratch_if_needed(AArch64InstructionRewritePlan &plan,
-                                    const AArch64MachineFunction &function,
-                                    std::size_t virtual_reg_id) {
-    const auto maybe_offset =
-        function.get_frame_info().get_virtual_reg_spill_offset(virtual_reg_id);
-    if (maybe_offset.has_value() && spill_slot_requires_address_scratch(*maybe_offset)) {
-        plan.needs_address_scratch = true;
-    }
-}
-
-AArch64InstructionRewritePlan
-build_split_rewrite_plan(const AArch64MachineInstr &instruction,
-                         const AArch64MachineFunction &function) {
-    AArch64InstructionRewritePlan plan;
-    const std::vector<AArch64InstructionSpillOccurrence> occurrences =
-        collect_spill_occurrences(instruction, function);
-    if (occurrences.empty()) {
-        return plan;
-    }
-
-    const AArch64InstructionSpillShape shape =
-        classify_spill_instruction_shape(instruction);
-    if (shape.kind == AArch64InstructionSpillShape::Kind::Unsupported) {
-        plan.unassigned_operands = build_instruction_rewrite_plan(instruction, function)
-                                       .unassigned_operands;
-        return plan;
-    }
-
-    std::size_t next_general_scratch = 0;
-    std::size_t next_float_scratch = 0;
-
-    auto assign_for_operand = [&](std::size_t operand_index) -> bool {
-        const AArch64InstructionSpillOccurrence *occurrence =
-            find_spill_occurrence(occurrences, operand_index);
-        if (occurrence == nullptr) {
-            return true;
-        }
-        mark_address_scratch_if_needed(plan, function, occurrence->ref.id);
-        return assign_split_scratch(plan, next_general_scratch, next_float_scratch,
-                                    occurrence->ref.id, occurrence->ref.kind);
-    };
-
-    auto assign_for_operands =
-        [&](const std::vector<std::size_t> &operand_indices) -> bool {
-        for (std::size_t operand_index : operand_indices) {
-            if (!assign_for_operand(operand_index)) {
-                return false;
+        const AArch64SpillRewriteOperand *alias_source = nullptr;
+        for (const AArch64SpillRewriteOperand *candidate : aliasable_use_operands) {
+            if (consumed_alias_sources.find(candidate->virtual_reg_id) !=
+                consumed_alias_sources.end()) {
+                continue;
             }
+            if (find_spill_assignment(plan, candidate->virtual_reg_id) == nullptr) {
+                continue;
+            }
+            alias_source = candidate;
+            break;
         }
-        return true;
-    };
 
-    const bool assign_ok =
-        assign_for_operands(shape.use_operand_indices) &&
-        assign_for_operands(shape.def_operand_indices);
+        if (alias_source == nullptr) {
+            return false;
+        }
 
-    if (!assign_ok) {
-        plan.unassigned_operands = build_instruction_rewrite_plan(instruction, function)
-                                       .unassigned_operands;
-        return plan;
+        consumed_alias_sources.insert(alias_source->virtual_reg_id);
+        const AArch64ScratchAssignment *alias_assignment =
+            find_spill_assignment(plan, alias_source->virtual_reg_id);
+        if (alias_assignment == nullptr) {
+            return false;
+        }
+
+        plan.assignments.push_back(AArch64ScratchAssignment{
+            operand->virtual_reg_id,
+            alias_assignment->physical_reg,
+            operand->kind});
     }
 
-    std::unordered_map<std::size_t, unsigned> spill_mapping;
-    for (const AArch64ScratchAssignment &assignment : plan.assignments) {
-        spill_mapping.emplace(assignment.virtual_reg_id, assignment.physical_reg);
-    }
-
-    std::vector<AArch64MachineOperand> operands;
-    operands.reserve(instruction.get_operands().size());
-    for (const AArch64MachineOperand &operand : instruction.get_operands()) {
-        operands.push_back(rewrite_spilled_operand(operand, spill_mapping, function));
-    }
-
-    append_split_steps_for_operands(plan, occurrences, shape.use_operand_indices,
-                                    false);
-    plan.steps.push_back(AArch64SpillRewriteStep{
-        AArch64SpillRewriteStep::Kind::EmitInstruction,
-        0,
-        0,
-        AArch64VirtualRegKind::General32,
-        AArch64SpillScratchClass::GeneralValue,
-        AArch64MachineInstr(instruction.get_mnemonic(), std::move(operands),
-                            instruction.get_flags(),
-                            instruction.get_implicit_defs(),
-                            instruction.get_implicit_uses(),
-                            instruction.get_call_clobber_mask())});
-    append_split_steps_for_operands(plan, occurrences, shape.def_operand_indices,
-                                    true);
-
-    return plan;
+    return true;
 }
 
 AArch64InstructionRewritePlan
@@ -535,74 +316,80 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
     std::unordered_map<std::size_t, std::size_t> operand_indices;
 
     for (const AArch64MachineOperand &operand : instruction.get_operands()) {
-        for (const ParsedVirtualRegRef &ref :
-             collect_spilled_virtual_refs(operand, function)) {
-            std::size_t entry_index = 0;
-            const auto existing_it = operand_indices.find(ref.id);
-            if (existing_it == operand_indices.end()) {
-                entry_index = plan.operands.size();
-                operand_indices.emplace(ref.id, entry_index);
-                plan.operands.push_back(AArch64SpillRewriteOperand{ref});
-            } else {
-                entry_index = existing_it->second;
-            }
-            plan.operands[entry_index].has_use =
-                plan.operands[entry_index].has_use || !ref.is_def;
-            plan.operands[entry_index].has_def =
-                plan.operands[entry_index].has_def || ref.is_def;
-        }
+        record_spilled_operand_roles(plan, operand_indices, operand, function);
     }
 
-    std::vector<const AArch64SpillRewriteOperand *> large_general_operands;
-    std::vector<const AArch64SpillRewriteOperand *> small_general_operands;
-    std::vector<const AArch64SpillRewriteOperand *> float_operands;
+    std::vector<const AArch64SpillRewriteOperand *> general_use_operands;
+    std::vector<const AArch64SpillRewriteOperand *> general_def_operands;
+    std::vector<const AArch64SpillRewriteOperand *> general_value_alias_uses;
+    std::vector<const AArch64SpillRewriteOperand *> general_address_alias_uses;
+    std::vector<const AArch64SpillRewriteOperand *> float_use_operands;
+    std::vector<const AArch64SpillRewriteOperand *> float_def_operands;
+    std::vector<const AArch64SpillRewriteOperand *> float_alias_uses;
 
     for (const AArch64SpillRewriteOperand &operand : plan.operands) {
         const auto maybe_offset =
-            function.get_frame_info().get_virtual_reg_spill_offset(operand.ref.id);
-        if (!maybe_offset.has_value()) {
-            continue;
-        }
-        if (spill_slot_requires_address_scratch(*maybe_offset)) {
+            function.get_frame_info().get_virtual_reg_spill_offset(operand.virtual_reg_id);
+        if (maybe_offset.has_value() && spill_slot_requires_address_scratch(*maybe_offset)) {
             plan.needs_address_scratch = true;
         }
-        if (AArch64VirtualReg(operand.ref.id, operand.ref.kind).is_floating_point()) {
-            float_operands.push_back(&operand);
-            continue;
+
+        const bool is_float = spill_operand_is_floating(operand);
+        const bool has_use = spill_operand_has_any_use(operand);
+        const bool has_def = spill_operand_has_any_def(operand);
+        const bool has_value_use =
+            has_role(operand.roles, AArch64SpillOperandRole::ValueUse);
+        const bool has_address_use =
+            has_role(operand.roles, AArch64SpillOperandRole::AddressBaseUse);
+
+        if (has_use) {
+            if (is_float) {
+                float_use_operands.push_back(&operand);
+            } else {
+                general_use_operands.push_back(&operand);
+            }
         }
-        if (spill_slot_requires_address_scratch(*maybe_offset)) {
-            large_general_operands.push_back(&operand);
-            continue;
+        if (has_def) {
+            if (is_float) {
+                float_def_operands.push_back(&operand);
+            } else {
+                general_def_operands.push_back(&operand);
+            }
         }
-        small_general_operands.push_back(&operand);
+        if (!has_def && has_value_use) {
+            if (is_float) {
+                float_alias_uses.push_back(&operand);
+            } else {
+                general_value_alias_uses.push_back(&operand);
+            }
+        }
+        if (!is_float && !has_def && !has_value_use && has_address_use) {
+            general_address_alias_uses.push_back(&operand);
+        }
     }
 
-    if (large_general_operands.size() + small_general_operands.size() >
-            std::size(kAArch64SpillScratchGeneralPhysicalRegs) ||
-        float_operands.size() > std::size(kAArch64SpillScratchFloatPhysicalRegs)) {
-        plan.unassigned_operands = plan.operands;
+    // Reuse value-use scratch registers before falling back to address-base aliases.
+    std::vector<const AArch64SpillRewriteOperand *> general_alias_uses =
+        general_value_alias_uses;
+    general_alias_uses.insert(general_alias_uses.end(),
+                              general_address_alias_uses.begin(),
+                              general_address_alias_uses.end());
+
+    const bool assigned_general = assign_spill_bank_operands(
+        plan, general_use_operands, general_def_operands, general_alias_uses,
+        kAArch64SpillScratchGeneralPhysicalRegs);
+    const bool assigned_float = assign_spill_bank_operands(
+        plan, float_use_operands, float_def_operands, float_alias_uses,
+        kAArch64SpillScratchFloatPhysicalRegs);
+
+    if (!assigned_general || !assigned_float) {
+        const std::size_t general_roles =
+            general_use_operands.size() + general_def_operands.size();
+        const std::size_t float_roles =
+            float_use_operands.size() + float_def_operands.size();
+        plan.failure_reason = build_spill_assignment_error(
+            instruction, general_roles, float_roles);
         return plan;
-    }
-
-    std::size_t next_general_scratch = 0;
-    auto assign_general_operand =
-        [&](const AArch64SpillRewriteOperand &operand, unsigned physical_reg) {
-            plan.assignments.push_back(AArch64ScratchAssignment{
-                operand.ref.id, physical_reg, operand.ref.kind});
-        };
-
-    for (const AArch64SpillRewriteOperand *operand : large_general_operands) {
-        assign_general_operand(*operand,
-                               kAArch64SpillScratchGeneralPhysicalRegs[next_general_scratch++]);
-    }
-    for (const AArch64SpillRewriteOperand *operand : small_general_operands) {
-        assign_general_operand(*operand,
-                               kAArch64SpillScratchGeneralPhysicalRegs[next_general_scratch++]);
-    }
-    for (std::size_t index = 0; index < float_operands.size(); ++index) {
-        plan.assignments.push_back(AArch64ScratchAssignment{
-            float_operands[index]->ref.id, kAArch64SpillScratchFloatPhysicalRegs[index],
-            float_operands[index]->ref.kind});
     }
 
     std::unordered_map<std::size_t, unsigned> spill_mapping;
@@ -610,80 +397,56 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
         spill_mapping.emplace(assignment.virtual_reg_id, assignment.physical_reg);
     }
 
-    auto append_use_step = [&](const AArch64SpillRewriteOperand &operand) {
-        const AArch64ScratchAssignment *assignment =
-            find_spill_assignment(plan, operand.ref.id);
-        if (assignment == nullptr || !operand.has_use) {
-            return;
+    for (const AArch64SpillRewriteOperand &operand : plan.operands) {
+        if (!spill_operand_has_any_use(operand)) {
+            continue;
         }
-        const AArch64SpillScratchClass scratch_class =
-            AArch64VirtualReg(operand.ref.id, operand.ref.kind).is_floating_point()
-                ? AArch64SpillScratchClass::FloatingValue
-                : AArch64SpillScratchClass::GeneralValue;
+        const AArch64ScratchAssignment *assignment =
+            find_spill_assignment(plan, operand.virtual_reg_id);
+        if (assignment == nullptr) {
+            continue;
+        }
         plan.steps.push_back(AArch64SpillRewriteStep{
             AArch64SpillRewriteStep::Kind::LoadUse,
-            operand.ref.id,
+            operand.virtual_reg_id,
             assignment->physical_reg,
-            operand.ref.kind,
-            scratch_class,
+            operand.kind,
             std::nullopt});
-    };
-
-    auto append_def_step = [&](const AArch64SpillRewriteOperand &operand) {
-        const AArch64ScratchAssignment *assignment =
-            find_spill_assignment(plan, operand.ref.id);
-        if (assignment == nullptr || !operand.has_def) {
-            return;
-        }
-        const AArch64SpillScratchClass scratch_class =
-            AArch64VirtualReg(operand.ref.id, operand.ref.kind).is_floating_point()
-                ? AArch64SpillScratchClass::FloatingValue
-                : AArch64SpillScratchClass::GeneralValue;
-        plan.steps.push_back(AArch64SpillRewriteStep{
-            AArch64SpillRewriteStep::Kind::StoreDef,
-            operand.ref.id,
-            assignment->physical_reg,
-            operand.ref.kind,
-            scratch_class,
-            std::nullopt});
-    };
-
-    for (const AArch64SpillRewriteOperand *operand : large_general_operands) {
-        append_use_step(*operand);
-    }
-    for (const AArch64SpillRewriteOperand *operand : small_general_operands) {
-        append_use_step(*operand);
-    }
-    for (const AArch64SpillRewriteOperand *operand : float_operands) {
-        append_use_step(*operand);
     }
 
-    std::vector<AArch64MachineOperand> operands;
-    operands.reserve(instruction.get_operands().size());
+    std::vector<AArch64MachineOperand> rewritten_operands;
+    rewritten_operands.reserve(instruction.get_operands().size());
     for (const AArch64MachineOperand &operand : instruction.get_operands()) {
-        operands.push_back(rewrite_spilled_operand(operand, spill_mapping, function));
+        rewritten_operands.push_back(
+            rewrite_spilled_operand(operand, spill_mapping, function));
     }
     plan.steps.push_back(AArch64SpillRewriteStep{
         AArch64SpillRewriteStep::Kind::EmitInstruction,
         0,
         0,
         AArch64VirtualRegKind::General32,
-        AArch64SpillScratchClass::GeneralValue,
-        AArch64MachineInstr(instruction.get_mnemonic(), std::move(operands),
-                            instruction.get_flags(),
-                            instruction.get_implicit_defs(),
+        AArch64MachineInstr(instruction.get_mnemonic(), std::move(rewritten_operands),
+                            instruction.get_flags(), instruction.get_implicit_defs(),
                             instruction.get_implicit_uses(),
                             instruction.get_call_clobber_mask())});
 
-    for (const AArch64SpillRewriteOperand *operand : large_general_operands) {
-        append_def_step(*operand);
+    for (const AArch64SpillRewriteOperand &operand : plan.operands) {
+        if (!spill_operand_has_any_def(operand)) {
+            continue;
+        }
+        const AArch64ScratchAssignment *assignment =
+            find_spill_assignment(plan, operand.virtual_reg_id);
+        if (assignment == nullptr) {
+            continue;
+        }
+        plan.steps.push_back(AArch64SpillRewriteStep{
+            AArch64SpillRewriteStep::Kind::StoreDef,
+            operand.virtual_reg_id,
+            assignment->physical_reg,
+            operand.kind,
+            std::nullopt});
     }
-    for (const AArch64SpillRewriteOperand *operand : small_general_operands) {
-        append_def_step(*operand);
-    }
-    for (const AArch64SpillRewriteOperand *operand : float_operands) {
-        append_def_step(*operand);
-    }
+
     return plan;
 }
 
@@ -701,15 +464,9 @@ bool AArch64SpillRewritePass::run(AArch64MachineFunction &function,
         for (AArch64MachineInstr &instruction : block.get_instructions()) {
             AArch64InstructionRewritePlan rewrite_plan =
                 build_instruction_rewrite_plan(instruction, function);
-            if (!rewrite_plan.unassigned_operands.empty()) {
-                rewrite_plan = build_split_rewrite_plan(instruction, function);
-                if (!rewrite_plan.unassigned_operands.empty()) {
-                    add_backend_error(
-                        diagnostic_engine,
-                        "unsupported spill rewrite shape for AArch64 instruction '" +
-                            instruction.get_mnemonic() + "'");
-                    return false;
-                }
+            if (!rewrite_plan.failure_reason.empty()) {
+                add_backend_error(diagnostic_engine, rewrite_plan.failure_reason);
+                return false;
             }
 
             for (const AArch64ScratchAssignment &assignment : rewrite_plan.assignments) {

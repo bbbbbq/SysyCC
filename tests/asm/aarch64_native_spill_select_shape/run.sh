@@ -35,4 +35,4 @@ if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then
     exit 1
 fi
 
-echo "verified: spill-heavy long double compare lowering still reaches csel through shape-based rewrite"
+echo "verified: spill-heavy long double compare lowering still reaches csel through role-based spill rewrite"

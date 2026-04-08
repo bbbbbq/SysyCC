@@ -9,8 +9,8 @@
 #include <variant>
 #include <vector>
 
-#include "backend/asm_gen/aarch64/model/aarch64_meta_model.hpp"
 #include "backend/asm_gen/aarch64/model/aarch64_register_info.hpp"
+#include "backend/asm_gen/aarch64/model/aarch64_symbol_reference_model.hpp"
 
 namespace sysycc {
 
@@ -55,24 +55,68 @@ struct AArch64MachineSymbolReference {
         GotLo12,
     };
 
-    std::string symbol_name;
+    AArch64SymbolReference target;
     Modifier modifier = Modifier::None;
 
-    static AArch64MachineSymbolReference plain(std::string symbol_name) {
-        return AArch64MachineSymbolReference{std::move(symbol_name), Modifier::None};
+    static AArch64MachineSymbolReference plain(AArch64SymbolReference target) {
+        return AArch64MachineSymbolReference{std::move(target), Modifier::None};
     }
 
-    static AArch64MachineSymbolReference lo12(std::string symbol_name) {
-        return AArch64MachineSymbolReference{std::move(symbol_name), Modifier::Lo12};
+    static AArch64MachineSymbolReference plain(
+        std::string symbol_name,
+        AArch64SymbolKind kind = AArch64SymbolKind::Object,
+        AArch64SymbolBinding binding = AArch64SymbolBinding::Unknown,
+        std::optional<AArch64SectionKind> section_kind = std::nullopt,
+        long long addend = 0, bool is_defined = false) {
+        return plain(AArch64SymbolReference::direct(
+            std::move(symbol_name), kind, binding, section_kind, addend,
+            is_defined));
     }
 
-    static AArch64MachineSymbolReference got(std::string symbol_name) {
-        return AArch64MachineSymbolReference{std::move(symbol_name), Modifier::Got};
+    static AArch64MachineSymbolReference lo12(AArch64SymbolReference target) {
+        return AArch64MachineSymbolReference{std::move(target), Modifier::Lo12};
     }
 
-    static AArch64MachineSymbolReference got_lo12(std::string symbol_name) {
-        return AArch64MachineSymbolReference{std::move(symbol_name),
+    static AArch64MachineSymbolReference lo12(
+        std::string symbol_name,
+        AArch64SymbolKind kind = AArch64SymbolKind::Object,
+        AArch64SymbolBinding binding = AArch64SymbolBinding::Unknown,
+        std::optional<AArch64SectionKind> section_kind = std::nullopt,
+        long long addend = 0, bool is_defined = false) {
+        return lo12(AArch64SymbolReference::direct(
+            std::move(symbol_name), kind, binding, section_kind, addend,
+            is_defined));
+    }
+
+    static AArch64MachineSymbolReference got(AArch64SymbolReference target) {
+        return AArch64MachineSymbolReference{std::move(target), Modifier::Got};
+    }
+
+    static AArch64MachineSymbolReference got(
+        std::string symbol_name,
+        AArch64SymbolKind kind = AArch64SymbolKind::Object,
+        AArch64SymbolBinding binding = AArch64SymbolBinding::Unknown,
+        std::optional<AArch64SectionKind> section_kind = std::nullopt,
+        long long addend = 0, bool is_defined = false) {
+        return got(AArch64SymbolReference::direct(
+            std::move(symbol_name), kind, binding, section_kind, addend,
+            is_defined));
+    }
+
+    static AArch64MachineSymbolReference got_lo12(AArch64SymbolReference target) {
+        return AArch64MachineSymbolReference{std::move(target),
                                              Modifier::GotLo12};
+    }
+
+    static AArch64MachineSymbolReference got_lo12(
+        std::string symbol_name,
+        AArch64SymbolKind kind = AArch64SymbolKind::Object,
+        AArch64SymbolBinding binding = AArch64SymbolBinding::Unknown,
+        std::optional<AArch64SectionKind> section_kind = std::nullopt,
+        long long addend = 0, bool is_defined = false) {
+        return got_lo12(AArch64SymbolReference::direct(
+            std::move(symbol_name), kind, binding, section_kind, addend,
+            is_defined));
     }
 };
 
@@ -168,6 +212,7 @@ class AArch64MachineOperand {
                                               AArch64VirtualRegKind kind);
     static AArch64MachineOperand immediate(std::string text);
     static AArch64MachineOperand symbol(std::string text);
+    static AArch64MachineOperand symbol(AArch64SymbolReference reference);
     static AArch64MachineOperand symbol(AArch64MachineSymbolReference reference);
     static AArch64MachineOperand label(std::string text);
     static AArch64MachineOperand condition_code(std::string code);

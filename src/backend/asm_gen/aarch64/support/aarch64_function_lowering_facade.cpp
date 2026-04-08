@@ -345,8 +345,10 @@ void AArch64FunctionLoweringFacade::finish_stack_argument_area(
 void AArch64FunctionLoweringFacade::emit_direct_call(
     AArch64MachineBlock &machine_block, const std::string &callee_name) {
     services_.record_symbol_reference(callee_name, AArch64SymbolKind::Function);
+    const AArch64SymbolReference callee_symbol =
+        AArch64SymbolReference::direct(callee_name, AArch64SymbolKind::Function);
     machine_block.append_instruction(
-        AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(callee_name)},
+        AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(callee_symbol)},
                             AArch64InstructionFlags{.is_call = true}, {}, {},
                             make_default_aarch64_call_clobber_mask()));
 }
@@ -363,8 +365,10 @@ bool AArch64FunctionLoweringFacade::emit_indirect_call(
 void AArch64FunctionLoweringFacade::append_helper_call(
     AArch64MachineBlock &machine_block, const std::string &symbol_name) {
     services_.record_symbol_reference(symbol_name, AArch64SymbolKind::Helper);
+    const AArch64SymbolReference helper_symbol =
+        AArch64SymbolReference::direct(symbol_name, AArch64SymbolKind::Helper);
     machine_block.append_instruction(
-        AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(symbol_name)},
+        AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(helper_symbol)},
                             AArch64InstructionFlags{.is_call = true}, {}, {},
                             make_default_aarch64_call_clobber_mask()));
 }

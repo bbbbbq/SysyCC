@@ -1,6 +1,6 @@
-extern int ext;
+extern int ext[8];
 
-int *global_ptr = &ext;
+int *global_ptr = &ext[1];
 
 int load_ext_via_global_ptr(void) {
     return *global_ptr;

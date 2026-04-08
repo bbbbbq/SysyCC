@@ -11,16 +11,11 @@
 #include <variant>
 #include <vector>
 
-#include "backend/asm_gen/aarch64/model/aarch64_machine_ir.hpp"
 #include "backend/asm_gen/aarch64/model/aarch64_meta_model.hpp"
+#include "backend/asm_gen/aarch64/model/aarch64_machine_ir.hpp"
+#include "backend/asm_gen/aarch64/model/aarch64_symbol_reference_model.hpp"
 
 namespace sysycc {
-
-enum class AArch64SymbolKind : unsigned char {
-    Function,
-    Object,
-    Helper,
-};
 
 enum class AArch64RelocationKind : unsigned char {
     None,
@@ -34,9 +29,8 @@ enum class AArch64RelocationKind : unsigned char {
 
 struct AArch64RelocationRecord {
     AArch64RelocationKind kind = AArch64RelocationKind::None;
-    std::string symbol_name;
+    AArch64SymbolReference target;
     std::size_t offset = 0;
-    long long addend = 0;
 };
 
 class AArch64DataFragment {
@@ -182,7 +176,7 @@ class AArch64Symbol {
     AArch64SymbolKind kind_ = AArch64SymbolKind::Object;
     std::optional<AArch64SectionKind> section_kind_;
     bool is_defined_ = false;
-    bool is_global_ = false;
+    AArch64SymbolBinding binding_ = AArch64SymbolBinding::Unknown;
     bool is_referenced_ = false;
 
   public:
@@ -199,8 +193,19 @@ class AArch64Symbol {
     }
     bool get_is_defined() const noexcept { return is_defined_; }
     void set_is_defined(bool is_defined) noexcept { is_defined_ = is_defined; }
-    bool get_is_global() const noexcept { return is_global_; }
-    void set_is_global(bool is_global) noexcept { is_global_ = is_global; }
+    AArch64SymbolBinding get_binding() const noexcept { return binding_; }
+    void set_binding(AArch64SymbolBinding binding) noexcept {
+        if (binding != AArch64SymbolBinding::Unknown) {
+            binding_ = binding;
+        }
+    }
+    bool get_is_global() const noexcept {
+        return binding_ == AArch64SymbolBinding::Global;
+    }
+    void set_is_global(bool is_global) noexcept {
+        binding_ = is_global ? AArch64SymbolBinding::Global
+                             : AArch64SymbolBinding::Local;
+    }
     bool get_is_referenced() const noexcept { return is_referenced_; }
     void mark_referenced() noexcept { is_referenced_ = true; }
 };
@@ -296,7 +301,9 @@ class AArch64ObjectModule {
             it->second.set_is_defined(true);
         }
         if (is_global) {
-            it->second.set_is_global(true);
+            it->second.set_binding(AArch64SymbolBinding::Global);
+        } else if (is_defined) {
+            it->second.set_binding(AArch64SymbolBinding::Local);
         }
         if (is_referenced) {
             it->second.mark_referenced();

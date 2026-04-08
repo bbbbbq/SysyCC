@@ -122,18 +122,31 @@ std::string render_physical_register(unsigned reg_number, bool use_64bit) {
 }
 
 std::string render_symbol_reference_for_asm(
+    const AArch64SymbolReference &reference) {
+    std::string rendered = reference.get_name();
+    if (reference.addend > 0) {
+        rendered += " + " + std::to_string(reference.addend);
+    } else if (reference.addend < 0) {
+        rendered += " - " + std::to_string(-reference.addend);
+    }
+    return rendered;
+}
+
+std::string render_symbol_reference_for_asm(
     const AArch64MachineSymbolReference &reference) {
+    const std::string rendered_target =
+        render_symbol_reference_for_asm(reference.target);
     switch (reference.modifier) {
     case AArch64MachineSymbolReference::Modifier::None:
-        return reference.symbol_name;
+        return rendered_target;
     case AArch64MachineSymbolReference::Modifier::Lo12:
-        return ":lo12:" + reference.symbol_name;
+        return ":lo12:" + rendered_target;
     case AArch64MachineSymbolReference::Modifier::Got:
-        return ":got:" + reference.symbol_name;
+        return ":got:" + rendered_target;
     case AArch64MachineSymbolReference::Modifier::GotLo12:
-        return ":got_lo12:" + reference.symbol_name;
+        return ":got_lo12:" + rendered_target;
     }
-    return reference.symbol_name;
+    return rendered_target;
 }
 
 std::string stack_pointer_name(bool use_64bit) {
@@ -449,12 +462,7 @@ std::string render_data_fragment_for_asm(const AArch64DataFragment &fragment) {
         output << "  " << scalar_directive_name(fragment.get_scalar_size()) << " ";
         if (!relocations.empty()) {
             const AArch64RelocationRecord &relocation = relocations.front();
-            output << relocation.symbol_name;
-            if (relocation.addend > 0) {
-                output << " + " << relocation.addend;
-            } else if (relocation.addend < 0) {
-                output << " - " << (-relocation.addend);
-            }
+            output << render_symbol_reference_for_asm(relocation.target);
             return output.str();
         }
         output << format_scalar_bits(fragment.get_scalar_bits(),
