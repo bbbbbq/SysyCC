@@ -34,4 +34,4 @@ if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then
     exit 1
 fi
 
-echo "verified: spill-heavy compare lowering still reaches cmp/cset through shape-based rewrite"
+echo "verified: spill-heavy compare lowering still reaches cmp/cset through role-based spill rewrite"

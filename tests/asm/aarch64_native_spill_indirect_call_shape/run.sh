@@ -27,11 +27,11 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-test "$(grep -Ec '^[[:space:]]*cbnz w[0-9]+, \.Lbranch_heavy_if_then0$' "${ASM_FILE}")" -ge 1
-test "$(grep -Ec '^[[:space:]]*cset w[0-9]+, ne$' "${ASM_FILE}")" -ge 1
+grep -Eq '^[[:space:]]*blr x[0-9]+$' "${ASM_FILE}"
+test "$(grep -Ec '^[[:space:]]*ldr w[0-9]+, \[x[0-9]+, #0\]$' "${ASM_FILE}")" -ge 1
 if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then
     echo "unexpected virtual register token leaked into final asm" >&2
     exit 1
 fi
 
-echo "verified: spill-heavy branch lowering still reaches cbnz through role-based spill rewrite"
+echo "verified: spill-heavy indirect calls still reach blr through role-based spill rewrite"
