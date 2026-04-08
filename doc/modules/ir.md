@@ -717,20 +717,26 @@ LLVM IR lowering path:
   native `.s` file directly from optimized `CoreIrModule` without round-tripping
   through LLVM IR text
 - `-c --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now also
-  emits an ELF relocatable object from the native backend’s structured machine /
-  object module state, keeping the produced bytes in compiler state as an
-  `ObjectResult`; today that object path uses a hybrid flow where function text
-  still goes through the assembler while global data fragments are written
-  directly into a data-only ELF object and then merged
+  emits an ELF relocatable object from the native backend’s structured
+  asm/machine/object module state, keeping the produced bytes in compiler state
+  as an `ObjectResult`; that object path now writes `.text`, data sections,
+  relocations, `.eh_frame`, and `.debug_line` directly instead of round-tripping
+  function text through an external assembler/linker merge flow
 - `-g` on the native AArch64 path now emits basic debug line information:
   assembly output carries `.file` / `.loc`, and object output carries
-  assembler-generated DWARF line tables
+  directly-written DWARF line tables
 - the native AArch64 backend now lowers through backend-local machine blocks
   with virtual registers, CFG-aware liveness, interference-driven allocation,
   and spill-backed rewrite before final asm printing
 - the native AArch64 backend now carries structured section/symbol/data-fragment
   metadata internally, so the asm printer is no longer the only consumer of the
   codegen result
+- the native AArch64 backend now splits its output carriers into three distinct
+  lanes:
+  - `AArch64AsmModule` for asm-only metadata such as arch profile selection
+  - `AArch64MachineModule` for machine functions, blocks, instructions, and vregs
+  - `AArch64ObjectModule` for object/debug/data/symbol metadata
+  so asm-only state no longer leaks back into the object or machine carriers
 - the native AArch64 path now supports basic PIC-oriented external symbol
   address materialization for object emission, including GOT-based external data
   references and relocation-bearing external calls

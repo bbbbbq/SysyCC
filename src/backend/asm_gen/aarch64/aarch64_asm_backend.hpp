@@ -15,6 +15,7 @@ class AArch64AsmBackend {
   public:
     bool BuildModule(const CoreIrModule &module, const BackendOptions &backend_options,
                      DiagnosticEngine &diagnostic_engine,
+                     AArch64AsmModule &asm_module,
                      AArch64MachineModule &machine_module,
                      AArch64ObjectModule &object_module) const;
     std::unique_ptr<AsmResult>

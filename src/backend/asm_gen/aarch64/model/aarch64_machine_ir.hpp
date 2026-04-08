@@ -298,6 +298,7 @@ class AArch64MachineInstr {
     std::string mnemonic_;
     std::vector<AArch64MachineOperand> operands_;
     AArch64InstructionFlags flags_;
+    std::optional<AArch64DebugLocation> debug_location_;
     std::vector<std::size_t> explicit_defs_;
     std::vector<std::size_t> explicit_uses_;
     std::vector<std::size_t> implicit_defs_;
@@ -308,10 +309,18 @@ class AArch64MachineInstr {
     AArch64MachineInstr(std::string mnemonic,
                         std::vector<AArch64MachineOperand> operands,
                         AArch64InstructionFlags flags = {},
+                        std::optional<AArch64DebugLocation> debug_location =
+                            std::nullopt,
                         std::vector<std::size_t> implicit_defs = {},
                         std::vector<std::size_t> implicit_uses = {},
                         std::optional<AArch64CallClobberMask> call_clobber_mask =
                             std::nullopt);
+    AArch64MachineInstr(std::string mnemonic,
+                        std::vector<AArch64MachineOperand> operands,
+                        AArch64InstructionFlags flags,
+                        std::vector<std::size_t> implicit_defs,
+                        std::vector<std::size_t> implicit_uses,
+                        std::optional<AArch64CallClobberMask> call_clobber_mask);
 
     const std::string &get_mnemonic() const noexcept { return mnemonic_; }
     const std::vector<AArch64MachineOperand> &get_operands() const noexcept {
@@ -335,12 +344,19 @@ class AArch64MachineInstr {
     get_call_clobber_mask() const noexcept {
         return call_clobber_mask_;
     }
+    const std::optional<AArch64DebugLocation> &get_debug_location() const noexcept {
+        return debug_location_;
+    }
+    void set_debug_location(AArch64DebugLocation debug_location) {
+        debug_location_ = std::move(debug_location);
+    }
 };
 
 class AArch64MachineBlock {
   private:
     std::string label_;
     std::vector<AArch64MachineInstr> instructions_;
+    std::optional<AArch64DebugLocation> pending_debug_location_;
 
   public:
     explicit AArch64MachineBlock(std::string label) : label_(std::move(label)) {}
@@ -352,8 +368,19 @@ class AArch64MachineBlock {
     std::vector<AArch64MachineInstr> &get_instructions() noexcept {
         return instructions_;
     }
+    void set_pending_debug_location(AArch64DebugLocation debug_location) {
+        pending_debug_location_ = std::move(debug_location);
+    }
 
     void append_instruction(AArch64MachineInstr instruction) {
+        if (pending_debug_location_.has_value() &&
+            (instruction.get_mnemonic().empty() ||
+             instruction.get_mnemonic().front() != '.')) {
+            if (!instruction.get_debug_location().has_value()) {
+                instruction.set_debug_location(*pending_debug_location_);
+            }
+            pending_debug_location_.reset();
+        }
         instructions_.push_back(std::move(instruction));
     }
 };

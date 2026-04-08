@@ -29,8 +29,15 @@ enum class AArch64CfiDirectiveKind : unsigned char {
 
 struct AArch64CfiDirective {
     AArch64CfiDirectiveKind kind = AArch64CfiDirectiveKind::StartProcedure;
+    std::size_t code_offset = 0;
     unsigned reg = 0;
     long long offset = 0;
+};
+
+struct AArch64DebugLocation {
+    unsigned file_id = 0;
+    int line = 0;
+    int column = 0;
 };
 
 class AArch64FrameRecord {
@@ -47,6 +54,7 @@ class AArch64FrameRecord {
     void append_cfi_directive(AArch64CfiDirective directive) {
         cfi_directives_.push_back(std::move(directive));
     }
+    void clear_cfi_directives() noexcept { cfi_directives_.clear(); }
     const std::vector<AArch64CfiDirective> &get_cfi_directives() const noexcept {
         return cfi_directives_;
     }

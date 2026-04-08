@@ -243,7 +243,7 @@ void initialize_aarch64_function_frame_record(AArch64MachineFunction &function,
                                               std::size_t frame_size) {
     function.get_frame_record().set_stack_frame_size(frame_size);
     function.get_frame_record().append_cfi_directive(
-        AArch64CfiDirective{AArch64CfiDirectiveKind::StartProcedure});
+        AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::StartProcedure});
     // This frame record seeds shell-only CFI from the same shared shell semantics
     // that both lowering and frame-finalize consume. Final emitted unwind text is
     // still authoritative in frame-finalize once saved-register slots are known.
@@ -253,7 +253,7 @@ void initialize_aarch64_function_frame_record(AArch64MachineFunction &function,
                                                      op.kind, frame_size);
     }
     function.get_frame_record().append_cfi_directive(
-        AArch64CfiDirective{AArch64CfiDirectiveKind::EndProcedure});
+        AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::EndProcedure});
 }
 
 std::vector<AArch64StandardFrameShellOp>
@@ -331,14 +331,17 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
     switch (op_kind) {
     case AArch64StandardFrameShellOpKind::SaveFrameRecord:
         bundle.frame_record_directives.push_back(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::DefCfa,
-                                static_cast<unsigned>(AArch64PhysicalReg::X29), 16});
+            AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::DefCfa,
+                                .reg = static_cast<unsigned>(AArch64PhysicalReg::X29),
+                                .offset = 16});
         bundle.frame_record_directives.push_back(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::Offset,
-                                static_cast<unsigned>(AArch64PhysicalReg::X29), -16});
+            AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::Offset,
+                                .reg = static_cast<unsigned>(AArch64PhysicalReg::X29),
+                                .offset = -16});
         bundle.frame_record_directives.push_back(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::Offset,
-                                static_cast<unsigned>(AArch64PhysicalReg::X30), -8});
+            AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::Offset,
+                                .reg = static_cast<unsigned>(AArch64PhysicalReg::X30),
+                                .offset = -8});
         bundle.asm_instructions.push_back(
             cfi_instruction(".cfi_def_cfa_offset",
                             {AArch64MachineOperand::immediate("16")}));
@@ -353,17 +356,19 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
         break;
     case AArch64StandardFrameShellOpKind::EstablishFramePointer:
         bundle.frame_record_directives.push_back(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::DefCfaRegister,
-                                static_cast<unsigned>(AArch64PhysicalReg::X29), 0});
+            AArch64CfiDirective{
+                .kind = AArch64CfiDirectiveKind::DefCfaRegister,
+                .reg = static_cast<unsigned>(AArch64PhysicalReg::X29)});
         bundle.asm_instructions.push_back(
             cfi_instruction(".cfi_def_cfa_register",
                             {AArch64MachineOperand::immediate("29")}));
         break;
     case AArch64StandardFrameShellOpKind::AllocateLocalFrame:
         bundle.frame_record_directives.push_back(
-            AArch64CfiDirective{AArch64CfiDirectiveKind::DefCfaOffset,
-                                static_cast<unsigned>(AArch64PhysicalReg::X29),
-                                to_signed_offset(frame_size + 16)});
+            AArch64CfiDirective{
+                .kind = AArch64CfiDirectiveKind::DefCfaOffset,
+                .reg = static_cast<unsigned>(AArch64PhysicalReg::X29),
+                .offset = to_signed_offset(frame_size + 16)});
         bundle.asm_instructions.push_back(cfi_instruction(
             ".cfi_def_cfa_offset",
             {AArch64MachineOperand::immediate(std::to_string(frame_size + 16))}));

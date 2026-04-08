@@ -12,6 +12,17 @@ struct AArch64DataOnlyObjectWriterOptions {
     bool force_defined_symbols_global = false;
 };
 
+struct AArch64ElfObjectWriterOptions {
+    bool force_defined_symbols_global = false;
+};
+
+bool write_aarch64_elf_object(
+    const AArch64MachineModule &machine_module,
+    const AArch64ObjectModule &object_module,
+    const std::filesystem::path &object_file,
+    const AArch64ElfObjectWriterOptions &options,
+    DiagnosticEngine &diagnostic_engine);
+
 bool write_aarch64_data_only_object(
     const AArch64ObjectModule &object_module,
     const std::filesystem::path &object_file,

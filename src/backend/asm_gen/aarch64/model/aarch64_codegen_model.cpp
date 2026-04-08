@@ -237,16 +237,28 @@ AArch64MachineOperand::get_memory_address_operand() const noexcept {
 
 AArch64MachineInstr::AArch64MachineInstr(
     std::string mnemonic, std::vector<AArch64MachineOperand> operands,
-    AArch64InstructionFlags flags, std::vector<std::size_t> implicit_defs,
+    AArch64InstructionFlags flags, std::optional<AArch64DebugLocation> debug_location,
+    std::vector<std::size_t> implicit_defs,
     std::vector<std::size_t> implicit_uses,
     std::optional<AArch64CallClobberMask> call_clobber_mask)
     : mnemonic_(std::move(mnemonic)),
       operands_(std::move(operands)),
       flags_(flags),
+      debug_location_(std::move(debug_location)),
       explicit_defs_(collect_explicit_vreg_ids(operands_, true)),
       explicit_uses_(collect_explicit_vreg_ids(operands_, false)),
       implicit_defs_(std::move(implicit_defs)),
       implicit_uses_(std::move(implicit_uses)),
       call_clobber_mask_(std::move(call_clobber_mask)) {}
+
+AArch64MachineInstr::AArch64MachineInstr(
+    std::string mnemonic, std::vector<AArch64MachineOperand> operands,
+    AArch64InstructionFlags flags, std::vector<std::size_t> implicit_defs,
+    std::vector<std::size_t> implicit_uses,
+    std::optional<AArch64CallClobberMask> call_clobber_mask)
+    : AArch64MachineInstr(std::move(mnemonic), std::move(operands), flags,
+                          std::nullopt, std::move(implicit_defs),
+                          std::move(implicit_uses),
+                          std::move(call_clobber_mask)) {}
 
 } // namespace sysycc

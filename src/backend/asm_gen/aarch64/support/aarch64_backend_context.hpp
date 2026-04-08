@@ -12,6 +12,7 @@ struct AArch64CodegenContext {
     const CoreIrModule *module = nullptr;
     const BackendOptions *backend_options = nullptr;
     DiagnosticEngine *diagnostic_engine = nullptr;
+    AArch64AsmModule asm_module;
     AArch64MachineModule machine_module;
     AArch64ObjectModule object_module;
 };

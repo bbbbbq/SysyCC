@@ -128,6 +128,7 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
     DiagnosticEngine &diagnostic_engine_;
     AArch64CodegenContext &codegen_context_;
     AArch64AbiLoweringPass abi_lowering_pass_;
+    AArch64AsmModule *asm_module_ = nullptr;
     AArch64MachineModule *machine_module_ = nullptr;
     AArch64ObjectModule *object_module_ = nullptr;
     std::unordered_map<const CoreIrBasicBlock *, std::string> block_labels_;
@@ -153,10 +154,14 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
             return false;
         }
 
+        asm_module_ = &codegen_context_.asm_module;
         machine_module_ = &codegen_context_.machine_module;
         object_module_ = &codegen_context_.object_module;
-        object_module_->append_preamble_line(
-            module_uses_float16() ? ".arch armv8.2-a+fp16" : ".arch armv8-a");
+        if (asm_module_ != nullptr) {
+            asm_module_->set_arch_profile(
+                module_uses_float16() ? AArch64AsmArchProfile::Armv82AWithFp16
+                                      : AArch64AsmArchProfile::Armv8A);
+        }
 
         AArch64GlobalDataLoweringFacade global_data_context(*this);
         if (!sysycc::append_globals(*object_module_, module_,
@@ -399,12 +404,8 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
             state.debug_state.last_debug_column == column) {
             return;
         }
-        machine_block.append_instruction(
-            AArch64MachineInstr(
-                ".loc",
-                {AArch64MachineOperand::immediate(std::to_string(debug_file_id)),
-                 AArch64MachineOperand::immediate(std::to_string(line)),
-                 AArch64MachineOperand::immediate(std::to_string(column))}));
+        machine_block.set_pending_debug_location(
+            AArch64DebugLocation{debug_file_id, line, column});
         state.debug_state.last_debug_file_id = debug_file_id;
         state.debug_state.last_debug_line = line;
         state.debug_state.last_debug_column = column;

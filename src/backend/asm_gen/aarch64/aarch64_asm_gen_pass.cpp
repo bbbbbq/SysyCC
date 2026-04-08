@@ -100,17 +100,18 @@ PassResult AArch64AsmGenPass::Run(CompilerContext &context) {
     }
 
     AArch64AsmBackend backend;
+    AArch64AsmModule asm_module;
     AArch64MachineModule machine_module;
     AArch64ObjectModule object_module;
     if (!backend.BuildModule(*module, context.get_backend_options(),
-                             context.get_diagnostic_engine(), machine_module,
+                             context.get_diagnostic_engine(), asm_module, machine_module,
                              object_module)) {
         return PassResult::Failure("failed to generate AArch64 assembly");
     }
 
     AArch64BackendPipeline backend_pipeline;
     std::unique_ptr<AsmResult> asm_result =
-        backend_pipeline.emit_asm_result(machine_module, object_module);
+        backend_pipeline.emit_asm_result(asm_module, machine_module, object_module);
     if (asm_result == nullptr) {
         return PassResult::Failure("failed to generate AArch64 assembly");
     }

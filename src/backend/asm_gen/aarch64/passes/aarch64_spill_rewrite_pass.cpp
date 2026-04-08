@@ -426,7 +426,8 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
         0,
         AArch64VirtualRegKind::General32,
         AArch64MachineInstr(instruction.get_mnemonic(), std::move(rewritten_operands),
-                            instruction.get_flags(), instruction.get_implicit_defs(),
+                            instruction.get_flags(), instruction.get_debug_location(),
+                            instruction.get_implicit_defs(),
                             instruction.get_implicit_uses(),
                             instruction.get_call_clobber_mask())});
 

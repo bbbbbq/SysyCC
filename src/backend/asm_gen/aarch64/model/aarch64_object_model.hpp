@@ -21,10 +21,13 @@ enum class AArch64RelocationKind : unsigned char {
     None,
     Absolute32,
     Absolute64,
+    Prel32,
     Page21,
     PageOffset12,
     Branch26,
     Call26,
+    GotPage21,
+    GotLo12,
 };
 
 struct AArch64RelocationRecord {
@@ -247,19 +250,13 @@ class AArch64DataObject {
 
 class AArch64ObjectModule {
   private:
-    std::vector<std::string> preamble_lines_;
     std::vector<AArch64DebugFileEntry> debug_file_entries_;
     std::unordered_map<std::string, unsigned> debug_file_ids_;
     std::vector<AArch64DataObject> data_objects_;
     std::map<std::string, AArch64Symbol> symbols_;
 
   public:
-    const std::vector<std::string> &get_preamble_lines() const noexcept {
-        return preamble_lines_;
-    }
-    void append_preamble_line(std::string line) {
-        preamble_lines_.push_back(std::move(line));
-    }
+    // Object metadata stays here. Asm-only state must live in AArch64AsmModule.
     unsigned record_debug_file(std::string path) {
         const auto existing = debug_file_ids_.find(path);
         if (existing != debug_file_ids_.end()) {

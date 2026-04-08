@@ -46,9 +46,11 @@ class AArch64BackendPipeline {
     }
 
     std::unique_ptr<AsmResult>
-    emit_asm_result(const AArch64MachineModule &machine_module,
+    emit_asm_result(const AArch64AsmModule &asm_module,
+                    const AArch64MachineModule &machine_module,
                     const AArch64ObjectModule &object_module) const {
-        return emission_pass_.emit_asm_result(machine_module, object_module);
+        return emission_pass_.emit_asm_result(asm_module, machine_module,
+                                              object_module);
     }
 
     std::unique_ptr<ObjectResult>
