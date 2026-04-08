@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace sysycc {
@@ -22,6 +23,8 @@ namespace detail {
 
 const CoreIrIntegerType *as_integer_type(const CoreIrType *type);
 bool are_equivalent_types(const CoreIrType *lhs, const CoreIrType *rhs);
+void append_type_key(std::string &key, const CoreIrType *type);
+void append_value_key(std::string &key, const CoreIrValue *value);
 const CoreIrConstantInt *as_integer_constant(const CoreIrValue *value);
 bool is_zero_integer_constant(const CoreIrValue *value);
 bool is_one_integer_constant(const CoreIrValue *value);
@@ -37,6 +40,8 @@ bool can_flatten_structural_gep(const CoreIrGetElementPtrInst &gep);
 bool collect_structural_gep_chain(const CoreIrGetElementPtrInst &gep,
                                   CoreIrValue *&root_base,
                                   std::vector<CoreIrValue *> &indices);
+bool are_equivalent_pointer_values(const CoreIrValue *lhs,
+                                   const CoreIrValue *rhs);
 bool normalize_constant_stack_slot_path(CoreIrValue *value,
                                         CoreIrStackSlot *&stack_slot,
                                         std::vector<std::uint64_t> &path);

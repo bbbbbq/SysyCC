@@ -5,17 +5,22 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
+#include "backend/ir/shared/detail/core_ir_rewrite_utils.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
 
 namespace {
+
+using sysycc::detail::append_type_key;
+using sysycc::detail::append_value_key;
 
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
     const std::string message =
@@ -49,14 +54,14 @@ std::string build_local_cse_key(const CoreIrInstruction &instruction) {
     std::string key;
     key += std::to_string(static_cast<int>(instruction.get_opcode()));
     key.push_back(':');
-    append_pointer_key(key, instruction.get_type());
+    append_type_key(key, instruction.get_type());
 
     if (const auto *binary = dynamic_cast<const CoreIrBinaryInst *>(&instruction);
         binary != nullptr) {
         key += std::to_string(static_cast<int>(binary->get_binary_opcode()));
         key.push_back(':');
-        append_pointer_key(key, binary->get_lhs());
-        append_pointer_key(key, binary->get_rhs());
+        append_value_key(key, binary->get_lhs());
+        append_value_key(key, binary->get_rhs());
         return key;
     }
 
@@ -64,7 +69,7 @@ std::string build_local_cse_key(const CoreIrInstruction &instruction) {
         unary != nullptr) {
         key += std::to_string(static_cast<int>(unary->get_unary_opcode()));
         key.push_back(':');
-        append_pointer_key(key, unary->get_operand());
+        append_value_key(key, unary->get_operand());
         return key;
     }
 
@@ -72,8 +77,8 @@ std::string build_local_cse_key(const CoreIrInstruction &instruction) {
         compare != nullptr) {
         key += std::to_string(static_cast<int>(compare->get_predicate()));
         key.push_back(':');
-        append_pointer_key(key, compare->get_lhs());
-        append_pointer_key(key, compare->get_rhs());
+        append_value_key(key, compare->get_lhs());
+        append_value_key(key, compare->get_rhs());
         return key;
     }
 
@@ -81,17 +86,28 @@ std::string build_local_cse_key(const CoreIrInstruction &instruction) {
         cast != nullptr) {
         key += std::to_string(static_cast<int>(cast->get_cast_kind()));
         key.push_back(':');
-        append_pointer_key(key, cast->get_operand());
+        append_value_key(key, cast->get_operand());
         return key;
     }
 
     const auto *gep = dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction);
     if (gep != nullptr) {
-        append_pointer_key(key, gep->get_base());
+        CoreIrValue *root_base = nullptr;
+        std::vector<CoreIrValue *> indices;
+        if (detail::collect_structural_gep_chain(*gep, root_base, indices)) {
+            append_value_key(key, root_base);
+            key += std::to_string(indices.size());
+            key.push_back(':');
+            for (CoreIrValue *index : indices) {
+                append_value_key(key, index);
+            }
+            return key;
+        }
+        append_value_key(key, detail::unwrap_trivial_zero_index_geps(gep->get_base()));
         key += std::to_string(gep->get_index_count());
         key.push_back(':');
         for (std::size_t index = 0; index < gep->get_index_count(); ++index) {
-            append_pointer_key(key, gep->get_index(index));
+            append_value_key(key, gep->get_index(index));
         }
     }
     return key;
