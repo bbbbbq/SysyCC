@@ -122,6 +122,28 @@ bool redirect_successor_edge(CoreIrBasicBlock &block, CoreIrBasicBlock *from,
     return changed;
 }
 
+std::string make_unique_block_name(const CoreIrFunction &function,
+                                   const std::string &base_name) {
+    auto is_used = [&function](const std::string &name) {
+        for (const auto &block_ptr : function.get_basic_blocks()) {
+            if (block_ptr != nullptr && block_ptr->get_name() == name) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (!is_used(base_name)) {
+        return base_name;
+    }
+    for (std::size_t suffix = 1;; ++suffix) {
+        std::string candidate = base_name + "." + std::to_string(suffix);
+        if (!is_used(candidate)) {
+            return candidate;
+        }
+    }
+}
+
 CoreIrBasicBlock *get_loop_outside_predecessor(const CoreIrLoopInfo &loop,
                                                const CoreIrCfgAnalysisResult &cfg) {
     CoreIrBasicBlock *header = loop.get_header();
@@ -771,9 +793,12 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
         return false;
     }
 
-    auto guard_block = std::make_unique<CoreIrBasicBlock>("vector.guard");
-    auto vector_header = std::make_unique<CoreIrBasicBlock>("vector.header");
-    auto vector_body = std::make_unique<CoreIrBasicBlock>("vector.body");
+    auto guard_block = std::make_unique<CoreIrBasicBlock>(
+        make_unique_block_name(function, "vector.guard"));
+    auto vector_header = std::make_unique<CoreIrBasicBlock>(
+        make_unique_block_name(function, "vector.header"));
+    auto vector_body = std::make_unique<CoreIrBasicBlock>(
+        make_unique_block_name(function, "vector.body"));
     CoreIrBasicBlock *guard_block_ptr =
         insert_new_block_before(function, pattern.header, std::move(guard_block));
     CoreIrBasicBlock *vector_header_ptr =
@@ -908,8 +933,41 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
         CoreIrComparePredicate::SignedLess, i1_type, "vec.cmp", vec_iv, n_value);
     vector_header_ptr->create_instruction<CoreIrCondJumpInst>(void_type, vec_cmp,
                                                               vector_body_ptr,
-                                                              pattern.exit_block);
+                                                              pattern.header);
     vec_iv->add_incoming(guard_block_ptr, zero32);
+
+    CoreIrValue *hoisted_scalar_value = nullptr;
+    if (pattern.scalar_load != nullptr) {
+        CoreIrInstruction *guard_terminator =
+            guard_block_ptr->get_instructions().empty()
+                ? nullptr
+                : guard_block_ptr->get_instructions().back().get();
+        auto scalar_load = std::make_unique<CoreIrLoadInst>(
+            pattern.scalar_load->get_type(), "vec.scalar",
+            pattern.scalar_load->get_address());
+        hoisted_scalar_value =
+            insert_instruction_before(*guard_block_ptr, guard_terminator,
+                                      std::move(scalar_load));
+    }
+
+    for (const auto &instruction_ptr : pattern.header->get_instructions()) {
+        auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction_ptr.get());
+        if (phi == nullptr) {
+            break;
+        }
+        CoreIrValue *incoming_value = nullptr;
+        for (std::size_t index = 0; index < phi->get_incoming_count(); ++index) {
+            if (phi->get_incoming_block(index) == guard_block_ptr) {
+                incoming_value =
+                    phi == pattern.iv ? static_cast<CoreIrValue *>(vec_iv)
+                                      : phi->get_incoming_value(index);
+                break;
+            }
+        }
+        if (incoming_value != nullptr) {
+            phi->add_incoming(vector_header_ptr, incoming_value);
+        }
+    }
 
     CoreIrValue *acc_vec = materialize_vector_load(*vector_body_ptr, nullptr, context,
                                                    pattern.store_access, *vec_iv,
@@ -917,10 +975,10 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
     CoreIrValue *lane_vec = materialize_vector_load(*vector_body_ptr, nullptr, context,
                                                     pattern.lane_access, *vec_iv,
                                                     vec_type, "vec.lane");
-    CoreIrValue *scalar_vec = pattern.scalar_load != nullptr
+    CoreIrValue *scalar_vec = hoisted_scalar_value != nullptr
                                   ? materialize_broadcast_value(*vector_body_ptr, nullptr,
                                                                 context, vec_type,
-                                                                pattern.scalar_load,
+                                                                hoisted_scalar_value,
                                                                 "vec.broadcast")
                                   : static_cast<CoreIrValue *>(
                                         make_splat_vector_constant(context, vec_type,
@@ -947,20 +1005,32 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
 bool vectorize_runtime_store_loop_in_function(CoreIrFunction &function,
                                               const CoreIrCfgAnalysisResult &cfg,
                                               CoreIrContext &context) {
-    for (const auto &block_ptr : function.get_basic_blocks()) {
-        CoreIrBasicBlock *header = block_ptr.get();
-        if (header == nullptr) {
-            continue;
+    (void)cfg;
+    CoreIrCfgAnalysis cfg_analysis;
+    bool changed = false;
+    while (true) {
+        CoreIrCfgAnalysisResult fresh_cfg = cfg_analysis.Run(function);
+        bool transformed_this_round = false;
+        for (const auto &block_ptr : function.get_basic_blocks()) {
+            CoreIrBasicBlock *header = block_ptr.get();
+            if (header == nullptr) {
+                continue;
+            }
+            StoreLoopPattern pattern;
+            if (!match_runtime_store_loop_pattern(fresh_cfg, *header, pattern)) {
+                continue;
+            }
+            if (vectorize_runtime_mm_store_loop(function, fresh_cfg, pattern, context)) {
+                transformed_this_round = true;
+                changed = true;
+                break;
+            }
         }
-        StoreLoopPattern pattern;
-        if (!match_runtime_store_loop_pattern(cfg, *header, pattern)) {
-            continue;
-        }
-        if (vectorize_runtime_mm_store_loop(function, cfg, pattern, context)) {
-            return true;
+        if (!transformed_this_round) {
+            break;
         }
     }
-    return false;
+    return changed;
 }
 
 bool vectorize_store_loop(CoreIrFunction &function, StoreLoopPattern &pattern,

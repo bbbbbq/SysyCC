@@ -1,7 +1,7 @@
 #include "backend/ir/lower/lowering/llvm/core_ir_llvm_target_backend.hpp"
 
-#include <cmath>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <iomanip>
 #include <limits>
@@ -48,7 +48,8 @@ std::string get_default_target_datalayout() {
 #elif defined(__aarch64__)
     return "e-m:e-i64:64-i128:128-n32:64-S128";
 #elif defined(__x86_64__)
-    return "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128";
+    return "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:"
+           "16:32:64-S128";
 #else
     return "";
 #endif
@@ -82,7 +83,8 @@ std::uint64_t get_integer_mask(std::size_t bit_width) {
     return (std::uint64_t{1} << bit_width) - 1;
 }
 
-std::uint64_t truncate_to_bit_width(std::uint64_t value, std::size_t bit_width) {
+std::uint64_t truncate_to_bit_width(std::uint64_t value,
+                                    std::size_t bit_width) {
     return value & get_integer_mask(bit_width);
 }
 
@@ -129,8 +131,8 @@ try_format_folded_integer_cast_literal(const CoreIrCastInst &cast_instruction) {
     switch (cast_instruction.get_cast_kind()) {
     case CoreIrCastKind::SignExtend:
         return format_signed_integer_literal(
-            truncate_to_bit_width(static_cast<std::uint64_t>(
-                                      sign_extend_to_i64(source_bits, source_width)),
+            truncate_to_bit_width(static_cast<std::uint64_t>(sign_extend_to_i64(
+                                      source_bits, source_width)),
                                   target_width),
             target_width);
     case CoreIrCastKind::ZeroExtend:
@@ -335,7 +337,8 @@ std::string normalize_float_literal_text(const std::string &value_text,
 
 } // namespace
 
-std::string CoreIrLlvmTargetBackend::next_helper_name(const std::string &prefix) {
+std::string
+CoreIrLlvmTargetBackend::next_helper_name(const std::string &prefix) {
     if (prefix == "t") {
         return next_value_name();
     }
@@ -360,8 +363,7 @@ CoreIrLlvmTargetBackend::get_emitted_value_name(const CoreIrValue *value) {
     return name;
 }
 
-std::string
-CoreIrLlvmTargetBackend::get_emitted_stack_slot_name(
+std::string CoreIrLlvmTargetBackend::get_emitted_stack_slot_name(
     const CoreIrStackSlot *stack_slot) {
     if (stack_slot == nullptr) {
         return "<null-stack-slot>";
@@ -388,8 +390,8 @@ std::string CoreIrLlvmTargetBackend::format_type(const CoreIrType *type) const {
     case CoreIrTypeKind::Void:
         return "void";
     case CoreIrTypeKind::Integer:
-        return "i" + std::to_string(
-                          static_cast<const CoreIrIntegerType *>(type)->get_bit_width());
+        return "i" + std::to_string(static_cast<const CoreIrIntegerType *>(type)
+                                        ->get_bit_width());
     case CoreIrTypeKind::Float: {
         switch (static_cast<const CoreIrFloatType *>(type)->get_float_kind()) {
         case CoreIrFloatKind::Float16:
@@ -402,6 +404,11 @@ std::string CoreIrLlvmTargetBackend::format_type(const CoreIrType *type) const {
             return "fp128";
         }
         return "float";
+    }
+    case CoreIrTypeKind::Vector: {
+        const auto *vector_type = static_cast<const CoreIrVectorType *>(type);
+        return "<" + std::to_string(vector_type->get_element_count()) + " x " +
+               format_type(vector_type->get_element_type()) + ">";
     }
     case CoreIrTypeKind::Pointer:
         return "ptr";
@@ -424,7 +431,8 @@ std::string CoreIrLlvmTargetBackend::format_type(const CoreIrType *type) const {
         return text;
     }
     case CoreIrTypeKind::Function: {
-        const auto *function_type = static_cast<const CoreIrFunctionType *>(type);
+        const auto *function_type =
+            static_cast<const CoreIrFunctionType *>(type);
         std::string text = format_type(function_type->get_return_type()) + " (";
         const auto &parameter_types = function_type->get_parameter_types();
         for (std::size_t index = 0; index < parameter_types.size(); ++index) {
@@ -464,19 +472,21 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
         if (float_type == nullptr) {
             return "0.0";
         }
-        return normalize_float_literal_text(
-            float_constant->get_literal_text(), float_type->get_float_kind());
+        return normalize_float_literal_text(float_constant->get_literal_text(),
+                                            float_type->get_float_kind());
     }
     if (dynamic_cast<const CoreIrConstantNull *>(constant) != nullptr) {
         return "null";
     }
-    if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) != nullptr) {
+    if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) !=
+        nullptr) {
         return "zeroinitializer";
     }
     if (const auto *byte_string =
             dynamic_cast<const CoreIrConstantByteString *>(constant);
         byte_string != nullptr) {
-        return "c\"" + encode_llvm_string_bytes(byte_string->get_bytes()) + "\"";
+        return "c\"" + encode_llvm_string_bytes(byte_string->get_bytes()) +
+               "\"";
     }
     if (const auto *aggregate =
             dynamic_cast<const CoreIrConstantAggregate *>(constant);
@@ -484,7 +494,10 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
         const bool is_array =
             constant->get_type() != nullptr &&
             constant->get_type()->get_kind() == CoreIrTypeKind::Array;
-        std::string text = is_array ? "[ " : "{ ";
+        const bool is_vector =
+            constant->get_type() != nullptr &&
+            constant->get_type()->get_kind() == CoreIrTypeKind::Vector;
+        std::string text = is_array ? "[ " : is_vector ? "< " : "{ ";
         const auto &elements = aggregate->get_elements();
         for (std::size_t index = 0; index < elements.size(); ++index) {
             if (index > 0) {
@@ -494,7 +507,7 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
             text += " ";
             text += format_constant(elements[index]);
         }
-        text += is_array ? " ]" : " }";
+        text += is_array ? " ]" : is_vector ? " >" : " }";
         return text;
     }
     if (const auto *global_address =
@@ -511,8 +524,8 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
     if (const auto *gep_constant =
             dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
         gep_constant != nullptr) {
-        const auto *base_pointer_type =
-            dynamic_cast<const CoreIrPointerType *>(gep_constant->get_base()->get_type());
+        const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
+            gep_constant->get_base()->get_type());
         if (base_pointer_type == nullptr) {
             return "<constant-gep>";
         }
@@ -532,7 +545,8 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
     return "<constant>";
 }
 
-std::string CoreIrLlvmTargetBackend::format_value_ref(const CoreIrValue *value) {
+std::string
+CoreIrLlvmTargetBackend::format_value_ref(const CoreIrValue *value) {
     if (value == nullptr) {
         return "<null>";
     }
@@ -553,17 +567,30 @@ std::string CoreIrLlvmTargetBackend::format_value_ref(const CoreIrValue *value) 
     if (const auto *address_of_stack_slot =
             dynamic_cast<const CoreIrAddressOfStackSlotInst *>(value);
         address_of_stack_slot != nullptr) {
-        return "%" + get_emitted_stack_slot_name(address_of_stack_slot->get_stack_slot());
+        return "%" + get_emitted_stack_slot_name(
+                         address_of_stack_slot->get_stack_slot());
     }
     if (dynamic_cast<const CoreIrInstruction *>(value) != nullptr) {
         if (const auto *compare_instruction =
                 dynamic_cast<const CoreIrCompareInst *>(value);
             compare_instruction != nullptr &&
             compare_instruction->get_type() != nullptr &&
-            compare_instruction->get_type()->get_kind() ==
-                CoreIrTypeKind::Integer &&
-            static_cast<const CoreIrIntegerType *>(compare_instruction->get_type())
-                    ->get_bit_width() == 1) {
+            ((compare_instruction->get_type()->get_kind() ==
+                  CoreIrTypeKind::Integer &&
+              static_cast<const CoreIrIntegerType *>(
+                  compare_instruction->get_type())
+                      ->get_bit_width() == 1) ||
+             (compare_instruction->get_type()->get_kind() ==
+                  CoreIrTypeKind::Vector &&
+              static_cast<const CoreIrVectorType *>(
+                  compare_instruction->get_type())
+                      ->get_element_type()
+                      ->get_kind() == CoreIrTypeKind::Integer &&
+              static_cast<const CoreIrIntegerType *>(
+                  static_cast<const CoreIrVectorType *>(
+                      compare_instruction->get_type())
+                      ->get_element_type())
+                      ->get_bit_width() == 1))) {
             return "%" + get_emitted_value_name(value) + ".raw";
         }
         return "%" + get_emitted_value_name(value);
@@ -571,7 +598,8 @@ std::string CoreIrLlvmTargetBackend::format_value_ref(const CoreIrValue *value) 
     return "%" + value->get_name();
 }
 
-std::string CoreIrLlvmTargetBackend::format_pointer_ref(const CoreIrValue *value) {
+std::string
+CoreIrLlvmTargetBackend::format_pointer_ref(const CoreIrValue *value) {
     return format_value_ref(value);
 }
 
@@ -585,11 +613,12 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         text += "  %" + get_emitted_value_name(&phi_instruction) + " = phi ";
         text += format_type(phi_instruction.get_type());
         bool first_incoming = true;
-        for (std::size_t index = 0; index < phi_instruction.get_incoming_count();
-             ++index) {
+        for (std::size_t index = 0;
+             index < phi_instruction.get_incoming_count(); ++index) {
             CoreIrBasicBlock *incoming_block =
                 phi_instruction.get_incoming_block(index);
-            CoreIrValue *incoming_value = phi_instruction.get_incoming_value(index);
+            CoreIrValue *incoming_value =
+                phi_instruction.get_incoming_value(index);
             if (incoming_block == nullptr || incoming_value == nullptr) {
                 continue;
             }
@@ -615,8 +644,8 @@ bool CoreIrLlvmTargetBackend::append_instruction(
     case CoreIrOpcode::GetElementPtr: {
         const auto &gep_instruction =
             static_cast<const CoreIrGetElementPtrInst &>(instruction);
-        const auto *base_pointer_type =
-            dynamic_cast<const CoreIrPointerType *>(gep_instruction.get_base()->get_type());
+        const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
+            gep_instruction.get_base()->get_type());
         if (base_pointer_type == nullptr) {
             diagnostic_engine.add_error(
                 DiagnosticStage::Compiler,
@@ -647,7 +676,8 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         text += format_type(load_instruction.get_type());
         text += ", ptr ";
         if (load_instruction.get_stack_slot() != nullptr) {
-            text += "%" + get_emitted_stack_slot_name(load_instruction.get_stack_slot());
+            text += "%" + get_emitted_stack_slot_name(
+                              load_instruction.get_stack_slot());
         } else {
             text += format_pointer_ref(load_instruction.get_address());
         }
@@ -663,7 +693,8 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         text += format_value_ref(store_instruction.get_value());
         text += ", ptr ";
         if (store_instruction.get_stack_slot() != nullptr) {
-            text += "%" + get_emitted_stack_slot_name(store_instruction.get_stack_slot());
+            text += "%" + get_emitted_stack_slot_name(
+                              store_instruction.get_stack_slot());
         } else {
             text += format_pointer_ref(store_instruction.get_address());
         }
@@ -674,11 +705,13 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         const auto &binary_instruction =
             static_cast<const CoreIrBinaryInst &>(instruction);
         text += "  %" + get_emitted_value_name(&binary_instruction) + " = ";
-        text += binary_instruction.get_type() != nullptr &&
-                        binary_instruction.get_type()->get_kind() ==
-                            CoreIrTypeKind::Float
-                    ? format_float_binary_opcode(binary_instruction.get_binary_opcode())
-                    : format_binary_opcode(binary_instruction.get_binary_opcode());
+        text +=
+            binary_instruction.get_type() != nullptr &&
+                    binary_instruction.get_type()->get_kind() ==
+                        CoreIrTypeKind::Float
+                ? format_float_binary_opcode(
+                      binary_instruction.get_binary_opcode())
+                : format_binary_opcode(binary_instruction.get_binary_opcode());
         text += " ";
         text += format_type(binary_instruction.get_type());
         text += " ";
@@ -709,7 +742,8 @@ bool CoreIrLlvmTargetBackend::append_instruction(
             text += "\n";
             return true;
         case CoreIrUnaryOpcode::BitwiseNot:
-            text += "  %" + get_emitted_value_name(&unary_instruction) + " = xor ";
+            text +=
+                "  %" + get_emitted_value_name(&unary_instruction) + " = xor ";
             text += format_type(unary_instruction.get_type());
             text += " ";
             text += format_value_ref(unary_instruction.get_operand());
@@ -720,24 +754,28 @@ bool CoreIrLlvmTargetBackend::append_instruction(
                 "%" + get_emitted_value_name(&unary_instruction) + ".raw";
             if (is_float_type(unary_instruction.get_operand()->get_type())) {
                 text += "  " + raw_name + " = fcmp oeq ";
-                text += format_type(unary_instruction.get_operand()->get_type());
+                text +=
+                    format_type(unary_instruction.get_operand()->get_type());
                 text += " ";
                 text += format_value_ref(unary_instruction.get_operand());
                 text += ", 0.0\n";
             } else if (unary_instruction.get_operand()->get_type() != nullptr &&
-                       unary_instruction.get_operand()->get_type()->get_kind() ==
-                           CoreIrTypeKind::Pointer) {
+                       unary_instruction.get_operand()
+                               ->get_type()
+                               ->get_kind() == CoreIrTypeKind::Pointer) {
                 text += "  " + raw_name + " = icmp eq ptr ";
                 text += format_value_ref(unary_instruction.get_operand());
                 text += ", null\n";
             } else {
                 text += "  " + raw_name + " = icmp eq ";
-                text += format_type(unary_instruction.get_operand()->get_type());
+                text +=
+                    format_type(unary_instruction.get_operand()->get_type());
                 text += " ";
                 text += format_value_ref(unary_instruction.get_operand());
                 text += ", 0\n";
             }
-            text += "  %" + get_emitted_value_name(&unary_instruction) + " = zext i1 ";
+            text += "  %" + get_emitted_value_name(&unary_instruction) +
+                    " = zext i1 ";
             text += raw_name;
             text += " to ";
             text += format_type(unary_instruction.get_type());
@@ -752,17 +790,23 @@ bool CoreIrLlvmTargetBackend::append_instruction(
             static_cast<const CoreIrCompareInst &>(instruction);
         const std::string raw_name =
             "%" + get_emitted_value_name(&compare_instruction) + ".raw";
+        const CoreIrType *lhs_type = compare_instruction.get_lhs() == nullptr
+                                         ? nullptr
+                                         : compare_instruction.get_lhs()->get_type();
         const bool is_float_compare =
-            compare_instruction.get_lhs() != nullptr &&
-            compare_instruction.get_lhs()->get_type() != nullptr &&
-            compare_instruction.get_lhs()->get_type()->get_kind() ==
-                CoreIrTypeKind::Float;
+            lhs_type != nullptr &&
+            (lhs_type->get_kind() == CoreIrTypeKind::Float ||
+             (lhs_type->get_kind() == CoreIrTypeKind::Vector &&
+              static_cast<const CoreIrVectorType *>(lhs_type)
+                      ->get_element_type()
+                      ->get_kind() == CoreIrTypeKind::Float));
         text += "  " + raw_name + " = ";
         text += is_float_compare ? "fcmp " : "icmp ";
-        text += is_float_compare
-                    ? format_float_compare_predicate(
-                          compare_instruction.get_predicate())
-                    : format_compare_predicate(compare_instruction.get_predicate());
+        text +=
+            is_float_compare
+                ? format_float_compare_predicate(
+                      compare_instruction.get_predicate())
+                : format_compare_predicate(compare_instruction.get_predicate());
         text += " ";
         text += format_type(compare_instruction.get_lhs()->get_type());
         text += " ";
@@ -770,17 +814,132 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         text += ", ";
         text += format_value_ref(compare_instruction.get_rhs());
         text += "\n";
-        if (compare_instruction.get_type()->get_kind() ==
-                CoreIrTypeKind::Integer &&
-            static_cast<const CoreIrIntegerType *>(compare_instruction.get_type())
-                    ->get_bit_width() == 1) {
+        if ((compare_instruction.get_type()->get_kind() ==
+                 CoreIrTypeKind::Integer &&
+             static_cast<const CoreIrIntegerType *>(
+                 compare_instruction.get_type())
+                     ->get_bit_width() == 1) ||
+            (compare_instruction.get_type()->get_kind() ==
+                 CoreIrTypeKind::Vector &&
+             static_cast<const CoreIrVectorType *>(
+                 compare_instruction.get_type())
+                     ->get_element_type()
+                     ->get_kind() == CoreIrTypeKind::Integer &&
+             static_cast<const CoreIrIntegerType *>(
+                 static_cast<const CoreIrVectorType *>(
+                     compare_instruction.get_type())
+                     ->get_element_type())
+                     ->get_bit_width() == 1)) {
             return true;
         }
-        text += "  %" + get_emitted_value_name(&compare_instruction) + " = zext i1 ";
+        text += "  %" + get_emitted_value_name(&compare_instruction) +
+                " = zext i1 ";
         text += raw_name;
         text += " to ";
         text += format_type(compare_instruction.get_type());
         text += "\n";
+        return true;
+    }
+    case CoreIrOpcode::Select: {
+        const auto &select_instruction =
+            static_cast<const CoreIrSelectInst &>(instruction);
+        text +=
+            "  %" + get_emitted_value_name(&select_instruction) + " = select ";
+        text += format_type(select_instruction.get_condition()->get_type());
+        text += " ";
+        text += format_value_ref(select_instruction.get_condition());
+        text += ", ";
+        text += format_type(select_instruction.get_type());
+        text += " ";
+        text += format_value_ref(select_instruction.get_true_value());
+        text += ", ";
+        text += format_type(select_instruction.get_type());
+        text += " ";
+        text += format_value_ref(select_instruction.get_false_value());
+        text += "\n";
+        return true;
+    }
+    case CoreIrOpcode::ExtractElement: {
+        const auto &extract_instruction =
+            static_cast<const CoreIrExtractElementInst &>(instruction);
+        text += "  %" + get_emitted_value_name(&extract_instruction) +
+                " = extractelement ";
+        text += format_type(extract_instruction.get_vector_value()->get_type());
+        text += " ";
+        text += format_value_ref(extract_instruction.get_vector_value());
+        text += ", ";
+        text += format_type(extract_instruction.get_index()->get_type());
+        text += " ";
+        text += format_value_ref(extract_instruction.get_index());
+        text += "\n";
+        return true;
+    }
+    case CoreIrOpcode::InsertElement: {
+        const auto &insert_instruction =
+            static_cast<const CoreIrInsertElementInst &>(instruction);
+        text += "  %" + get_emitted_value_name(&insert_instruction) +
+                " = insertelement ";
+        text += format_type(insert_instruction.get_vector_value()->get_type());
+        text += " ";
+        text += format_value_ref(insert_instruction.get_vector_value());
+        text += ", ";
+        text += format_type(insert_instruction.get_element_value()->get_type());
+        text += " ";
+        text += format_value_ref(insert_instruction.get_element_value());
+        text += ", ";
+        text += format_type(insert_instruction.get_index()->get_type());
+        text += " ";
+        text += format_value_ref(insert_instruction.get_index());
+        text += "\n";
+        return true;
+    }
+    case CoreIrOpcode::ShuffleVector: {
+        const auto &shuffle_instruction =
+            static_cast<const CoreIrShuffleVectorInst &>(instruction);
+        text += "  %" + get_emitted_value_name(&shuffle_instruction) +
+                " = shufflevector ";
+        text += format_type(shuffle_instruction.get_lhs()->get_type());
+        text += " ";
+        text += format_value_ref(shuffle_instruction.get_lhs());
+        text += ", ";
+        text += format_type(shuffle_instruction.get_rhs()->get_type());
+        text += " ";
+        text += format_value_ref(shuffle_instruction.get_rhs());
+        text += ", ";
+        text += "<" + std::to_string(shuffle_instruction.get_mask_count()) + " x i32> <";
+        for (std::size_t index = 0; index < shuffle_instruction.get_mask_count();
+             ++index) {
+            if (index > 0) {
+                text += ", ";
+            }
+            text += "i32 ";
+            text += format_value_ref(shuffle_instruction.get_mask_value(index));
+        }
+        text += ">\n";
+        return true;
+    }
+    case CoreIrOpcode::VectorReduceAdd: {
+        const auto &reduce_instruction =
+            static_cast<const CoreIrVectorReduceAddInst &>(instruction);
+        const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(
+            reduce_instruction.get_vector_value()->get_type());
+        if (vector_type == nullptr) {
+            diagnostic_engine.add_error(
+                DiagnosticStage::Compiler,
+                "vector_reduce_add expected a vector operand",
+                instruction.get_source_span());
+            return false;
+        }
+        text += "  %" + get_emitted_value_name(&reduce_instruction) + " = call ";
+        text += format_type(reduce_instruction.get_type());
+        text += " @llvm.vector.reduce.add.v";
+        text += std::to_string(vector_type->get_element_count());
+        text += format_type(vector_type->get_element_type());
+        text += "(";
+        text += format_type(reduce_instruction.get_vector_value()->get_type());
+        text += " ";
+        text += format_value_ref(reduce_instruction.get_vector_value());
+        text += ")\n";
         return true;
     }
     case CoreIrOpcode::Cast: {
@@ -808,7 +967,8 @@ bool CoreIrLlvmTargetBackend::append_instruction(
             (cast_instruction.get_cast_kind() == CoreIrCastKind::SignExtend ||
              cast_instruction.get_cast_kind() == CoreIrCastKind::ZeroExtend ||
              cast_instruction.get_cast_kind() == CoreIrCastKind::Truncate)) {
-            text += "  %" + get_emitted_value_name(&cast_instruction) + " = or ";
+            text +=
+                "  %" + get_emitted_value_name(&cast_instruction) + " = or ";
             text += format_type(target_type);
             text += " ";
             text += format_value_ref(cast_instruction.get_operand());
@@ -857,7 +1017,8 @@ bool CoreIrLlvmTargetBackend::append_instruction(
             folded_literal.has_value()) {
             // Materialize folded narrow-int cast literals through a trivial
             // instruction so LLVM sees the signed spelling we intend.
-            text += "  %" + get_emitted_value_name(&cast_instruction) + " = add ";
+            text +=
+                "  %" + get_emitted_value_name(&cast_instruction) + " = add ";
             text += format_type(target_type);
             text += " 0, ";
             text += *folded_literal;
@@ -927,8 +1088,7 @@ bool CoreIrLlvmTargetBackend::append_instruction(
             static_cast<const CoreIrCondJumpInst &>(instruction);
         CoreIrValue *condition = cond_jump_instruction.get_condition();
         std::string condition_ref;
-        if (condition != nullptr &&
-            condition->get_type() != nullptr &&
+        if (condition != nullptr && condition->get_type() != nullptr &&
             condition->get_type()->get_kind() == CoreIrTypeKind::Integer &&
             static_cast<const CoreIrIntegerType *>(condition->get_type())
                     ->get_bit_width() == 1) {
@@ -987,9 +1147,9 @@ bool CoreIrLlvmTargetBackend::append_instruction(
     return false;
 }
 
-bool CoreIrLlvmTargetBackend::append_function(std::string &text,
-                                              const CoreIrFunction &function,
-                                              DiagnosticEngine &diagnostic_engine) {
+bool CoreIrLlvmTargetBackend::append_function(
+    std::string &text, const CoreIrFunction &function,
+    DiagnosticEngine &diagnostic_engine) {
     if (function.get_basic_blocks().empty()) {
         text += "declare ";
         if (function.get_is_internal_linkage()) {
@@ -1001,11 +1161,15 @@ bool CoreIrLlvmTargetBackend::append_function(std::string &text,
         text += "(";
         const auto &parameter_types =
             function.get_function_type()->get_parameter_types();
+        const auto &parameter_nocapture = function.get_parameter_nocapture();
         for (std::size_t index = 0; index < parameter_types.size(); ++index) {
             if (index > 0) {
                 text += ", ";
             }
             text += format_type(parameter_types[index]);
+            if (index < parameter_nocapture.size() && parameter_nocapture[index]) {
+                text += " nocapture";
+            }
         }
         if (function.get_is_variadic()) {
             if (!parameter_types.empty()) {
@@ -1026,11 +1190,18 @@ bool CoreIrLlvmTargetBackend::append_function(std::string &text,
     text += function.get_name();
     text += "(";
     const auto &parameters = function.get_parameters();
+    const auto &parameter_nocapture = function.get_parameter_nocapture();
     for (std::size_t index = 0; index < parameters.size(); ++index) {
         if (index > 0) {
             text += ", ";
         }
         text += format_type(parameters[index]->get_type());
+        if (index < parameter_nocapture.size() && parameter_nocapture[index]) {
+            text += " nocapture";
+        }
+        if (index < 2 && function.get_is_readonly()) {
+            text += " readonly";
+        }
         text += " %";
         text += parameters[index]->get_name();
     }
@@ -1044,6 +1215,13 @@ bool CoreIrLlvmTargetBackend::append_function(std::string &text,
     if (function.get_is_always_inline()) {
         text += " alwaysinline";
     }
+    if (function.get_is_readnone()) {
+        text += " readnone";
+    } else if (function.get_is_readonly()) {
+        text += " readonly";
+    } else if (function.get_is_writeonly()) {
+        text += " writeonly";
+    }
     text += " {\n";
     emitted_value_names_.clear();
     emitted_stack_slot_names_.clear();
@@ -1051,9 +1229,9 @@ bool CoreIrLlvmTargetBackend::append_function(std::string &text,
     next_value_id_ = 0;
     helper_id_ = 0;
 
-    const auto *entry_block =
-        function.get_basic_blocks().empty() ? nullptr
-                                            : function.get_basic_blocks().front().get();
+    const auto *entry_block = function.get_basic_blocks().empty()
+                                  ? nullptr
+                                  : function.get_basic_blocks().front().get();
     for (const auto &basic_block : function.get_basic_blocks()) {
         text += basic_block->get_name();
         text += ":\n";
@@ -1117,7 +1295,9 @@ void CoreIrLlvmTargetBackend::append_global(std::string &text,
     text += "\n";
 }
 
-IrKind CoreIrLlvmTargetBackend::get_kind() const noexcept { return IrKind::LLVM; }
+IrKind CoreIrLlvmTargetBackend::get_kind() const noexcept {
+    return IrKind::LLVM;
+}
 
 std::unique_ptr<IRResult>
 CoreIrLlvmTargetBackend::Lower(const CoreIrModule &module,
@@ -1146,7 +1326,8 @@ CoreIrLlvmTargetBackend::Lower(const CoreIrModule &module,
     if (!module.get_globals().empty() && !module.get_functions().empty()) {
         text += "\n";
     }
-    for (std::size_t index = 0; index < module.get_functions().size(); ++index) {
+    for (std::size_t index = 0; index < module.get_functions().size();
+         ++index) {
         if (!append_function(text, *module.get_functions()[index],
                              diagnostic_engine)) {
             return nullptr;
