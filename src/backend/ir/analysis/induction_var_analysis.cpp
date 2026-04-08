@@ -144,12 +144,40 @@ bool header_has_single_inside_and_outside_successor(
     return cfg.is_reachable(inside_successor) && cfg.is_reachable(outside_successor);
 }
 
+CoreIrBasicBlock *get_unique_outside_predecessor(
+    const CoreIrLoopInfo &loop, const CoreIrCfgAnalysisResult &cfg) {
+    CoreIrBasicBlock *header = loop.get_header();
+    if (header == nullptr) {
+        return nullptr;
+    }
+
+    CoreIrBasicBlock *outside_predecessor = nullptr;
+    for (CoreIrBasicBlock *predecessor : cfg.get_predecessors(header)) {
+        if (predecessor == nullptr ||
+            loop_contains_block(loop, predecessor) ||
+            !cfg.is_reachable(predecessor)) {
+            continue;
+        }
+        if (outside_predecessor != nullptr) {
+            return nullptr;
+        }
+        outside_predecessor = predecessor;
+    }
+    return outside_predecessor;
+}
+
 std::optional<CoreIrCanonicalInductionVarInfo>
 try_build_canonical_induction_var(const CoreIrLoopInfo &loop,
                                   const CoreIrCfgAnalysisResult &cfg) {
     CoreIrBasicBlock *header = loop.get_header();
     CoreIrBasicBlock *preheader = loop.get_preheader();
-    if (header == nullptr || preheader == nullptr || loop.get_latches().size() != 1) {
+    if (header == nullptr || loop.get_latches().size() != 1) {
+        return std::nullopt;
+    }
+    if (preheader == nullptr) {
+        preheader = get_unique_outside_predecessor(loop, cfg);
+    }
+    if (preheader == nullptr) {
         return std::nullopt;
     }
 
@@ -302,4 +330,3 @@ CoreIrInductionVarAnalysisResult CoreIrInductionVarAnalysis::Run(
 }
 
 } // namespace sysycc
-
