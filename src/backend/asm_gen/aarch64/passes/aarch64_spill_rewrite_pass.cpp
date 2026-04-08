@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "backend/asm_gen/aarch64/model/aarch64_target_constraints.hpp"
@@ -76,19 +77,32 @@ struct AArch64InstructionSpillOccurrence {
     ParsedVirtualRegRef ref;
 };
 
-enum class AArch64SpillSplitRecipeKind : unsigned char {
-    Unsupported,
-    MoveLike,
-    BinaryLike,
-    CompareLike,
-    SelectLike,
-    SetLike,
-    LoadLike,
-    StoreLike,
-    PairLoadLike,
-    PairStoreLike,
-    BranchLike,
-    IndirectCallLike,
+enum class AArch64SpillOperandRoleKind : unsigned char {
+    ValueUse,
+    ValueDef,
+    AddressBaseUse,
+    ConditionCode,
+    Label,
+    Other,
+};
+
+struct AArch64InstructionSpillShape {
+    enum class Kind : unsigned char {
+        Unsupported,
+        SingleValueDef,
+        MultiValueDef,
+        Compare,
+        SetFromCondition,
+        SelectFromCondition,
+        Load,
+        Store,
+        BranchOnValue,
+        IndirectCallTarget,
+    };
+
+    Kind kind = Kind::Unsupported;
+    std::vector<std::size_t> use_operand_indices;
+    std::vector<std::size_t> def_operand_indices;
 };
 
 bool spill_slot_requires_address_scratch(std::size_t offset) {
@@ -146,8 +160,8 @@ AArch64MachineOperand rewrite_spilled_operand(
             return AArch64MachineOperand::memory_address_physical_reg(
                 it->second, *immediate_offset, memory->address_mode);
         }
-        if (const std::string *symbolic_offset =
-                memory->get_symbolic_offset_text();
+        if (const AArch64MachineSymbolReference *symbolic_offset =
+                memory->get_symbolic_offset();
             symbolic_offset != nullptr) {
             return AArch64MachineOperand::memory_address_physical_reg(
                 it->second, *symbolic_offset, memory->address_mode);
@@ -179,21 +193,26 @@ collect_spill_occurrences(const AArch64MachineInstr &instruction,
     return occurrences;
 }
 
-bool is_load_like_mnemonic(const std::string &mnemonic) {
-    return mnemonic == "ldp" || mnemonic.rfind("ldr", 0) == 0;
-}
-
-bool is_store_like_mnemonic(const std::string &mnemonic) {
-    return mnemonic == "stp" || mnemonic.rfind("str", 0) == 0;
-}
-
-bool is_value_like_operand(const AArch64MachineOperand &operand) {
-    return operand.get_virtual_reg_operand() != nullptr ||
-           operand.get_physical_reg_operand() != nullptr ||
-           operand.get_immediate_operand() != nullptr ||
-           operand.get_symbol_operand() != nullptr ||
-           operand.get_zero_register_operand() != nullptr ||
-           operand.get_stack_pointer_operand() != nullptr;
+AArch64SpillOperandRoleKind
+classify_spill_operand_role(const AArch64MachineOperand &operand) {
+    if (const auto *virtual_reg = operand.get_virtual_reg_operand();
+        virtual_reg != nullptr) {
+        return virtual_reg->is_def ? AArch64SpillOperandRoleKind::ValueDef
+                                   : AArch64SpillOperandRoleKind::ValueUse;
+    }
+    if (const auto *memory = operand.get_memory_address_operand(); memory != nullptr) {
+        return memory->base_kind ==
+                       AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg
+                   ? AArch64SpillOperandRoleKind::AddressBaseUse
+                   : AArch64SpillOperandRoleKind::Other;
+    }
+    if (operand.get_condition_code_operand() != nullptr) {
+        return AArch64SpillOperandRoleKind::ConditionCode;
+    }
+    if (operand.get_label_operand() != nullptr) {
+        return AArch64SpillOperandRoleKind::Label;
+    }
+    return AArch64SpillOperandRoleKind::Other;
 }
 
 const AArch64InstructionSpillOccurrence *
@@ -207,56 +226,123 @@ find_spill_occurrence(const std::vector<AArch64InstructionSpillOccurrence> &occu
     return nullptr;
 }
 
-AArch64SpillSplitRecipeKind
-classify_spill_split_recipe(const AArch64MachineInstr &instruction) {
+AArch64InstructionSpillShape
+classify_spill_instruction_shape(const AArch64MachineInstr &instruction) {
+    AArch64InstructionSpillShape shape;
     const std::vector<AArch64MachineOperand> &operands = instruction.get_operands();
-    const std::string &mnemonic = instruction.get_mnemonic();
+    std::vector<std::size_t> value_use_indices;
+    std::vector<std::size_t> value_def_indices;
+    std::vector<std::size_t> address_use_indices;
+    std::vector<std::size_t> condition_code_indices;
+    std::vector<std::size_t> label_indices;
+    std::vector<std::size_t> memory_indices;
 
-    if (!operands.empty() && operands.back().get_memory_address_operand() != nullptr) {
-        if (is_load_like_mnemonic(mnemonic)) {
-            if (operands.size() == 2) {
-                return AArch64SpillSplitRecipeKind::LoadLike;
+    for (std::size_t operand_index = 0; operand_index < operands.size(); ++operand_index) {
+        const AArch64MachineOperand &operand = operands[operand_index];
+        switch (classify_spill_operand_role(operand)) {
+        case AArch64SpillOperandRoleKind::ValueUse:
+            value_use_indices.push_back(operand_index);
+            break;
+        case AArch64SpillOperandRoleKind::ValueDef:
+            value_def_indices.push_back(operand_index);
+            break;
+        case AArch64SpillOperandRoleKind::AddressBaseUse:
+            address_use_indices.push_back(operand_index);
+            memory_indices.push_back(operand_index);
+            break;
+        case AArch64SpillOperandRoleKind::ConditionCode:
+            condition_code_indices.push_back(operand_index);
+            break;
+        case AArch64SpillOperandRoleKind::Label:
+            label_indices.push_back(operand_index);
+            break;
+        case AArch64SpillOperandRoleKind::Other:
+            if (operand.get_memory_address_operand() != nullptr) {
+                memory_indices.push_back(operand_index);
             }
-            if (operands.size() == 3) {
-                return AArch64SpillSplitRecipeKind::PairLoadLike;
-            }
-        }
-        if (is_store_like_mnemonic(mnemonic)) {
-            if (operands.size() == 2) {
-                return AArch64SpillSplitRecipeKind::StoreLike;
-            }
-            if (operands.size() == 3) {
-                return AArch64SpillSplitRecipeKind::PairStoreLike;
-            }
+            break;
         }
     }
 
-    if ((mnemonic == "cmp" || mnemonic == "fcmp") && operands.size() >= 2) {
-        return AArch64SpillSplitRecipeKind::CompareLike;
+    if (instruction.get_flags().is_call) {
+        if (value_use_indices.size() == 1 && value_def_indices.empty() &&
+            memory_indices.empty() && condition_code_indices.empty() &&
+            label_indices.empty()) {
+            shape.kind = AArch64InstructionSpillShape::Kind::IndirectCallTarget;
+            shape.use_operand_indices = value_use_indices;
+        }
+        return shape;
     }
-    if (mnemonic == "cset" && operands.size() == 2 &&
-        operands[1].get_condition_code_operand() != nullptr) {
-        return AArch64SpillSplitRecipeKind::SetLike;
+
+    if (!memory_indices.empty()) {
+        if (memory_indices.size() != 1 || !condition_code_indices.empty() ||
+            !label_indices.empty()) {
+            return shape;
+        }
+        if (!value_def_indices.empty() && value_use_indices.empty() &&
+            value_def_indices.size() <= 2) {
+            shape.kind = AArch64InstructionSpillShape::Kind::Load;
+            shape.use_operand_indices = address_use_indices;
+            shape.def_operand_indices = value_def_indices;
+            return shape;
+        }
+        if (value_def_indices.empty() && !value_use_indices.empty() &&
+            value_use_indices.size() <= 2) {
+            shape.kind = AArch64InstructionSpillShape::Kind::Store;
+            shape.use_operand_indices = value_use_indices;
+            shape.use_operand_indices.insert(shape.use_operand_indices.end(),
+                                             address_use_indices.begin(),
+                                             address_use_indices.end());
+            return shape;
+        }
+        return shape;
     }
-    if (mnemonic == "csel" && operands.size() == 4 &&
-        operands[3].get_condition_code_operand() != nullptr) {
-        return AArch64SpillSplitRecipeKind::SelectLike;
+
+    if (!label_indices.empty()) {
+        if (label_indices.size() == 1 && value_def_indices.empty() &&
+            value_use_indices.size() == 1 && condition_code_indices.empty()) {
+            shape.kind = AArch64InstructionSpillShape::Kind::BranchOnValue;
+            shape.use_operand_indices = value_use_indices;
+        }
+        return shape;
     }
-    if ((mnemonic == "cbnz" || mnemonic == "cbz") && operands.size() == 2 &&
-        operands[1].get_label_operand() != nullptr) {
-        return AArch64SpillSplitRecipeKind::BranchLike;
+
+    if (!condition_code_indices.empty()) {
+        if (condition_code_indices.size() == 1 && value_def_indices.size() == 1 &&
+            value_use_indices.empty()) {
+            shape.kind = AArch64InstructionSpillShape::Kind::SetFromCondition;
+            shape.def_operand_indices = value_def_indices;
+            return shape;
+        }
+        if (condition_code_indices.size() == 1 && value_def_indices.size() == 1 &&
+            value_use_indices.size() == 2) {
+            shape.kind = AArch64InstructionSpillShape::Kind::SelectFromCondition;
+            shape.use_operand_indices = value_use_indices;
+            shape.def_operand_indices = value_def_indices;
+            return shape;
+        }
+        return shape;
     }
-    if (mnemonic == "blr" && operands.size() == 1) {
-        return AArch64SpillSplitRecipeKind::IndirectCallLike;
+
+    if (value_def_indices.empty() && !value_use_indices.empty() &&
+        value_use_indices.size() <= 2) {
+        shape.kind = AArch64InstructionSpillShape::Kind::Compare;
+        shape.use_operand_indices = value_use_indices;
+        return shape;
     }
-    if (operands.size() == 2 && is_value_like_operand(operands[1])) {
-        return AArch64SpillSplitRecipeKind::MoveLike;
+    if (value_def_indices.size() == 1 && value_use_indices.size() <= 1) {
+        shape.kind = AArch64InstructionSpillShape::Kind::SingleValueDef;
+        shape.use_operand_indices = value_use_indices;
+        shape.def_operand_indices = value_def_indices;
+        return shape;
     }
-    if (operands.size() >= 3 && is_value_like_operand(operands[1]) &&
-        is_value_like_operand(operands[2])) {
-        return AArch64SpillSplitRecipeKind::BinaryLike;
+    if (value_def_indices.size() == 1 && value_use_indices.size() >= 2) {
+        shape.kind = AArch64InstructionSpillShape::Kind::MultiValueDef;
+        shape.use_operand_indices = value_use_indices;
+        shape.def_operand_indices = value_def_indices;
+        return shape;
     }
-    return AArch64SpillSplitRecipeKind::Unsupported;
+    return shape;
 }
 
 bool assign_split_scratch(AArch64InstructionRewritePlan &plan,
@@ -330,6 +416,26 @@ void append_split_def_step(AArch64InstructionRewritePlan &plan,
         std::nullopt});
 }
 
+void append_split_steps_for_operands(
+    AArch64InstructionRewritePlan &plan,
+    const std::vector<AArch64InstructionSpillOccurrence> &occurrences,
+    const std::vector<std::size_t> &operand_indices, bool defs) {
+    std::unordered_set<std::size_t> seen_virtual_regs;
+    for (std::size_t operand_index : operand_indices) {
+        const AArch64InstructionSpillOccurrence *occurrence =
+            find_spill_occurrence(occurrences, operand_index);
+        if (occurrence == nullptr ||
+            !seen_virtual_regs.insert(occurrence->ref.id).second) {
+            continue;
+        }
+        if (defs) {
+            append_split_def_step(plan, occurrence->ref.id, occurrence->ref.kind);
+        } else {
+            append_split_use_step(plan, occurrence->ref.id, occurrence->ref.kind);
+        }
+    }
+}
+
 void mark_address_scratch_if_needed(AArch64InstructionRewritePlan &plan,
                                     const AArch64MachineFunction &function,
                                     std::size_t virtual_reg_id) {
@@ -350,9 +456,9 @@ build_split_rewrite_plan(const AArch64MachineInstr &instruction,
         return plan;
     }
 
-    const AArch64SpillSplitRecipeKind recipe =
-        classify_spill_split_recipe(instruction);
-    if (recipe == AArch64SpillSplitRecipeKind::Unsupported) {
+    const AArch64InstructionSpillShape shape =
+        classify_spill_instruction_shape(instruction);
+    if (shape.kind == AArch64InstructionSpillShape::Kind::Unsupported) {
         plan.unassigned_operands = build_instruction_rewrite_plan(instruction, function)
                                        .unassigned_operands;
         return plan;
@@ -372,104 +478,19 @@ build_split_rewrite_plan(const AArch64MachineInstr &instruction,
                                     occurrence->ref.id, occurrence->ref.kind);
     };
 
-    auto append_use_for_operand = [&](std::size_t operand_index) {
-        const AArch64InstructionSpillOccurrence *occurrence =
-            find_spill_occurrence(occurrences, operand_index);
-        if (occurrence != nullptr) {
-            append_split_use_step(plan, occurrence->ref.id, occurrence->ref.kind);
+    auto assign_for_operands =
+        [&](const std::vector<std::size_t> &operand_indices) -> bool {
+        for (std::size_t operand_index : operand_indices) {
+            if (!assign_for_operand(operand_index)) {
+                return false;
+            }
         }
+        return true;
     };
 
-    auto append_def_for_operand = [&](std::size_t operand_index) {
-        const AArch64InstructionSpillOccurrence *occurrence =
-            find_spill_occurrence(occurrences, operand_index);
-        if (occurrence != nullptr) {
-            append_split_def_step(plan, occurrence->ref.id, occurrence->ref.kind);
-        }
-    };
-
-    bool assign_ok = true;
-    switch (recipe) {
-    case AArch64SpillSplitRecipeKind::MoveLike:
-        assign_ok = assign_for_operand(0) && assign_for_operand(1);
-        if (assign_ok) {
-            append_use_for_operand(1);
-            append_def_for_operand(0);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::BinaryLike:
-        assign_ok = assign_for_operand(0) && assign_for_operand(1) &&
-                    assign_for_operand(2);
-        if (assign_ok) {
-            append_use_for_operand(1);
-            append_use_for_operand(2);
-            append_def_for_operand(0);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::CompareLike:
-        assign_ok = assign_for_operand(0) && assign_for_operand(1);
-        if (assign_ok) {
-            append_use_for_operand(0);
-            append_use_for_operand(1);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::SelectLike:
-        assign_ok = assign_for_operand(0) && assign_for_operand(1) &&
-                    assign_for_operand(2);
-        if (assign_ok) {
-            append_use_for_operand(1);
-            append_use_for_operand(2);
-            append_def_for_operand(0);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::SetLike:
-        assign_ok = assign_for_operand(0);
-        if (assign_ok) {
-            append_def_for_operand(0);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::LoadLike:
-        assign_ok = assign_for_operand(0) && assign_for_operand(1);
-        if (assign_ok) {
-            append_use_for_operand(1);
-            append_def_for_operand(0);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::StoreLike:
-        assign_ok = assign_for_operand(0) && assign_for_operand(1);
-        if (assign_ok) {
-            append_use_for_operand(0);
-            append_use_for_operand(1);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::PairLoadLike:
-        assign_ok = assign_for_operand(0) && assign_for_operand(1) &&
-                    assign_for_operand(2);
-        if (assign_ok) {
-            append_use_for_operand(2);
-            append_def_for_operand(0);
-            append_def_for_operand(1);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::PairStoreLike:
-        assign_ok = assign_for_operand(0) && assign_for_operand(1) &&
-                    assign_for_operand(2);
-        if (assign_ok) {
-            append_use_for_operand(0);
-            append_use_for_operand(1);
-            append_use_for_operand(2);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::BranchLike:
-    case AArch64SpillSplitRecipeKind::IndirectCallLike:
-        assign_ok = assign_for_operand(0);
-        if (assign_ok) {
-            append_use_for_operand(0);
-        }
-        break;
-    case AArch64SpillSplitRecipeKind::Unsupported:
-        break;
-    }
+    const bool assign_ok =
+        assign_for_operands(shape.use_operand_indices) &&
+        assign_for_operands(shape.def_operand_indices);
 
     if (!assign_ok) {
         plan.unassigned_operands = build_instruction_rewrite_plan(instruction, function)
@@ -488,13 +509,8 @@ build_split_rewrite_plan(const AArch64MachineInstr &instruction,
         operands.push_back(rewrite_spilled_operand(operand, spill_mapping, function));
     }
 
-    std::vector<AArch64SpillRewriteStep> prefix_steps;
-    prefix_steps.swap(plan.steps);
-    for (const AArch64SpillRewriteStep &step : prefix_steps) {
-        if (step.kind == AArch64SpillRewriteStep::Kind::LoadUse) {
-            plan.steps.push_back(step);
-        }
-    }
+    append_split_steps_for_operands(plan, occurrences, shape.use_operand_indices,
+                                    false);
     plan.steps.push_back(AArch64SpillRewriteStep{
         AArch64SpillRewriteStep::Kind::EmitInstruction,
         0,
@@ -506,11 +522,8 @@ build_split_rewrite_plan(const AArch64MachineInstr &instruction,
                             instruction.get_implicit_defs(),
                             instruction.get_implicit_uses(),
                             instruction.get_call_clobber_mask())});
-    for (const AArch64SpillRewriteStep &step : prefix_steps) {
-        if (step.kind == AArch64SpillRewriteStep::Kind::StoreDef) {
-            plan.steps.push_back(step);
-        }
-    }
+    append_split_steps_for_operands(plan, occurrences, shape.def_operand_indices,
+                                    true);
 
     return plan;
 }
@@ -693,7 +706,7 @@ bool AArch64SpillRewritePass::run(AArch64MachineFunction &function,
                 if (!rewrite_plan.unassigned_operands.empty()) {
                     add_backend_error(
                         diagnostic_engine,
-                        "unsupported spill split recipe for AArch64 instruction '" +
+                        "unsupported spill rewrite shape for AArch64 instruction '" +
                             instruction.get_mnemonic() + "'");
                     return false;
                 }

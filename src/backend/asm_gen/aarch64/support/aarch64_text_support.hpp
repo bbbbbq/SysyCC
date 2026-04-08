@@ -19,6 +19,8 @@ char virtual_reg_suffix(AArch64VirtualRegKind kind);
 AArch64VirtualRegKind virtual_reg_kind_from_suffix(char suffix);
 std::string render_physical_register(unsigned reg_number, AArch64VirtualRegKind kind);
 std::string render_physical_register(unsigned reg_number, bool use_64bit);
+std::string
+render_symbol_reference_for_asm(const AArch64MachineSymbolReference &reference);
 std::string stack_pointer_name(bool use_64bit);
 std::string zero_register_name(bool use_64bit);
 AArch64MachineOperand stack_pointer_operand(bool use_64bit = true);
@@ -64,6 +66,7 @@ std::vector<ParsedVirtualRegRef>
 collect_virtual_reg_refs(const AArch64MachineOperand &operand);
 std::vector<std::size_t> collect_explicit_vreg_ids(
     const std::vector<AArch64MachineOperand> &operands, bool defs);
+std::string render_data_fragment_for_asm(const AArch64DataFragment &fragment);
 std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
                                            const AArch64MachineFunction &function);
 std::string render_vector_move_operand(const std::string &text);

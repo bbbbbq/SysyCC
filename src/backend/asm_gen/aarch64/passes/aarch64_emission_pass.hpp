@@ -15,10 +15,15 @@ class DiagnosticEngine;
 
 class AArch64EmissionPass {
   public:
-    std::string print_module(const AArch64MachineModule &module) const;
-    std::unique_ptr<AsmResult> emit_asm_result(const AArch64MachineModule &module) const;
+    std::string print_module(const AArch64MachineModule &machine_module,
+                             const AArch64ObjectModule &object_module) const;
+    std::unique_ptr<AsmResult>
+    emit_asm_result(const AArch64MachineModule &machine_module,
+                    const AArch64ObjectModule &object_module) const;
     std::unique_ptr<ObjectResult>
-    emit_object_result(const std::string &asm_text, const BackendOptions &backend_options,
+    emit_object_result(const AArch64MachineModule &machine_module,
+                       const AArch64ObjectModule &object_module,
+                       const BackendOptions &backend_options,
                        const std::filesystem::path &object_file,
                        DiagnosticEngine &diagnostic_engine) const;
 };

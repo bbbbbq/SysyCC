@@ -75,7 +75,7 @@ AArch64MachineOperand memory_operand(const AArch64VirtualReg &base_reg) {
 }
 
 AArch64MachineOperand memory_operand(const AArch64VirtualReg &base_reg,
-                                     std::string symbolic_offset) {
+                                     AArch64MachineSymbolReference symbolic_offset) {
     return AArch64MachineOperand::memory_address_virtual_reg(
         base_reg, std::move(symbolic_offset));
 }
@@ -318,10 +318,13 @@ bool materialize_global_address(AArch64MachineBlock &machine_block,
     if (context.is_position_independent() && !is_nonpreemptible) {
         machine_block.append_instruction(AArch64MachineInstr(
             "adrp", {def_vreg_operand(target_reg),
-                     AArch64MachineOperand::symbol(":got:" + symbol_name)}));
+                     AArch64MachineOperand::symbol(
+                         AArch64MachineSymbolReference::got(symbol_name))}));
         machine_block.append_instruction(AArch64MachineInstr(
             "ldr", {def_vreg_operand(target_reg),
-                    memory_operand(target_reg, ":got_lo12:" + symbol_name)}));
+                    memory_operand(target_reg,
+                                   AArch64MachineSymbolReference::got_lo12(
+                                       symbol_name))}));
         return true;
     }
     machine_block.append_instruction(AArch64MachineInstr(
@@ -329,7 +332,8 @@ bool materialize_global_address(AArch64MachineBlock &machine_block,
                  AArch64MachineOperand::symbol(symbol_name)}));
     machine_block.append_instruction(AArch64MachineInstr(
         "add", {def_vreg_operand(target_reg), use_vreg_operand(target_reg),
-                AArch64MachineOperand::symbol(":lo12:" + symbol_name)}));
+                AArch64MachineOperand::symbol(
+                    AArch64MachineSymbolReference::lo12(symbol_name))}));
     return true;
 }
 

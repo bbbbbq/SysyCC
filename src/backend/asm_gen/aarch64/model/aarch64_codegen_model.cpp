@@ -43,8 +43,14 @@ AArch64MachineOperand AArch64MachineOperand::immediate(std::string text) {
 }
 
 AArch64MachineOperand AArch64MachineOperand::symbol(std::string text) {
+    return AArch64MachineOperand::symbol(
+        AArch64MachineSymbolReference::plain(std::move(text)));
+}
+
+AArch64MachineOperand
+AArch64MachineOperand::symbol(AArch64MachineSymbolReference reference) {
     return AArch64MachineOperand(AArch64MachineOperandKind::Symbol,
-                                 AArch64MachineSymbolOperand{std::move(text)});
+                                 AArch64MachineSymbolOperand{std::move(reference)});
 }
 
 AArch64MachineOperand AArch64MachineOperand::label(std::string text) {
@@ -131,11 +137,9 @@ AArch64MachineOperand AArch64MachineOperand::memory_address_stack_pointer(
 }
 
 AArch64MachineOperand AArch64MachineOperand::memory_address_virtual_reg(
-    const AArch64VirtualReg &reg, std::string symbolic_offset,
+    const AArch64VirtualReg &reg, AArch64MachineSymbolReference symbolic_offset,
     AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
     const AArch64VirtualReg base_reg = memory_base_virtual_reg(reg);
-    AArch64MachineMemoryAddressOperand::OffsetPayload offset =
-        AArch64MachineMemorySymbolOffset{std::move(symbolic_offset)};
     return AArch64MachineOperand(
         AArch64MachineOperandKind::MemoryAddress,
         AArch64MachineMemoryAddressOperand{
@@ -143,15 +147,13 @@ AArch64MachineOperand AArch64MachineOperand::memory_address_virtual_reg(
             .virtual_reg = base_reg,
             .physical_reg = 0,
             .stack_pointer_use_64bit = true,
-            .offset = std::move(offset),
+            .offset = std::move(symbolic_offset),
             .address_mode = address_mode});
 }
 
 AArch64MachineOperand AArch64MachineOperand::memory_address_physical_reg(
-    unsigned reg_number, std::string symbolic_offset,
+    unsigned reg_number, AArch64MachineSymbolReference symbolic_offset,
     AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
-    AArch64MachineMemoryAddressOperand::OffsetPayload offset =
-        AArch64MachineMemorySymbolOffset{std::move(symbolic_offset)};
     return AArch64MachineOperand(
         AArch64MachineOperandKind::MemoryAddress,
         AArch64MachineMemoryAddressOperand{
@@ -159,15 +161,13 @@ AArch64MachineOperand AArch64MachineOperand::memory_address_physical_reg(
             .virtual_reg = {},
             .physical_reg = reg_number,
             .stack_pointer_use_64bit = true,
-            .offset = std::move(offset),
+            .offset = std::move(symbolic_offset),
             .address_mode = address_mode});
 }
 
 AArch64MachineOperand AArch64MachineOperand::memory_address_stack_pointer(
-    std::string symbolic_offset, bool use_64bit,
+    AArch64MachineSymbolReference symbolic_offset, bool use_64bit,
     AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
-    AArch64MachineMemoryAddressOperand::OffsetPayload offset =
-        AArch64MachineMemorySymbolOffset{std::move(symbolic_offset)};
     return AArch64MachineOperand(
         AArch64MachineOperandKind::MemoryAddress,
         AArch64MachineMemoryAddressOperand{
@@ -175,7 +175,7 @@ AArch64MachineOperand AArch64MachineOperand::memory_address_stack_pointer(
             .virtual_reg = {},
             .physical_reg = 0,
             .stack_pointer_use_64bit = use_64bit,
-            .offset = std::move(offset),
+            .offset = std::move(symbolic_offset),
             .address_mode = address_mode});
 }
 

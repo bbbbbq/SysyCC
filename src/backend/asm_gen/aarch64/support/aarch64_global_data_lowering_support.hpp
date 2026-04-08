@@ -14,10 +14,10 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
                                       const CoreIrType *type,
                                       AArch64GlobalDataLoweringContext &context);
 
-bool append_global(AArch64MachineModule &machine_module, const CoreIrGlobal &global,
+bool append_global(AArch64ObjectModule &object_module, const CoreIrGlobal &global,
                    AArch64GlobalDataLoweringContext &context);
 
-bool append_globals(AArch64MachineModule &machine_module, const CoreIrModule &module,
+bool append_globals(AArch64ObjectModule &object_module, const CoreIrModule &module,
                     AArch64GlobalDataLoweringContext &context);
 
 } // namespace sysycc

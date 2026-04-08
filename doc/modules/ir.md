@@ -717,8 +717,11 @@ LLVM IR lowering path:
   native `.s` file directly from optimized `CoreIrModule` without round-tripping
   through LLVM IR text
 - `-c --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now also
-  assembles that native backend output into an ELF relocatable object and keeps
-  the produced bytes in compiler state as an `ObjectResult`
+  emits an ELF relocatable object from the native backend’s structured machine /
+  object module state, keeping the produced bytes in compiler state as an
+  `ObjectResult`; today that object path uses a hybrid flow where function text
+  still goes through the assembler while global data fragments are written
+  directly into a data-only ELF object and then merged
 - `-g` on the native AArch64 path now emits basic debug line information:
   assembly output carries `.file` / `.loc`, and object output carries
   assembler-generated DWARF line tables

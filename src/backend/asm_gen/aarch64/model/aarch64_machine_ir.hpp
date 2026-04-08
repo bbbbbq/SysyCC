@@ -47,8 +47,37 @@ struct AArch64MachineImmediateOperand {
     std::string asm_text;
 };
 
+struct AArch64MachineSymbolReference {
+    enum class Modifier : unsigned char {
+        None,
+        Lo12,
+        Got,
+        GotLo12,
+    };
+
+    std::string symbol_name;
+    Modifier modifier = Modifier::None;
+
+    static AArch64MachineSymbolReference plain(std::string symbol_name) {
+        return AArch64MachineSymbolReference{std::move(symbol_name), Modifier::None};
+    }
+
+    static AArch64MachineSymbolReference lo12(std::string symbol_name) {
+        return AArch64MachineSymbolReference{std::move(symbol_name), Modifier::Lo12};
+    }
+
+    static AArch64MachineSymbolReference got(std::string symbol_name) {
+        return AArch64MachineSymbolReference{std::move(symbol_name), Modifier::Got};
+    }
+
+    static AArch64MachineSymbolReference got_lo12(std::string symbol_name) {
+        return AArch64MachineSymbolReference{std::move(symbol_name),
+                                             Modifier::GotLo12};
+    }
+};
+
 struct AArch64MachineSymbolOperand {
-    std::string symbol_text;
+    AArch64MachineSymbolReference reference;
 };
 
 struct AArch64MachineLabelOperand {
@@ -72,14 +101,10 @@ struct AArch64MachineMemoryImmediateOffset {
     long long value = 0;
 };
 
-struct AArch64MachineMemorySymbolOffset {
-    std::string asm_text;
-};
-
 struct AArch64MachineMemoryAddressOperand {
     using OffsetPayload =
         std::variant<std::monostate, AArch64MachineMemoryImmediateOffset,
-                     AArch64MachineMemorySymbolOffset>;
+                     AArch64MachineSymbolReference>;
 
     enum class AddressMode : unsigned char {
         Offset,
@@ -109,13 +134,8 @@ struct AArch64MachineMemoryAddressOperand {
         return immediate->value;
     }
 
-    const std::string *get_symbolic_offset_text() const noexcept {
-        const auto *symbolic =
-            std::get_if<AArch64MachineMemorySymbolOffset>(&offset);
-        if (symbolic == nullptr) {
-            return nullptr;
-        }
-        return &symbolic->asm_text;
+    const AArch64MachineSymbolReference *get_symbolic_offset() const noexcept {
+        return std::get_if<AArch64MachineSymbolReference>(&offset);
     }
 
     bool has_offset() const noexcept {
@@ -148,6 +168,7 @@ class AArch64MachineOperand {
                                               AArch64VirtualRegKind kind);
     static AArch64MachineOperand immediate(std::string text);
     static AArch64MachineOperand symbol(std::string text);
+    static AArch64MachineOperand symbol(AArch64MachineSymbolReference reference);
     static AArch64MachineOperand label(std::string text);
     static AArch64MachineOperand condition_code(std::string code);
     static AArch64MachineOperand zero_register(bool use_64bit);
@@ -159,7 +180,7 @@ class AArch64MachineOperand {
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
     static AArch64MachineOperand memory_address_virtual_reg(
-        const AArch64VirtualReg &reg, std::string symbolic_offset,
+        const AArch64VirtualReg &reg, AArch64MachineSymbolReference symbolic_offset,
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
     static AArch64MachineOperand memory_address_physical_reg(
@@ -168,7 +189,7 @@ class AArch64MachineOperand {
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
     static AArch64MachineOperand memory_address_physical_reg(
-        unsigned reg_number, std::string symbolic_offset,
+        unsigned reg_number, AArch64MachineSymbolReference symbolic_offset,
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
     static AArch64MachineOperand memory_address_stack_pointer(
@@ -177,7 +198,7 @@ class AArch64MachineOperand {
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
     static AArch64MachineOperand memory_address_stack_pointer(
-        std::string symbolic_offset, bool use_64bit = true,
+        AArch64MachineSymbolReference symbolic_offset, bool use_64bit = true,
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
 

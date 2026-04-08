@@ -1,8 +1,8 @@
 #include "backend/asm_gen/aarch64/support/aarch64_global_data_lowering_support.hpp"
 
+#include <cstdint>
 #include <cstring>
 #include <optional>
-#include <sstream>
 
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
@@ -28,17 +28,17 @@ bool is_byte_string_global(const CoreIrGlobal &global) {
            byte_string->get_bytes().size() == array_type->get_element_count();
 }
 
-std::string scalar_directive(const CoreIrType *type) {
+std::size_t scalar_size(const CoreIrType *type) {
     if (is_pointer_type(type) || get_storage_size(type) == 8) {
-        return ".xword";
+        return 8;
     }
     if (get_storage_size(type) == 2) {
-        return ".hword";
+        return 2;
     }
     if (get_storage_size(type) == 1) {
-        return ".byte";
+        return 1;
     }
-    return ".word";
+    return 4;
 }
 
 std::optional<long long> get_signed_integer_constant(const CoreIrConstant *constant) {
@@ -169,10 +169,40 @@ std::size_t alignment_to_log2(std::size_t alignment) {
     return log2;
 }
 
-void append_data_fragment(AArch64DataObject &data_object, std::string text,
-                          std::vector<AArch64RelocationRecord> relocations = {}) {
+void append_zero_fill_fragment(AArch64DataObject &data_object, std::size_t size) {
+    data_object.append_fragment(AArch64DataFragment::zero_fill(size));
+}
+
+void append_byte_sequence_fragment(AArch64DataObject &data_object,
+                                   std::vector<std::uint8_t> bytes) {
     data_object.append_fragment(
-        AArch64DataFragment(std::move(text), std::move(relocations)));
+        AArch64DataFragment::byte_sequence(std::move(bytes)));
+}
+
+void append_scalar_fragment(AArch64DataObject &data_object, std::size_t size,
+                            std::uint64_t value,
+                            std::vector<AArch64RelocationRecord> relocations = {}) {
+    switch (size) {
+    case 1:
+        data_object.append_fragment(AArch64DataFragment::scalar_byte(
+            value, std::move(relocations)));
+        return;
+    case 2:
+        data_object.append_fragment(AArch64DataFragment::scalar_halfword(
+            value, std::move(relocations)));
+        return;
+    case 4:
+        data_object.append_fragment(AArch64DataFragment::scalar_word(
+            value, std::move(relocations)));
+        return;
+    case 8:
+        data_object.append_fragment(AArch64DataFragment::scalar_xword(
+            value, std::move(relocations)));
+        return;
+    default:
+        append_zero_fill_fragment(data_object, size);
+        return;
+    }
 }
 
 } // namespace
@@ -186,13 +216,12 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
     }
 
     if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) != nullptr) {
-        append_data_fragment(data_object, "  .zero " + std::to_string(get_type_size(type)));
+        append_zero_fill_fragment(data_object, get_type_size(type));
         return true;
     }
     if (const auto *int_constant = dynamic_cast<const CoreIrConstantInt *>(constant);
         int_constant != nullptr) {
-        append_data_fragment(data_object, "  " + scalar_directive(type) + " " +
-                                              std::to_string(int_constant->get_value()));
+        append_scalar_fragment(data_object, scalar_size(type), int_constant->get_value());
         return true;
     }
     if (const auto *float_constant = dynamic_cast<const CoreIrConstantFloat *>(constant);
@@ -207,30 +236,28 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
             switch (float_type->get_float_kind()) {
             case CoreIrFloatKind::Float16: {
                 const float parsed = std::stof(literal_text);
-                append_data_fragment(
-                    data_object,
-                    "  .hword " + format_bits_literal(float32_to_float16_bits(parsed), 4));
+                append_scalar_fragment(
+                    data_object, 2,
+                    static_cast<std::uint64_t>(float32_to_float16_bits(parsed)));
                 return true;
             }
             case CoreIrFloatKind::Float32: {
                 const float parsed = std::stof(literal_text);
                 std::uint32_t bits = 0;
                 std::memcpy(&bits, &parsed, sizeof(bits));
-                append_data_fragment(data_object,
-                                     "  .word " + format_bits_literal(bits, 8));
+                append_scalar_fragment(data_object, 4, bits);
                 return true;
             }
             case CoreIrFloatKind::Float64: {
                 const double parsed = std::stod(literal_text);
                 std::uint64_t bits = 0;
                 std::memcpy(&bits, &parsed, sizeof(bits));
-                append_data_fragment(data_object,
-                                     "  .xword " + format_bits_literal(bits, 16));
+                append_scalar_fragment(data_object, 8, bits);
                 return true;
             }
             case CoreIrFloatKind::Float128:
                 if (floating_literal_is_zero(literal_text)) {
-                    append_data_fragment(data_object, "  .zero 16");
+                    append_zero_fill_fragment(data_object, 16);
                     return true;
                 }
                 context.report_error(
@@ -245,20 +272,14 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
         }
     }
     if (dynamic_cast<const CoreIrConstantNull *>(constant) != nullptr) {
-        append_data_fragment(data_object, "  " + scalar_directive(type) + " 0");
+        append_scalar_fragment(data_object, scalar_size(type), 0);
         return true;
     }
     if (const auto *byte_string = dynamic_cast<const CoreIrConstantByteString *>(constant);
         byte_string != nullptr) {
-        std::ostringstream bytes_line;
-        bytes_line << "  .byte ";
-        for (std::size_t index = 0; index < byte_string->get_bytes().size(); ++index) {
-            if (index > 0) {
-                bytes_line << ", ";
-            }
-            bytes_line << static_cast<unsigned>(byte_string->get_bytes()[index]);
-        }
-        append_data_fragment(data_object, bytes_line.str());
+        std::vector<std::uint8_t> bytes(byte_string->get_bytes().begin(),
+                                        byte_string->get_bytes().end());
+        append_byte_sequence_fragment(data_object, std::move(bytes));
         return true;
     }
     if (const auto *aggregate = dynamic_cast<const CoreIrConstantAggregate *>(constant);
@@ -282,9 +303,7 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
                 return false;
             }
             if (element_offset > emitted_size) {
-                append_data_fragment(data_object,
-                                     "  .zero " +
-                                         std::to_string(element_offset - emitted_size));
+                append_zero_fill_fragment(data_object, element_offset - emitted_size);
                 emitted_size = element_offset;
             }
             if (!append_global_constant_fragments(data_object,
@@ -296,9 +315,8 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
                                     element_offset + get_type_size(element_type));
         }
         if (get_type_size(type) > emitted_size) {
-            append_data_fragment(data_object,
-                                 "  .zero " +
-                                     std::to_string(get_type_size(type) - emitted_size));
+            append_zero_fill_fragment(data_object,
+                                      get_type_size(type) - emitted_size);
         }
         return true;
     }
@@ -306,18 +324,13 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
     long long offset = 0;
     if (split_constant_address(constant, symbol_name, offset)) {
         context.record_symbol_reference(symbol_name, AArch64SymbolKind::Object);
-        std::string line = "  " + scalar_directive(type) + " " + symbol_name;
-        if (offset > 0) {
-            line += " + " + std::to_string(offset);
-        } else if (offset < 0) {
-            line += " - " + std::to_string(-offset);
-        }
-        append_data_fragment(
-            data_object, line,
+        append_scalar_fragment(
+            data_object, scalar_size(type), 0,
             {AArch64RelocationRecord{
                 get_storage_size(type) <= 4 ? AArch64RelocationKind::Absolute32
                                             : AArch64RelocationKind::Absolute64,
                 symbol_name,
+                0,
                 offset}});
         return true;
     }
@@ -325,7 +338,7 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
     return false;
 }
 
-bool append_global(AArch64MachineModule &machine_module, const CoreIrGlobal &global,
+bool append_global(AArch64ObjectModule &object_module, const CoreIrGlobal &global,
                    AArch64GlobalDataLoweringContext &context) {
     if (global.get_initializer() == nullptr) {
         if (global.get_is_internal_linkage()) {
@@ -341,20 +354,14 @@ bool append_global(AArch64MachineModule &machine_module, const CoreIrGlobal &glo
         context.record_symbol_definition(global.get_name(), AArch64SymbolKind::Object,
                                          AArch64SectionKind::ReadOnlyData,
                                          !global.get_is_internal_linkage());
-        AArch64DataObject &data_object = machine_module.append_data_object(
+        AArch64DataObject &data_object = object_module.append_data_object(
             AArch64SectionKind::ReadOnlyData, global.get_name(),
             !global.get_is_internal_linkage(), 0);
         const auto *byte_string =
             static_cast<const CoreIrConstantByteString *>(global.get_initializer());
-        std::ostringstream bytes_line;
-        bytes_line << "  .byte ";
-        for (std::size_t index = 0; index < byte_string->get_bytes().size(); ++index) {
-            if (index > 0) {
-                bytes_line << ", ";
-            }
-            bytes_line << static_cast<unsigned>(byte_string->get_bytes()[index]);
-        }
-        append_data_fragment(data_object, bytes_line.str());
+        std::vector<std::uint8_t> bytes(byte_string->get_bytes().begin(),
+                                        byte_string->get_bytes().end());
+        append_byte_sequence_fragment(data_object, std::move(bytes));
         return true;
     }
 
@@ -369,7 +376,7 @@ bool append_global(AArch64MachineModule &machine_module, const CoreIrGlobal &glo
                                  : AArch64SectionKind::Data;
     context.record_symbol_definition(global.get_name(), AArch64SymbolKind::Object,
                                      section_kind, !global.get_is_internal_linkage());
-    AArch64DataObject &data_object = machine_module.append_data_object(
+    AArch64DataObject &data_object = object_module.append_data_object(
         section_kind, global.get_name(), !global.get_is_internal_linkage(),
         alignment_to_log2(get_type_alignment(global.get_type())));
     if (!append_global_constant_fragments(data_object, global.get_initializer(),
@@ -382,10 +389,10 @@ bool append_global(AArch64MachineModule &machine_module, const CoreIrGlobal &glo
     return true;
 }
 
-bool append_globals(AArch64MachineModule &machine_module, const CoreIrModule &module,
+bool append_globals(AArch64ObjectModule &object_module, const CoreIrModule &module,
                     AArch64GlobalDataLoweringContext &context) {
     for (const auto &global : module.get_globals()) {
-        if (!append_global(machine_module, *global, context)) {
+        if (!append_global(object_module, *global, context)) {
             return false;
         }
     }

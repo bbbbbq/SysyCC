@@ -66,7 +66,10 @@ bool has_exact_instruction_shape(const AArch64MachineInstr &instruction,
             actual_symbol != nullptr) {
             const auto *expected_symbol = expected_operand.get_symbol_operand();
             if (expected_symbol == nullptr ||
-                actual_symbol->symbol_text != expected_symbol->symbol_text) {
+                actual_symbol->reference.symbol_name !=
+                    expected_symbol->reference.symbol_name ||
+                actual_symbol->reference.modifier !=
+                    expected_symbol->reference.modifier) {
                 return false;
             }
             continue;
@@ -137,13 +140,14 @@ bool has_exact_instruction_shape(const AArch64MachineInstr &instruction,
                 expected_memory->get_immediate_offset()) {
                 return false;
             }
-            const std::string *actual_symbolic =
-                actual_memory->get_symbolic_offset_text();
-            const std::string *expected_symbolic =
-                expected_memory->get_symbolic_offset_text();
+            const AArch64MachineSymbolReference *actual_symbolic =
+                actual_memory->get_symbolic_offset();
+            const AArch64MachineSymbolReference *expected_symbolic =
+                expected_memory->get_symbolic_offset();
             if ((actual_symbolic == nullptr) != (expected_symbolic == nullptr) ||
                 (actual_symbolic != nullptr &&
-                 *actual_symbolic != *expected_symbolic)) {
+                 (actual_symbolic->symbol_name != expected_symbolic->symbol_name ||
+                  actual_symbolic->modifier != expected_symbolic->modifier))) {
                 return false;
             }
             continue;

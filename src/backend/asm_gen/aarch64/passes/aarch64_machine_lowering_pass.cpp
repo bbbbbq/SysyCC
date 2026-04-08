@@ -129,6 +129,7 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
     AArch64CodegenContext &codegen_context_;
     AArch64AbiLoweringPass abi_lowering_pass_;
     AArch64MachineModule *machine_module_ = nullptr;
+    AArch64ObjectModule *object_module_ = nullptr;
     std::unordered_map<const CoreIrBasicBlock *, std::string> block_labels_;
     using FunctionState = AArch64FunctionLoweringState;
 
@@ -153,11 +154,12 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         }
 
         machine_module_ = &codegen_context_.machine_module;
-        machine_module_->append_preamble_line(
+        object_module_ = &codegen_context_.object_module;
+        object_module_->append_preamble_line(
             module_uses_float16() ? ".arch armv8.2-a+fp16" : ".arch armv8-a");
 
         AArch64GlobalDataLoweringFacade global_data_context(*this);
-        if (!sysycc::append_globals(*machine_module_, module_,
+        if (!sysycc::append_globals(*object_module_, module_,
                                     global_data_context) ||
             !append_functions(*machine_module_)) {
             return false;
@@ -170,28 +172,28 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
                                   AArch64SymbolKind kind,
                                   AArch64SectionKind section_kind,
                                   bool is_global_symbol) override {
-        if (machine_module_ == nullptr) {
+        if (object_module_ == nullptr) {
             return;
         }
-        machine_module_->record_symbol(name, kind, section_kind, true,
-                                       is_global_symbol, false);
+        object_module_->record_symbol(name, kind, section_kind, true,
+                                      is_global_symbol, false);
     }
 
     void record_symbol_reference(const std::string &name,
                                  AArch64SymbolKind kind) override {
-        if (machine_module_ == nullptr) {
+        if (object_module_ == nullptr) {
             return;
         }
-        machine_module_->record_symbol(name, kind, std::nullopt, false, false,
-                                       true);
+        object_module_->record_symbol(name, kind, std::nullopt, false, false,
+                                      true);
     }
 
     unsigned record_debug_file(const SourceFile *source_file) {
-        if (machine_module_ == nullptr || source_file == nullptr ||
+        if (object_module_ == nullptr || source_file == nullptr ||
             source_file->empty()) {
             return 0;
         }
-        return machine_module_->record_debug_file(source_file->get_path());
+        return object_module_->record_debug_file(source_file->get_path());
     }
 
     bool is_nonpreemptible_global_symbol(

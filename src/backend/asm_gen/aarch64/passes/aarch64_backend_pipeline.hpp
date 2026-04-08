@@ -46,17 +46,20 @@ class AArch64BackendPipeline {
     }
 
     std::unique_ptr<AsmResult>
-    emit_asm_result(const AArch64MachineModule &module) const {
-        return emission_pass_.emit_asm_result(module);
+    emit_asm_result(const AArch64MachineModule &machine_module,
+                    const AArch64ObjectModule &object_module) const {
+        return emission_pass_.emit_asm_result(machine_module, object_module);
     }
 
     std::unique_ptr<ObjectResult>
-    emit_object_result(const std::string &asm_text,
+    emit_object_result(const AArch64MachineModule &machine_module,
+                       const AArch64ObjectModule &object_module,
                        const BackendOptions &backend_options,
                        const std::filesystem::path &object_file,
                        DiagnosticEngine &diagnostic_engine) const {
-        return emission_pass_.emit_object_result(asm_text, backend_options, object_file,
-                                                 diagnostic_engine);
+        return emission_pass_.emit_object_result(
+            machine_module, object_module, backend_options, object_file,
+            diagnostic_engine);
     }
 };
 

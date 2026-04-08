@@ -100,13 +100,20 @@ PassResult AArch64AsmGenPass::Run(CompilerContext &context) {
     }
 
     AArch64AsmBackend backend;
-    std::unique_ptr<AsmResult> asm_result =
-        backend.Generate(*module, context.get_backend_options(),
-                         context.get_diagnostic_engine());
-    if (asm_result == nullptr) {
+    AArch64MachineModule machine_module;
+    AArch64ObjectModule object_module;
+    if (!backend.BuildModule(*module, context.get_backend_options(),
+                             context.get_diagnostic_engine(), machine_module,
+                             object_module)) {
         return PassResult::Failure("failed to generate AArch64 assembly");
     }
 
+    AArch64BackendPipeline backend_pipeline;
+    std::unique_ptr<AsmResult> asm_result =
+        backend_pipeline.emit_asm_result(machine_module, object_module);
+    if (asm_result == nullptr) {
+        return PassResult::Failure("failed to generate AArch64 assembly");
+    }
     context.set_asm_result(std::move(asm_result));
     if (context.get_emit_asm()) {
         const std::filesystem::path output_file = get_asm_output_file_path(context);
@@ -123,11 +130,9 @@ PassResult AArch64AsmGenPass::Run(CompilerContext &context) {
     }
 
     const std::filesystem::path object_file = get_object_output_file_path(context);
-    AArch64BackendPipeline backend_pipeline;
     std::unique_ptr<ObjectResult> object_result =
-        backend_pipeline.emit_object_result(context.get_asm_result()->get_text(),
-                                            context.get_backend_options(),
-                                            object_file,
+        backend_pipeline.emit_object_result(machine_module, object_module,
+                                            context.get_backend_options(), object_file,
                                             context.get_diagnostic_engine());
     if (object_result == nullptr) {
         return PassResult::Failure("failed to assemble native AArch64 object output");

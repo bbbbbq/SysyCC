@@ -1,6 +1,8 @@
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 
 #include <cctype>
+#include <iomanip>
+#include <sstream>
 #include <unordered_set>
 
 namespace sysycc {
@@ -119,6 +121,21 @@ std::string render_physical_register(unsigned reg_number, bool use_64bit) {
                               : AArch64VirtualRegKind::General32);
 }
 
+std::string render_symbol_reference_for_asm(
+    const AArch64MachineSymbolReference &reference) {
+    switch (reference.modifier) {
+    case AArch64MachineSymbolReference::Modifier::None:
+        return reference.symbol_name;
+    case AArch64MachineSymbolReference::Modifier::Lo12:
+        return ":lo12:" + reference.symbol_name;
+    case AArch64MachineSymbolReference::Modifier::Got:
+        return ":got:" + reference.symbol_name;
+    case AArch64MachineSymbolReference::Modifier::GotLo12:
+        return ":got_lo12:" + reference.symbol_name;
+    }
+    return reference.symbol_name;
+}
+
 std::string stack_pointer_name(bool use_64bit) {
     return use_64bit ? "sp" : "wsp";
 }
@@ -159,6 +176,34 @@ std::string vreg_token_with_kind(char role, const AArch64VirtualReg &reg,
 std::string render_virtual_reg_fallback(
     const AArch64MachineVirtualRegOperand &virtual_reg) {
     return virtual_reg.is_def ? def_vreg(virtual_reg.reg) : use_vreg(virtual_reg.reg);
+}
+
+const char *scalar_directive_name(std::size_t size) {
+    switch (size) {
+    case 1:
+        return ".byte";
+    case 2:
+        return ".hword";
+    case 8:
+        return ".xword";
+    case 4:
+    default:
+        return ".word";
+    }
+}
+
+std::string format_scalar_bits(std::uint64_t value, std::size_t size) {
+    std::ostringstream stream;
+    stream << "0x" << std::hex << std::nouppercase << std::setfill('0')
+           << std::setw(static_cast<int>(size * 2));
+    if (size >= sizeof(std::uint64_t)) {
+        stream << value;
+    } else {
+        const std::uint64_t mask =
+            (static_cast<std::uint64_t>(1) << (size * 8)) - 1ULL;
+        stream << (value & mask);
+    }
+    return stream.str();
 }
 
 } // namespace
@@ -344,10 +389,10 @@ std::string render_memory_address_operand_for_asm(
             memory.get_immediate_offset();
         immediate_offset.has_value()) {
         offset_text = "#" + std::to_string(*immediate_offset);
-    } else if (const std::string *symbolic_offset =
-                   memory.get_symbolic_offset_text();
+    } else if (const AArch64MachineSymbolReference *symbolic_offset =
+                   memory.get_symbolic_offset();
                symbolic_offset != nullptr) {
-        offset_text = *symbolic_offset;
+        offset_text = render_symbol_reference_for_asm(*symbolic_offset);
     }
 
     if (offset_text.empty()) {
@@ -382,6 +427,43 @@ std::vector<std::size_t> collect_explicit_vreg_ids(
     return ids;
 }
 
+std::string render_data_fragment_for_asm(const AArch64DataFragment &fragment) {
+    if (const auto *zero_fill = fragment.get_zero_fill(); zero_fill != nullptr) {
+        return "  .zero " + std::to_string(zero_fill->size);
+    }
+    if (const auto *bytes = fragment.get_byte_sequence(); bytes != nullptr) {
+        std::ostringstream output;
+        output << "  .byte ";
+        for (std::size_t index = 0; index < bytes->bytes.size(); ++index) {
+            if (index > 0) {
+                output << ", ";
+            }
+            output << static_cast<unsigned>(bytes->bytes[index]);
+        }
+        return output.str();
+    }
+    if (const auto *scalar = fragment.get_scalar_value(); scalar != nullptr) {
+        const std::vector<AArch64RelocationRecord> &relocations =
+            fragment.get_relocations();
+        std::ostringstream output;
+        output << "  " << scalar_directive_name(fragment.get_scalar_size()) << " ";
+        if (!relocations.empty()) {
+            const AArch64RelocationRecord &relocation = relocations.front();
+            output << relocation.symbol_name;
+            if (relocation.addend > 0) {
+                output << " + " << relocation.addend;
+            } else if (relocation.addend < 0) {
+                output << " - " << (-relocation.addend);
+            }
+            return output.str();
+        }
+        output << format_scalar_bits(fragment.get_scalar_bits(),
+                                     fragment.get_scalar_size());
+        return output.str();
+    }
+    return {};
+}
+
 std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
                                            const AArch64MachineFunction &function) {
     if (const auto *virtual_reg = operand.get_virtual_reg_operand();
@@ -401,7 +483,7 @@ std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
         return immediate->asm_text;
     }
     if (const auto *symbol = operand.get_symbol_operand(); symbol != nullptr) {
-        return symbol->symbol_text;
+        return render_symbol_reference_for_asm(symbol->reference);
     }
     if (const auto *label = operand.get_label_operand(); label != nullptr) {
         return label->label_text;

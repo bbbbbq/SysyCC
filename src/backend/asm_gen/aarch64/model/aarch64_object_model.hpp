@@ -1,11 +1,14 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <iosfwd>
 #include <map>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "backend/asm_gen/aarch64/model/aarch64_machine_ir.hpp"
@@ -32,23 +35,145 @@ enum class AArch64RelocationKind : unsigned char {
 struct AArch64RelocationRecord {
     AArch64RelocationKind kind = AArch64RelocationKind::None;
     std::string symbol_name;
+    std::size_t offset = 0;
     long long addend = 0;
 };
 
 class AArch64DataFragment {
   private:
-    std::string text_;
-    std::vector<AArch64RelocationRecord> relocations_;
+    struct ZeroFillPayload {
+        std::size_t size = 0;
+    };
+
+    struct ByteSequencePayload {
+        std::vector<std::uint8_t> bytes;
+        std::vector<AArch64RelocationRecord> relocations;
+    };
+
+    enum class ScalarKind : unsigned char {
+        Byte,
+        HalfWord,
+        Word,
+        XWord,
+    };
+
+    struct ScalarValuePayload {
+        ScalarKind scalar_kind = ScalarKind::Word;
+        std::uint64_t value = 0;
+        std::vector<AArch64RelocationRecord> relocations;
+    };
+
+    using Payload =
+        std::variant<ZeroFillPayload, ByteSequencePayload, ScalarValuePayload>;
+
+    Payload payload_;
 
   public:
-    explicit AArch64DataFragment(std::string text,
-                                 std::vector<AArch64RelocationRecord> relocations = {})
-        : text_(std::move(text)), relocations_(std::move(relocations)) {}
-
-    const std::string &get_text() const noexcept { return text_; }
-    const std::vector<AArch64RelocationRecord> &get_relocations() const noexcept {
-        return relocations_;
+    static AArch64DataFragment zero_fill(std::size_t size) {
+        return AArch64DataFragment(ZeroFillPayload{size});
     }
+
+    static AArch64DataFragment byte_sequence(
+        std::vector<std::uint8_t> bytes,
+        std::vector<AArch64RelocationRecord> relocations = {}) {
+        return AArch64DataFragment(
+            ByteSequencePayload{std::move(bytes), std::move(relocations)});
+    }
+
+    static AArch64DataFragment scalar_byte(
+        std::uint64_t value, std::vector<AArch64RelocationRecord> relocations = {}) {
+        return AArch64DataFragment(ScalarValuePayload{
+            ScalarKind::Byte, value, std::move(relocations)});
+    }
+
+    static AArch64DataFragment scalar_halfword(
+        std::uint64_t value, std::vector<AArch64RelocationRecord> relocations = {}) {
+        return AArch64DataFragment(ScalarValuePayload{
+            ScalarKind::HalfWord, value, std::move(relocations)});
+    }
+
+    static AArch64DataFragment scalar_word(
+        std::uint64_t value, std::vector<AArch64RelocationRecord> relocations = {}) {
+        return AArch64DataFragment(ScalarValuePayload{
+            ScalarKind::Word, value, std::move(relocations)});
+    }
+
+    static AArch64DataFragment scalar_xword(
+        std::uint64_t value, std::vector<AArch64RelocationRecord> relocations = {}) {
+        return AArch64DataFragment(ScalarValuePayload{
+            ScalarKind::XWord, value, std::move(relocations)});
+    }
+
+    bool is_zero_fill() const noexcept {
+        return std::holds_alternative<ZeroFillPayload>(payload_);
+    }
+
+    bool is_byte_sequence() const noexcept {
+        return std::holds_alternative<ByteSequencePayload>(payload_);
+    }
+
+    bool is_scalar_value() const noexcept {
+        return std::holds_alternative<ScalarValuePayload>(payload_);
+    }
+
+    const ZeroFillPayload *get_zero_fill() const noexcept {
+        return std::get_if<ZeroFillPayload>(&payload_);
+    }
+
+    const ByteSequencePayload *get_byte_sequence() const noexcept {
+        return std::get_if<ByteSequencePayload>(&payload_);
+    }
+
+    const ScalarValuePayload *get_scalar_value() const noexcept {
+        return std::get_if<ScalarValuePayload>(&payload_);
+    }
+
+    std::size_t get_scalar_size() const noexcept {
+        const auto *scalar = get_scalar_value();
+        if (scalar == nullptr) {
+            return 0;
+        }
+        switch (scalar->scalar_kind) {
+        case ScalarKind::Byte:
+            return 1;
+        case ScalarKind::HalfWord:
+            return 2;
+        case ScalarKind::Word:
+            return 4;
+        case ScalarKind::XWord:
+            return 8;
+        }
+        return 0;
+    }
+
+    std::uint64_t get_scalar_bits() const noexcept {
+        const auto *scalar = get_scalar_value();
+        return scalar == nullptr ? 0 : scalar->value;
+    }
+
+    std::size_t get_size() const noexcept {
+        if (const auto *zero_fill = get_zero_fill(); zero_fill != nullptr) {
+            return zero_fill->size;
+        }
+        if (const auto *bytes = get_byte_sequence(); bytes != nullptr) {
+            return bytes->bytes.size();
+        }
+        return get_scalar_size();
+    }
+
+    const std::vector<AArch64RelocationRecord> &get_relocations() const noexcept {
+        static const std::vector<AArch64RelocationRecord> empty_relocations;
+        if (const auto *bytes = get_byte_sequence(); bytes != nullptr) {
+            return bytes->relocations;
+        }
+        if (const auto *scalar = get_scalar_value(); scalar != nullptr) {
+            return scalar->relocations;
+        }
+        return empty_relocations;
+    }
+
+  private:
+    explicit AArch64DataFragment(Payload payload) : payload_(std::move(payload)) {}
 };
 
 class AArch64Symbol {
@@ -100,6 +225,13 @@ class AArch64DataObject {
     const std::string &get_symbol_name() const noexcept { return symbol_name_; }
     bool get_is_global_symbol() const noexcept { return is_global_symbol_; }
     std::size_t get_align_log2() const noexcept { return align_log2_; }
+    std::size_t get_size() const noexcept {
+        std::size_t size = 0;
+        for (const AArch64DataFragment &fragment : fragments_) {
+            size += fragment.get_size();
+        }
+        return size;
+    }
     void append_fragment(AArch64DataFragment fragment) {
         fragments_.push_back(std::move(fragment));
     }
@@ -114,7 +246,6 @@ class AArch64ObjectModule {
     std::vector<AArch64DebugFileEntry> debug_file_entries_;
     std::unordered_map<std::string, unsigned> debug_file_ids_;
     std::vector<AArch64DataObject> data_objects_;
-    std::vector<AArch64MachineFunction> functions_;
     std::map<std::string, AArch64Symbol> symbols_;
 
   public:
@@ -150,18 +281,6 @@ class AArch64ObjectModule {
                                    is_global_symbol, align_log2);
         return data_objects_.back();
     }
-    std::vector<AArch64MachineFunction> &get_functions() noexcept {
-        return functions_;
-    }
-    const std::vector<AArch64MachineFunction> &get_functions() const noexcept {
-        return functions_;
-    }
-    AArch64MachineFunction &append_function(std::string name, bool is_global_symbol,
-                                            std::string epilogue_label) {
-        functions_.emplace_back(std::move(name), is_global_symbol,
-                                std::move(epilogue_label));
-        return functions_.back();
-    }
     AArch64Symbol &record_symbol(std::string name, AArch64SymbolKind kind,
                                  std::optional<AArch64SectionKind> section_kind,
                                  bool is_defined, bool is_global,
@@ -189,6 +308,23 @@ class AArch64ObjectModule {
     }
 };
 
-using AArch64MachineModule = AArch64ObjectModule;
+class AArch64MachineModule {
+  private:
+    std::vector<AArch64MachineFunction> functions_;
+
+  public:
+    std::vector<AArch64MachineFunction> &get_functions() noexcept {
+        return functions_;
+    }
+    const std::vector<AArch64MachineFunction> &get_functions() const noexcept {
+        return functions_;
+    }
+    AArch64MachineFunction &append_function(std::string name, bool is_global_symbol,
+                                            std::string epilogue_label) {
+        functions_.emplace_back(std::move(name), is_global_symbol,
+                                std::move(epilogue_label));
+        return functions_.back();
+    }
+};
 
 } // namespace sysycc

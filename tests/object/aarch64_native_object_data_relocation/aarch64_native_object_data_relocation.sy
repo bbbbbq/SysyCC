@@ -1,0 +1,7 @@
+extern int ext;
+
+int *global_ptr = &ext;
+
+int load_ext_via_global_ptr(void) {
+    return *global_ptr;
+}

@@ -1,0 +1,17 @@
+int values[64] = {};
+
+int spill_symbolic_address_heavy(int a, int b, int c, int d, int e, int f, int g,
+                                 int h) {
+    int x0 = a + b;
+    int x1 = b + c;
+    int x2 = c + d;
+    int x3 = d + e;
+    int x4 = e + f;
+    int x5 = f + g;
+    int x6 = g + h;
+    int *base = values;
+    int y0 = base[a];
+    int y1 = base[b];
+    int y2 = base[c];
+    return y0 + y1 + y2 + x0 + x1 + x2 + x3 + x4 + x5 + x6;
+}
