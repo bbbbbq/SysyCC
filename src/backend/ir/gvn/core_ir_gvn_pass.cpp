@@ -22,8 +22,13 @@ namespace sysycc {
 
 namespace {
 
+using sysycc::detail::append_type_key;
+using sysycc::detail::append_value_key;
 using sysycc::detail::are_equivalent_types;
+using sysycc::detail::are_equivalent_pointer_values;
+using sysycc::detail::collect_structural_gep_chain;
 using sysycc::detail::erase_instruction;
+using sysycc::detail::unwrap_trivial_zero_index_geps;
 
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
     const std::string message =
@@ -98,7 +103,8 @@ bool instructions_share_exact_memory_access(const CoreIrInstruction &lhs,
 
     CoreIrValue *lhs_address = get_memory_address_value(lhs);
     CoreIrValue *rhs_address = get_memory_address_value(rhs);
-    return lhs_address != nullptr && lhs_address == rhs_address &&
+    return lhs_address != nullptr &&
+           are_equivalent_pointer_values(lhs_address, rhs_address) &&
            rhs_address != nullptr;
 }
 
@@ -135,25 +141,29 @@ bool is_commutative_binary(CoreIrBinaryOpcode opcode) {
     return false;
 }
 
+std::string build_value_key_fragment(const CoreIrValue *value) {
+    std::string key;
+    append_value_key(key, value);
+    return key;
+}
+
 std::string build_gvn_key(const CoreIrInstruction &instruction) {
     std::string key;
     key += std::to_string(static_cast<int>(instruction.get_opcode()));
     key.push_back(':');
-    append_pointer_key(key, instruction.get_type());
+    append_type_key(key, instruction.get_type());
 
     if (const auto *binary = dynamic_cast<const CoreIrBinaryInst *>(&instruction);
         binary != nullptr) {
         key += std::to_string(static_cast<int>(binary->get_binary_opcode()));
         key.push_back(':');
-        const void *lhs = binary->get_lhs();
-        const void *rhs = binary->get_rhs();
-        if (is_commutative_binary(binary->get_binary_opcode()) &&
-            reinterpret_cast<std::uintptr_t>(lhs) >
-                reinterpret_cast<std::uintptr_t>(rhs)) {
-            std::swap(lhs, rhs);
+        std::string lhs_key = build_value_key_fragment(binary->get_lhs());
+        std::string rhs_key = build_value_key_fragment(binary->get_rhs());
+        if (is_commutative_binary(binary->get_binary_opcode()) && lhs_key > rhs_key) {
+            std::swap(lhs_key, rhs_key);
         }
-        append_pointer_key(key, lhs);
-        append_pointer_key(key, rhs);
+        key += lhs_key;
+        key += rhs_key;
         return key;
     }
 
@@ -161,7 +171,7 @@ std::string build_gvn_key(const CoreIrInstruction &instruction) {
         unary != nullptr) {
         key += std::to_string(static_cast<int>(unary->get_unary_opcode()));
         key.push_back(':');
-        append_pointer_key(key, unary->get_operand());
+        append_value_key(key, unary->get_operand());
         return key;
     }
 
@@ -169,8 +179,8 @@ std::string build_gvn_key(const CoreIrInstruction &instruction) {
         compare != nullptr) {
         key += std::to_string(static_cast<int>(compare->get_predicate()));
         key.push_back(':');
-        append_pointer_key(key, compare->get_lhs());
-        append_pointer_key(key, compare->get_rhs());
+        append_value_key(key, compare->get_lhs());
+        append_value_key(key, compare->get_rhs());
         return key;
     }
 
@@ -178,17 +188,28 @@ std::string build_gvn_key(const CoreIrInstruction &instruction) {
         cast != nullptr) {
         key += std::to_string(static_cast<int>(cast->get_cast_kind()));
         key.push_back(':');
-        append_pointer_key(key, cast->get_operand());
+        append_value_key(key, cast->get_operand());
         return key;
     }
 
     const auto *gep = dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction);
     if (gep != nullptr) {
-        append_pointer_key(key, gep->get_base());
+        CoreIrValue *root_base = nullptr;
+        std::vector<CoreIrValue *> indices;
+        if (collect_structural_gep_chain(*gep, root_base, indices)) {
+            append_value_key(key, root_base);
+            key += std::to_string(indices.size());
+            key.push_back(':');
+            for (CoreIrValue *index : indices) {
+                append_value_key(key, index);
+            }
+            return key;
+        }
+        append_value_key(key, unwrap_trivial_zero_index_geps(gep->get_base()));
         key += std::to_string(gep->get_index_count());
         key.push_back(':');
         for (std::size_t index = 0; index < gep->get_index_count(); ++index) {
-            append_pointer_key(key, gep->get_index(index));
+            append_value_key(key, gep->get_index(index));
         }
     }
 
@@ -213,7 +234,7 @@ build_load_gvn_key(const CoreIrLoadInst &load,
     }
 
     std::string key = "load:";
-    append_pointer_key(key, load.get_type());
+    append_type_key(key, load.get_type());
     key += "mem:";
     if (const CoreIrMemoryLocation *location =
             alias_analysis.get_location_for_instruction(&load);
@@ -223,7 +244,7 @@ build_load_gvn_key(const CoreIrLoadInst &load,
     } else if (load.get_stack_slot() != nullptr) {
         append_pointer_key(key, load.get_stack_slot());
     } else if (load.get_address() != nullptr) {
-        append_pointer_key(key, load.get_address());
+        append_value_key(key, load.get_address());
     } else {
         return std::nullopt;
     }

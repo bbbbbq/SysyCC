@@ -22,6 +22,7 @@ namespace sysycc {
 namespace {
 
 using sysycc::detail::erase_instruction;
+using sysycc::detail::are_equivalent_pointer_values;
 
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
     const std::string message =
@@ -84,7 +85,8 @@ bool instructions_share_exact_memory_access(const CoreIrInstruction &lhs,
 
     CoreIrValue *lhs_address = get_memory_address_value(lhs);
     CoreIrValue *rhs_address = get_memory_address_value(rhs);
-    return lhs_address != nullptr && lhs_address == rhs_address &&
+    return lhs_address != nullptr &&
+           are_equivalent_pointer_values(lhs_address, rhs_address) &&
            rhs_address != nullptr;
 }
 

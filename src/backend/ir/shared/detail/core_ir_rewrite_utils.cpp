@@ -81,6 +81,177 @@ bool are_equivalent_types(const CoreIrType *lhs, const CoreIrType *rhs) {
     return false;
 }
 
+void append_type_key(std::string &key, const CoreIrType *type) {
+    if (type == nullptr) {
+        key += "null;";
+        return;
+    }
+
+    key += std::to_string(static_cast<int>(type->get_kind()));
+    key.push_back(':');
+    switch (type->get_kind()) {
+    case CoreIrTypeKind::Void:
+        key += "void;";
+        return;
+    case CoreIrTypeKind::Integer:
+        key += std::to_string(
+            static_cast<const CoreIrIntegerType *>(type)->get_bit_width());
+        key.push_back(';');
+        return;
+    case CoreIrTypeKind::Float:
+        key += std::to_string(static_cast<int>(
+            static_cast<const CoreIrFloatType *>(type)->get_float_kind()));
+        key.push_back(';');
+        return;
+    case CoreIrTypeKind::Pointer:
+        append_type_key(
+            key, static_cast<const CoreIrPointerType *>(type)->get_pointee_type());
+        key.push_back(';');
+        return;
+    case CoreIrTypeKind::Array: {
+        const auto *array_type = static_cast<const CoreIrArrayType *>(type);
+        key += std::to_string(array_type->get_element_count());
+        key.push_back('x');
+        append_type_key(key, array_type->get_element_type());
+        key.push_back(';');
+        return;
+    }
+    case CoreIrTypeKind::Struct: {
+        key.push_back('{');
+        for (const CoreIrType *element_type :
+             static_cast<const CoreIrStructType *>(type)->get_element_types()) {
+            append_type_key(key, element_type);
+            key.push_back(',');
+        }
+        key += "};";
+        return;
+    }
+    case CoreIrTypeKind::Function: {
+        const auto *function_type = static_cast<const CoreIrFunctionType *>(type);
+        key += function_type->get_is_variadic() ? "var:" : "fixed:";
+        append_type_key(key, function_type->get_return_type());
+        key.push_back('(');
+        for (const CoreIrType *parameter_type :
+             function_type->get_parameter_types()) {
+            append_type_key(key, parameter_type);
+            key.push_back(',');
+        }
+        key += ");";
+        return;
+    }
+    }
+}
+
+void append_value_key(std::string &key, const CoreIrValue *value) {
+    if (value == nullptr) {
+        key += "null;";
+        return;
+    }
+    if (const auto *constant_int = dynamic_cast<const CoreIrConstantInt *>(value);
+        constant_int != nullptr) {
+        key += "cint:";
+        append_type_key(key, constant_int->get_type());
+        key += std::to_string(constant_int->get_value());
+        key.push_back(';');
+        return;
+    }
+    if (const auto *constant_float =
+            dynamic_cast<const CoreIrConstantFloat *>(value);
+        constant_float != nullptr) {
+        key += "cfloat:";
+        append_type_key(key, constant_float->get_type());
+        key += constant_float->get_literal_text();
+        key.push_back(';');
+        return;
+    }
+    if (dynamic_cast<const CoreIrConstantNull *>(value) != nullptr) {
+        key += "cnull:";
+        append_type_key(key, value->get_type());
+        key.push_back(';');
+        return;
+    }
+    if (dynamic_cast<const CoreIrConstantZeroInitializer *>(value) != nullptr) {
+        key += "czero:";
+        append_type_key(key, value->get_type());
+        key.push_back(';');
+        return;
+    }
+    if (const auto *byte_string =
+            dynamic_cast<const CoreIrConstantByteString *>(value);
+        byte_string != nullptr) {
+        key += "cbytes:";
+        append_type_key(key, byte_string->get_type());
+        for (std::uint8_t byte : byte_string->get_bytes()) {
+            key += std::to_string(byte);
+            key.push_back(',');
+        }
+        key.push_back(';');
+        return;
+    }
+    if (const auto *aggregate =
+            dynamic_cast<const CoreIrConstantAggregate *>(value);
+        aggregate != nullptr) {
+        key += "cagg:";
+        append_type_key(key, aggregate->get_type());
+        key.push_back('[');
+        for (const CoreIrConstant *element : aggregate->get_elements()) {
+            append_value_key(key, element);
+            key.push_back(',');
+        }
+        key += "];";
+        return;
+    }
+    if (const auto *global_address =
+            dynamic_cast<const CoreIrConstantGlobalAddress *>(value);
+        global_address != nullptr) {
+        key += "caddr:";
+        append_type_key(key, global_address->get_type());
+        key += std::to_string(reinterpret_cast<std::uintptr_t>(
+            global_address->get_global() != nullptr
+                ? static_cast<const void *>(global_address->get_global())
+                : static_cast<const void *>(global_address->get_function())));
+        key.push_back(';');
+        return;
+    }
+    if (const auto *constant_gep =
+            dynamic_cast<const CoreIrConstantGetElementPtr *>(value);
+        constant_gep != nullptr) {
+        key += "cgep:";
+        append_type_key(key, constant_gep->get_type());
+        append_value_key(key, constant_gep->get_base());
+        key.push_back('[');
+        for (const CoreIrConstant *index : constant_gep->get_indices()) {
+            append_value_key(key, index);
+            key.push_back(',');
+        }
+        key += "];";
+        return;
+    }
+
+    key += "v:";
+    key += std::to_string(reinterpret_cast<std::uintptr_t>(value));
+    key.push_back(';');
+}
+
+namespace {
+
+bool are_equivalent_values(const CoreIrValue *lhs, const CoreIrValue *rhs) {
+    if (lhs == rhs) {
+        return true;
+    }
+    if (lhs == nullptr || rhs == nullptr) {
+        return false;
+    }
+
+    std::string lhs_key;
+    std::string rhs_key;
+    append_value_key(lhs_key, lhs);
+    append_value_key(rhs_key, rhs);
+    return lhs_key == rhs_key;
+}
+
+} // namespace
+
 const CoreIrConstantInt *as_integer_constant(const CoreIrValue *value) {
     return dynamic_cast<const CoreIrConstantInt *>(value);
 }
@@ -214,6 +385,48 @@ bool collect_structural_gep_chain(const CoreIrGetElementPtrInst &gep,
     root_base = unwrap_trivial_zero_index_geps(gep.get_base());
     for (std::size_t index = 0; index < gep.get_index_count(); ++index) {
         indices.push_back(gep.get_index(index));
+    }
+    return true;
+}
+
+bool are_equivalent_pointer_values(const CoreIrValue *lhs,
+                                   const CoreIrValue *rhs) {
+    if (lhs == rhs) {
+        return true;
+    }
+    if (lhs == nullptr || rhs == nullptr) {
+        return false;
+    }
+
+    auto *lhs_root = unwrap_trivial_zero_index_geps(
+        const_cast<CoreIrValue *>(lhs));
+    auto *rhs_root = unwrap_trivial_zero_index_geps(
+        const_cast<CoreIrValue *>(rhs));
+    if (lhs_root == rhs_root) {
+        return true;
+    }
+
+    auto *lhs_gep = dynamic_cast<CoreIrGetElementPtrInst *>(lhs_root);
+    auto *rhs_gep = dynamic_cast<CoreIrGetElementPtrInst *>(rhs_root);
+    if (lhs_gep == nullptr || rhs_gep == nullptr) {
+        return false;
+    }
+
+    CoreIrValue *lhs_chain_root = nullptr;
+    CoreIrValue *rhs_chain_root = nullptr;
+    std::vector<CoreIrValue *> lhs_indices;
+    std::vector<CoreIrValue *> rhs_indices;
+    if (!collect_structural_gep_chain(*lhs_gep, lhs_chain_root, lhs_indices) ||
+        !collect_structural_gep_chain(*rhs_gep, rhs_chain_root, rhs_indices) ||
+        lhs_chain_root != rhs_chain_root ||
+        lhs_indices.size() != rhs_indices.size()) {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < lhs_indices.size(); ++index) {
+        if (!are_equivalent_values(lhs_indices[index], rhs_indices[index])) {
+            return false;
+        }
     }
     return true;
 }
