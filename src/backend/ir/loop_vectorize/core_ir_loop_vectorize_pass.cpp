@@ -72,6 +72,20 @@ const CoreIrIntegerType *as_i32_type(const CoreIrType *type) {
                : nullptr;
 }
 
+std::size_t get_vector_alignment_bytes(const CoreIrType *type) {
+    const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
+    if (vector_type == nullptr) {
+        return 0;
+    }
+    const auto *element_type =
+        dynamic_cast<const CoreIrIntegerType *>(vector_type->get_element_type());
+    if (element_type != nullptr && element_type->get_bit_width() == 32 &&
+        vector_type->get_element_count() == kVectorWidth) {
+        return 16;
+    }
+    return 0;
+}
+
 struct AccessInfo {
     CoreIrValue *root_base = nullptr;
     std::vector<CoreIrValue *> prefix_indices;
@@ -853,7 +867,8 @@ CoreIrValue *materialize_vector_load(CoreIrBasicBlock &body, CoreIrInstruction *
                                                          access.root_base, std::move(indices));
     CoreIrInstruction *addr_inst =
         insert_instruction_before(body, anchor, std::move(gep));
-    auto load = std::make_unique<CoreIrLoadInst>(vector_type, name, addr_inst);
+    auto load = std::make_unique<CoreIrLoadInst>(
+        vector_type, name, addr_inst, get_vector_alignment_bytes(vector_type));
     return insert_instruction_before(body, anchor, std::move(load));
 }
 
@@ -1182,8 +1197,8 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
             vector_body_ptr->create_instruction<CoreIrGetElementPtrInst>(
                 ptr_i32, "vec.store.addr." + std::to_string(lane_group),
                 pattern.store_access.root_base, std::move(indices));
-        vector_body_ptr->create_instruction<CoreIrStoreInst>(void_type, vec_add,
-                                                             vec_store_addr);
+        vector_body_ptr->create_instruction<CoreIrStoreInst>(
+            void_type, vec_add, vec_store_addr, get_vector_alignment_bytes(vec_type));
     }
     auto *vec_next = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type, "vec.iv.next", vec_iv, sixteen32);
@@ -1510,8 +1525,9 @@ bool vectorize_store_loop(CoreIrFunction &function, StoreLoopPattern &pattern,
         ptr_type, "vec.store.addr", pattern.store_access.root_base, std::move(indices));
     CoreIrInstruction *addr_inst =
         insert_instruction_before(*pattern.body, anchor, std::move(vec_store_addr));
-    auto vec_store = std::make_unique<CoreIrStoreInst>(pattern.store->get_type(), vec_result,
-                                                       addr_inst);
+    auto vec_store = std::make_unique<CoreIrStoreInst>(
+        pattern.store->get_type(), vec_result, addr_inst,
+        get_vector_alignment_bytes(vec_type));
     insert_instruction_before(*pattern.body, anchor, std::move(vec_store));
     pattern.iv_next->set_operand(1, step);
     (void)function;

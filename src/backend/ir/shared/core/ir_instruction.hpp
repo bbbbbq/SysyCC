@@ -17,7 +17,12 @@ enum class CoreIrOpcode : unsigned char {
     Binary,
     Unary,
     Compare,
+    Select,
     Cast,
+    ExtractElement,
+    InsertElement,
+    ShuffleVector,
+    VectorReduceAdd,
     AddressOfFunction,
     AddressOfGlobal,
     AddressOfStackSlot,
@@ -155,7 +160,8 @@ class CoreIrInstruction : public CoreIrValue {
         const std::vector<CoreIrUse> uses = get_uses();
         for (const CoreIrUse &use : uses) {
             if (use.get_user() != nullptr) {
-                use.get_user()->set_operand(use.get_operand_index(), replacement);
+                use.get_user()->set_operand(use.get_operand_index(),
+                                            replacement);
             }
         }
     }
@@ -212,8 +218,8 @@ class CoreIrPhiInst final : public CoreIrInstruction {
                 ++index;
                 continue;
             }
-            incoming_blocks_.erase(
-                incoming_blocks_.begin() + static_cast<std::ptrdiff_t>(index));
+            incoming_blocks_.erase(incoming_blocks_.begin() +
+                                   static_cast<std::ptrdiff_t>(index));
             erase_operand(index);
         }
     }
@@ -265,7 +271,9 @@ class CoreIrUnaryInst final : public CoreIrInstruction {
         append_operand(operand);
     }
 
-    CoreIrUnaryOpcode get_unary_opcode() const noexcept { return unary_opcode_; }
+    CoreIrUnaryOpcode get_unary_opcode() const noexcept {
+        return unary_opcode_;
+    }
 
     CoreIrValue *get_operand() const noexcept {
         return get_operands().empty() ? nullptr : get_operands()[0];
@@ -323,6 +331,136 @@ class CoreIrCastInst final : public CoreIrInstruction {
     CoreIrCastKind get_cast_kind() const noexcept { return cast_kind_; }
 
     CoreIrValue *get_operand() const noexcept {
+        return get_operands().empty() ? nullptr : get_operands()[0];
+    }
+
+    bool get_has_side_effect() const noexcept override { return false; }
+
+    bool get_is_terminator() const noexcept override { return false; }
+};
+
+class CoreIrSelectInst final : public CoreIrInstruction {
+  public:
+    CoreIrSelectInst(const CoreIrType *type, std::string name,
+                     CoreIrValue *condition, CoreIrValue *true_value,
+                     CoreIrValue *false_value)
+        : CoreIrInstruction(CoreIrOpcode::Select, type, std::move(name)) {
+        append_operand(condition);
+        append_operand(true_value);
+        append_operand(false_value);
+    }
+
+    CoreIrValue *get_condition() const noexcept {
+        return get_operands().empty() ? nullptr : get_operands()[0];
+    }
+
+    CoreIrValue *get_true_value() const noexcept {
+        return get_operands().size() < 2 ? nullptr : get_operands()[1];
+    }
+
+    CoreIrValue *get_false_value() const noexcept {
+        return get_operands().size() < 3 ? nullptr : get_operands()[2];
+    }
+
+    bool get_has_side_effect() const noexcept override { return false; }
+
+    bool get_is_terminator() const noexcept override { return false; }
+};
+
+class CoreIrExtractElementInst final : public CoreIrInstruction {
+  public:
+    CoreIrExtractElementInst(const CoreIrType *type, std::string name,
+                             CoreIrValue *vector_value, CoreIrValue *index)
+        : CoreIrInstruction(CoreIrOpcode::ExtractElement, type, std::move(name)) {
+        append_operand(vector_value);
+        append_operand(index);
+    }
+
+    CoreIrValue *get_vector_value() const noexcept {
+        return get_operands().empty() ? nullptr : get_operands()[0];
+    }
+
+    CoreIrValue *get_index() const noexcept {
+        return get_operands().size() < 2 ? nullptr : get_operands()[1];
+    }
+
+    bool get_has_side_effect() const noexcept override { return false; }
+
+    bool get_is_terminator() const noexcept override { return false; }
+};
+
+class CoreIrInsertElementInst final : public CoreIrInstruction {
+  public:
+    CoreIrInsertElementInst(const CoreIrType *type, std::string name,
+                            CoreIrValue *vector_value, CoreIrValue *element_value,
+                            CoreIrValue *index)
+        : CoreIrInstruction(CoreIrOpcode::InsertElement, type, std::move(name)) {
+        append_operand(vector_value);
+        append_operand(element_value);
+        append_operand(index);
+    }
+
+    CoreIrValue *get_vector_value() const noexcept {
+        return get_operands().empty() ? nullptr : get_operands()[0];
+    }
+
+    CoreIrValue *get_element_value() const noexcept {
+        return get_operands().size() < 2 ? nullptr : get_operands()[1];
+    }
+
+    CoreIrValue *get_index() const noexcept {
+        return get_operands().size() < 3 ? nullptr : get_operands()[2];
+    }
+
+    bool get_has_side_effect() const noexcept override { return false; }
+
+    bool get_is_terminator() const noexcept override { return false; }
+};
+
+class CoreIrShuffleVectorInst final : public CoreIrInstruction {
+  public:
+    CoreIrShuffleVectorInst(const CoreIrType *type, std::string name,
+                            CoreIrValue *lhs, CoreIrValue *rhs,
+                            std::vector<CoreIrValue *> mask_values)
+        : CoreIrInstruction(CoreIrOpcode::ShuffleVector, type, std::move(name)) {
+        append_operand(lhs);
+        append_operand(rhs);
+        for (CoreIrValue *mask_value : mask_values) {
+            append_operand(mask_value);
+        }
+    }
+
+    CoreIrValue *get_lhs() const noexcept {
+        return get_operands().empty() ? nullptr : get_operands()[0];
+    }
+
+    CoreIrValue *get_rhs() const noexcept {
+        return get_operands().size() < 2 ? nullptr : get_operands()[1];
+    }
+
+    std::size_t get_mask_count() const noexcept {
+        return get_operands().size() > 2 ? get_operands().size() - 2 : 0;
+    }
+
+    CoreIrValue *get_mask_value(std::size_t index) const noexcept {
+        return index < get_mask_count() ? get_operands()[index + 2] : nullptr;
+    }
+
+    bool get_has_side_effect() const noexcept override { return false; }
+
+    bool get_is_terminator() const noexcept override { return false; }
+};
+
+class CoreIrVectorReduceAddInst final : public CoreIrInstruction {
+  public:
+    CoreIrVectorReduceAddInst(const CoreIrType *type, std::string name,
+                              CoreIrValue *vector_value)
+        : CoreIrInstruction(CoreIrOpcode::VectorReduceAdd, type,
+                            std::move(name)) {
+        append_operand(vector_value);
+    }
+
+    CoreIrValue *get_vector_value() const noexcept {
         return get_operands().empty() ? nullptr : get_operands()[0];
     }
 
@@ -421,16 +559,18 @@ class CoreIrGetElementPtrInst final : public CoreIrInstruction {
 class CoreIrLoadInst final : public CoreIrInstruction {
   private:
     CoreIrStackSlot *stack_slot_ = nullptr;
+    std::size_t alignment_ = 0;
 
   public:
     CoreIrLoadInst(const CoreIrType *type, std::string name,
-                   CoreIrStackSlot *stack_slot)
+                   CoreIrStackSlot *stack_slot, std::size_t alignment = 0)
         : CoreIrInstruction(CoreIrOpcode::Load, type, std::move(name)),
-          stack_slot_(stack_slot) {}
+          stack_slot_(stack_slot), alignment_(alignment) {}
 
     CoreIrLoadInst(const CoreIrType *type, std::string name,
-                   CoreIrValue *address)
-        : CoreIrInstruction(CoreIrOpcode::Load, type, std::move(name)) {
+                   CoreIrValue *address, std::size_t alignment = 0)
+        : CoreIrInstruction(CoreIrOpcode::Load, type, std::move(name)),
+          alignment_(alignment) {
         append_operand(address);
     }
 
@@ -443,6 +583,10 @@ class CoreIrLoadInst final : public CoreIrInstruction {
         return get_operands()[0];
     }
 
+    std::size_t get_alignment() const noexcept { return alignment_; }
+
+    void set_alignment(std::size_t alignment) noexcept { alignment_ = alignment; }
+
     bool get_has_side_effect() const noexcept override { return false; }
 
     bool get_is_terminator() const noexcept override { return false; }
@@ -451,18 +595,20 @@ class CoreIrLoadInst final : public CoreIrInstruction {
 class CoreIrStoreInst final : public CoreIrInstruction {
   private:
     CoreIrStackSlot *stack_slot_ = nullptr;
+    std::size_t alignment_ = 0;
 
   public:
     CoreIrStoreInst(const CoreIrType *void_type, CoreIrValue *value,
-                    CoreIrStackSlot *stack_slot)
+                    CoreIrStackSlot *stack_slot, std::size_t alignment = 0)
         : CoreIrInstruction(CoreIrOpcode::Store, void_type),
-          stack_slot_(stack_slot) {
+          stack_slot_(stack_slot), alignment_(alignment) {
         append_operand(value);
     }
 
     CoreIrStoreInst(const CoreIrType *void_type, CoreIrValue *value,
-                    CoreIrValue *address)
-        : CoreIrInstruction(CoreIrOpcode::Store, void_type) {
+                    CoreIrValue *address, std::size_t alignment = 0)
+        : CoreIrInstruction(CoreIrOpcode::Store, void_type),
+          alignment_(alignment) {
         append_operand(value);
         append_operand(address);
     }
@@ -479,6 +625,10 @@ class CoreIrStoreInst final : public CoreIrInstruction {
         }
         return get_operands()[1];
     }
+
+    std::size_t get_alignment() const noexcept { return alignment_; }
+
+    void set_alignment(std::size_t alignment) noexcept { alignment_ = alignment; }
 
     bool get_has_side_effect() const noexcept override { return true; }
 
@@ -498,8 +648,7 @@ class CoreIrCallInst final : public CoreIrInstruction {
                    const CoreIrFunctionType *callee_type,
                    std::vector<CoreIrValue *> arguments)
         : CoreIrInstruction(CoreIrOpcode::Call, type, std::move(name)),
-          callee_name_(std::move(callee_name)),
-          callee_type_(callee_type),
+          callee_name_(std::move(callee_name)), callee_type_(callee_type),
           argument_begin_index_(0) {
         for (CoreIrValue *argument : arguments) {
             append_operand(argument);
@@ -511,8 +660,7 @@ class CoreIrCallInst final : public CoreIrInstruction {
                    const CoreIrFunctionType *callee_type,
                    std::vector<CoreIrValue *> arguments)
         : CoreIrInstruction(CoreIrOpcode::Call, type, std::move(name)),
-          callee_value_(callee_value),
-          callee_type_(callee_type),
+          callee_value_(callee_value), callee_type_(callee_type),
           argument_begin_index_(1) {
         append_operand(callee_value);
         for (CoreIrValue *argument : arguments) {
@@ -520,7 +668,9 @@ class CoreIrCallInst final : public CoreIrInstruction {
         }
     }
 
-    bool get_is_direct_call() const noexcept { return callee_value_ == nullptr; }
+    bool get_is_direct_call() const noexcept {
+        return callee_value_ == nullptr;
+    }
 
     const std::string &get_callee_name() const noexcept { return callee_name_; }
 
@@ -546,8 +696,8 @@ class CoreIrCallInst final : public CoreIrInstruction {
             set_operand(0, callee_value);
         } else {
             std::vector<CoreIrValue *> arguments;
-            for (std::size_t index = argument_begin_index_; index < get_operands().size();
-                 ++index) {
+            for (std::size_t index = argument_begin_index_;
+                 index < get_operands().size(); ++index) {
                 arguments.push_back(get_operands()[index]);
             }
             detach_operands();
@@ -577,8 +727,9 @@ class CoreIrCallInst final : public CoreIrInstruction {
 
     CoreIrValue *get_argument(std::size_t index) const noexcept {
         const std::size_t operand_index = argument_begin_index_ + index;
-        return operand_index < get_operands().size() ? get_operands()[operand_index]
-                                                     : nullptr;
+        return operand_index < get_operands().size()
+                   ? get_operands()[operand_index]
+                   : nullptr;
     }
 
     void set_argument(std::size_t index, CoreIrValue *value) {
@@ -600,7 +751,9 @@ class CoreIrJumpInst final : public CoreIrInstruction {
         : CoreIrInstruction(CoreIrOpcode::Jump, void_type),
           target_block_(target_block) {}
 
-    CoreIrBasicBlock *get_target_block() const noexcept { return target_block_; }
+    CoreIrBasicBlock *get_target_block() const noexcept {
+        return target_block_;
+    }
 
     void set_target_block(CoreIrBasicBlock *target_block) noexcept {
         target_block_ = target_block;

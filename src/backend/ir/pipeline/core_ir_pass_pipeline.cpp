@@ -26,11 +26,13 @@
 #include "backend/ir/loop_rotate/core_ir_loop_rotate_pass.hpp"
 #include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
 #include "backend/ir/loop_unroll/core_ir_loop_unroll_pass.hpp"
+#include "backend/ir/loop_vectorize/core_ir_loop_vectorize_pass.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
 #include "backend/ir/mem2reg/core_ir_mem2reg_pass.hpp"
 #include "backend/ir/sccp/core_ir_sccp_pass.hpp"
 #include "backend/ir/simple_loop_unswitch/core_ir_simple_loop_unswitch_pass.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
+#include "backend/ir/slp_vectorize/core_ir_slp_vectorize_pass.hpp"
 #include "backend/ir/sroa/core_ir_sroa_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
 #include "compiler/pass/pass.hpp"
@@ -130,6 +132,8 @@ void append_module_fixed_point_pipeline(PassManager &pass_manager) {
 }
 
 void append_lowering_pipeline(PassManager &pass_manager) {
+    pass_manager.AddPass(std::make_unique<CoreIrLoopVectorizePass>());
+    pass_manager.AddPass(std::make_unique<CoreIrSlpVectorizePass>());
     pass_manager.AddPass(std::make_unique<LowerIrPass>());
 }
 

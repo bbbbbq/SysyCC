@@ -681,6 +681,10 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         } else {
             text += format_pointer_ref(load_instruction.get_address());
         }
+        if (load_instruction.get_alignment() > 0) {
+            text += ", align ";
+            text += std::to_string(load_instruction.get_alignment());
+        }
         text += "\n";
         return true;
     }
@@ -697,6 +701,10 @@ bool CoreIrLlvmTargetBackend::append_instruction(
                               store_instruction.get_stack_slot());
         } else {
             text += format_pointer_ref(store_instruction.get_address());
+        }
+        if (store_instruction.get_alignment() > 0) {
+            text += ", align ";
+            text += std::to_string(store_instruction.get_alignment());
         }
         text += "\n";
         return true;

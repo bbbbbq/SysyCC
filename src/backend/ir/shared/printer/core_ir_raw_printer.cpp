@@ -141,8 +141,8 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
     case CoreIrTypeKind::Void:
         return "void";
     case CoreIrTypeKind::Integer:
-        return "i" + std::to_string(
-                          static_cast<const CoreIrIntegerType *>(type)->get_bit_width());
+        return "i" + std::to_string(static_cast<const CoreIrIntegerType *>(type)
+                                        ->get_bit_width());
     case CoreIrTypeKind::Float: {
         switch (static_cast<const CoreIrFloatType *>(type)->get_float_kind()) {
         case CoreIrFloatKind::Float16:
@@ -156,8 +156,14 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
         }
         return "float";
     }
+    case CoreIrTypeKind::Vector: {
+        const auto *vector_type = static_cast<const CoreIrVectorType *>(type);
+        return "<" + std::to_string(vector_type->get_element_count()) + " x " +
+               format_type(vector_type->get_element_type()) + ">";
+    }
     case CoreIrTypeKind::Pointer:
-        return format_type(static_cast<const CoreIrPointerType *>(type)->get_pointee_type()) +
+        return format_type(static_cast<const CoreIrPointerType *>(type)
+                               ->get_pointee_type()) +
                "*";
     case CoreIrTypeKind::Array: {
         const auto *array_type = static_cast<const CoreIrArrayType *>(type);
@@ -178,8 +184,10 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
         return result;
     }
     case CoreIrTypeKind::Function: {
-        const auto *function_type = static_cast<const CoreIrFunctionType *>(type);
-        std::string result = format_type(function_type->get_return_type()) + " (";
+        const auto *function_type =
+            static_cast<const CoreIrFunctionType *>(type);
+        std::string result =
+            format_type(function_type->get_return_type()) + " (";
         const auto &parameter_types = function_type->get_parameter_types();
         for (std::size_t index = 0; index < parameter_types.size(); ++index) {
             if (index > 0) {
@@ -201,7 +209,8 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
     return "<unknown-type>";
 }
 
-std::string CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) const {
+std::string
+CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) const {
     if (constant == nullptr) {
         return "<null-constant>";
     }
@@ -218,7 +227,8 @@ std::string CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) co
     if (dynamic_cast<const CoreIrConstantNull *>(constant) != nullptr) {
         return "null";
     }
-    if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) != nullptr) {
+    if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) !=
+        nullptr) {
         return "zeroinitializer";
     }
     if (const auto *byte_string =
@@ -232,7 +242,10 @@ std::string CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) co
         const bool is_array =
             constant->get_type() != nullptr &&
             constant->get_type()->get_kind() == CoreIrTypeKind::Array;
-        std::string result = is_array ? "[ " : "{ ";
+        const bool is_vector =
+            constant->get_type() != nullptr &&
+            constant->get_type()->get_kind() == CoreIrTypeKind::Vector;
+        std::string result = is_array ? "[ " : is_vector ? "< " : "{ ";
         const auto &elements = aggregate->get_elements();
         for (std::size_t index = 0; index < elements.size(); ++index) {
             if (index > 0) {
@@ -240,7 +253,7 @@ std::string CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) co
             }
             result += format_constant(elements[index]);
         }
-        result += is_array ? " ]" : " }";
+        result += is_array ? " ]" : is_vector ? " >" : " }";
         return result;
     }
     if (const auto *global_address =
@@ -257,7 +270,8 @@ std::string CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) co
     if (const auto *gep_constant =
             dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
         gep_constant != nullptr) {
-        std::string result = "getelementptr(" + format_constant(gep_constant->get_base());
+        std::string result =
+            "getelementptr(" + format_constant(gep_constant->get_base());
         for (const CoreIrConstant *index : gep_constant->get_indices()) {
             result += ", " + format_constant(index);
         }
@@ -281,18 +295,20 @@ std::string CoreIrRawPrinter::format_value(const CoreIrValue *value) const {
     return "<unnamed>";
 }
 
-std::string
-CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const {
+std::string CoreIrRawPrinter::format_instruction(
+    const CoreIrInstruction &instruction) const {
     switch (instruction.get_opcode()) {
     case CoreIrOpcode::Phi: {
-        const auto &phi_instruction = static_cast<const CoreIrPhiInst &>(instruction);
+        const auto &phi_instruction =
+            static_cast<const CoreIrPhiInst &>(instruction);
         std::string text = format_value(&phi_instruction) + " = phi " +
                            format_type(phi_instruction.get_type());
-        for (std::size_t index = 0; index < phi_instruction.get_incoming_count();
-             ++index) {
+        for (std::size_t index = 0;
+             index < phi_instruction.get_incoming_count(); ++index) {
             CoreIrBasicBlock *incoming_block =
                 phi_instruction.get_incoming_block(index);
-            CoreIrValue *incoming_value = phi_instruction.get_incoming_value(index);
+            CoreIrValue *incoming_value =
+                phi_instruction.get_incoming_value(index);
             if (incoming_block == nullptr || incoming_value == nullptr) {
                 continue;
             }
@@ -309,8 +325,8 @@ CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const
         const auto &binary_instruction =
             static_cast<const CoreIrBinaryInst &>(instruction);
         return format_value(&binary_instruction) + " = " +
-               format_binary_opcode(binary_instruction.get_binary_opcode()) + " " +
-               format_type(binary_instruction.get_type()) + " " +
+               format_binary_opcode(binary_instruction.get_binary_opcode()) +
+               " " + format_type(binary_instruction.get_type()) + " " +
                format_value(binary_instruction.get_lhs()) + ", " +
                format_value(binary_instruction.get_rhs());
     }
@@ -326,10 +342,63 @@ CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const
         const auto &compare_instruction =
             static_cast<const CoreIrCompareInst &>(instruction);
         return format_value(&compare_instruction) + " = icmp " +
-               format_compare_predicate(compare_instruction.get_predicate()) + " " +
-               format_type(compare_instruction.get_lhs()->get_type()) + " " +
-               format_value(compare_instruction.get_lhs()) + ", " +
+               format_compare_predicate(compare_instruction.get_predicate()) +
+               " " + format_type(compare_instruction.get_lhs()->get_type()) +
+               " " + format_value(compare_instruction.get_lhs()) + ", " +
                format_value(compare_instruction.get_rhs());
+    }
+    case CoreIrOpcode::Select: {
+        const auto &select_instruction =
+            static_cast<const CoreIrSelectInst &>(instruction);
+        return format_value(&select_instruction) + " = select " +
+               format_type(select_instruction.get_condition()->get_type()) +
+               " " + format_value(select_instruction.get_condition()) + ", " +
+               format_type(select_instruction.get_true_value()->get_type()) +
+               " " + format_value(select_instruction.get_true_value()) + ", " +
+               format_value(select_instruction.get_false_value());
+    }
+    case CoreIrOpcode::ExtractElement: {
+        const auto &extract_instruction =
+            static_cast<const CoreIrExtractElementInst &>(instruction);
+        return format_value(&extract_instruction) + " = extractelement " +
+               format_type(extract_instruction.get_vector_value()->get_type()) +
+               " " + format_value(extract_instruction.get_vector_value()) + ", " +
+               format_type(extract_instruction.get_index()->get_type()) + " " +
+               format_value(extract_instruction.get_index());
+    }
+    case CoreIrOpcode::InsertElement: {
+        const auto &insert_instruction =
+            static_cast<const CoreIrInsertElementInst &>(instruction);
+        return format_value(&insert_instruction) + " = insertelement " +
+               format_type(insert_instruction.get_vector_value()->get_type()) +
+               " " + format_value(insert_instruction.get_vector_value()) + ", " +
+               format_type(insert_instruction.get_element_value()->get_type()) +
+               " " + format_value(insert_instruction.get_element_value()) + ", " +
+               format_type(insert_instruction.get_index()->get_type()) + " " +
+               format_value(insert_instruction.get_index());
+    }
+    case CoreIrOpcode::ShuffleVector: {
+        const auto &shuffle_instruction =
+            static_cast<const CoreIrShuffleVectorInst &>(instruction);
+        std::string text =
+            format_value(&shuffle_instruction) + " = shufflevector " +
+            format_type(shuffle_instruction.get_lhs()->get_type()) + " " +
+            format_value(shuffle_instruction.get_lhs()) + ", " +
+            format_type(shuffle_instruction.get_rhs()->get_type()) + " " +
+            format_value(shuffle_instruction.get_rhs());
+        for (std::size_t index = 0; index < shuffle_instruction.get_mask_count();
+             ++index) {
+            text += ", ";
+            text += format_value(shuffle_instruction.get_mask_value(index));
+        }
+        return text;
+    }
+    case CoreIrOpcode::VectorReduceAdd: {
+        const auto &reduce_instruction =
+            static_cast<const CoreIrVectorReduceAddInst &>(instruction);
+        return format_value(&reduce_instruction) + " = vector_reduce_add " +
+               format_type(reduce_instruction.get_vector_value()->get_type()) +
+               " " + format_value(reduce_instruction.get_vector_value());
     }
     case CoreIrOpcode::Cast: {
         const auto &cast_instruction =
@@ -350,7 +419,8 @@ CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const
     case CoreIrOpcode::AddressOfGlobal: {
         const auto &address_of_global_instruction =
             static_cast<const CoreIrAddressOfGlobalInst &>(instruction);
-        return format_value(&address_of_global_instruction) + " = addr_of_global " +
+        return format_value(&address_of_global_instruction) +
+               " = addr_of_global " +
                format_type(address_of_global_instruction.get_type()) + " @" +
                address_of_global_instruction.get_global()->get_name();
     }
@@ -359,7 +429,8 @@ CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const
             static_cast<const CoreIrAddressOfStackSlotInst &>(instruction);
         return format_value(&address_of_stack_slot_instruction) +
                " = addr_of_stackslot " +
-               format_type(address_of_stack_slot_instruction.get_type()) + " %" +
+               format_type(address_of_stack_slot_instruction.get_type()) +
+               " %" +
                address_of_stack_slot_instruction.get_stack_slot()->get_name();
     }
     case CoreIrOpcode::GetElementPtr: {
@@ -383,9 +454,17 @@ CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const
         if (load_instruction.get_stack_slot() != nullptr) {
             text += "%";
             text += load_instruction.get_stack_slot()->get_name();
+            if (load_instruction.get_alignment() > 0) {
+                text += ", align ";
+                text += std::to_string(load_instruction.get_alignment());
+            }
             return text;
         }
         text += format_value(load_instruction.get_address());
+        if (load_instruction.get_alignment() > 0) {
+            text += ", align ";
+            text += std::to_string(load_instruction.get_alignment());
+        }
         return text;
     }
     case CoreIrOpcode::Store: {
@@ -397,9 +476,17 @@ CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const
         if (store_instruction.get_stack_slot() != nullptr) {
             text += "%";
             text += store_instruction.get_stack_slot()->get_name();
+            if (store_instruction.get_alignment() > 0) {
+                text += ", align ";
+                text += std::to_string(store_instruction.get_alignment());
+            }
             return text;
         }
         text += format_value(store_instruction.get_address());
+        if (store_instruction.get_alignment() > 0) {
+            text += ", align ";
+            text += std::to_string(store_instruction.get_alignment());
+        }
         return text;
     }
     case CoreIrOpcode::Call: {
@@ -441,10 +528,13 @@ CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const
     case CoreIrOpcode::CondJump: {
         const auto &cond_jump_instruction =
             static_cast<const CoreIrCondJumpInst &>(instruction);
-        return "br " + format_type(cond_jump_instruction.get_condition()->get_type()) +
+        return "br " +
+               format_type(cond_jump_instruction.get_condition()->get_type()) +
                " " + format_value(cond_jump_instruction.get_condition()) +
-               ", label %" + cond_jump_instruction.get_true_block()->get_name() +
-               ", label %" + cond_jump_instruction.get_false_block()->get_name();
+               ", label %" +
+               cond_jump_instruction.get_true_block()->get_name() +
+               ", label %" +
+               cond_jump_instruction.get_false_block()->get_name();
     }
     case CoreIrOpcode::Return: {
         const auto &return_instruction =
@@ -453,8 +543,8 @@ CoreIrRawPrinter::format_instruction(const CoreIrInstruction &instruction) const
             return "ret void";
         }
         return "ret " +
-               format_type(return_instruction.get_return_value()->get_type()) + " " +
-               format_value(return_instruction.get_return_value());
+               format_type(return_instruction.get_return_value()->get_type()) +
+               " " + format_value(return_instruction.get_return_value());
     }
     }
     return "<instruction>";
@@ -523,7 +613,8 @@ void CoreIrRawPrinter::append_function(std::string &output,
         output += std::to_string(stack_slot->get_alignment());
         output += "\n";
     }
-    if (!function.get_stack_slots().empty() && !function.get_basic_blocks().empty()) {
+    if (!function.get_stack_slots().empty() &&
+        !function.get_basic_blocks().empty()) {
         output += "\n";
     }
     for (const auto &basic_block : function.get_basic_blocks()) {
@@ -546,7 +637,8 @@ std::string CoreIrRawPrinter::print_module(const CoreIrModule &module) const {
 
     if (!module.get_functions().empty()) {
         output += "\n";
-        for (std::size_t index = 0; index < module.get_functions().size(); ++index) {
+        for (std::size_t index = 0; index < module.get_functions().size();
+             ++index) {
             append_function(output, *module.get_functions()[index]);
             if (index + 1 < module.get_functions().size()) {
                 output += "\n";
