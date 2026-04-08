@@ -35,7 +35,7 @@ bool AArch64AsmBackend::BuildModule(const CoreIrModule &module,
 std::unique_ptr<AsmResult>
 AArch64AsmBackend::Generate(const CoreIrModule &module,
                             const BackendOptions &backend_options,
-    DiagnosticEngine &diagnostic_engine) const {
+                            DiagnosticEngine &diagnostic_engine) const {
     AArch64MachineModule machine_module;
     AArch64ObjectModule object_module;
     if (!BuildModule(module, backend_options, diagnostic_engine, machine_module,

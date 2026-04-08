@@ -22,6 +22,21 @@ struct AsmPrintOptions {
     bool force_global_function_symbols = false;
 };
 
+std::filesystem::path make_temp_output_path(const std::filesystem::path &output_file,
+                                            const char *suffix) {
+    const std::string file_name =
+        output_file.filename().string() + std::string(suffix);
+    if (output_file.parent_path().empty()) {
+        return std::filesystem::path(file_name);
+    }
+    return output_file.parent_path() / file_name;
+}
+
+void remove_file_if_present(const std::filesystem::path &file_path) {
+    std::error_code ignored_error;
+    std::filesystem::remove(file_path, ignored_error);
+}
+
 std::string shell_quote(const std::string &text) {
     std::string quoted = "'";
     for (char ch : text) {
@@ -183,8 +198,7 @@ bool move_file_into_place(const std::filesystem::path &source_file,
                           const std::filesystem::path &destination_file,
                           DiagnosticEngine &diagnostic_engine,
                           const char *error_message) {
-    std::error_code ignored_error;
-    std::filesystem::remove(destination_file, ignored_error);
+    remove_file_if_present(destination_file);
     std::error_code rename_error;
     std::filesystem::rename(source_file, destination_file, rename_error);
     if (!rename_error) {
@@ -195,7 +209,7 @@ bool move_file_into_place(const std::filesystem::path &source_file,
                                std::filesystem::copy_options::overwrite_existing,
                                copy_error);
     if (!copy_error) {
-        std::filesystem::remove(source_file, ignored_error);
+        remove_file_if_present(source_file);
         return true;
     }
     diagnostic_engine.add_error(DiagnosticStage::Compiler, error_message);
@@ -301,10 +315,7 @@ bool emit_single_assembled_object(const AArch64MachineModule &machine_module,
                                   const std::filesystem::path &object_file,
                                   DiagnosticEngine &diagnostic_engine) {
     const std::filesystem::path temp_asm =
-        object_file.parent_path().empty()
-            ? std::filesystem::path(object_file.filename().string() + ".tmp.s")
-            : object_file.parent_path() /
-                  (object_file.filename().string() + ".tmp.s");
+        make_temp_output_path(object_file, ".tmp.s");
     if (!write_text_file(temp_asm,
                          print_module_with_options(machine_module, object_module,
                                                    print_options),
@@ -315,12 +326,10 @@ bool emit_single_assembled_object(const AArch64MachineModule &machine_module,
     if (!assemble_aarch64_object(temp_asm, object_file,
                                  backend_options.get_debug_info(),
                                  diagnostic_engine)) {
-        std::error_code ignored_error;
-        std::filesystem::remove(temp_asm, ignored_error);
+        remove_file_if_present(temp_asm);
         return false;
     }
-    std::error_code ignored_error;
-    std::filesystem::remove(temp_asm, ignored_error);
+    remove_file_if_present(temp_asm);
     return true;
 }
 
@@ -374,25 +383,13 @@ std::unique_ptr<ObjectResult> AArch64EmissionPass::emit_object_result(
         }
     } else {
         const std::filesystem::path temp_functions_asm =
-            object_file.parent_path().empty()
-                ? std::filesystem::path(object_file.filename().string() + ".functions.tmp.s")
-                : object_file.parent_path() /
-                      (object_file.filename().string() + ".functions.tmp.s");
+            make_temp_output_path(object_file, ".functions.tmp.s");
         const std::filesystem::path temp_functions_object =
-            object_file.parent_path().empty()
-                ? std::filesystem::path(object_file.filename().string() + ".functions.tmp.o")
-                : object_file.parent_path() /
-                      (object_file.filename().string() + ".functions.tmp.o");
+            make_temp_output_path(object_file, ".functions.tmp.o");
         const std::filesystem::path temp_data_object =
-            object_file.parent_path().empty()
-                ? std::filesystem::path(object_file.filename().string() + ".data.tmp.o")
-                : object_file.parent_path() /
-                      (object_file.filename().string() + ".data.tmp.o");
+            make_temp_output_path(object_file, ".data.tmp.o");
         const std::filesystem::path temp_merged_object =
-            object_file.parent_path().empty()
-                ? std::filesystem::path(object_file.filename().string() + ".merged.tmp.o")
-                : object_file.parent_path() /
-                      (object_file.filename().string() + ".merged.tmp.o");
+            make_temp_output_path(object_file, ".merged.tmp.o");
 
         if (!write_text_file(
                 temp_functions_asm,
@@ -409,12 +406,10 @@ std::unique_ptr<ObjectResult> AArch64EmissionPass::emit_object_result(
         if (!assemble_aarch64_object(temp_functions_asm, temp_functions_object,
                                      backend_options.get_debug_info(),
                                      diagnostic_engine)) {
-            std::error_code ignored_error;
-            std::filesystem::remove(temp_functions_asm, ignored_error);
+            remove_file_if_present(temp_functions_asm);
             return nullptr;
         }
-        std::error_code ignored_error;
-        std::filesystem::remove(temp_functions_asm, ignored_error);
+        remove_file_if_present(temp_functions_asm);
 
         if (!write_aarch64_data_only_object(
                 object_module, temp_data_object,
@@ -422,28 +417,28 @@ std::unique_ptr<ObjectResult> AArch64EmissionPass::emit_object_result(
                     .force_defined_symbols_global =
                         needs_intermediate_symbol_globalization},
                 diagnostic_engine)) {
-            std::filesystem::remove(temp_functions_object, ignored_error);
+            remove_file_if_present(temp_functions_object);
             return nullptr;
         }
         if (!merge_relocatable_objects(temp_merged_object,
                                        {temp_functions_object, temp_data_object},
                                        diagnostic_engine)) {
-            std::filesystem::remove(temp_functions_object, ignored_error);
-            std::filesystem::remove(temp_data_object, ignored_error);
+            remove_file_if_present(temp_functions_object);
+            remove_file_if_present(temp_data_object);
             return nullptr;
         }
-        std::filesystem::remove(temp_functions_object, ignored_error);
-        std::filesystem::remove(temp_data_object, ignored_error);
+        remove_file_if_present(temp_functions_object);
+        remove_file_if_present(temp_data_object);
 
         if (needs_intermediate_symbol_globalization &&
             !localize_symbols_in_object(temp_merged_object, internal_defined_symbols,
                                         diagnostic_engine)) {
-            std::filesystem::remove(temp_merged_object, ignored_error);
+            remove_file_if_present(temp_merged_object);
             return nullptr;
         }
         if (!move_file_into_place(temp_merged_object, object_file, diagnostic_engine,
                                   "failed to place the merged native AArch64 object file")) {
-            std::filesystem::remove(temp_merged_object, ignored_error);
+            remove_file_if_present(temp_merged_object);
             return nullptr;
         }
     }
