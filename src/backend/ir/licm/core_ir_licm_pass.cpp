@@ -9,6 +9,7 @@
 
 #include "backend/ir/analysis/alias_analysis.hpp"
 #include "backend/ir/analysis/analysis_manager.hpp"
+#include "backend/ir/analysis/cfg_analysis.hpp"
 #include "backend/ir/analysis/function_effect_summary_analysis.hpp"
 #include "backend/ir/analysis/scalar_evolution_lite_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
@@ -51,10 +52,47 @@ bool value_is_loop_invariant(CoreIrValue *value, const CoreIrLoopInfo &loop) {
     return !loop_contains_block(loop, instruction->get_parent());
 }
 
+bool instruction_is_pure_licm_candidate(
+    const CoreIrInstruction &instruction, CoreIrModule *module,
+    CoreIrAnalysisManager &analysis_manager);
+
+bool value_is_recursively_loop_invariant(
+    CoreIrValue *value, const CoreIrLoopInfo &loop, CoreIrModule *module,
+    CoreIrAnalysisManager &analysis_manager,
+    std::unordered_set<const CoreIrInstruction *> &visiting) {
+    if (value == nullptr) {
+        return false;
+    }
+    auto *instruction = dynamic_cast<CoreIrInstruction *>(value);
+    if (instruction == nullptr) {
+        return true;
+    }
+    if (!loop_contains_block(loop, instruction->get_parent())) {
+        return true;
+    }
+    if (!instruction_is_pure_licm_candidate(*instruction, module, analysis_manager) ||
+        !visiting.insert(instruction).second) {
+        return false;
+    }
+    for (CoreIrValue *operand : instruction->get_operands()) {
+        if (!value_is_recursively_loop_invariant(operand, loop, module,
+                                                 analysis_manager, visiting)) {
+            visiting.erase(instruction);
+            return false;
+        }
+    }
+    visiting.erase(instruction);
+    return true;
+}
+
 bool instruction_operands_are_loop_invariant(const CoreIrInstruction &instruction,
-                                             const CoreIrLoopInfo &loop) {
+                                             const CoreIrLoopInfo &loop,
+                                             CoreIrModule *module,
+                                             CoreIrAnalysisManager &analysis_manager) {
+    std::unordered_set<const CoreIrInstruction *> visiting;
     for (CoreIrValue *operand : instruction.get_operands()) {
-        if (!value_is_loop_invariant(operand, loop)) {
+        if (!value_is_recursively_loop_invariant(
+                operand, loop, module, analysis_manager, visiting)) {
             return false;
         }
     }
@@ -129,6 +167,51 @@ bool instruction_is_pure_licm_candidate(
     return false;
 }
 
+bool instruction_is_speculatively_safe_address_materialization(
+    const CoreIrInstruction &instruction) {
+    switch (instruction.get_opcode()) {
+    case CoreIrOpcode::AddressOfFunction:
+    case CoreIrOpcode::AddressOfGlobal:
+    case CoreIrOpcode::AddressOfStackSlot:
+    case CoreIrOpcode::GetElementPtr:
+    case CoreIrOpcode::Cast:
+        return true;
+    case CoreIrOpcode::Binary:
+    case CoreIrOpcode::Unary:
+    case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Phi:
+    case CoreIrOpcode::Load:
+    case CoreIrOpcode::Store:
+    case CoreIrOpcode::Call:
+    case CoreIrOpcode::Jump:
+    case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::Return:
+        return false;
+    }
+    return false;
+}
+
+CoreIrBasicBlock *get_unique_outside_predecessor(
+    const CoreIrLoopInfo &loop, const CoreIrCfgAnalysisResult &cfg) {
+    CoreIrBasicBlock *header = loop.get_header();
+    if (header == nullptr) {
+        return nullptr;
+    }
+
+    CoreIrBasicBlock *outside_predecessor = nullptr;
+    for (CoreIrBasicBlock *predecessor : cfg.get_predecessors(header)) {
+        if (predecessor == nullptr || loop_contains_block(loop, predecessor) ||
+            !cfg.is_reachable(predecessor)) {
+            continue;
+        }
+        if (outside_predecessor != nullptr) {
+            return nullptr;
+        }
+        outside_predecessor = predecessor;
+    }
+    return outside_predecessor;
+}
+
 bool block_has_may_alias_memory_write(
     const CoreIrBasicBlock &block, const CoreIrInstruction &query_instruction,
     const CoreIrMemoryLocation &query_location, CoreIrModule *module,
@@ -167,38 +250,32 @@ bool block_has_may_alias_memory_write(
     return false;
 }
 
-CoreIrMemoryAccess *get_effective_clobbering_access(
-    const CoreIrInstruction &instruction, CoreIrModule *module,
-    CoreIrAnalysisManager &analysis_manager,
-    const CoreIrMemorySSAAnalysisResult &memory_ssa) {
-    CoreIrMemoryAccess *cursor = memory_ssa.get_clobbering_access(&instruction);
-    while (auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(cursor)) {
-        const CoreIrInstruction *def_instruction = def->get_instruction();
-        if (def_instruction == nullptr) {
-            return cursor;
-        }
-        const CoreIrEffectInfo effect =
-            get_instruction_effect(*def_instruction, module, analysis_manager);
-        if (memory_behavior_writes(effect.memory_behavior)) {
-            return cursor;
-        }
-        cursor = def->get_defining_access();
-    }
-    return cursor;
+bool address_is_recursively_loop_invariant(
+    CoreIrValue *address, const CoreIrLoopInfo &loop, CoreIrModule *module,
+    CoreIrAnalysisManager &analysis_manager) {
+    std::unordered_set<const CoreIrInstruction *> visiting;
+    return value_is_recursively_loop_invariant(address, loop, module,
+                                               analysis_manager, visiting);
 }
 
-bool load_has_invariant_address(const CoreIrLoadInst &load, const CoreIrLoopInfo &loop) {
+bool load_has_invariant_address(const CoreIrLoadInst &load, const CoreIrLoopInfo &loop,
+                                CoreIrModule *module,
+                                CoreIrAnalysisManager &analysis_manager) {
     if (load.get_stack_slot() != nullptr) {
         return true;
     }
-    return value_is_loop_invariant(load.get_address(), loop);
+    return address_is_recursively_loop_invariant(load.get_address(), loop, module,
+                                                 analysis_manager);
 }
 
-bool store_has_invariant_address(const CoreIrStoreInst &store, const CoreIrLoopInfo &loop) {
+bool store_has_invariant_address(const CoreIrStoreInst &store, const CoreIrLoopInfo &loop,
+                                 CoreIrModule *module,
+                                 CoreIrAnalysisManager &analysis_manager) {
     if (store.get_stack_slot() != nullptr) {
         return true;
     }
-    return value_is_loop_invariant(store.get_address(), loop);
+    return address_is_recursively_loop_invariant(store.get_address(), loop, module,
+                                                 analysis_manager);
 }
 
 bool instruction_precedes_in_block(const CoreIrInstruction &lhs,
@@ -232,7 +309,7 @@ bool load_is_hoistable(const CoreIrLoadInst &load, const CoreIrLoopInfo &loop,
                        const CoreIrAliasAnalysisResult &alias_analysis,
                        const CoreIrMemorySSAAnalysisResult &memory_ssa,
                        CoreIrFunction &function) {
-    if (!load_has_invariant_address(load, loop)) {
+    if (!load_has_invariant_address(load, loop, module, analysis_manager)) {
         return false;
     }
 
@@ -254,30 +331,28 @@ bool load_is_hoistable(const CoreIrLoadInst &load, const CoreIrLoopInfo &loop,
         }
     }
 
-    CoreIrMemoryAccess *clobber =
-        get_effective_clobbering_access(load, module, analysis_manager, memory_ssa);
-    if (clobber == nullptr ||
-        dynamic_cast<CoreIrMemoryLiveOnEntryAccess *>(clobber) != nullptr) {
-        return true;
-    }
-    if (auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(clobber); def != nullptr) {
-        const CoreIrInstruction *def_instruction = def->get_instruction();
-        return def_instruction == nullptr ||
-               !loop_contains_block(loop, def_instruction->get_parent());
-    }
-    if (auto *phi = dynamic_cast<CoreIrMemoryPhiAccess *>(clobber); phi != nullptr) {
-        return !loop_contains_block(loop, phi->get_block());
-    }
-    return false;
+    // MemorySSA clobbers are location-agnostic at this point. Once the explicit
+    // alias-aware scan proves the loop contains no conflicting writes, the
+    // remaining in-loop phis/defs should not block hoisting.
+    return true;
 }
 
 bool load_is_speculatively_safe_to_hoist(
     const CoreIrLoadInst &load, const CoreIrLoopInfo &loop,
     const CoreIrDominatorTreeAnalysisResult &dominator_tree,
-    CoreIrFunction &function) {
+    const CoreIrAliasAnalysisResult &alias_analysis, CoreIrFunction &function) {
     CoreIrStackSlot *stack_slot = load.get_stack_slot();
+    if (stack_slot == nullptr) {
+        const CoreIrMemoryLocation *location =
+            alias_analysis.get_location_for_instruction(&load);
+        return location != nullptr &&
+               (location->root_kind == CoreIrMemoryLocationRootKind::Global ||
+                location->root_kind ==
+                    CoreIrMemoryLocationRootKind::ArgumentDerived);
+    }
+
     CoreIrBasicBlock *header = loop.get_header();
-    if (stack_slot == nullptr || header == nullptr) {
+    if (header == nullptr) {
         return false;
     }
 
@@ -304,7 +379,7 @@ bool store_is_hoistable(const CoreIrStoreInst &store, const CoreIrLoopInfo &loop
                         CoreIrAnalysisManager &analysis_manager,
                         const CoreIrAliasAnalysisResult &alias_analysis,
                         CoreIrFunction &function) {
-    if (!store_has_invariant_address(store, loop) ||
+    if (!store_has_invariant_address(store, loop, module, analysis_manager) ||
         !value_is_loop_invariant(store.get_value(), loop)) {
         return false;
     }
@@ -461,12 +536,15 @@ bool is_safe_to_hoist(const CoreIrInstruction &instruction,
         return block_is_must_execute_in_loop(instruction.get_parent(), loop,
                                              dominator_tree) ||
                load_is_speculatively_safe_to_hoist(*load, loop, dominator_tree,
-                                                   function);
+                                                   alias_analysis, function);
     }
 
     if (!block_is_must_execute_in_loop(instruction.get_parent(), loop,
                                        dominator_tree)) {
-        return false;
+        if (!instruction_is_speculatively_safe_address_materialization(
+                instruction)) {
+            return false;
+        }
     }
 
     if (const auto *store = dynamic_cast<const CoreIrStoreInst *>(&instruction);
@@ -478,7 +556,8 @@ bool is_safe_to_hoist(const CoreIrInstruction &instruction,
     if (!instruction_is_pure_licm_candidate(instruction, module, analysis_manager)) {
         return false;
     }
-    return instruction_operands_are_loop_invariant(instruction, loop);
+    return instruction_operands_are_loop_invariant(instruction, loop, module,
+                                                   analysis_manager);
 }
 
 bool instruction_is_hoistable(const CoreIrInstruction &instruction,
@@ -494,6 +573,26 @@ bool instruction_is_hoistable(const CoreIrInstruction &instruction,
                             analysis_manager, alias_analysis, memory_ssa,
                             function) &&
            is_profitable_to_hoist(instruction, loop, scev);
+}
+
+bool instruction_can_hoist_to_non_dedicated_predecessor(
+    const CoreIrInstruction &instruction, const CoreIrLoopInfo &loop,
+    const CoreIrDominatorTreeAnalysisResult &dominator_tree,
+    CoreIrModule *module, CoreIrAnalysisManager &analysis_manager,
+    const CoreIrAliasAnalysisResult &alias_analysis,
+    const CoreIrMemorySSAAnalysisResult &memory_ssa,
+    CoreIrFunction &function) {
+    if (const auto *load = dynamic_cast<const CoreIrLoadInst *>(&instruction);
+        load != nullptr) {
+        return load_is_hoistable(*load, loop, module, analysis_manager,
+                                 alias_analysis, memory_ssa, function) &&
+               load_is_speculatively_safe_to_hoist(*load, loop, dominator_tree,
+                                                   alias_analysis, function);
+    }
+    return instruction_is_speculatively_safe_address_materialization(
+               instruction) &&
+           instruction_operands_are_loop_invariant(instruction, loop, module,
+                                                  analysis_manager);
 }
 
 bool move_instruction_to_preheader(CoreIrBasicBlock &source, std::size_t index,
@@ -524,14 +623,20 @@ bool move_instruction_to_preheader(CoreIrBasicBlock &source, std::size_t index,
 }
 
 bool run_licm_on_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
+                      const CoreIrCfgAnalysisResult &cfg,
                       const CoreIrDominatorTreeAnalysisResult &dominator_tree,
                       const CoreIrScalarEvolutionLiteAnalysisResult &scev,
                       CoreIrModule *module,
                       CoreIrAnalysisManager &analysis_manager,
                       const CoreIrAliasAnalysisResult &alias_analysis,
                       const CoreIrMemorySSAAnalysisResult &memory_ssa) {
-    CoreIrBasicBlock *preheader = loop.get_preheader();
-    if (preheader == nullptr || loop_contains_block(loop, preheader)) {
+    CoreIrBasicBlock *hoist_block = loop.get_preheader();
+    bool dedicated_preheader = hoist_block != nullptr &&
+                               !loop_contains_block(loop, hoist_block);
+    if (!dedicated_preheader) {
+        hoist_block = get_unique_outside_predecessor(loop, cfg);
+    }
+    if (hoist_block == nullptr || loop_contains_block(loop, hoist_block)) {
         return false;
     }
 
@@ -562,8 +667,15 @@ bool run_licm_on_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
                     ++index;
                     continue;
                 }
+                if (!dedicated_preheader &&
+                    !instruction_can_hoist_to_non_dedicated_predecessor(
+                        *instruction, loop, dominator_tree, module,
+                        analysis_manager, alias_analysis, memory_ssa, function)) {
+                    ++index;
+                    continue;
+                }
 
-                if (move_instruction_to_preheader(*block_ptr, index, *preheader)) {
+                if (move_instruction_to_preheader(*block_ptr, index, *hoist_block)) {
                     iteration_changed = true;
                     changed = true;
                     continue;
@@ -608,6 +720,8 @@ PassResult CoreIrLicmPass::Run(CompilerContext &context) {
         const CoreIrScalarEvolutionLiteAnalysisResult &scev =
             analysis_manager->get_or_compute<CoreIrScalarEvolutionLiteAnalysis>(
                 *function);
+        const CoreIrCfgAnalysisResult &cfg =
+            analysis_manager->get_or_compute<CoreIrCfgAnalysis>(*function);
         const CoreIrDominatorTreeAnalysisResult &dominator_tree =
             analysis_manager->get_or_compute<CoreIrDominatorTreeAnalysis>(
                 *function);
@@ -638,7 +752,7 @@ PassResult CoreIrLicmPass::Run(CompilerContext &context) {
                 continue;
             }
             function_changed = run_licm_on_loop(
-                                   *function, *loop, dominator_tree, scev, module,
+                                   *function, *loop, cfg, dominator_tree, scev, module,
                                    *analysis_manager, alias_analysis, memory_ssa) ||
                                function_changed;
         }

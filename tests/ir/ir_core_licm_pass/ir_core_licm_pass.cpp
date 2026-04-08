@@ -101,6 +101,60 @@ void test_hoists_load_without_loop_write() {
     assert(load->get_parent() == entry);
 }
 
+void test_does_not_hoist_argument_load_across_other_argument_store() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *ptr_i32_type = context->create_type<CoreIrPointerType>(i32_type);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type,
+        std::vector<const CoreIrType *>{ptr_i32_type, ptr_i32_type, i32_type},
+        false);
+    auto *module = context->create_module<CoreIrModule>("licm_arg_roots");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *src = function->create_parameter<CoreIrParameter>(ptr_i32_type, "src");
+    auto *dst = function->create_parameter<CoreIrParameter>(ptr_i32_type, "dst");
+    auto *k = function->create_parameter<CoreIrParameter>(i32_type, "k");
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *four = context->create_constant<CoreIrConstantInt>(i32_type, 4);
+
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *iv = header->create_instruction<CoreIrPhiInst>(i32_type, "iv");
+    auto *cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "cmp", iv, four);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cmp, body, exit);
+    auto *src_ptr = body->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_i32_type, "src.ptr", src, std::vector<CoreIrValue *>{k});
+    auto *src_load =
+        body->create_instruction<CoreIrLoadInst>(i32_type, "src.load", src_ptr);
+    auto *dst_ptr = body->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_i32_type, "dst.ptr", dst, std::vector<CoreIrValue *>{iv});
+    body->create_instruction<CoreIrStoreInst>(void_type, src_load, dst_ptr);
+    auto *next_iv = body->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "iv.next", iv, one);
+    body->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+
+    iv->add_incoming(entry, zero);
+    iv->add_incoming(body, next_iv);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrLicmPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    assert(src_ptr->get_parent() == entry);
+    assert(src_load->get_parent() == body);
+    assert(dst_ptr->get_parent() == body);
+}
+
 void test_does_not_hoist_must_alias_load() {
     auto context = std::make_unique<CoreIrContext>();
     auto *void_type = context->create_type<CoreIrVoidType>();
@@ -180,7 +234,7 @@ void test_does_not_hoist_may_alias_load() {
     assert(whole_load->get_parent() == header);
 }
 
-void test_does_not_hoist_unknown_location_load() {
+void test_does_not_hoist_dynamic_index_argument_load_without_loop_write() {
     auto context = std::make_unique<CoreIrContext>();
     auto *void_type = context->create_type<CoreIrVoidType>();
     auto *i1_type = context->create_type<CoreIrIntegerType>(1);
@@ -337,7 +391,7 @@ void test_hoists_from_inner_loop_to_outer_preheader() {
     assert(doubled->get_parent() == inner_header);
 }
 
-void test_does_not_hoist_single_use_addrof_chain() {
+void test_hoists_load_backed_by_single_use_addrof_chain() {
     auto context = std::make_unique<CoreIrContext>();
     auto *void_type = context->create_type<CoreIrVoidType>();
     auto *i1_type = context->create_type<CoreIrIntegerType>(1);
@@ -373,8 +427,8 @@ void test_does_not_hoist_single_use_addrof_chain() {
     CoreIrLicmPass pass;
     assert(pass.Run(compiler_context).ok);
 
-    assert(addr->get_parent() == header);
-    assert(load->get_parent() == header);
+    assert(addr->get_parent() == entry);
+    assert(load->get_parent() == entry);
 }
 
 void test_hoists_redundant_invariant_store() {
@@ -541,13 +595,13 @@ void test_hoists_invariant_store_past_unknown_later_read() {
 int main() {
     test_hoists_invariant_binary_but_not_phi_or_variant_user();
     test_hoists_load_without_loop_write();
+    test_does_not_hoist_argument_load_across_other_argument_store();
     test_does_not_hoist_must_alias_load();
     test_does_not_hoist_may_alias_load();
-    test_does_not_hoist_unknown_location_load();
+    test_does_not_hoist_dynamic_index_argument_load_without_loop_write();
     test_does_not_hoist_non_must_execute_body_instruction();
     test_hoists_single_use_invariant_with_constant_trip_count();
     test_hoists_from_inner_loop_to_outer_preheader();
-    test_does_not_hoist_single_use_addrof_chain();
     test_hoists_redundant_invariant_store();
     test_does_not_hoist_store_when_read_precedes_it();
     test_hoists_speculatively_safe_stackslot_load();
