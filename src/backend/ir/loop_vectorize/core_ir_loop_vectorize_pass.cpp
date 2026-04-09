@@ -222,6 +222,7 @@ struct StoreLoopPattern {
     CoreIrLoadInst *accumulator_load = nullptr;
     CoreIrLoadInst *lane_load = nullptr;
     CoreIrLoadInst *scalar_load = nullptr;
+    CoreIrValue *scalar_value = nullptr;
     const CoreIrConstantInt *scalar_constant = nullptr;
     CoreIrBinaryInst *final_binary = nullptr;
     CoreIrBinaryInst *mul_binary = nullptr;
@@ -418,6 +419,35 @@ bool match_store_loop_operations(CoreIrBasicBlock *header, CoreIrBasicBlock *bod
          mul_rhs == pattern.scalar_load) ||
         (mul_rhs == pattern.lane_load && pattern.scalar_load != nullptr &&
          mul_lhs == pattern.scalar_load)) {
+        pattern.scalar_value = pattern.scalar_load;
+        return true;
+    }
+    if (mul_lhs == pattern.lane_load) {
+        if (auto *invariant_load = dynamic_cast<CoreIrLoadInst *>(mul_rhs);
+            invariant_load != nullptr &&
+            value_is_block_pair_invariant(header, body, invariant_load)) {
+            pattern.scalar_load = invariant_load;
+            pattern.scalar_value = invariant_load;
+            return true;
+        }
+    }
+    if (mul_rhs == pattern.lane_load) {
+        if (auto *invariant_load = dynamic_cast<CoreIrLoadInst *>(mul_lhs);
+            invariant_load != nullptr &&
+            value_is_block_pair_invariant(header, body, invariant_load)) {
+            pattern.scalar_load = invariant_load;
+            pattern.scalar_value = invariant_load;
+            return true;
+        }
+    }
+    if (mul_lhs == pattern.lane_load &&
+        value_is_block_pair_invariant(header, body, mul_rhs)) {
+        pattern.scalar_value = mul_rhs;
+        return true;
+    }
+    if (mul_rhs == pattern.lane_load &&
+        value_is_block_pair_invariant(header, body, mul_lhs)) {
+        pattern.scalar_value = mul_lhs;
         return true;
     }
     return false;
@@ -644,6 +674,31 @@ bool match_store_loop_pattern(const CoreIrLoopInfo &loop,
          mul_rhs == pattern.scalar_load) ||
         (mul_rhs == pattern.lane_load && pattern.scalar_load != nullptr &&
          mul_lhs == pattern.scalar_load)) {
+        pattern.scalar_value = pattern.scalar_load;
+        return true;
+    }
+    if (mul_lhs == pattern.lane_load) {
+        if (auto *invariant_load = dynamic_cast<CoreIrLoadInst *>(mul_rhs);
+            invariant_load != nullptr && value_is_loop_invariant(loop, invariant_load)) {
+            pattern.scalar_load = invariant_load;
+            pattern.scalar_value = invariant_load;
+            return true;
+        }
+    }
+    if (mul_rhs == pattern.lane_load) {
+        if (auto *invariant_load = dynamic_cast<CoreIrLoadInst *>(mul_lhs);
+            invariant_load != nullptr && value_is_loop_invariant(loop, invariant_load)) {
+            pattern.scalar_load = invariant_load;
+            pattern.scalar_value = invariant_load;
+            return true;
+        }
+    }
+    if (mul_lhs == pattern.lane_load && value_is_loop_invariant(loop, mul_rhs)) {
+        pattern.scalar_value = mul_rhs;
+        return true;
+    }
+    if (mul_rhs == pattern.lane_load && value_is_loop_invariant(loop, mul_lhs)) {
+        pattern.scalar_value = mul_lhs;
         return true;
     }
     return false;
@@ -978,8 +1033,12 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
                                      CoreIrContext &context) {
     (void)cfg;
     if (pattern.preheader == nullptr || pattern.header == nullptr ||
-        pattern.scalar_load == nullptr || pattern.lane_load == nullptr ||
+        pattern.lane_load == nullptr ||
         pattern.mul_binary == nullptr || pattern.exit_block == nullptr) {
+        return false;
+    }
+    if (pattern.scalar_load == nullptr && pattern.scalar_constant == nullptr &&
+        pattern.scalar_value == nullptr) {
         return false;
     }
     auto *i32_type = as_i32_type(pattern.final_binary->get_type());
@@ -1067,50 +1126,55 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
                                                        n_value, c_row_base, b_row_base,
                                                        "vec.bc");
 
-    auto ptr_scalar = std::make_unique<CoreIrCastInst>(CoreIrCastKind::PtrToInt, i64_type,
-                                                       "vec.a.ptr",
-                                                       pattern.scalar_load->get_address());
-    CoreIrInstruction *ptr_scalar_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(ptr_scalar));
-    auto ptr_c = std::make_unique<CoreIrCastInst>(CoreIrCastKind::PtrToInt, i64_type,
-                                                  "vec.c.ptr", c_row_base);
-    CoreIrInstruction *ptr_c_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(ptr_c));
-    auto n64 = std::make_unique<CoreIrCastInst>(CoreIrCastKind::ZeroExtend, i64_type,
-                                                "vec.n64", n_value);
-    CoreIrInstruction *n64_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(n64));
-    auto *four64 = context.create_constant<CoreIrConstantInt>(i64_type, 4);
-    auto c_bytes = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Mul, i64_type,
-                                                      "vec.c.bytes", n64_value, four64);
-    CoreIrInstruction *c_bytes_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(c_bytes));
-    auto c_end = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Add, i64_type,
-                                                    "vec.c.end", ptr_c_value,
-                                                    c_bytes_value);
-    CoreIrInstruction *c_end_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(c_end));
-    auto scalar_before = std::make_unique<CoreIrCompareInst>(
-        CoreIrComparePredicate::UnsignedLess, i1_type, "vec.a.before",
-        ptr_scalar_value, ptr_c_value);
-    auto scalar_after = std::make_unique<CoreIrCompareInst>(
-        CoreIrComparePredicate::UnsignedGreaterEqual, i1_type, "vec.a.after",
-        ptr_scalar_value, c_end_value);
-    CoreIrInstruction *scalar_before_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(scalar_before));
-    CoreIrInstruction *scalar_after_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(scalar_after));
-    auto scalar_safe = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Or, i1_type,
-                                                          "vec.a.safe",
-                                                          scalar_before_value,
-                                                          scalar_after_value);
-    CoreIrInstruction *scalar_safe_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(scalar_safe));
-    auto alias_safe = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::And, i1_type,
-                                                         "vec.alias.safe", bc_safe,
-                                                         scalar_safe_value);
-    CoreIrInstruction *alias_safe_value =
-        insert_instruction_before(*guard_block_ptr, nullptr, std::move(alias_safe));
+    CoreIrValue *alias_safe_value = bc_safe;
+    if (pattern.scalar_load != nullptr && pattern.scalar_load->get_address() != nullptr) {
+        auto ptr_scalar = std::make_unique<CoreIrCastInst>(
+            CoreIrCastKind::PtrToInt, i64_type, "vec.a.ptr",
+            pattern.scalar_load->get_address());
+        CoreIrInstruction *ptr_scalar_value =
+            insert_instruction_before(*guard_block_ptr, nullptr, std::move(ptr_scalar));
+        auto ptr_c = std::make_unique<CoreIrCastInst>(CoreIrCastKind::PtrToInt, i64_type,
+                                                      "vec.c.ptr", c_row_base);
+        CoreIrInstruction *ptr_c_value =
+            insert_instruction_before(*guard_block_ptr, nullptr, std::move(ptr_c));
+        auto n64 = std::make_unique<CoreIrCastInst>(CoreIrCastKind::ZeroExtend, i64_type,
+                                                    "vec.n64", n_value);
+        CoreIrInstruction *n64_value =
+            insert_instruction_before(*guard_block_ptr, nullptr, std::move(n64));
+        auto *four64 = context.create_constant<CoreIrConstantInt>(i64_type, 4);
+        auto c_bytes = std::make_unique<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Mul, i64_type, "vec.c.bytes", n64_value, four64);
+        CoreIrInstruction *c_bytes_value =
+            insert_instruction_before(*guard_block_ptr, nullptr, std::move(c_bytes));
+        auto c_end = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Add, i64_type,
+                                                        "vec.c.end", ptr_c_value,
+                                                        c_bytes_value);
+        CoreIrInstruction *c_end_value =
+            insert_instruction_before(*guard_block_ptr, nullptr, std::move(c_end));
+        auto scalar_before = std::make_unique<CoreIrCompareInst>(
+            CoreIrComparePredicate::UnsignedLess, i1_type, "vec.a.before",
+            ptr_scalar_value, ptr_c_value);
+        auto scalar_after = std::make_unique<CoreIrCompareInst>(
+            CoreIrComparePredicate::UnsignedGreaterEqual, i1_type, "vec.a.after",
+            ptr_scalar_value, c_end_value);
+        CoreIrInstruction *scalar_before_value =
+            insert_instruction_before(*guard_block_ptr, nullptr, std::move(scalar_before));
+        CoreIrInstruction *scalar_after_value =
+            insert_instruction_before(*guard_block_ptr, nullptr, std::move(scalar_after));
+        auto scalar_safe = std::make_unique<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Or, i1_type, "vec.a.safe", scalar_before_value,
+            scalar_after_value);
+        CoreIrInstruction *scalar_safe_value =
+            insert_instruction_before(*guard_block_ptr, nullptr, std::move(scalar_safe));
+        auto alias_safe = std::make_unique<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::And, i1_type, "vec.alias.safe", bc_safe,
+            scalar_safe_value);
+        alias_safe_value =
+            insert_instruction_before(*guard_block_ptr, nullptr, std::move(alias_safe));
+    } else if (pattern.scalar_value != nullptr &&
+               dynamic_cast<CoreIrInstruction *>(pattern.scalar_value) != nullptr) {
+        return false;
+    }
     guard_block_ptr->append_instruction(
         std::make_unique<CoreIrCondJumpInst>(void_type, alias_safe_value,
                                              vector_header_ptr,
@@ -1138,6 +1202,8 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
         hoisted_scalar_value =
             insert_instruction_before(*guard_block_ptr, guard_terminator,
                                       std::move(scalar_load));
+    } else if (pattern.scalar_value != nullptr) {
+        hoisted_scalar_value = pattern.scalar_value;
     }
 
     for (const auto &instruction_ptr : pattern.header->get_instructions()) {
@@ -1483,9 +1549,9 @@ bool vectorize_store_loop(CoreIrFunction &function, StoreLoopPattern &pattern,
                                                         pattern.lane_access, *pattern.iv,
                                                         vec_type, "vec.lane");
         CoreIrValue *scalar_vec = nullptr;
-        if (pattern.scalar_load != nullptr) {
+        if (pattern.scalar_value != nullptr) {
             scalar_vec = materialize_broadcast_value(*pattern.body, anchor, context,
-                                                     vec_type, pattern.scalar_load,
+                                                     vec_type, pattern.scalar_value,
                                                      "vec.broadcast");
         } else {
             scalar_vec = make_splat_vector_constant(context, vec_type,
