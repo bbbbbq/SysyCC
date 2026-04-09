@@ -23,7 +23,8 @@ bool instruction_is_memory_use(const CoreIrInstruction &instruction) noexcept {
         call != nullptr) {
         const CoreIrMemoryBehavior behavior =
             get_core_ir_instruction_effect(*call).memory_behavior;
-        return memory_behavior_reads(behavior) && !memory_behavior_writes(behavior);
+        return memory_behavior_reads(behavior) &&
+               !memory_behavior_writes(behavior);
     }
     return false;
 }
@@ -41,14 +42,14 @@ bool instruction_is_memory_def(const CoreIrInstruction &instruction) noexcept {
 }
 
 void build_dominator_children(
-    const CoreIrFunction &function,
-    const CoreIrCfgAnalysisResult &cfg_analysis,
+    const CoreIrFunction &function, const CoreIrCfgAnalysisResult &cfg_analysis,
     const CoreIrDominatorTreeAnalysisResult &dominator_tree,
     std::unordered_map<const CoreIrBasicBlock *,
                        std::vector<const CoreIrBasicBlock *>> &children) {
     for (const auto &block : function.get_basic_blocks()) {
         if (block != nullptr && cfg_analysis.is_reachable(block.get())) {
-            children.emplace(block.get(), std::vector<const CoreIrBasicBlock *>{});
+            children.emplace(block.get(),
+                             std::vector<const CoreIrBasicBlock *>{});
         }
     }
 
@@ -56,7 +57,8 @@ void build_dominator_children(
         if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
             continue;
         }
-        CoreIrBasicBlock *idom = dominator_tree.get_immediate_dominator(block.get());
+        CoreIrBasicBlock *idom =
+            dominator_tree.get_immediate_dominator(block.get());
         if (idom != nullptr) {
             children[idom].push_back(block.get());
         }
@@ -70,9 +72,11 @@ struct RenameState {
     std::unordered_map<const CoreIrInstruction *, CoreIrMemoryAccess *>
         instruction_accesses;
     std::vector<std::unique_ptr<CoreIrMemoryAccess>> accesses;
-    std::unordered_map<const CoreIrBasicBlock *, std::vector<CoreIrMemoryPhiAccess *>>
+    std::unordered_map<const CoreIrBasicBlock *,
+                       std::vector<CoreIrMemoryPhiAccess *>>
         block_phis;
-    std::unordered_map<const CoreIrBasicBlock *, std::vector<const CoreIrBasicBlock *>>
+    std::unordered_map<const CoreIrBasicBlock *,
+                       std::vector<const CoreIrBasicBlock *>>
         dominator_children;
 };
 
@@ -92,9 +96,9 @@ void add_phi_incoming_to_successors(const CoreIrBasicBlock &block,
     }
 }
 
-void rename_memory_accesses(
-    const CoreIrBasicBlock &block, const CoreIrCfgAnalysisResult &cfg_analysis,
-    RenameState &state) {
+void rename_memory_accesses(const CoreIrBasicBlock &block,
+                            const CoreIrCfgAnalysisResult &cfg_analysis,
+                            RenameState &state) {
     const std::size_t saved_depth = state.stack.size();
 
     auto phi_it = state.phis.find(&block);
@@ -143,6 +147,66 @@ void rename_memory_accesses(
     }
 }
 
+CoreIrMemoryAccess *resolve_clobbering_access(
+    CoreIrMemoryAccess *cursor, const CoreIrMemoryLocation *query_location,
+    const CoreIrAliasAnalysisResult &alias_analysis,
+    std::unordered_set<const CoreIrMemoryPhiAccess *> &visiting) {
+    while (cursor != nullptr) {
+        if (dynamic_cast<CoreIrMemoryLiveOnEntryAccess *>(cursor) != nullptr) {
+            return cursor;
+        }
+
+        if (auto *phi = dynamic_cast<CoreIrMemoryPhiAccess *>(cursor);
+            phi != nullptr) {
+            if (query_location == nullptr || !visiting.insert(phi).second) {
+                return cursor;
+            }
+
+            CoreIrMemoryAccess *resolved = nullptr;
+            for (const auto &[_, incoming] : phi->get_incomings()) {
+                if (incoming == nullptr) {
+                    visiting.erase(phi);
+                    return cursor;
+                }
+                CoreIrMemoryAccess *incoming_resolved =
+                    resolve_clobbering_access(incoming, query_location,
+                                              alias_analysis, visiting);
+                if (incoming_resolved == nullptr) {
+                    visiting.erase(phi);
+                    return cursor;
+                }
+                if (resolved == nullptr) {
+                    resolved = incoming_resolved;
+                    continue;
+                }
+                if (resolved != incoming_resolved) {
+                    visiting.erase(phi);
+                    return cursor;
+                }
+            }
+
+            visiting.erase(phi);
+            return resolved == nullptr ? cursor : resolved;
+        }
+
+        auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(cursor);
+        if (def == nullptr || query_location == nullptr) {
+            return cursor;
+        }
+
+        const CoreIrMemoryLocation *def_location =
+            alias_analysis.get_location_for_instruction(def->get_instruction());
+        if (def_location == nullptr ||
+            alias_core_ir_memory_locations(*query_location, *def_location) !=
+                CoreIrAliasKind::NoAlias) {
+            return cursor;
+        }
+        cursor = def->get_defining_access();
+    }
+
+    return nullptr;
+}
+
 } // namespace
 
 CoreIrMemorySSAAnalysisResult::CoreIrMemorySSAAnalysisResult(
@@ -151,7 +215,8 @@ CoreIrMemorySSAAnalysisResult::CoreIrMemorySSAAnalysisResult(
     std::vector<std::unique_ptr<CoreIrMemoryAccess>> accesses,
     std::unordered_map<const CoreIrInstruction *, CoreIrMemoryAccess *>
         instruction_accesses,
-    std::unordered_map<const CoreIrBasicBlock *, std::vector<CoreIrMemoryPhiAccess *>>
+    std::unordered_map<const CoreIrBasicBlock *,
+                       std::vector<CoreIrMemoryPhiAccess *>>
         block_phis) noexcept
     : function_(function), alias_analysis_(std::move(alias_analysis)),
       live_on_entry_(std::move(live_on_entry)), accesses_(std::move(accesses)),
@@ -182,37 +247,16 @@ CoreIrMemoryAccess *CoreIrMemorySSAAnalysisResult::get_clobbering_access(
     const CoreIrMemoryLocation *query_location =
         alias_analysis_.get_location_for_instruction(instruction);
     CoreIrMemoryAccess *cursor = nullptr;
-    if (auto *use = dynamic_cast<CoreIrMemoryUseAccess *>(access); use != nullptr) {
+    if (auto *use = dynamic_cast<CoreIrMemoryUseAccess *>(access);
+        use != nullptr) {
         cursor = use->get_defining_access();
     } else if (auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(access);
                def != nullptr) {
         cursor = def->get_defining_access();
     }
-
-    while (cursor != nullptr) {
-        if (dynamic_cast<CoreIrMemoryLiveOnEntryAccess *>(cursor) != nullptr ||
-            dynamic_cast<CoreIrMemoryPhiAccess *>(cursor) != nullptr) {
-            return cursor;
-        }
-
-        auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(cursor);
-        if (def == nullptr) {
-            return cursor;
-        }
-        if (query_location == nullptr) {
-            return cursor;
-        }
-        const CoreIrMemoryLocation *def_location =
-            alias_analysis_.get_location_for_instruction(def->get_instruction());
-        if (def_location == nullptr ||
-            alias_core_ir_memory_locations(*query_location, *def_location) !=
-                CoreIrAliasKind::NoAlias) {
-            return cursor;
-        }
-        cursor = def->get_defining_access();
-    }
-
-    return nullptr;
+    std::unordered_set<const CoreIrMemoryPhiAccess *> visiting;
+    return resolve_clobbering_access(cursor, query_location, alias_analysis_,
+                                     visiting);
 }
 
 CoreIrMemorySSAAnalysisResult CoreIrMemorySSAAnalysis::Run(
@@ -230,7 +274,8 @@ CoreIrMemorySSAAnalysisResult CoreIrMemorySSAAnalysis::Run(
         }
         for (const auto &instruction_ptr : block->get_instructions()) {
             const CoreIrInstruction *instruction = instruction_ptr.get();
-            if (instruction != nullptr && instruction_is_memory_def(*instruction)) {
+            if (instruction != nullptr &&
+                instruction_is_memory_def(*instruction)) {
                 def_blocks.insert(block.get());
                 break;
             }
@@ -242,7 +287,8 @@ CoreIrMemorySSAAnalysisResult CoreIrMemorySSAAnalysis::Run(
     build_dominator_children(function, cfg_analysis, dominator_tree,
                              state.dominator_children);
 
-    std::vector<const CoreIrBasicBlock *> worklist(def_blocks.begin(), def_blocks.end());
+    std::vector<const CoreIrBasicBlock *> worklist(def_blocks.begin(),
+                                                   def_blocks.end());
     std::unordered_set<const CoreIrBasicBlock *> queued(def_blocks.begin(),
                                                         def_blocks.end());
     while (!worklist.empty()) {
