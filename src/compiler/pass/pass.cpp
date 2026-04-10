@@ -20,7 +20,8 @@ std::string first_error_message(const DiagnosticEngine &diagnostic_engine) {
     return "compilation failed";
 }
 
-bool should_stop_after_pass(const CompilerContext &context, PassKind pass_kind) {
+bool should_stop_after_pass(const CompilerContext &context,
+                            PassKind pass_kind) {
     switch (context.get_stop_after_stage()) {
     case StopAfterStage::None:
         return false;
@@ -92,7 +93,8 @@ void invalidate_non_preserved_analyses(CompilerContext &context,
                                        const CoreIrPassEffects &effects) {
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
     CoreIrAnalysisManager *analysis_manager =
-        build_result == nullptr ? nullptr : build_result->get_analysis_manager();
+        build_result == nullptr ? nullptr
+                                : build_result->get_analysis_manager();
     if (analysis_manager == nullptr || !effects.has_changes()) {
         return;
     }
@@ -131,9 +133,8 @@ void invalidate_non_preserved_analyses(CompilerContext &context,
         if (function == nullptr) {
             continue;
         }
-        const bool cfg_changed =
-            effects.cfg_changed_functions.find(function) !=
-            effects.cfg_changed_functions.end();
+        const bool cfg_changed = effects.cfg_changed_functions.find(function) !=
+                                 effects.cfg_changed_functions.end();
         for (CoreIrAnalysisKind kind : k_all_analysis_kinds) {
             const bool cfg_or_loop_family =
                 kind == CoreIrAnalysisKind::Cfg ||
@@ -159,7 +160,8 @@ bool verify_core_ir_after_pass(CompilerContext &context, const Pass &pass,
     }
 
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
-    CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();
+    CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
         context.get_diagnostic_engine().add_error(
             DiagnosticStage::Compiler,
@@ -170,25 +172,25 @@ bool verify_core_ir_after_pass(CompilerContext &context, const Pass &pass,
 
     CoreIrVerifier verifier;
     if (metadata.produces_core_ir) {
-        return emit_core_ir_verify_result(context, verifier.verify_module(*module),
-                                          pass.Name());
+        return emit_core_ir_verify_result(
+            context, verifier.verify_module(*module), pass.Name());
     }
 
     if (result.core_ir_effects.has_value() &&
         result.core_ir_effects->has_changes()) {
         if (result.core_ir_effects->module_changed ||
             collect_changed_functions(*result.core_ir_effects).empty()) {
-            return emit_core_ir_verify_result(context,
-                                              verifier.verify_module(*module),
-                                              pass.Name());
+            return emit_core_ir_verify_result(
+                context, verifier.verify_module(*module), pass.Name());
         }
         for (CoreIrFunction *function :
              collect_changed_functions(*result.core_ir_effects)) {
             if (function == nullptr) {
                 continue;
             }
-            if (!emit_core_ir_verify_result(
-                    context, verifier.verify_function(*function), pass.Name())) {
+            if (!emit_core_ir_verify_result(context,
+                                            verifier.verify_function(*function),
+                                            pass.Name())) {
                 return false;
             }
         }
@@ -219,8 +221,9 @@ PassExecutionResult run_one_pass(CompilerContext &context, Pass &pass) {
         return execution_result;
     }
     if (pass.Metadata().writes_core_ir && !result.core_ir_effects.has_value()) {
-        execution_result.result = PassResult::Failure(std::string(pass.Name()) +
-                                                      " wrote Core IR but did not report CoreIrPassEffects");
+        execution_result.result = PassResult::Failure(
+            std::string(pass.Name()) +
+            " wrote Core IR but did not report CoreIrPassEffects");
         return execution_result;
     }
     if (result.core_ir_effects.has_value()) {
@@ -228,9 +231,8 @@ PassExecutionResult run_one_pass(CompilerContext &context, Pass &pass) {
         invalidate_non_preserved_analyses(context, *result.core_ir_effects);
     }
     if (!verify_core_ir_after_pass(context, pass, result)) {
-        execution_result.result =
-            PassResult::Failure(std::string(pass.Name()) +
-                                " failed Core IR verification");
+        execution_result.result = PassResult::Failure(
+            std::string(pass.Name()) + " failed Core IR verification");
         return execution_result;
     }
     if (should_stop_after_pass(context, pass.Kind())) {
@@ -253,8 +255,8 @@ void PassManager::AddPass(std::unique_ptr<Pass> pass) {
     entries_.push_back(std::move(entry));
 }
 
-void PassManager::AddCoreIrFixedPointGroup(std::vector<std::unique_ptr<Pass>> passes,
-                                           std::size_t max_iterations) {
+void PassManager::AddCoreIrFixedPointGroup(
+    std::vector<std::unique_ptr<Pass>> passes, std::size_t max_iterations) {
     FixedPointPassGroup group;
     for (std::unique_ptr<Pass> &pass : passes) {
         if (pass != nullptr) {
@@ -304,7 +306,8 @@ Pass *PassManager::get_pass_by_kind(PassKind kind) const {
         if (!entry.fixed_point_group.has_value()) {
             continue;
         }
-        for (const std::unique_ptr<Pass> &pass : entry.fixed_point_group->passes) {
+        for (const std::unique_ptr<Pass> &pass :
+             entry.fixed_point_group->passes) {
             if (pass != nullptr && pass->Kind() == kind) {
                 return pass.get();
             }
@@ -312,6 +315,26 @@ Pass *PassManager::get_pass_by_kind(PassKind kind) const {
     }
 
     return nullptr;
+}
+
+std::vector<PassKind> PassManager::get_pipeline_kinds() const {
+    std::vector<PassKind> kinds;
+    for (const PipelineEntry &entry : entries_) {
+        if (entry.pass != nullptr) {
+            kinds.push_back(entry.pass->Kind());
+            continue;
+        }
+        if (!entry.fixed_point_group.has_value()) {
+            continue;
+        }
+        for (const std::unique_ptr<Pass> &pass :
+             entry.fixed_point_group->passes) {
+            if (pass != nullptr) {
+                kinds.push_back(pass->Kind());
+            }
+        }
+    }
+    return kinds;
 }
 
 PassResult PassManager::Run(CompilerContext &context) {
@@ -354,7 +377,8 @@ PassResult PassManager::Run(CompilerContext &context) {
                 if (execution_result.stopped) {
                     return PassResult::Success();
                 }
-                iteration_changed = execution_result.changed || iteration_changed;
+                iteration_changed =
+                    execution_result.changed || iteration_changed;
             }
             if (!iteration_changed) {
                 break;
