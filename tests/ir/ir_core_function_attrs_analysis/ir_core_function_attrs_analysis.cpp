@@ -11,6 +11,7 @@
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
+#include "backend/ir/shared/core/ir_stack_slot.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 
 using namespace sysycc;
@@ -37,6 +38,22 @@ int main() {
     auto *load = reader_entry->create_instruction<CoreIrLoadInst>(i32_type, "load", reader_param);
     reader_entry->create_instruction<CoreIrReturnInst>(void_type, load);
 
+    auto *writer_alias =
+        module->create_function<CoreIrFunction>("writer_alias", fn_ptr, true);
+    auto *writer_param =
+        writer_alias->create_parameter<CoreIrParameter>(ptr_i32_type, "p");
+    auto *writer_slot =
+        writer_alias->create_stack_slot<CoreIrStackSlot>("alias", ptr_i32_type, 8);
+    auto *writer_entry =
+        writer_alias->create_basic_block<CoreIrBasicBlock>("entry");
+    writer_entry->create_instruction<CoreIrStoreInst>(void_type, writer_param,
+                                                      writer_slot);
+    auto *writer_alias_load = writer_entry->create_instruction<CoreIrLoadInst>(
+        ptr_i32_type, "alias.load", writer_slot);
+    writer_entry->create_instruction<CoreIrStoreInst>(void_type, five,
+                                                      writer_alias_load);
+    writer_entry->create_instruction<CoreIrReturnInst>(void_type, five);
+
     auto *recur = module->create_function<CoreIrFunction>("recur", fn_i32, true);
     auto *recur_entry = recur->create_basic_block<CoreIrBasicBlock>("entry");
     recur_entry->create_instruction<CoreIrCallInst>(i32_type, "self", "recur", fn_i32,
@@ -60,7 +77,15 @@ int main() {
     assert(reader_attrs->memory_behavior == CoreIrMemoryBehavior::Read);
     assert(reader_attrs->parameter_nocapture.size() == 1);
     assert(reader_attrs->parameter_nocapture[0]);
+    assert(reader_attrs->parameter_readonly.size() == 1);
+    assert(reader_attrs->parameter_readonly[0]);
     assert(reader_attrs->constant_return == nullptr);
+
+    const CoreIrFunctionAttrsSummary *writer_attrs =
+        attrs.get_summary(writer_alias);
+    assert(writer_attrs != nullptr);
+    assert(writer_attrs->parameter_readonly.size() == 1);
+    assert(!writer_attrs->parameter_readonly[0]);
 
     const CoreIrFunctionAttrsSummary *recur_attrs = attrs.get_summary(recur);
     assert(recur_attrs != nullptr);

@@ -11,6 +11,7 @@
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
+#include "backend/ir/shared/core/ir_stack_slot.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
 
@@ -45,6 +46,24 @@ int main() {
         read_entry->create_instruction<CoreIrLoadInst>(i32_type, "loaded", read_param);
     read_entry->create_instruction<CoreIrReturnInst>(void_type, loaded);
 
+    auto *write_alias_fn =
+        module->create_function<CoreIrFunction>("write_alias_fn", ptr_read_fn_type, true);
+    auto *write_alias_param =
+        write_alias_fn->create_parameter<CoreIrParameter>(ptr_i32_type, "p");
+    auto *write_alias_slot =
+        write_alias_fn->create_stack_slot<CoreIrStackSlot>("alias", ptr_i32_type, 8);
+    auto *write_alias_entry =
+        write_alias_fn->create_basic_block<CoreIrBasicBlock>("entry");
+    write_alias_entry->create_instruction<CoreIrStoreInst>(void_type,
+                                                           write_alias_param,
+                                                           write_alias_slot);
+    auto *write_alias_loaded =
+        write_alias_entry->create_instruction<CoreIrLoadInst>(ptr_i32_type, "alias.load",
+                                                              write_alias_slot);
+    write_alias_entry->create_instruction<CoreIrStoreInst>(void_type, seven,
+                                                           write_alias_loaded);
+    write_alias_entry->create_instruction<CoreIrReturnInst>(void_type, seven);
+
     auto *ret_param =
         module->create_function<CoreIrFunction>("ret_param", ptr_ret_fn_type, true);
     auto *ret_param_value =
@@ -73,6 +92,7 @@ int main() {
     const auto *read_attrs = analysis.get_summary(read_fn);
     const auto *ret_param_attrs = analysis.get_summary(ret_param);
     const auto *recur_attrs = analysis.get_summary(recur);
+    const auto *write_alias_attrs = analysis.get_summary(write_alias_fn);
 
     assert(const_attrs != nullptr);
     assert(const_attrs->memory_behavior == CoreIrMemoryBehavior::None);
@@ -83,6 +103,12 @@ int main() {
     assert(read_attrs->memory_behavior == CoreIrMemoryBehavior::Read);
     assert(read_attrs->parameter_nocapture.size() == 1);
     assert(read_attrs->parameter_nocapture.front());
+    assert(read_attrs->parameter_readonly.size() == 1);
+    assert(read_attrs->parameter_readonly.front());
+
+    assert(write_alias_attrs != nullptr);
+    assert(write_alias_attrs->parameter_readonly.size() == 1);
+    assert(!write_alias_attrs->parameter_readonly.front());
 
     assert(ret_param_attrs != nullptr);
     assert(ret_param_attrs->returned_parameter_index.has_value());
@@ -97,8 +123,14 @@ int main() {
     assert(!const_fn->get_is_readonly());
     assert(!const_fn->get_is_writeonly());
     assert(read_fn->get_is_readonly());
+    assert(read_fn->get_parameter_readonly().size() == 1);
+    assert(read_fn->get_parameter_readonly().front());
     assert(!read_fn->get_is_readnone());
     assert(!read_fn->get_is_writeonly());
+    assert(!write_alias_fn->get_is_readonly());
+    assert(write_alias_fn->get_parameter_readonly().size() == 1);
+    assert(!write_alias_fn->get_parameter_readonly().front());
+    assert(!write_alias_fn->get_is_readnone());
     assert(!recur->get_is_norecurse());
     return 0;
 }
