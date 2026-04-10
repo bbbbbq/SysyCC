@@ -34,7 +34,6 @@
 #include "backend/ir/sccp/core_ir_sccp_pass.hpp"
 #include "backend/ir/simple_loop_unswitch/core_ir_simple_loop_unswitch_pass.hpp"
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
-#include "backend/ir/slp_vectorize/core_ir_slp_vectorize_pass.hpp"
 #include "backend/ir/sroa/core_ir_sroa_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
 #include "backend/ir/tail_recursion_elimination/core_ir_tail_recursion_elimination_pass.hpp"
@@ -140,7 +139,6 @@ void append_module_fixed_point_pipeline(PassManager &pass_manager) {
 
 void append_lowering_pipeline(PassManager &pass_manager) {
     pass_manager.AddPass(std::make_unique<CoreIrLoopVectorizePass>());
-    pass_manager.AddPass(std::make_unique<CoreIrSlpVectorizePass>());
     pass_manager.AddPass(std::make_unique<LowerIrPass>());
 }
 
