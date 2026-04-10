@@ -32,6 +32,12 @@ bool are_equivalent_types(const CoreIrType *lhs, const CoreIrType *rhs) {
     case CoreIrTypeKind::Float:
         return static_cast<const CoreIrFloatType *>(lhs)->get_float_kind() ==
                static_cast<const CoreIrFloatType *>(rhs)->get_float_kind();
+    case CoreIrTypeKind::Vector:
+        return static_cast<const CoreIrVectorType *>(lhs)->get_element_count() ==
+                   static_cast<const CoreIrVectorType *>(rhs)->get_element_count() &&
+               are_equivalent_types(
+                   static_cast<const CoreIrVectorType *>(lhs)->get_element_type(),
+                   static_cast<const CoreIrVectorType *>(rhs)->get_element_type());
     case CoreIrTypeKind::Pointer:
         return are_equivalent_types(
             static_cast<const CoreIrPointerType *>(lhs)->get_pointee_type(),
@@ -103,6 +109,14 @@ void append_type_key(std::string &key, const CoreIrType *type) {
             static_cast<const CoreIrFloatType *>(type)->get_float_kind()));
         key.push_back(';');
         return;
+    case CoreIrTypeKind::Vector: {
+        const auto *vector_type = static_cast<const CoreIrVectorType *>(type);
+        key += std::to_string(vector_type->get_element_count());
+        key.push_back('x');
+        append_type_key(key, vector_type->get_element_type());
+        key.push_back(';');
+        return;
+    }
     case CoreIrTypeKind::Pointer:
         append_type_key(
             key, static_cast<const CoreIrPointerType *>(type)->get_pointee_type());

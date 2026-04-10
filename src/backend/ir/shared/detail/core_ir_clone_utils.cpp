@@ -9,6 +9,8 @@ namespace sysycc::detail {
 std::unique_ptr<CoreIrInstruction> clone_instruction_remapped(
     const CoreIrInstruction &instruction,
     const std::unordered_map<const CoreIrValue *, CoreIrValue *> &value_map,
+    const std::unordered_map<const CoreIrStackSlot *, CoreIrStackSlot *>
+        *stack_slot_map,
     const std::unordered_map<const CoreIrBasicBlock *, CoreIrBasicBlock *>
         *block_map) {
     auto remap = [&value_map](CoreIrValue *value) -> CoreIrValue * {
@@ -17,12 +19,20 @@ std::unique_ptr<CoreIrInstruction> clone_instruction_remapped(
     };
     auto remap_block =
         [block_map](CoreIrBasicBlock *block) -> CoreIrBasicBlock * {
-        if (block_map == nullptr || block == nullptr) {
-            return block;
-        }
-        auto it = block_map->find(block);
-        return it == block_map->end() ? block : it->second;
-    };
+            if (block_map == nullptr || block == nullptr) {
+                return block;
+            }
+            auto it = block_map->find(block);
+            return it == block_map->end() ? block : it->second;
+        };
+    auto remap_stack_slot =
+        [stack_slot_map](CoreIrStackSlot *stack_slot) -> CoreIrStackSlot * {
+            if (stack_slot_map == nullptr || stack_slot == nullptr) {
+                return stack_slot;
+            }
+            auto it = stack_slot_map->find(stack_slot);
+            return it == stack_slot_map->end() ? stack_slot : it->second;
+        };
 
     switch (instruction.get_opcode()) {
     case CoreIrOpcode::Binary: {
@@ -126,7 +136,8 @@ std::unique_ptr<CoreIrInstruction> clone_instruction_remapped(
         const auto &address =
             static_cast<const CoreIrAddressOfStackSlotInst &>(instruction);
         auto clone = std::make_unique<CoreIrAddressOfStackSlotInst>(
-            address.get_type(), address.get_name(), address.get_stack_slot());
+            address.get_type(), address.get_name(),
+            remap_stack_slot(address.get_stack_slot()));
         clone->set_source_span(address.get_source_span());
         return clone;
     }
@@ -149,7 +160,8 @@ std::unique_ptr<CoreIrInstruction> clone_instruction_remapped(
         std::unique_ptr<CoreIrLoadInst> clone;
         if (load.get_stack_slot() != nullptr) {
             clone = std::make_unique<CoreIrLoadInst>(
-                load.get_type(), load.get_name(), load.get_stack_slot(),
+                load.get_type(), load.get_name(),
+                remap_stack_slot(load.get_stack_slot()),
                 load.get_alignment());
         } else {
             clone = std::make_unique<CoreIrLoadInst>(
@@ -165,7 +177,7 @@ std::unique_ptr<CoreIrInstruction> clone_instruction_remapped(
         if (store.get_stack_slot() != nullptr) {
             clone = std::make_unique<CoreIrStoreInst>(store.get_type(),
                                                       remap(store.get_value()),
-                                                      store.get_stack_slot(),
+                                                      remap_stack_slot(store.get_stack_slot()),
                                                       store.get_alignment());
         } else {
             clone = std::make_unique<CoreIrStoreInst>(

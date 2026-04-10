@@ -21,20 +21,22 @@ std::size_t align_to(std::size_t value, std::size_t alignment) {
 }
 
 void assign_virtual_value_location(
-    std::unordered_map<const CoreIrValue *, AArch64ValueLocation> &value_locations,
+    std::unordered_map<const CoreIrValue *, AArch64ValueLocation>
+        &value_locations,
     const CoreIrValue *value, AArch64VirtualReg vreg) {
     value_locations[value] =
         AArch64ValueLocation{AArch64ValueLocationKind::VirtualReg, vreg};
 }
 
 void assign_memory_value_location(
-    std::unordered_map<const CoreIrValue *, AArch64ValueLocation> &value_locations,
-    std::unordered_map<const CoreIrValue *, std::size_t> &aggregate_value_offsets,
+    std::unordered_map<const CoreIrValue *, AArch64ValueLocation>
+        &value_locations,
+    std::unordered_map<const CoreIrValue *, std::size_t>
+        &aggregate_value_offsets,
     const CoreIrValue *value, AArch64VirtualReg address_vreg,
     std::size_t offset) {
-    value_locations[value] =
-        AArch64ValueLocation{AArch64ValueLocationKind::MemoryAddress,
-                             address_vreg};
+    value_locations[value] = AArch64ValueLocation{
+        AArch64ValueLocationKind::MemoryAddress, address_vreg};
     aggregate_value_offsets[value] = offset;
 }
 
@@ -52,6 +54,11 @@ bool instruction_has_canonical_vreg(const CoreIrInstruction &instruction) {
     case CoreIrOpcode::Binary:
     case CoreIrOpcode::Unary:
     case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
+    case CoreIrOpcode::ExtractElement:
+    case CoreIrOpcode::InsertElement:
+    case CoreIrOpcode::ShuffleVector:
+    case CoreIrOpcode::VectorReduceAdd:
     case CoreIrOpcode::Cast:
     case CoreIrOpcode::Call:
         return !is_void_type(instruction.get_type());
@@ -76,8 +83,8 @@ std::size_t allocate_aggregate_value_slot(std::size_t &current_offset,
     return current_offset;
 }
 
-bool validate_function_lowering_readiness(const CoreIrFunction &function,
-                                          AArch64FunctionPlanningContext &context) {
+bool validate_function_lowering_readiness(
+    const CoreIrFunction &function, AArch64FunctionPlanningContext &context) {
     if (!is_supported_native_value_type(
             function.get_function_type()->get_return_type())) {
         context.report_error(
@@ -87,17 +94,17 @@ bool validate_function_lowering_readiness(const CoreIrFunction &function,
     }
     for (const auto &parameter : function.get_parameters()) {
         if (!is_supported_native_value_type(parameter->get_type())) {
-            context.report_error(
-                "unsupported parameter type in AArch64 native backend for function '" +
-                function.get_name() + "'");
+            context.report_error("unsupported parameter type in AArch64 native "
+                                 "backend for function '" +
+                                 function.get_name() + "'");
             return false;
         }
     }
     for (const auto &stack_slot : function.get_stack_slots()) {
         if (!is_supported_object_type(stack_slot->get_allocated_type())) {
-            context.report_error(
-                "unsupported stack slot type in AArch64 native backend for function '" +
-                function.get_name() + "'");
+            context.report_error("unsupported stack slot type in AArch64 "
+                                 "native backend for function '" +
+                                 function.get_name() + "'");
             return false;
         }
     }
@@ -108,18 +115,21 @@ void layout_stack_slots(AArch64MachineFunction &machine_function,
                         const CoreIrFunction &function,
                         std::size_t &current_offset) {
     for (const auto &stack_slot : function.get_stack_slots()) {
-        current_offset = align_to(current_offset,
-                                  get_type_alignment(stack_slot->get_allocated_type()));
+        current_offset =
+            align_to(current_offset,
+                     get_type_alignment(stack_slot->get_allocated_type()));
         current_offset += get_type_size(stack_slot->get_allocated_type());
-        machine_function.get_frame_info().set_stack_slot_offset(stack_slot.get(),
-                                                                current_offset);
+        machine_function.get_frame_info().set_stack_slot_offset(
+            stack_slot.get(), current_offset);
     }
 }
 
 bool seed_function_value_locations(
     const CoreIrFunction &function, AArch64MachineFunction &machine_function,
-    std::unordered_map<const CoreIrValue *, AArch64ValueLocation> &value_locations,
-    std::unordered_map<const CoreIrValue *, std::size_t> &aggregate_value_offsets,
+    std::unordered_map<const CoreIrValue *, AArch64ValueLocation>
+        &value_locations,
+    std::unordered_map<const CoreIrValue *, std::size_t>
+        &aggregate_value_offsets,
     std::size_t &current_offset, AArch64FunctionPlanningContext &context) {
     for (const auto &parameter : function.get_parameters()) {
         if (!is_supported_native_value_type(parameter->get_type())) {
@@ -178,24 +188,29 @@ void seed_call_argument_copy_slots(
     std::size_t &current_offset, AArch64FunctionPlanningContext &context) {
     for (const auto &basic_block : function.get_basic_blocks()) {
         for (const auto &instruction : basic_block->get_instructions()) {
-            const auto *call = dynamic_cast<const CoreIrCallInst *>(instruction.get());
+            const auto *call =
+                dynamic_cast<const CoreIrCallInst *>(instruction.get());
             if (call == nullptr) {
                 continue;
             }
-            const AArch64FunctionAbiInfo abi_info = context.classify_call(*call);
+            const AArch64FunctionAbiInfo abi_info =
+                context.classify_call(*call);
             std::vector<std::size_t> offsets;
             offsets.resize(abi_info.parameters.size(), 0);
-            for (std::size_t index = 0; index < abi_info.parameters.size(); ++index) {
+            for (std::size_t index = 0; index < abi_info.parameters.size();
+                 ++index) {
                 if (!abi_info.parameters[index].is_indirect) {
                     continue;
                 }
                 offsets[index] = allocate_aggregate_value_slot(
                     current_offset,
-                    call->get_operands()[call->get_argument_begin_index() + index]
+                    call->get_operands()[call->get_argument_begin_index() +
+                                         index]
                         ->get_type());
             }
             if (!offsets.empty()) {
-                indirect_call_argument_copy_offsets.emplace(call, std::move(offsets));
+                indirect_call_argument_copy_offsets.emplace(call,
+                                                            std::move(offsets));
             }
         }
     }
@@ -203,14 +218,17 @@ void seed_call_argument_copy_slots(
 
 void seed_promoted_stack_slots(
     const CoreIrFunction &function,
-    const std::unordered_map<const CoreIrValue *, AArch64ValueLocation> &value_locations,
+    const std::unordered_map<const CoreIrValue *, AArch64ValueLocation>
+        &value_locations,
     std::unordered_set<const CoreIrStackSlot *> &promoted_stack_slots) {
     const CoreIrBasicBlock *entry_block =
-        function.get_basic_blocks().empty() ? nullptr :
-                                              function.get_basic_blocks().front().get();
+        function.get_basic_blocks().empty()
+            ? nullptr
+            : function.get_basic_blocks().front().get();
     std::unordered_set<const CoreIrStackSlot *> address_taken;
     std::unordered_map<const CoreIrStackSlot *, std::size_t> direct_store_count;
-    std::unordered_map<const CoreIrStackSlot *, const CoreIrStoreInst *> entry_store;
+    std::unordered_map<const CoreIrStackSlot *, const CoreIrStoreInst *>
+        entry_store;
 
     for (const auto &basic_block : function.get_basic_blocks()) {
         for (const auto &instruction : basic_block->get_instructions()) {
@@ -221,7 +239,8 @@ void seed_promoted_stack_slots(
                 address_taken.insert(address_of_stack_slot->get_stack_slot());
                 continue;
             }
-            const auto *store = dynamic_cast<const CoreIrStoreInst *>(instruction.get());
+            const auto *store =
+                dynamic_cast<const CoreIrStoreInst *>(instruction.get());
             if (store == nullptr || store->get_stack_slot() == nullptr) {
                 continue;
             }
