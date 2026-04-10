@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "backend/ir/analysis/analysis_manager.hpp"
+#include "backend/ir/analysis/cfg_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -68,6 +69,7 @@ struct CursorCandidate {
     CoreIrBasicBlock *preheader = nullptr;
     CoreIrBasicBlock *latch = nullptr;
     std::vector<CoreIrLoadInst *> loads;
+    std::vector<CoreIrLoadInst *> exit_loads;
     CoreIrStoreInst *preheader_store = nullptr;
     CoreIrStoreInst *latch_store = nullptr;
 };
@@ -83,7 +85,56 @@ std::size_t find_instruction_index(const CoreIrBasicBlock &block,
     return instructions.size();
 }
 
-std::vector<CursorCandidate> collect_candidates(const CoreIrLoopInfo &loop) {
+bool block_has_direct_store_before(const CoreIrBasicBlock &block,
+                                   const CoreIrInstruction *instruction,
+                                   CoreIrStackSlot *slot) {
+    for (const auto &instruction_ptr : block.get_instructions()) {
+        CoreIrInstruction *current = instruction_ptr.get();
+        if (current == instruction) {
+            return false;
+        }
+        auto *store = dynamic_cast<CoreIrStoreInst *>(current);
+        if (store != nullptr && store->get_stack_slot() == slot) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<CoreIrLoadInst *> collect_header_exit_loads(
+    const CoreIrLoopInfo &loop, const CoreIrCfgAnalysisResult &cfg,
+    CoreIrStackSlot *slot) {
+    std::vector<CoreIrLoadInst *> exit_loads;
+    CoreIrBasicBlock *header = loop.get_header();
+    if (slot == nullptr || header == nullptr) {
+        return exit_loads;
+    }
+
+    for (CoreIrBasicBlock *exit_block : loop.get_exit_blocks()) {
+        if (exit_block == nullptr ||
+            loop_contains_block(loop, exit_block) ||
+            cfg.get_predecessor_count(exit_block) != 1 ||
+            cfg.get_predecessors(exit_block).front() != header) {
+            continue;
+        }
+        for (const auto &instruction_ptr : exit_block->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
+            if (load == nullptr || load->get_stack_slot() != slot) {
+                continue;
+            }
+            if (block_has_direct_store_before(*exit_block, load, slot)) {
+                break;
+            }
+            exit_loads.push_back(load);
+        }
+    }
+
+    return exit_loads;
+}
+
+std::vector<CursorCandidate> collect_candidates(const CoreIrLoopInfo &loop,
+                                                const CoreIrCfgAnalysisResult &cfg) {
     CoreIrBasicBlock *header = loop.get_header();
     CoreIrBasicBlock *preheader = loop.get_preheader();
     if (header == nullptr || preheader == nullptr ||
@@ -116,39 +167,38 @@ std::vector<CursorCandidate> collect_candidates(const CoreIrLoopInfo &loop) {
     }
 
     std::vector<CursorCandidate> candidates;
-    for (const auto &[slot, loads] : loads_by_slot) {
-        auto stores_it = stores_by_slot.find(slot);
-        if (slot == nullptr || loads.empty() || stores_it == stores_by_slot.end() ||
-            stores_it->second.size() != 1) {
+    for (const auto &[slot, stores] : stores_by_slot) {
+        if (slot == nullptr || stores.size() != 1) {
             continue;
         }
 
-        CoreIrStoreInst *latch_store = stores_it->second.front();
-        if (latch_store == nullptr || latch_store->get_parent() != latch) {
+        std::vector<CoreIrLoadInst *> candidate_loads;
+        auto loads_it = loads_by_slot.find(slot);
+        if (loads_it != loads_by_slot.end()) {
+            const std::size_t latch_store_index =
+                find_instruction_index(*latch, stores.front());
+            for (CoreIrLoadInst *load : loads_it->second) {
+                if (load == nullptr || !instruction_uses_stay_in_loop(*load, loop)) {
+                    candidate_loads.clear();
+                    break;
+                }
+                if (load->get_parent() == latch &&
+                    find_instruction_index(*latch, load) >= latch_store_index) {
+                    candidate_loads.clear();
+                    break;
+                }
+                candidate_loads.push_back(load);
+            }
+        }
+
+        std::vector<CoreIrLoadInst *> exit_loads =
+            collect_header_exit_loads(loop, cfg, slot);
+        if (candidate_loads.empty() && exit_loads.empty()) {
             continue;
         }
-        std::vector<CoreIrLoadInst *> candidate_loads;
-        bool saw_header_load = false;
-        const std::size_t latch_store_index =
-            find_instruction_index(*latch, latch_store);
-        for (CoreIrLoadInst *load : loads) {
-            if (load == nullptr || !instruction_uses_stay_in_loop(*load, loop)) {
-                candidate_loads.clear();
-                break;
-            }
-            if (load->get_parent() == header) {
-                saw_header_load = true;
-                candidate_loads.push_back(load);
-                continue;
-            }
-            if (load->get_parent() != latch ||
-                find_instruction_index(*latch, load) >= latch_store_index) {
-                candidate_loads.clear();
-                break;
-            }
-            candidate_loads.push_back(load);
-        }
-        if (!saw_header_load || candidate_loads.empty()) {
+
+        CoreIrStoreInst *latch_store = stores.front();
+        if (latch_store == nullptr || latch_store->get_parent() != latch) {
             continue;
         }
 
@@ -161,6 +211,7 @@ std::vector<CursorCandidate> collect_candidates(const CoreIrLoopInfo &loop) {
 
         candidates.push_back(CursorCandidate{slot, header, preheader, latch,
                                              std::move(candidate_loads),
+                                             std::move(exit_loads),
                                              preheader_store,
                                              latch_store});
     }
@@ -184,11 +235,22 @@ bool promote_candidate(const CursorCandidate &candidate,
             load->replace_all_uses_with(phi_ptr);
         }
     }
+    for (CoreIrLoadInst *exit_load : candidate.exit_loads) {
+        if (exit_load != nullptr) {
+            exit_load->replace_all_uses_with(phi_ptr);
+        }
+    }
     phi_ptr->add_incoming(candidate.latch, candidate.latch_store->get_value());
     bool changed = false;
     for (CoreIrLoadInst *load : candidate.loads) {
         if (load != nullptr && load->get_parent() != nullptr) {
             changed = erase_instruction(*load->get_parent(), load) || changed;
+        }
+    }
+    for (CoreIrLoadInst *exit_load : candidate.exit_loads) {
+        if (exit_load != nullptr && exit_load->get_parent() != nullptr) {
+            changed =
+                erase_instruction(*exit_load->get_parent(), exit_load) || changed;
         }
     }
     return changed;
@@ -221,6 +283,8 @@ PassResult CoreIrLoopCursorPromotionPass::Run(CompilerContext &context) {
     CoreIrPassEffects effects;
     std::size_t phi_counter = 0;
     for (const auto &function : module->get_functions()) {
+        const CoreIrCfgAnalysisResult &cfg =
+            analysis_manager->get_or_compute<CoreIrCfgAnalysis>(*function);
         const CoreIrLoopInfoAnalysisResult &loop_info =
             analysis_manager->get_or_compute<CoreIrLoopInfoAnalysis>(*function);
         bool function_changed = false;
@@ -241,7 +305,7 @@ PassResult CoreIrLoopCursorPromotionPass::Run(CompilerContext &context) {
                          });
 
         for (const CoreIrLoopInfo *loop : ordered_loops) {
-            for (const CursorCandidate &candidate : collect_candidates(*loop)) {
+            for (const CursorCandidate &candidate : collect_candidates(*loop, cfg)) {
                 function_changed =
                     promote_candidate(candidate, phi_counter) || function_changed;
             }

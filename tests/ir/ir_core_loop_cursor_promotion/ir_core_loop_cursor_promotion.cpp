@@ -76,8 +76,12 @@ int main(int argc, char **argv) {
     assert(build_result != nullptr);
     CoreIrModule *module = build_result->get_module();
     assert(module != nullptr);
-    CoreIrFunction *function = find_function(*module, "cursor_pair");
-    assert(function != nullptr);
+    CoreIrFunction *pair_function = find_function(*module, "cursor_pair");
+    CoreIrFunction *nested_function = find_function(*module, "cursor_nested_accum");
+    CoreIrFunction *exit_function = find_function(*module, "cursor_exit_accum");
+    assert(pair_function != nullptr);
+    assert(nested_function != nullptr);
+    assert(exit_function != nullptr);
 
     CoreIrVerifier verifier;
     assert(verifier.verify_module(*module).ok);
@@ -85,16 +89,30 @@ int main(int argc, char **argv) {
     CoreIrRawPrinter printer;
     const std::string core_ir_text = printer.print_module(*module);
     assert(core_ir_text.find("%j.addr.cursor.") != std::string::npos);
+    assert(core_ir_text.find("%k.addr.cursor.") != std::string::npos);
+    assert(core_ir_text.find("%w.addr.cursor.") != std::string::npos);
     assert(core_ir_text.find("load i32, %j.addr") == std::string::npos);
+    assert(core_ir_text.find("load i32, %k.addr") == std::string::npos);
+    assert(core_ir_text.find("load i32, %w.addr") == std::string::npos);
     assert(core_ir_text.find("store i32 %j.addr.cursor.") == std::string::npos);
+    assert(core_ir_text.find("store i32 %k.addr.cursor.") == std::string::npos);
+    assert(core_ir_text.find("store i32 %w.addr.cursor.") == std::string::npos);
 
     LowerIrPass lower_ir_pass;
     assert(lower_ir_pass.Run(compiler_context).ok);
     const IRResult *ir_result = compiler_context.get_ir_result();
     assert(ir_result != nullptr);
-    const std::string llvm_function =
+    const std::string llvm_pair_function =
         extract_llvm_function(ir_result->get_text(), "define i32 @cursor_pair(");
-    assert(llvm_function.find("%j.addr") == std::string::npos);
+    const std::string llvm_nested_function =
+        extract_llvm_function(ir_result->get_text(),
+                              "define i32 @cursor_nested_accum(");
+    const std::string llvm_exit_function =
+        extract_llvm_function(ir_result->get_text(), "define i32 @cursor_exit_accum(");
+    assert(llvm_pair_function.find("%j.addr") == std::string::npos);
+    assert(llvm_nested_function.find("%j.addr") == std::string::npos);
+    assert(llvm_nested_function.find("%k.addr") == std::string::npos);
+    assert(llvm_exit_function.find("%w.addr") == std::string::npos);
 
     return 0;
 }
