@@ -362,7 +362,8 @@ bool match_store_loop_operations(CoreIrBasicBlock *header, CoreIrBasicBlock *bod
         if (load == nullptr) {
             continue;
         }
-        if (load->get_address() == pattern.store->get_address()) {
+        if (pattern.store != nullptr &&
+            load->get_address() == pattern.store->get_address()) {
             pattern.accumulator_load = load;
             continue;
         }
@@ -391,6 +392,10 @@ bool match_store_loop_operations(CoreIrBasicBlock *header, CoreIrBasicBlock *bod
     if (rhs == pattern.accumulator_load && lhs == pattern.lane_load &&
         pattern.lane_load != nullptr) {
         return true;
+    }
+
+    if (pattern.mul_binary == nullptr) {
+        return false;
     }
 
     CoreIrValue *mul_value = nullptr;
@@ -613,7 +618,8 @@ bool match_store_loop_pattern(const CoreIrLoopInfo &loop,
             if (load == nullptr) {
                 continue;
             }
-            if (load->get_address() == pattern.store->get_address()) {
+            if (pattern.store != nullptr &&
+                load->get_address() == pattern.store->get_address()) {
                 pattern.accumulator_load = load;
                 continue;
             }
