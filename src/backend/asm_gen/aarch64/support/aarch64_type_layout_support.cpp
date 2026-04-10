@@ -33,6 +33,10 @@ bool is_float_type(const CoreIrType *type) {
     return type != nullptr && type->get_kind() == CoreIrTypeKind::Float;
 }
 
+bool is_vector_type(const CoreIrType *type) {
+    return type != nullptr && type->get_kind() == CoreIrTypeKind::Vector;
+}
+
 bool is_void_type(const CoreIrType *type) {
     return type != nullptr && type->get_kind() == CoreIrTypeKind::Void;
 }
@@ -64,6 +68,10 @@ bool type_contains_float_kind(const CoreIrType *type, CoreIrFloatKind float_kind
     if (const auto *pointer_type = dynamic_cast<const CoreIrPointerType *>(type);
         pointer_type != nullptr) {
         return type_contains_float_kind(pointer_type->get_pointee_type(), float_kind);
+    }
+    if (const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
+        vector_type != nullptr) {
+        return type_contains_float_kind(vector_type->get_element_type(), float_kind);
     }
     if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
         array_type != nullptr) {
@@ -107,6 +115,9 @@ AArch64VirtualRegKind classify_float_reg_kind(CoreIrFloatKind float_kind) {
 
 AArch64VirtualRegKind classify_virtual_reg_kind(const CoreIrType *type) {
     if (is_pointer_type(type)) {
+        return AArch64VirtualRegKind::General64;
+    }
+    if (is_vector_type(type)) {
         return AArch64VirtualRegKind::General64;
     }
     if (const auto *integer_type = as_integer_type(type); integer_type != nullptr) {
@@ -182,6 +193,9 @@ bool is_supported_object_type(const CoreIrType *type) {
     if (type == nullptr) {
         return false;
     }
+    if (is_vector_type(type)) {
+        return false;
+    }
     if (is_supported_scalar_storage_type(type)) {
         return true;
     }
@@ -208,6 +222,11 @@ bool is_supported_value_type(const CoreIrType *type) {
 std::size_t get_storage_size(const CoreIrType *type) {
     if (is_pointer_type(type)) {
         return 8;
+    }
+    if (const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
+        vector_type != nullptr) {
+        return get_storage_size(vector_type->get_element_type()) *
+               vector_type->get_element_count();
     }
     if (const auto *float_type = as_float_type(type); float_type != nullptr) {
         switch (float_type->get_float_kind()) {
@@ -238,6 +257,11 @@ std::size_t get_storage_size(const CoreIrType *type) {
 }
 
 std::size_t get_storage_alignment(const CoreIrType *type) {
+    if (const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
+        vector_type != nullptr) {
+        return std::max<std::size_t>(get_storage_alignment(vector_type->get_element_type()),
+                                     get_storage_size(type));
+    }
     const std::size_t size = get_storage_size(type);
     if (size == 0) {
         return 0;

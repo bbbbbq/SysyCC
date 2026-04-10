@@ -27,22 +27,24 @@ bool append_constant_indices(CoreIrMemoryLocation &location,
 
 } // namespace
 
-CoreIrMemoryLocation describe_memory_location(CoreIrValue *value) {
-    if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(value);
+CoreIrMemoryLocation describe_memory_location(const CoreIrValue *value) {
+    if (auto *address =
+            dynamic_cast<const CoreIrAddressOfStackSlotInst *>(value);
         address != nullptr) {
         CoreIrMemoryLocation location;
         location.kind = CoreIrMemoryLocationKind::StackSlot;
         location.stack_slot = address->get_stack_slot();
         return location;
     }
-    if (auto *address = dynamic_cast<CoreIrAddressOfGlobalInst *>(value);
+    if (auto *address = dynamic_cast<const CoreIrAddressOfGlobalInst *>(value);
         address != nullptr) {
         CoreIrMemoryLocation location;
         location.kind = CoreIrMemoryLocationKind::Global;
         location.global = address->get_global();
         return location;
     }
-    if (auto *parameter = dynamic_cast<CoreIrParameter *>(value); parameter != nullptr) {
+    if (auto *parameter = dynamic_cast<const CoreIrParameter *>(value);
+        parameter != nullptr) {
         CoreIrMemoryLocation location;
         if (parameter->get_type() == nullptr ||
             parameter->get_type()->get_kind() != CoreIrTypeKind::Pointer ||
@@ -61,7 +63,7 @@ CoreIrMemoryLocation describe_memory_location(CoreIrValue *value) {
         return location;
     }
 
-    auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(value);
+    auto *gep = dynamic_cast<const CoreIrGetElementPtrInst *>(value);
     if (gep == nullptr) {
         return {};
     }

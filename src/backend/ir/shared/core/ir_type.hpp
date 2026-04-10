@@ -11,6 +11,7 @@ enum class CoreIrTypeKind : unsigned char {
     Void,
     Integer,
     Float,
+    Vector,
     Pointer,
     Array,
     Struct,
@@ -76,6 +77,26 @@ class CoreIrFloatType final : public CoreIrType {
     }
 
     CoreIrFloatKind get_float_kind() const noexcept { return float_kind_; }
+};
+
+class CoreIrVectorType final : public CoreIrType {
+  private:
+    const CoreIrType *element_type_ = nullptr;
+    std::size_t element_count_ = 0;
+
+  public:
+    CoreIrVectorType(const CoreIrType *element_type, std::size_t element_count)
+        : element_type_(element_type), element_count_(element_count) {}
+
+    CoreIrTypeKind get_kind() const noexcept override {
+        return CoreIrTypeKind::Vector;
+    }
+
+    const CoreIrType *get_element_type() const noexcept {
+        return element_type_;
+    }
+
+    std::size_t get_element_count() const noexcept { return element_count_; }
 };
 
 class CoreIrPointerType final : public CoreIrType {

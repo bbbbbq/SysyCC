@@ -27,5 +27,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: LCSSA inserts exit phis for single-exit loop values used outside the loop"
-
+echo "verified: LCSSA inserts exit phis for single-exit and dedicated multi-exit loop uses"

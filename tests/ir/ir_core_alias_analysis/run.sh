@@ -29,4 +29,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: alias analysis distinguishes no-alias, must-alias, and may-alias locations"
+echo "verified: alias analysis keeps stack slots precise while treating parameter/global roots conservatively"

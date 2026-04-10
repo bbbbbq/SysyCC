@@ -20,9 +20,9 @@ enum class CoreIrMemoryLocationKind : unsigned char {
 
 struct CoreIrMemoryLocation {
     CoreIrMemoryLocationKind kind = CoreIrMemoryLocationKind::Unknown;
-    CoreIrStackSlot *stack_slot = nullptr;
-    CoreIrGlobal *global = nullptr;
-    CoreIrParameter *parameter = nullptr;
+    const CoreIrStackSlot *stack_slot = nullptr;
+    const CoreIrGlobal *global = nullptr;
+    const CoreIrParameter *parameter = nullptr;
     std::size_t parameter_index = 0;
     std::vector<std::uint64_t> access_path;
 
@@ -33,8 +33,10 @@ struct CoreIrMemoryLocation {
     bool is_unknown() const noexcept {
         return kind == CoreIrMemoryLocationKind::Unknown;
     }
+
+    bool has_constant_path() const noexcept { return !is_unknown(); }
 };
 
-CoreIrMemoryLocation describe_memory_location(CoreIrValue *value);
+CoreIrMemoryLocation describe_memory_location(const CoreIrValue *value);
 
 } // namespace sysycc

@@ -1,9 +1,9 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstddef>
 #include <memory>
 #include <optional>
-#include <cstddef>
+#include <stdint.h>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -110,11 +110,15 @@ enum class PassKind : uint8_t {
     CoreIrLoopRotate,
     CoreIrLcssa,
     CoreIrIndVarSimplify,
+    CoreIrIfConversion,
     CoreIrSimpleLoopUnswitch,
     CoreIrLoopIdiom,
     CoreIrSroa,
     CoreIrLoopMemoryPromotion,
+    CoreIrLoopCursorPromotion,
     CoreIrLoopUnroll,
+    CoreIrLoopVectorize,
+    CoreIrSlpVectorize,
     CoreIrStackSlotForward,
     CoreIrCopyPropagation,
     CoreIrLocalCse,
@@ -123,6 +127,7 @@ enum class PassKind : uint8_t {
     CoreIrConstFold,
     CoreIrSccp,
     CoreIrInstCombine,
+    CoreIrTailRecursionElimination,
     CoreIrLicm,
     CoreIrGvn,
     CoreIrDce,
@@ -176,10 +181,12 @@ class PassManager {
     void AddPass(std::unique_ptr<Pass> pass);
     void AddCoreIrFixedPointGroup(std::vector<std::unique_ptr<Pass>> passes,
                                   std::size_t max_iterations = 4);
-    void AddCoreIrModuleFixedPointGroup(std::vector<std::unique_ptr<Pass>> passes,
-                                        std::size_t max_iterations = 4);
+    void
+    AddCoreIrModuleFixedPointGroup(std::vector<std::unique_ptr<Pass>> passes,
+                                   std::size_t max_iterations = 4);
     PassManager() = default;
     Pass *get_pass_by_kind(PassKind kind) const;
+    std::vector<PassKind> get_pipeline_kinds() const;
     PassResult Run(CompilerContext &context);
 };
 

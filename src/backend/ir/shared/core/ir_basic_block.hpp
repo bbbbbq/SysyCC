@@ -21,6 +21,7 @@ class CoreIrBasicBlock {
     explicit CoreIrBasicBlock(std::string name) : name_(std::move(name)) {}
 
     const std::string &get_name() const noexcept { return name_; }
+    void set_name(std::string name) { name_ = std::move(name); }
 
     CoreIrFunction *get_parent() const noexcept { return parent_; }
 

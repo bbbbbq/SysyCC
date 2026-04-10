@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "backend/ir/analysis/analysis_manager.hpp"
@@ -20,10 +21,12 @@ namespace sysycc {
 
 namespace {
 
-PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
+PassResult fail_missing_core_ir(CompilerContext &context,
+                                const char *pass_name) {
     const std::string message =
         std::string(pass_name) + " requires a built core ir result";
-    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler, message);
+    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                              message);
     return PassResult::Failure(message);
 }
 
@@ -55,9 +58,10 @@ bool instruction_has_external_use(const CoreIrInstruction &instruction,
     return false;
 }
 
-std::vector<CoreIrBasicBlock *> collect_inside_predecessors(
-    const CoreIrCfgAnalysisResult &cfg, const CoreIrLoopInfo &loop,
-    CoreIrBasicBlock *exit_block) {
+std::vector<CoreIrBasicBlock *>
+collect_inside_predecessors(const CoreIrCfgAnalysisResult &cfg,
+                            const CoreIrLoopInfo &loop,
+                            CoreIrBasicBlock *exit_block) {
     std::vector<CoreIrBasicBlock *> predecessors;
     for (CoreIrBasicBlock *predecessor : cfg.get_predecessors(exit_block)) {
         if (loop_contains_block(loop, predecessor)) {
@@ -95,9 +99,40 @@ bool dominates_all_inside_predecessors(
     return true;
 }
 
-CoreIrPhiInst *create_lcssa_phi(CoreIrBasicBlock &exit_block,
-                                CoreIrInstruction &instruction,
-                                const std::vector<CoreIrBasicBlock *> &inside_predecessors) {
+CoreIrBasicBlock *find_unique_exit_for_use(
+    const CoreIrUse &use,
+    const std::unordered_map<CoreIrBasicBlock *,
+                             std::vector<CoreIrBasicBlock *>>
+        &inside_predecessors_by_exit,
+    const CoreIrDominatorTreeAnalysisResult &dominator_tree) {
+    CoreIrBasicBlock *use_block = get_use_location_block(use);
+    if (use_block == nullptr) {
+        return nullptr;
+    }
+
+    auto direct_it = inside_predecessors_by_exit.find(use_block);
+    if (direct_it != inside_predecessors_by_exit.end()) {
+        return direct_it->first;
+    }
+
+    CoreIrBasicBlock *selected_exit = nullptr;
+    for (const auto &entry : inside_predecessors_by_exit) {
+        CoreIrBasicBlock *exit_block = entry.first;
+        if (exit_block == nullptr ||
+            !dominator_tree.dominates(exit_block, use_block)) {
+            continue;
+        }
+        if (selected_exit != nullptr) {
+            return nullptr;
+        }
+        selected_exit = exit_block;
+    }
+    return selected_exit;
+}
+
+CoreIrPhiInst *
+create_lcssa_phi(CoreIrBasicBlock &exit_block, CoreIrInstruction &instruction,
+                 const std::vector<CoreIrBasicBlock *> &inside_predecessors) {
     auto phi = std::make_unique<CoreIrPhiInst>(
         instruction.get_type(), instruction.get_name() + ".lcssa");
     phi->set_source_span(instruction.get_source_span());
@@ -109,43 +144,74 @@ CoreIrPhiInst *create_lcssa_phi(CoreIrBasicBlock &exit_block,
     return phi_ptr;
 }
 
-bool rewrite_external_uses_through_exit_phi(CoreIrInstruction &instruction,
-                                            const CoreIrLoopInfo &loop,
-                                            CoreIrPhiInst &phi) {
+bool rewrite_external_uses_through_exit_phi(
+    CoreIrInstruction &instruction, const CoreIrLoopInfo &loop,
+    const CoreIrDominatorTreeAnalysisResult &dominator_tree,
+    const std::unordered_map<CoreIrBasicBlock *,
+                             std::vector<CoreIrBasicBlock *>>
+        &inside_predecessors_by_exit) {
     bool changed = false;
     const std::vector<CoreIrUse> uses = instruction.get_uses();
+    std::unordered_map<CoreIrBasicBlock *, CoreIrPhiInst *> exit_phis;
     for (const CoreIrUse &use : uses) {
         CoreIrInstruction *user = use.get_user();
-        if (user == nullptr || user == &phi) {
+        if (user == nullptr) {
             continue;
         }
         if (loop_contains_block(loop, get_use_location_block(use))) {
             continue;
         }
-        user->set_operand(use.get_operand_index(), &phi);
+
+        CoreIrBasicBlock *exit_block = find_unique_exit_for_use(
+            use, inside_predecessors_by_exit, dominator_tree);
+        if (exit_block == nullptr) {
+            continue;
+        }
+
+        const auto inside_it = inside_predecessors_by_exit.find(exit_block);
+        if (inside_it == inside_predecessors_by_exit.end() ||
+            !dominates_all_inside_predecessors(dominator_tree, instruction,
+                                               inside_it->second)) {
+            continue;
+        }
+
+        CoreIrPhiInst *phi = nullptr;
+        auto phi_it = exit_phis.find(exit_block);
+        if (phi_it == exit_phis.end()) {
+            phi = create_lcssa_phi(*exit_block, instruction, inside_it->second);
+            exit_phis.emplace(exit_block, phi);
+        } else {
+            phi = phi_it->second;
+        }
+        if (phi == nullptr || user == phi) {
+            continue;
+        }
+        user->set_operand(use.get_operand_index(), phi);
         changed = true;
     }
     return changed;
 }
 
-bool run_lcssa_on_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
-                       const CoreIrCfgAnalysisResult &cfg,
-                       const CoreIrDominatorTreeAnalysisResult &dominator_tree) {
-    if (loop.get_exit_blocks().size() != 1) {
-        return false;
+bool run_lcssa_on_loop(
+    CoreIrFunction &function, const CoreIrLoopInfo &loop,
+    const CoreIrCfgAnalysisResult &cfg,
+    const CoreIrDominatorTreeAnalysisResult &dominator_tree) {
+    std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
+        inside_predecessors_by_exit;
+    for (CoreIrBasicBlock *exit_block : loop.get_exit_blocks()) {
+        if (exit_block == nullptr ||
+            exit_block_has_outside_predecessor(cfg, loop, exit_block)) {
+            continue;
+        }
+        std::vector<CoreIrBasicBlock *> inside_predecessors =
+            collect_inside_predecessors(cfg, loop, exit_block);
+        if (inside_predecessors.empty()) {
+            continue;
+        }
+        inside_predecessors_by_exit.emplace(exit_block,
+                                            std::move(inside_predecessors));
     }
-
-    CoreIrBasicBlock *exit_block = *loop.get_exit_blocks().begin();
-    if (exit_block == nullptr) {
-        return false;
-    }
-
-    const std::vector<CoreIrBasicBlock *> inside_predecessors =
-        collect_inside_predecessors(cfg, loop, exit_block);
-    if (inside_predecessors.empty()) {
-        return false;
-    }
-    if (exit_block_has_outside_predecessor(cfg, loop, exit_block)) {
+    if (inside_predecessors_by_exit.empty()) {
         return false;
     }
 
@@ -158,15 +224,13 @@ bool run_lcssa_on_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
             CoreIrInstruction *instruction = instruction_ptr.get();
             if (instruction == nullptr || instruction->get_type() == nullptr ||
                 instruction->get_type()->get_kind() == CoreIrTypeKind::Void ||
-                !instruction_has_external_use(*instruction, loop) ||
-                !dominates_all_inside_predecessors(dominator_tree, *instruction,
-                                                  inside_predecessors)) {
+                !instruction_has_external_use(*instruction, loop)) {
                 continue;
             }
 
-            CoreIrPhiInst *phi =
-                create_lcssa_phi(*exit_block, *instruction, inside_predecessors);
-            changed = rewrite_external_uses_through_exit_phi(*instruction, loop, *phi) ||
+            changed = rewrite_external_uses_through_exit_phi(
+                          *instruction, loop, dominator_tree,
+                          inside_predecessors_by_exit) ||
                       changed;
         }
     }
@@ -182,12 +246,14 @@ const char *CoreIrLcssaPass::Name() const { return "CoreIrLcssaPass"; }
 
 PassResult CoreIrLcssaPass::Run(CompilerContext &context) {
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
-    CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();
+    CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
         return fail_missing_core_ir(context, Name());
     }
 
-    CoreIrAnalysisManager *analysis_manager = build_result->get_analysis_manager();
+    CoreIrAnalysisManager *analysis_manager =
+        build_result->get_analysis_manager();
     if (analysis_manager == nullptr) {
         return PassResult::Failure("missing core ir lcssa dependencies");
     }
@@ -197,7 +263,8 @@ PassResult CoreIrLcssaPass::Run(CompilerContext &context) {
         const CoreIrCfgAnalysisResult &cfg =
             analysis_manager->get_or_compute<CoreIrCfgAnalysis>(*function);
         const CoreIrDominatorTreeAnalysisResult &dominator_tree =
-            analysis_manager->get_or_compute<CoreIrDominatorTreeAnalysis>(*function);
+            analysis_manager->get_or_compute<CoreIrDominatorTreeAnalysis>(
+                *function);
         const CoreIrLoopInfoAnalysisResult &loop_info =
             analysis_manager->get_or_compute<CoreIrLoopInfoAnalysis>(*function);
 
@@ -224,7 +291,7 @@ PassResult CoreIrLcssaPass::Run(CompilerContext &context) {
     }
 
     effects.preserved_analyses = effects.has_changes()
-                                     ? CoreIrPreservedAnalyses::preserve_all()
+                                     ? CoreIrPreservedAnalyses::preserve_none()
                                      : CoreIrPreservedAnalyses::preserve_all();
     return PassResult::Success(std::move(effects));
 }

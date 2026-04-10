@@ -47,8 +47,8 @@ void test_rotates_phi_free_loop_header() {
     auto *cmp = header->create_instruction<CoreIrCompareInst>(
         CoreIrComparePredicate::Equal, i1_type, "cmp", one, one);
     header->create_instruction<CoreIrCondJumpInst>(void_type, cmp, body, exit);
-    body->create_instruction<CoreIrBinaryInst>(CoreIrBinaryOpcode::Add, i32_type,
-                                               "body.add", one, two);
+    body->create_instruction<CoreIrBinaryInst>(CoreIrBinaryOpcode::Add,
+                                               i32_type, "body.add", one, two);
     body->create_instruction<CoreIrJumpInst>(void_type, header);
     exit->create_instruction<CoreIrReturnInst>(void_type, zero);
 
@@ -102,11 +102,55 @@ void test_skips_header_with_phi() {
     assert(entry_term->get_target_block() == header);
 }
 
+void test_rotates_real_cfg_header_compare_chain() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>("loop_rotate_chain");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *latch = function->create_basic_block<CoreIrBasicBlock>("latch");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *two = context->create_constant<CoreIrConstantInt>(i32_type, 2);
+
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *sum = header->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "sum", one, one);
+    auto *cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "cmp", sum, two);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cmp, body, exit);
+    body->create_instruction<CoreIrBinaryInst>(CoreIrBinaryOpcode::Add,
+                                               i32_type, "body.add", one, two);
+    body->create_instruction<CoreIrJumpInst>(void_type, latch);
+    latch->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrLoopRotatePass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    auto *entry_term = dynamic_cast<CoreIrCondJumpInst *>(
+        entry->get_instructions().back().get());
+    assert(entry_term != nullptr);
+    assert(entry_term->get_true_block() == body);
+    assert(entry_term->get_false_block() == exit);
+    assert(entry->get_instructions().size() == 3);
+}
+
 } // namespace
 
 int main() {
     test_rotates_phi_free_loop_header();
     test_skips_header_with_phi();
+    test_rotates_real_cfg_header_compare_chain();
     return 0;
 }
-

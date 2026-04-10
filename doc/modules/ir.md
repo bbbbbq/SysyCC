@@ -123,7 +123,8 @@ The current IR module is intentionally a staged optimization pipeline:
 - `BuildCoreIrPass`, `CoreIrCanonicalizePass`, `CoreIrSimplifyCfgPass`,
   `CoreIrLoopSimplifyPass`, `CoreIrInstCombinePass`,
   `CoreIrStackSlotForwardPass`, `CoreIrDeadStoreEliminationPass`,
-  `CoreIrMem2RegPass`, one post-SSA fixed-point group containing
+  `CoreIrLoopCursorPromotionPass`, `CoreIrMem2RegPass`, one post-SSA fixed-point
+  group containing
   `CoreIrCopyPropagationPass`, `CoreIrInstCombinePass`, `CoreIrSccpPass`,
   `CoreIrSimplifyCfgPass`, `CoreIrLicmPass`, `CoreIrLocalCsePass`,
   `CoreIrGvnPass`, `CoreIrConstFoldPass`, `CoreIrDcePass`, and a trailing

@@ -9,8 +9,9 @@
 #include "backend/ir/analysis/core_ir_analysis_kind.hpp"
 #include "backend/ir/analysis/dominance_frontier_analysis.hpp"
 #include "backend/ir/analysis/dominator_tree_analysis.hpp"
-#include "backend/ir/analysis/function_effect_summary_analysis.hpp"
+#include "backend/ir/analysis/escape_analysis.hpp"
 #include "backend/ir/analysis/function_attrs_analysis.hpp"
+#include "backend/ir/analysis/function_effect_summary_analysis.hpp"
 #include "backend/ir/analysis/induction_var_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/analysis/memory_ssa_analysis.hpp"
@@ -26,7 +27,8 @@ class CoreIrAnalysisManager {
   private:
     struct CachedModuleAnalyses {
         std::unique_ptr<CoreIrCallGraphAnalysisResult> call_graph_analysis;
-        std::unique_ptr<CoreIrFunctionAttrsAnalysisResult> function_attrs_analysis;
+        std::unique_ptr<CoreIrFunctionAttrsAnalysisResult>
+            function_attrs_analysis;
     };
 
     struct CachedFunctionAnalyses {
@@ -38,9 +40,11 @@ class CoreIrAnalysisManager {
         std::unique_ptr<CoreIrPromotableStackSlotAnalysisResult>
             promotable_stack_slot_analysis;
         std::unique_ptr<CoreIrLoopInfoAnalysisResult> loop_info_analysis;
-        std::unique_ptr<CoreIrInductionVarAnalysisResult> induction_var_analysis;
+        std::unique_ptr<CoreIrInductionVarAnalysisResult>
+            induction_var_analysis;
         std::unique_ptr<CoreIrScalarEvolutionLiteAnalysisResult>
             scalar_evolution_lite_analysis;
+        std::unique_ptr<CoreIrEscapeAnalysisResult> escape_analysis;
         std::unique_ptr<CoreIrAliasAnalysisResult> alias_analysis;
         std::unique_ptr<CoreIrMemorySSAAnalysisResult> memory_ssa_analysis;
         std::unique_ptr<CoreIrFunctionEffectSummaryAnalysisResult>
@@ -51,14 +55,17 @@ class CoreIrAnalysisManager {
     std::unordered_map<CoreIrModule *,
                        std::unordered_map<CoreIrAnalysisKind, std::size_t>>
         module_compute_counts_;
-    std::unordered_map<CoreIrFunction *, CachedFunctionAnalyses> function_cache_;
+    std::unordered_map<CoreIrFunction *, CachedFunctionAnalyses>
+        function_cache_;
     std::unordered_map<CoreIrFunction *,
                        std::unordered_map<CoreIrAnalysisKind, std::size_t>>
         compute_counts_;
 
-    CachedModuleAnalyses &get_or_create_module_cache_entry(CoreIrModule &module);
+    CachedModuleAnalyses &
+    get_or_create_module_cache_entry(CoreIrModule &module);
     CachedFunctionAnalyses &get_or_create_cache_entry(CoreIrFunction &function);
-    const CoreIrCallGraphAnalysisResult &get_or_compute_call_graph(CoreIrModule &module);
+    const CoreIrCallGraphAnalysisResult &
+    get_or_compute_call_graph(CoreIrModule &module);
     const CoreIrFunctionAttrsAnalysisResult &
     get_or_compute_function_attrs(CoreIrModule &module);
     const CoreIrCfgAnalysisResult &get_or_compute_cfg(CoreIrFunction &function);
@@ -68,20 +75,24 @@ class CoreIrAnalysisManager {
     get_or_compute_dominance_frontier(CoreIrFunction &function);
     const CoreIrPromotableStackSlotAnalysisResult &
     get_or_compute_promotable_stack_slots(CoreIrFunction &function);
-    const CoreIrLoopInfoAnalysisResult &get_or_compute_loop_info(CoreIrFunction &function);
+    const CoreIrLoopInfoAnalysisResult &
+    get_or_compute_loop_info(CoreIrFunction &function);
     const CoreIrInductionVarAnalysisResult &
     get_or_compute_induction_vars(CoreIrFunction &function);
     const CoreIrScalarEvolutionLiteAnalysisResult &
     get_or_compute_scalar_evolution_lite(CoreIrFunction &function);
-    const CoreIrAliasAnalysisResult &get_or_compute_alias_analysis(CoreIrFunction &function);
-    const CoreIrMemorySSAAnalysisResult &get_or_compute_memory_ssa(CoreIrFunction &function);
+    const CoreIrEscapeAnalysisResult &
+    get_or_compute_escape_analysis(CoreIrFunction &function);
+    const CoreIrAliasAnalysisResult &
+    get_or_compute_alias_analysis(CoreIrFunction &function);
+    const CoreIrMemorySSAAnalysisResult &
+    get_or_compute_memory_ssa(CoreIrFunction &function);
     const CoreIrFunctionEffectSummaryAnalysisResult &
     get_or_compute_function_effect_summary(CoreIrFunction &function);
 
   public:
     template <typename AnalysisT>
-    const typename AnalysisT::ResultType &
-    get_or_compute(CoreIrModule &module);
+    const typename AnalysisT::ResultType &get_or_compute(CoreIrModule &module);
 
     template <typename AnalysisT>
     const typename AnalysisT::ResultType &
@@ -101,7 +112,8 @@ class CoreIrAnalysisManager {
 
 template <>
 inline const CoreIrCallGraphAnalysisResult &
-CoreIrAnalysisManager::get_or_compute<CoreIrCallGraphAnalysis>(CoreIrModule &module) {
+CoreIrAnalysisManager::get_or_compute<CoreIrCallGraphAnalysis>(
+    CoreIrModule &module) {
     return get_or_compute_call_graph(module);
 }
 
@@ -114,7 +126,8 @@ CoreIrAnalysisManager::get_or_compute<CoreIrFunctionAttrsAnalysis>(
 
 template <>
 inline const CoreIrCfgAnalysisResult &
-CoreIrAnalysisManager::get_or_compute<CoreIrCfgAnalysis>(CoreIrFunction &function) {
+CoreIrAnalysisManager::get_or_compute<CoreIrCfgAnalysis>(
+    CoreIrFunction &function) {
     return get_or_compute_cfg(function);
 }
 
@@ -158,6 +171,13 @@ inline const CoreIrScalarEvolutionLiteAnalysisResult &
 CoreIrAnalysisManager::get_or_compute<CoreIrScalarEvolutionLiteAnalysis>(
     CoreIrFunction &function) {
     return get_or_compute_scalar_evolution_lite(function);
+}
+
+template <>
+inline const CoreIrEscapeAnalysisResult &
+CoreIrAnalysisManager::get_or_compute<CoreIrEscapeAnalysis>(
+    CoreIrFunction &function) {
+    return get_or_compute_escape_analysis(function);
 }
 
 template <>

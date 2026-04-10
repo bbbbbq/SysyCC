@@ -1,0 +1,74 @@
+int cursor_pair(int n, int xptr[], int vals[]) {
+    int i, j;
+    int sum = 0;
+    i = 0;
+    while (i < n) {
+        j = xptr[i];
+        while (j < xptr[i + 1]) {
+            sum = sum + vals[j];
+            j = j + 1;
+        }
+        j = xptr[i];
+        while (j < xptr[i + 1]) {
+            sum = sum + vals[j] * 2;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return sum;
+}
+
+int cursor_nested_accum(int n, int vals[]) {
+    int i, j, k;
+    int sum = 0;
+    i = 0;
+    while (i < n) {
+        j = 0;
+        while (j < n) {
+            k = 0;
+            while (k < n) {
+                if (vals[k] > 0) {
+                    sum = sum + vals[k] + k + j;
+                }
+                k = k + 1;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return sum;
+}
+
+int cursor_exit_accum(int n, int vals[]) {
+    int i, j, w;
+    int sum = 0;
+    i = 0;
+    while (i < n) {
+        j = 0;
+        w = vals[i];
+        while (j < i) {
+            w = w - vals[j];
+            j = j + 1;
+        }
+        sum = sum + w;
+        i = i + 1;
+    }
+    return sum;
+}
+
+int main() {
+    int xptr[4];
+    int vals[6];
+    xptr[0] = 0;
+    xptr[1] = 2;
+    xptr[2] = 4;
+    xptr[3] = 6;
+    vals[0] = 1;
+    vals[1] = 2;
+    vals[2] = 3;
+    vals[3] = 4;
+    vals[4] = 5;
+    vals[5] = 6;
+    return cursor_pair(3, xptr, vals) + cursor_nested_accum(3, vals) +
+           cursor_exit_accum(3, vals);
+}
