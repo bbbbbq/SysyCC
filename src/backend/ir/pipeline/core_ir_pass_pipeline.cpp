@@ -37,6 +37,7 @@
 #include "backend/ir/slp_vectorize/core_ir_slp_vectorize_pass.hpp"
 #include "backend/ir/sroa/core_ir_sroa_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
+#include "backend/ir/tail_recursion_elimination/core_ir_tail_recursion_elimination_pass.hpp"
 #include "compiler/pass/pass.hpp"
 
 namespace sysycc {
@@ -155,6 +156,8 @@ void append_default_core_ir_pipeline(PassManager &pass_manager,
     append_pre_ssa_pipeline(pass_manager, use_llvm_optimization_lane,
                             use_llvm_optimization_lane);
     if (use_llvm_optimization_lane) {
+        pass_manager.AddPass(
+            std::make_unique<CoreIrTailRecursionEliminationPass>());
         append_module_fixed_point_pipeline(pass_manager);
         append_llvm_post_ssa_fixed_point_pipeline(pass_manager);
     } else {

@@ -127,6 +127,7 @@ enum class PassKind : uint8_t {
     CoreIrConstFold,
     CoreIrSccp,
     CoreIrInstCombine,
+    CoreIrTailRecursionElimination,
     CoreIrLicm,
     CoreIrGvn,
     CoreIrDce,

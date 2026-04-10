@@ -1,0 +1,23 @@
+int fun(int n, int dep, int lim) {
+    if (n == 1) {
+        return dep;
+    }
+    if (n % 2 == 0) {
+        return fun(n / 2, dep + 1, lim);
+    }
+    if (n * 3 + 1 <= lim) {
+        return fun(n * 3 + 1, dep + 1, lim);
+    }
+    return 0;
+}
+
+int non_tail(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n + non_tail(n - 1);
+}
+
+int main() {
+    return fun(7, 0, 100) + non_tail(3);
+}

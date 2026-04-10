@@ -128,6 +128,7 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/sccp/core_ir_sccp_pass.cpp
     src/backend/ir/simple_loop_unswitch/core_ir_simple_loop_unswitch_pass.cpp
     src/backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.cpp
+    src/backend/ir/tail_recursion_elimination/core_ir_tail_recursion_elimination_pass.cpp
     src/backend/ir/slp_vectorize/core_ir_slp_vectorize_pass.cpp
     src/backend/ir/sroa/core_ir_sroa_pass.cpp
     src/backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.cpp
