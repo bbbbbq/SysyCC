@@ -4,6 +4,8 @@
 #include <fstream>
 
 #include "backend/ir/shared/core/core_ir_builder.hpp"
+#include "backend/ir/shared/core/ir_function.hpp"
+#include "backend/ir/shared/core/ir_type.hpp"
 #include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "backend/ir/verify/core_ir_verifier.hpp"
 
@@ -50,6 +52,77 @@ bool should_stop_after_pass(const CompilerContext &context,
 
 bool should_run_fixed_point_group(const CompilerContext &context) {
     return context.get_optimization_level() == OptimizationLevel::O1;
+}
+
+bool contains_float_leaf_type(const CoreIrType *type) {
+    if (type == nullptr) {
+        return false;
+    }
+    switch (type->get_kind()) {
+    case CoreIrTypeKind::Float:
+        return true;
+    case CoreIrTypeKind::Pointer:
+        return contains_float_leaf_type(
+            static_cast<const CoreIrPointerType *>(type)->get_pointee_type());
+    case CoreIrTypeKind::Array:
+        return contains_float_leaf_type(
+            static_cast<const CoreIrArrayType *>(type)->get_element_type());
+    case CoreIrTypeKind::Struct: {
+        const auto &elements =
+            static_cast<const CoreIrStructType *>(type)->get_element_types();
+        for (const CoreIrType *element_type : elements) {
+            if (contains_float_leaf_type(element_type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    case CoreIrTypeKind::Void:
+    case CoreIrTypeKind::Integer:
+    case CoreIrTypeKind::Vector:
+    case CoreIrTypeKind::Function:
+        return false;
+    }
+    return false;
+}
+
+bool function_has_float_aggregate_pointer_parameter(const CoreIrFunction &function) {
+    for (const auto &parameter : function.get_parameters()) {
+        if (parameter == nullptr) {
+            continue;
+        }
+        const auto *pointer_type =
+            dynamic_cast<const CoreIrPointerType *>(parameter->get_type());
+        if (pointer_type == nullptr) {
+            continue;
+        }
+        const CoreIrType *pointee_type = pointer_type->get_pointee_type();
+        if (pointee_type == nullptr) {
+            continue;
+        }
+        if ((pointee_type->get_kind() == CoreIrTypeKind::Array ||
+             pointee_type->get_kind() == CoreIrTypeKind::Struct) &&
+            contains_float_leaf_type(pointee_type)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool should_bypass_post_mem2reg_llvm_lane(const CompilerContext &context) {
+    const CoreIrBuildResult *build_result = context.get_core_ir_build_result();
+    const CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
+    if (module == nullptr) {
+        return false;
+    }
+    for (const auto &function : module->get_functions()) {
+        if (function != nullptr &&
+            function_has_float_aggregate_pointer_parameter(*function)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void maybe_dump_core_ir_before_stop(CompilerContext &context) {
@@ -338,8 +411,14 @@ std::vector<PassKind> PassManager::get_pipeline_kinds() const {
 }
 
 PassResult PassManager::Run(CompilerContext &context) {
+    bool bypass_post_mem2reg_llvm_lane = false;
     for (const PipelineEntry &entry : entries_) {
         if (entry.pass != nullptr) {
+            if (bypass_post_mem2reg_llvm_lane &&
+                entry.pass->Kind() != PassKind::LowerIr &&
+                entry.pass->Kind() != PassKind::CodeGen) {
+                continue;
+            }
             PassExecutionResult execution_result =
                 run_one_pass(context, *entry.pass);
             if (!execution_result.result.ok) {
@@ -348,6 +427,10 @@ PassResult PassManager::Run(CompilerContext &context) {
             if (execution_result.stopped) {
                 return PassResult::Success();
             }
+            if (entry.pass->Kind() == PassKind::CoreIrMem2Reg &&
+                should_bypass_post_mem2reg_llvm_lane(context)) {
+                bypass_post_mem2reg_llvm_lane = true;
+            }
             continue;
         }
 
@@ -355,6 +438,9 @@ PassResult PassManager::Run(CompilerContext &context) {
             return PassResult::Failure("encountered empty pipeline entry");
         }
 
+        if (bypass_post_mem2reg_llvm_lane) {
+            continue;
+        }
         if (!should_run_fixed_point_group(context)) {
             continue;
         }
