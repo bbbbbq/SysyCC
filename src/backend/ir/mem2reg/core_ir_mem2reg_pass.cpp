@@ -72,6 +72,22 @@ struct UnitRenameContext {
     bool changed = false;
 };
 
+bool should_skip_complex_pointer_unit(const CoreIrPromotionUnitInfo &unit_info) {
+    const auto *pointer_type =
+        dynamic_cast<const CoreIrPointerType *>(unit_info.unit.value_type);
+    if (pointer_type == nullptr) {
+        return false;
+    }
+
+    const CoreIrType *pointee_type = pointer_type->get_pointee_type();
+    if (pointee_type == nullptr) {
+        return false;
+    }
+
+    return pointee_type->get_kind() == CoreIrTypeKind::Array ||
+           pointee_type->get_kind() == CoreIrTypeKind::Struct;
+}
+
 CoreIrValue *create_default_promoted_value(const CoreIrPromotionUnitInfo &unit_info) {
     const CoreIrType *value_type = unit_info.unit.value_type;
     CoreIrContext *context =
@@ -358,6 +374,9 @@ PassResult CoreIrMem2RegPass::Run(CompilerContext &context) {
         bool function_changed = false;
         for (const CoreIrPromotionUnitInfo &unit_info :
              promotable_units.get_unit_infos()) {
+            if (should_skip_complex_pointer_unit(unit_info)) {
+                continue;
+            }
             UnitRenameContext rename_context;
             rename_context.unit_info = &unit_info;
             build_dominator_children(*function, *analysis_manager,

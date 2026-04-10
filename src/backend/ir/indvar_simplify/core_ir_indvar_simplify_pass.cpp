@@ -201,7 +201,8 @@ CoreIrValue *materialize_scaled_value(CoreIrBasicBlock &block,
 CoreIrValue *materialize_affine_initial_value(
     CoreIrBasicBlock &preheader, const std::string &base_name,
     CoreIrValue *iv_initial, const SignedScaleInfo &scale,
-    CoreIrBinaryOpcode combine_opcode, CoreIrValue *other_value,
+    const CoreIrType *result_type, CoreIrBinaryOpcode combine_opcode,
+    CoreIrValue *other_value,
     bool scaled_on_lhs, CoreIrInstruction *anchor) {
     CoreIrValue *scaled_value = materialize_scaled_value(
         preheader, base_name + ".init", iv_initial, scale, anchor);
@@ -215,8 +216,7 @@ CoreIrValue *materialize_affine_initial_value(
     CoreIrValue *lhs = scaled_on_lhs ? scaled_value : other_value;
     CoreIrValue *rhs = scaled_on_lhs ? other_value : scaled_value;
     auto combine = std::make_unique<CoreIrBinaryInst>(
-        combine_opcode, scaled_value->get_type(), base_name + ".init", lhs,
-        rhs);
+        combine_opcode, result_type, base_name + ".init", lhs, rhs);
     return insert_instruction_before(preheader, anchor, std::move(combine));
 }
 
@@ -445,6 +445,13 @@ bool match_iv_indexed_load(CoreIrLoadInst &load,
     if (candidate_root == nullptr || gep->get_index_count() == 0) {
         return false;
     }
+    const auto *root_pointer_type =
+        dynamic_cast<const CoreIrPointerType *>(candidate_root->get_type());
+    if (root_pointer_type == nullptr ||
+        dynamic_cast<const CoreIrIntegerType *>(
+            root_pointer_type->get_pointee_type()) == nullptr) {
+        return false;
+    }
 
     CoreIrValue *index = gep->get_index(0);
     if (gep->get_index_count() == 2 &&
@@ -477,6 +484,25 @@ bool strength_reduce_row_bound_recurrence(
     if (function == nullptr) {
         return false;
     }
+    std::size_t readonly_integer_pointer_params = 0;
+    const auto &parameters = function->get_parameters();
+    const auto &parameter_readonly = function->get_parameter_readonly();
+    for (std::size_t index = 0; index < parameters.size(); ++index) {
+        if (index >= parameter_readonly.size() || !parameter_readonly[index] ||
+            parameters[index] == nullptr) {
+            continue;
+        }
+        const auto *pointer_type =
+            dynamic_cast<const CoreIrPointerType *>(parameters[index]->get_type());
+        if (pointer_type != nullptr &&
+            dynamic_cast<const CoreIrIntegerType *>(
+                pointer_type->get_pointee_type()) != nullptr) {
+            ++readonly_integer_pointer_params;
+        }
+    }
+    if (readonly_integer_pointer_params < 2) {
+        return false;
+    }
 
     std::unordered_map<CoreIrValue *, std::vector<CoreIrLoadInst *>> start_loads_by_base;
     std::unordered_map<CoreIrValue *, std::vector<CoreIrLoadInst *>> end_loads_by_base;
@@ -488,6 +514,9 @@ bool strength_reduce_row_bound_recurrence(
         for (const auto &instruction_ptr : block->get_instructions()) {
             auto *load = dynamic_cast<CoreIrLoadInst *>(instruction_ptr.get());
             if (load == nullptr || load->get_stack_slot() != nullptr) {
+                continue;
+            }
+            if (!dom_tree.dominates(block, iv.latch)) {
                 continue;
             }
 
@@ -734,6 +763,10 @@ bool strength_reduce_scaled_induction(const CoreIrLoopInfo &loop,
         }
     }
 
+    if (loop.get_blocks().size() > 3) {
+        return changed;
+    }
+
     for (CoreIrBasicBlock *block : loop.get_blocks()) {
         if (block == nullptr) {
             continue;
@@ -794,8 +827,8 @@ bool strength_reduce_scaled_induction(const CoreIrLoopInfo &loop,
 
             CoreIrValue *initial_value = materialize_affine_initial_value(
                 *iv.preheader, candidate->get_name(), iv.initial_value, *scale,
-                candidate->get_binary_opcode(), other_value, scaled_on_lhs,
-                preheader_anchor);
+                iv.phi->get_type(), candidate->get_binary_opcode(), other_value,
+                scaled_on_lhs, preheader_anchor);
             if (initial_value == nullptr) {
                 continue;
             }
