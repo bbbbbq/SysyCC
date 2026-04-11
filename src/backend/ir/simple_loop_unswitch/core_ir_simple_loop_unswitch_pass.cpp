@@ -13,12 +13,12 @@
 #include "backend/ir/analysis/cfg_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/analysis/scalar_evolution_lite_analysis.hpp"
-#include "backend/ir/shared/detail/core_ir_rewrite_utils.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
+#include "backend/ir/shared/detail/core_ir_rewrite_utils.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
@@ -33,10 +33,12 @@ using sysycc::detail::trace_stack_slot_prefix;
 constexpr std::size_t kMaxUnswitchNestingDepth = 2;
 constexpr std::size_t kMaxConditionSliceInstructionCount = 8;
 
-PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
+PassResult fail_missing_core_ir(CompilerContext &context,
+                                const char *pass_name) {
     const std::string message =
         std::string(pass_name) + " requires a built core ir result";
-    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler, message);
+    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                              message);
     return PassResult::Failure(message);
 }
 
@@ -66,7 +68,8 @@ bool redirect_successor_edge(CoreIrBasicBlock &block, CoreIrBasicBlock *from,
         return false;
     }
     CoreIrInstruction *terminator = block.get_instructions().back().get();
-    if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator); jump != nullptr) {
+    if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator);
+        jump != nullptr) {
         if (jump->get_target_block() == from) {
             jump->set_target_block(to);
             return true;
@@ -91,24 +94,26 @@ bool redirect_successor_edge(CoreIrBasicBlock &block, CoreIrBasicBlock *from,
     return changed;
 }
 
-CoreIrBasicBlock *insert_new_block_before(CoreIrFunction &function,
-                                          CoreIrBasicBlock *anchor,
-                                          std::unique_ptr<CoreIrBasicBlock> block) {
+CoreIrBasicBlock *
+insert_new_block_before(CoreIrFunction &function, CoreIrBasicBlock *anchor,
+                        std::unique_ptr<CoreIrBasicBlock> block) {
     if (anchor == nullptr || block == nullptr) {
         return nullptr;
     }
     block->set_parent(&function);
     CoreIrBasicBlock *block_ptr = block.get();
     auto &blocks = function.get_basic_blocks();
-    auto it = std::find_if(blocks.begin(), blocks.end(),
-                           [anchor](const std::unique_ptr<CoreIrBasicBlock> &candidate) {
-                               return candidate.get() == anchor;
-                           });
+    auto it = std::find_if(
+        blocks.begin(), blocks.end(),
+        [anchor](const std::unique_ptr<CoreIrBasicBlock> &candidate) {
+            return candidate.get() == anchor;
+        });
     blocks.insert(it, std::move(block));
     return block_ptr;
 }
 
-bool ensure_loop_preheader(CoreIrFunction &function, const CoreIrCfgAnalysisResult &cfg,
+bool ensure_loop_preheader(CoreIrFunction &function,
+                           const CoreIrCfgAnalysisResult &cfg,
                            CoreIrLoopInfo &loop, const CoreIrType *void_type,
                            std::size_t &counter) {
     if (loop.get_preheader() != nullptr) {
@@ -194,7 +199,8 @@ std::size_t count_loop_instructions(const CoreIrLoopInfo &loop) {
 std::size_t count_unswitch_markers(std::string_view name) {
     std::size_t count = 0;
     std::size_t position = 0;
-    while ((position = name.find(".unsw.", position)) != std::string_view::npos) {
+    while ((position = name.find(".unsw.", position)) !=
+           std::string_view::npos) {
         ++count;
         position += 6;
     }
@@ -208,7 +214,8 @@ bool loop_has_external_value_use(const CoreIrLoopInfo &loop) {
         }
         for (const auto &instruction_ptr : block->get_instructions()) {
             CoreIrInstruction *instruction = instruction_ptr.get();
-            if (instruction != nullptr && instruction_has_external_use(*instruction, loop)) {
+            if (instruction != nullptr &&
+                instruction_has_external_use(*instruction, loop)) {
                 return true;
             }
         }
@@ -220,7 +227,8 @@ bool is_safe_address_user(CoreIrInstruction &user, std::size_t operand_index) {
     if (auto *load = dynamic_cast<CoreIrLoadInst *>(&user); load != nullptr) {
         return operand_index == 0 && load->get_address() != nullptr;
     }
-    if (auto *store = dynamic_cast<CoreIrStoreInst *>(&user); store != nullptr) {
+    if (auto *store = dynamic_cast<CoreIrStoreInst *>(&user);
+        store != nullptr) {
         return operand_index == 1 && store->get_address() != nullptr;
     }
     if (dynamic_cast<CoreIrGetElementPtrInst *>(&user) != nullptr) {
@@ -266,7 +274,8 @@ bool loop_has_unsafe_address_use(const CoreIrLoopInfo &loop,
             CoreIrStackSlot *root_slot = nullptr;
             std::vector<std::uint64_t> prefix_path;
             bool exact_path = true;
-            if (!trace_stack_slot_prefix(gep, root_slot, prefix_path, exact_path) ||
+            if (!trace_stack_slot_prefix(gep, root_slot, prefix_path,
+                                         exact_path) ||
                 root_slot != stack_slot || !paths_overlap(path, prefix_path)) {
                 continue;
             }
@@ -294,7 +303,8 @@ bool loop_writes_stack_slot_path(const CoreIrLoopInfo &loop,
             continue;
         }
         for (const auto &instruction_ptr : block->get_instructions()) {
-            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+            auto *store =
+                dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
             if (store == nullptr) {
                 continue;
             }
@@ -304,8 +314,8 @@ bool loop_writes_stack_slot_path(const CoreIrLoopInfo &loop,
             CoreIrStackSlot *root_slot = nullptr;
             std::vector<std::uint64_t> store_path;
             bool exact_path = true;
-            if (!trace_stack_slot_prefix(store->get_address(), root_slot, store_path,
-                                         exact_path) ||
+            if (!trace_stack_slot_prefix(store->get_address(), root_slot,
+                                         store_path, exact_path) ||
                 root_slot != stack_slot) {
                 continue;
             }
@@ -317,8 +327,8 @@ bool loop_writes_stack_slot_path(const CoreIrLoopInfo &loop,
     return false;
 }
 
-bool instruction_is_condition_slice_cloneable(const CoreIrInstruction &instruction,
-                                              const CoreIrLoopInfo &loop);
+bool instruction_is_condition_slice_cloneable(
+    const CoreIrInstruction &instruction, const CoreIrLoopInfo &loop);
 
 bool value_is_condition_slice_cloneable(
     CoreIrValue *value, const CoreIrLoopInfo &loop,
@@ -343,8 +353,8 @@ bool value_is_condition_slice_cloneable(
         return false;
     }
     for (CoreIrValue *operand : instruction->get_operands()) {
-        if (!value_is_condition_slice_cloneable(operand, loop, visiting, collected,
-                                                order)) {
+        if (!value_is_condition_slice_cloneable(operand, loop, visiting,
+                                                collected, order)) {
             visiting.erase(instruction);
             return false;
         }
@@ -356,9 +366,10 @@ bool value_is_condition_slice_cloneable(
     return true;
 }
 
-bool instruction_is_condition_slice_cloneable(const CoreIrInstruction &instruction,
-                                              const CoreIrLoopInfo &loop) {
-    if (instruction.get_is_terminator() || instruction.get_opcode() == CoreIrOpcode::Phi) {
+bool instruction_is_condition_slice_cloneable(
+    const CoreIrInstruction &instruction, const CoreIrLoopInfo &loop) {
+    if (instruction.get_is_terminator() ||
+        instruction.get_opcode() == CoreIrOpcode::Phi) {
         return false;
     }
     switch (instruction.get_opcode()) {
@@ -369,6 +380,7 @@ bool instruction_is_condition_slice_cloneable(const CoreIrInstruction &instructi
     case CoreIrOpcode::Binary:
     case CoreIrOpcode::Unary:
     case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
     case CoreIrOpcode::Cast:
         return true;
     case CoreIrOpcode::Load: {
@@ -378,7 +390,7 @@ bool instruction_is_condition_slice_cloneable(const CoreIrInstruction &instructi
             return !loop_writes_stack_slot_path(loop, load.get_stack_slot(),
                                                 direct_path) &&
                    !loop_has_unsafe_address_use(loop, load.get_stack_slot(),
-                                               direct_path);
+                                                direct_path);
         }
 
         CoreIrStackSlot *stack_slot = nullptr;
@@ -402,12 +414,13 @@ bool instruction_is_condition_slice_cloneable(const CoreIrInstruction &instructi
     return false;
 }
 
-CoreIrInstruction *clone_instruction_preserving_operands(
-    const CoreIrInstruction &instruction) {
+CoreIrInstruction *
+clone_instruction_preserving_operands(const CoreIrInstruction &instruction) {
     switch (instruction.get_opcode()) {
     case CoreIrOpcode::Phi: {
         const auto &phi = static_cast<const CoreIrPhiInst &>(instruction);
-        auto clone = std::make_unique<CoreIrPhiInst>(phi.get_type(), phi.get_name());
+        auto clone =
+            std::make_unique<CoreIrPhiInst>(phi.get_type(), phi.get_name());
         clone->set_source_span(phi.get_source_span());
         return clone.release();
     }
@@ -428,11 +441,20 @@ CoreIrInstruction *clone_instruction_preserving_operands(
         return clone.release();
     }
     case CoreIrOpcode::Compare: {
-        const auto &compare = static_cast<const CoreIrCompareInst &>(instruction);
+        const auto &compare =
+            static_cast<const CoreIrCompareInst &>(instruction);
         auto clone = std::make_unique<CoreIrCompareInst>(
             compare.get_predicate(), compare.get_type(), compare.get_name(),
             compare.get_lhs(), compare.get_rhs());
         clone->set_source_span(compare.get_source_span());
+        return clone.release();
+    }
+    case CoreIrOpcode::Select: {
+        const auto &select = static_cast<const CoreIrSelectInst &>(instruction);
+        auto clone = std::make_unique<CoreIrSelectInst>(
+            select.get_type(), select.get_name(), select.get_condition(),
+            select.get_true_value(), select.get_false_value());
+        clone->set_source_span(select.get_source_span());
         return clone.release();
     }
     case CoreIrOpcode::Cast: {
@@ -468,7 +490,8 @@ CoreIrInstruction *clone_instruction_preserving_operands(
         return clone.release();
     }
     case CoreIrOpcode::GetElementPtr: {
-        const auto &gep = static_cast<const CoreIrGetElementPtrInst &>(instruction);
+        const auto &gep =
+            static_cast<const CoreIrGetElementPtrInst &>(instruction);
         std::vector<CoreIrValue *> indices;
         indices.reserve(gep.get_index_count());
         for (std::size_t index = 0; index < gep.get_index_count(); ++index) {
@@ -509,8 +532,8 @@ CoreIrInstruction *clone_instruction_preserving_operands(
         const auto &call = static_cast<const CoreIrCallInst &>(instruction);
         std::vector<CoreIrValue *> arguments;
         const auto &operands = call.get_operands();
-        for (std::size_t index = call.get_argument_begin_index(); index < operands.size();
-             ++index) {
+        for (std::size_t index = call.get_argument_begin_index();
+             index < operands.size(); ++index) {
             arguments.push_back(operands[index]);
         }
         std::unique_ptr<CoreIrCallInst> clone;
@@ -562,9 +585,9 @@ struct LoopUnswitchCandidate {
     std::vector<const CoreIrInstruction *> condition_slice;
 };
 
-std::optional<LoopUnswitchCandidate>
-find_loop_body_unswitch_candidate(CoreIrFunction &function, const CoreIrLoopInfo &loop,
-                                  const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
+std::optional<LoopUnswitchCandidate> find_loop_body_unswitch_candidate(
+    CoreIrFunction &function, const CoreIrLoopInfo &loop,
+    const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
     if (loop.get_preheader() == nullptr || exit_blocks_have_phi(loop) ||
         loop_has_external_value_use(loop) || loop.get_blocks().size() > 256 ||
         count_loop_instructions(loop) > 4096 ||
@@ -576,7 +599,8 @@ find_loop_body_unswitch_candidate(CoreIrFunction &function, const CoreIrLoopInfo
     for (const auto &block_ptr : function.get_basic_blocks()) {
         CoreIrBasicBlock *block = block_ptr.get();
         if (block == nullptr || block == loop.get_header() ||
-            !loop_contains_block(loop, block) || block->get_instructions().empty()) {
+            !loop_contains_block(loop, block) ||
+            block->get_instructions().empty()) {
             continue;
         }
 
@@ -595,8 +619,8 @@ find_loop_body_unswitch_candidate(CoreIrFunction &function, const CoreIrLoopInfo
         std::unordered_set<const CoreIrInstruction *> visiting;
         std::unordered_set<const CoreIrInstruction *> collected;
         std::vector<const CoreIrInstruction *> order;
-        if (!value_is_condition_slice_cloneable(branch->get_condition(), loop, visiting,
-                                                collected, order)) {
+        if (!value_is_condition_slice_cloneable(branch->get_condition(), loop,
+                                                visiting, collected, order)) {
             continue;
         }
         if (order.size() > kMaxConditionSliceInstructionCount) {
@@ -613,19 +637,22 @@ CoreIrInstruction *clone_condition_slice_into_preheader(
     const std::vector<const CoreIrInstruction *> &condition_slice,
     CoreIrInstruction *condition_instruction) {
     CoreIrInstruction *anchor = preheader.get_instructions().back().get();
-    std::unordered_map<const CoreIrInstruction *, CoreIrInstruction *> clone_map;
+    std::unordered_map<const CoreIrInstruction *, CoreIrInstruction *>
+        clone_map;
 
     for (const CoreIrInstruction *instruction : condition_slice) {
         if (instruction == nullptr) {
             return nullptr;
         }
-        CoreIrInstruction *clone = clone_instruction_preserving_operands(*instruction);
+        CoreIrInstruction *clone =
+            clone_instruction_preserving_operands(*instruction);
         if (clone == nullptr) {
             return nullptr;
         }
-        clone_map.emplace(instruction, insert_instruction_before(
-                                           preheader, anchor,
-                                           std::unique_ptr<CoreIrInstruction>(clone)));
+        clone_map.emplace(
+            instruction,
+            insert_instruction_before(
+                preheader, anchor, std::unique_ptr<CoreIrInstruction>(clone)));
     }
 
     for (const auto &entry : clone_map) {
@@ -649,7 +676,8 @@ CoreIrInstruction *clone_condition_slice_into_preheader(
 
 struct ClonedLoopVariant {
     std::unordered_map<CoreIrBasicBlock *, CoreIrBasicBlock *> block_map;
-    std::unordered_map<const CoreIrInstruction *, CoreIrInstruction *> instruction_map;
+    std::unordered_map<const CoreIrInstruction *, CoreIrInstruction *>
+        instruction_map;
     CoreIrBasicBlock *header = nullptr;
 };
 
@@ -669,7 +697,8 @@ clone_loop_variant(CoreIrFunction &function, const CoreIrLoopInfo &loop,
     for (CoreIrBasicBlock *block : original_blocks) {
         auto clone = std::make_unique<CoreIrBasicBlock>(
             block->get_name() + "." + std::string(suffix));
-        CoreIrBasicBlock *clone_ptr = function.append_basic_block(std::move(clone));
+        CoreIrBasicBlock *clone_ptr =
+            function.append_basic_block(std::move(clone));
         variant.block_map.emplace(block, clone_ptr);
         if (block == loop.get_header()) {
             variant.header = clone_ptr;
@@ -686,17 +715,20 @@ clone_loop_variant(CoreIrFunction &function, const CoreIrLoopInfo &loop,
             if (instruction == nullptr) {
                 continue;
             }
-            CoreIrInstruction *clone = clone_instruction_preserving_operands(*instruction);
+            CoreIrInstruction *clone =
+                clone_instruction_preserving_operands(*instruction);
             if (clone == nullptr) {
                 return std::nullopt;
             }
-            clone_block->append_instruction(std::unique_ptr<CoreIrInstruction>(clone));
+            clone_block->append_instruction(
+                std::unique_ptr<CoreIrInstruction>(clone));
             variant.instruction_map.emplace(instruction, clone);
         }
     }
 
     for (const auto &entry : variant.instruction_map) {
-        CoreIrInstruction *original = const_cast<CoreIrInstruction *>(entry.first);
+        CoreIrInstruction *original =
+            const_cast<CoreIrInstruction *>(entry.first);
         CoreIrInstruction *clone = entry.second;
         if (original == nullptr || clone == nullptr) {
             return std::nullopt;
@@ -710,7 +742,8 @@ clone_loop_variant(CoreIrFunction &function, const CoreIrLoopInfo &loop,
             }
         }
 
-        if (auto *jump = dynamic_cast<CoreIrJumpInst *>(clone); jump != nullptr) {
+        if (auto *jump = dynamic_cast<CoreIrJumpInst *>(clone);
+            jump != nullptr) {
             CoreIrBasicBlock *target =
                 static_cast<CoreIrJumpInst *>(original)->get_target_block();
             auto block_it = variant.block_map.find(target);
@@ -721,11 +754,14 @@ clone_loop_variant(CoreIrFunction &function, const CoreIrLoopInfo &loop,
         }
 
         if (auto *phi = dynamic_cast<CoreIrPhiInst *>(clone); phi != nullptr) {
-            const auto &original_phi = static_cast<const CoreIrPhiInst &>(*original);
-            for (std::size_t index = 0; index < original_phi.get_incoming_count(); ++index) {
+            const auto &original_phi =
+                static_cast<const CoreIrPhiInst &>(*original);
+            for (std::size_t index = 0;
+                 index < original_phi.get_incoming_count(); ++index) {
                 CoreIrBasicBlock *incoming_block =
                     original_phi.get_incoming_block(index);
-                CoreIrValue *incoming_value = original_phi.get_incoming_value(index);
+                CoreIrValue *incoming_value =
+                    original_phi.get_incoming_value(index);
                 auto block_it = variant.block_map.find(incoming_block);
                 if (block_it != variant.block_map.end()) {
                     incoming_block = block_it->second;
@@ -767,20 +803,23 @@ clone_loop_variant(CoreIrFunction &function, const CoreIrLoopInfo &loop,
         }
 
         CoreIrBasicBlock *selected_successor =
-            take_true ? cond_jump->get_true_block() : cond_jump->get_false_block();
-        auto replacement = std::make_unique<CoreIrJumpInst>(cond_jump->get_type(),
-                                                            selected_successor);
+            take_true ? cond_jump->get_true_block()
+                      : cond_jump->get_false_block();
+        auto replacement = std::make_unique<CoreIrJumpInst>(
+            cond_jump->get_type(), selected_successor);
         replacement->set_source_span(cond_jump->get_source_span());
-        replace_instruction(*clone->get_parent(), clone, std::move(replacement));
+        replace_instruction(*clone->get_parent(), clone,
+                            std::move(replacement));
     }
 
-    return variant.header == nullptr ? std::nullopt
-                                     : std::optional<ClonedLoopVariant>(
-                                           std::move(variant));
+    return variant.header == nullptr
+               ? std::nullopt
+               : std::optional<ClonedLoopVariant>(std::move(variant));
 }
 
-bool unswitch_loop_body_condition(CoreIrFunction &function, const CoreIrLoopInfo &loop,
-                                  const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
+bool unswitch_loop_body_condition(
+    CoreIrFunction &function, const CoreIrLoopInfo &loop,
+    const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
     const std::optional<LoopUnswitchCandidate> candidate =
         find_loop_body_unswitch_candidate(function, loop, scev);
     if (!candidate.has_value() || candidate->condition_block == nullptr ||
@@ -794,30 +833,26 @@ bool unswitch_loop_body_condition(CoreIrFunction &function, const CoreIrLoopInfo
             : loop.get_preheader()->get_instructions().back().get());
     auto *condition_branch = dynamic_cast<CoreIrCondJumpInst *>(
         candidate->condition_block->get_instructions().back().get());
-    auto *condition_instruction =
-        dynamic_cast<CoreIrInstruction *>(condition_branch == nullptr
-                                              ? nullptr
-                                              : condition_branch->get_condition());
+    auto *condition_instruction = dynamic_cast<CoreIrInstruction *>(
+        condition_branch == nullptr ? nullptr
+                                    : condition_branch->get_condition());
     if (preheader_jump == nullptr || condition_branch == nullptr ||
         preheader_jump->get_target_block() != loop.get_header() ||
         condition_instruction == nullptr) {
         return false;
     }
 
-    const auto true_variant =
-        clone_loop_variant(function, loop, *candidate->condition_block, true,
-                           "unsw.true");
-    const auto false_variant =
-        clone_loop_variant(function, loop, *candidate->condition_block, false,
-                           "unsw.false");
+    const auto true_variant = clone_loop_variant(
+        function, loop, *candidate->condition_block, true, "unsw.true");
+    const auto false_variant = clone_loop_variant(
+        function, loop, *candidate->condition_block, false, "unsw.false");
     if (!true_variant.has_value() || !false_variant.has_value()) {
         return false;
     }
 
-    CoreIrInstruction *cloned_condition =
-        clone_condition_slice_into_preheader(*loop.get_preheader(),
-                                             candidate->condition_slice,
-                                             condition_instruction);
+    CoreIrInstruction *cloned_condition = clone_condition_slice_into_preheader(
+        *loop.get_preheader(), candidate->condition_slice,
+        condition_instruction);
     if (cloned_condition == nullptr) {
         return false;
     }
@@ -826,7 +861,8 @@ bool unswitch_loop_body_condition(CoreIrFunction &function, const CoreIrLoopInfo
         preheader_jump->get_type(), cloned_condition, true_variant->header,
         false_variant->header);
     replacement->set_source_span(preheader_jump->get_source_span());
-    replace_instruction(*loop.get_preheader(), preheader_jump, std::move(replacement));
+    replace_instruction(*loop.get_preheader(), preheader_jump,
+                        std::move(replacement));
 
     CoreIrBasicBlock *header = loop.get_header();
     if (header != nullptr) {
@@ -841,14 +877,14 @@ bool unswitch_loop_body_condition(CoreIrFunction &function, const CoreIrLoopInfo
     return true;
 }
 
-bool redirect_preheader_entry_to_body(const CoreIrLoopInfo &loop,
-                                      CoreIrBasicBlock &header,
-                                      CoreIrBasicBlock &preheader,
-                                      CoreIrBasicBlock *inside_successor,
-                                      CoreIrBasicBlock *outside_successor,
-                                      const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
+bool redirect_preheader_entry_to_body(
+    const CoreIrLoopInfo &loop, CoreIrBasicBlock &header,
+    CoreIrBasicBlock &preheader, CoreIrBasicBlock *inside_successor,
+    CoreIrBasicBlock *outside_successor,
+    const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
     if (inside_successor == nullptr || outside_successor == nullptr ||
-        preheader.get_instructions().empty() || header.get_instructions().empty()) {
+        preheader.get_instructions().empty() ||
+        header.get_instructions().empty()) {
         return false;
     }
 
@@ -859,9 +895,10 @@ bool redirect_preheader_entry_to_body(const CoreIrLoopInfo &loop,
         return false;
     }
 
-    auto *preheader_jump =
-        dynamic_cast<CoreIrJumpInst *>(preheader.get_instructions().back().get());
-    if (preheader_jump == nullptr || preheader_jump->get_target_block() != &header) {
+    auto *preheader_jump = dynamic_cast<CoreIrJumpInst *>(
+        preheader.get_instructions().back().get());
+    if (preheader_jump == nullptr ||
+        preheader_jump->get_target_block() != &header) {
         return false;
     }
 
@@ -873,7 +910,8 @@ bool redirect_preheader_entry_to_body(const CoreIrLoopInfo &loop,
     CoreIrValue *condition = header_branch->get_condition();
     preheader_jump->detach_operands();
     auto replacement = std::make_unique<CoreIrCondJumpInst>(
-        header_branch->get_type(), condition, inside_successor, outside_successor);
+        header_branch->get_type(), condition, inside_successor,
+        outside_successor);
     replacement->set_source_span(header_branch->get_source_span());
     replacement->set_parent(&preheader);
     preheader.get_instructions().back() = std::move(replacement);
@@ -891,7 +929,8 @@ bool unswitch_loop_header(CoreIrFunction &function, const CoreIrLoopInfo &loop,
                           const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
     CoreIrBasicBlock *header = loop.get_header();
     CoreIrBasicBlock *preheader = loop.get_preheader();
-    if (header == nullptr || preheader == nullptr || header->get_instructions().empty()) {
+    if (header == nullptr || preheader == nullptr ||
+        header->get_instructions().empty()) {
         return false;
     }
 
@@ -915,9 +954,8 @@ bool unswitch_loop_header(CoreIrFunction &function, const CoreIrLoopInfo &loop,
         return false;
     }
 
-    return redirect_preheader_entry_to_body(loop, *header, *preheader,
-                                            inside_successor, outside_successor,
-                                            scev);
+    return redirect_preheader_entry_to_body(
+        loop, *header, *preheader, inside_successor, outside_successor, scev);
 }
 
 } // namespace
@@ -932,17 +970,21 @@ const char *CoreIrSimpleLoopUnswitchPass::Name() const {
 
 PassResult CoreIrSimpleLoopUnswitchPass::Run(CompilerContext &context) {
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
-    CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();
+    CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
         return fail_missing_core_ir(context, Name());
     }
 
-    CoreIrAnalysisManager *analysis_manager = build_result->get_analysis_manager();
+    CoreIrAnalysisManager *analysis_manager =
+        build_result->get_analysis_manager();
     CoreIrContext *core_ir_context = build_result->get_context();
     if (analysis_manager == nullptr || core_ir_context == nullptr) {
-        return PassResult::Failure("missing core ir simple loop unswitch dependencies");
+        return PassResult::Failure(
+            "missing core ir simple loop unswitch dependencies");
     }
-    const CoreIrType *void_type = core_ir_context->create_type<CoreIrVoidType>();
+    const CoreIrType *void_type =
+        core_ir_context->create_type<CoreIrVoidType>();
 
     CoreIrPassEffects effects;
     std::size_t preheader_counter = 0;
@@ -952,7 +994,8 @@ PassResult CoreIrSimpleLoopUnswitchPass::Run(CompilerContext &context) {
         const CoreIrLoopInfoAnalysisResult &loop_info =
             analysis_manager->get_or_compute<CoreIrLoopInfoAnalysis>(*function);
         const CoreIrScalarEvolutionLiteAnalysisResult &scev =
-            analysis_manager->get_or_compute<CoreIrScalarEvolutionLiteAnalysis>(*function);
+            analysis_manager->get_or_compute<CoreIrScalarEvolutionLiteAnalysis>(
+                *function);
 
         bool function_changed = false;
         for (const auto &loop_ptr : loop_info.get_loops()) {
@@ -963,9 +1006,11 @@ PassResult CoreIrSimpleLoopUnswitchPass::Run(CompilerContext &context) {
                 ensure_loop_preheader(*function, cfg, *loop_ptr, void_type,
                                       preheader_counter) ||
                 function_changed;
-            bool loop_changed = unswitch_loop_header(*function, *loop_ptr, scev);
-            loop_changed = unswitch_loop_body_condition(*function, *loop_ptr, scev) ||
-                           loop_changed;
+            bool loop_changed =
+                unswitch_loop_header(*function, *loop_ptr, scev);
+            loop_changed =
+                unswitch_loop_body_condition(*function, *loop_ptr, scev) ||
+                loop_changed;
             function_changed = loop_changed || function_changed;
         }
 

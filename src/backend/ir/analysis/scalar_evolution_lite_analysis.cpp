@@ -54,8 +54,10 @@ std::optional<std::int64_t> as_constant_int(CoreIrValue *value) {
 
 std::optional<std::uint64_t>
 compute_constant_trip_count(const CoreIrCanonicalInductionVarInfo &iv) {
-    const std::optional<std::int64_t> init_value = as_constant_int(iv.initial_value);
-    const std::optional<std::int64_t> bound_value = as_constant_int(iv.exit_bound);
+    const std::optional<std::int64_t> init_value =
+        as_constant_int(iv.initial_value);
+    const std::optional<std::int64_t> bound_value =
+        as_constant_int(iv.exit_bound);
     if (!init_value.has_value() || !bound_value.has_value()) {
         return std::nullopt;
     }
@@ -69,8 +71,8 @@ compute_constant_trip_count(const CoreIrCanonicalInductionVarInfo &iv) {
 
     auto ceil_div_positive = [](std::int64_t numerator,
                                 std::int64_t denominator) -> std::uint64_t {
-        return static_cast<std::uint64_t>(
-            (numerator + denominator - 1) / denominator);
+        return static_cast<std::uint64_t>((numerator + denominator - 1) /
+                                          denominator);
     };
 
     switch (iv.normalized_predicate) {
@@ -163,7 +165,8 @@ compute_constant_trip_count(const CoreIrCanonicalInductionVarInfo &iv) {
 } // namespace
 
 void CoreIrScalarEvolutionLiteAnalysisResult::set_canonical_induction_var(
-    const CoreIrBasicBlock *header, const CoreIrCanonicalInductionVarInfo &info) {
+    const CoreIrBasicBlock *header,
+    const CoreIrCanonicalInductionVarInfo &info) {
     if (header == nullptr || !info.is_valid()) {
         return;
     }
@@ -211,6 +214,7 @@ bool CoreIrScalarEvolutionLiteAnalysisResult::compute_loop_invariant(
         case CoreIrOpcode::Binary:
         case CoreIrOpcode::Unary:
         case CoreIrOpcode::Compare:
+        case CoreIrOpcode::Select:
         case CoreIrOpcode::Cast:
         case CoreIrOpcode::GetElementPtr: {
             invariant = true;
@@ -263,7 +267,8 @@ CoreIrScevExpr CoreIrScalarEvolutionLiteAnalysisResult::compute_expr(
     }
     visiting[value] = true;
 
-    if (const std::optional<std::int64_t> constant_value = as_constant_int(value);
+    if (const std::optional<std::int64_t> constant_value =
+            as_constant_int(value);
         constant_value.has_value()) {
         CoreIrScevExpr expr = CoreIrScevExpr::constant_expr(*constant_value);
         cache[value] = expr;
@@ -286,10 +291,11 @@ CoreIrScevExpr CoreIrScalarEvolutionLiteAnalysisResult::compute_expr(
         return expr;
     }
 
-    const CoreIrCanonicalInductionVarInfo *iv = get_canonical_induction_var(loop);
+    const CoreIrCanonicalInductionVarInfo *iv =
+        get_canonical_induction_var(loop);
     if (iv != nullptr && instruction == iv->phi) {
-        CoreIrScevExpr expr =
-            CoreIrScevExpr::add_rec(iv->initial_value, iv->step, loop.get_header());
+        CoreIrScevExpr expr = CoreIrScevExpr::add_rec(
+            iv->initial_value, iv->step, loop.get_header());
         cache[value] = expr;
         visiting.erase(value);
         return expr;
@@ -312,7 +318,8 @@ CoreIrScevExpr CoreIrScalarEvolutionLiteAnalysisResult::compute_expr(
         case CoreIrBinaryOpcode::Add:
             if (lhs.kind == CoreIrScevExprKind::Constant &&
                 rhs.kind == CoreIrScevExprKind::Constant) {
-                expr = CoreIrScevExpr::constant_expr(lhs.constant + rhs.constant);
+                expr =
+                    CoreIrScevExpr::constant_expr(lhs.constant + rhs.constant);
             } else if (lhs.kind == CoreIrScevExprKind::AddRec &&
                        rhs.kind == CoreIrScevExprKind::Constant) {
                 expr = lhs;
@@ -324,7 +331,8 @@ CoreIrScevExpr CoreIrScalarEvolutionLiteAnalysisResult::compute_expr(
         case CoreIrBinaryOpcode::Sub:
             if (lhs.kind == CoreIrScevExprKind::Constant &&
                 rhs.kind == CoreIrScevExprKind::Constant) {
-                expr = CoreIrScevExpr::constant_expr(lhs.constant - rhs.constant);
+                expr =
+                    CoreIrScevExpr::constant_expr(lhs.constant - rhs.constant);
             } else if (lhs.kind == CoreIrScevExprKind::AddRec &&
                        rhs.kind == CoreIrScevExprKind::Constant) {
                 expr = lhs;
@@ -346,6 +354,7 @@ CoreIrScevExpr CoreIrScalarEvolutionLiteAnalysisResult::compute_expr(
         break;
     }
     case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
     case CoreIrOpcode::Cast:
     case CoreIrOpcode::GetElementPtr:
     case CoreIrOpcode::Load:
@@ -392,7 +401,8 @@ CoreIrScalarEvolutionLiteAnalysisResult::get_constant_trip_count(
 }
 
 CoreIrScalarEvolutionLiteAnalysisResult CoreIrScalarEvolutionLiteAnalysis::Run(
-    const CoreIrFunction &function, const CoreIrCfgAnalysisResult & /*cfg_analysis*/,
+    const CoreIrFunction &function,
+    const CoreIrCfgAnalysisResult & /*cfg_analysis*/,
     const CoreIrLoopInfoAnalysisResult &loop_info,
     const CoreIrInductionVarAnalysisResult &induction_vars) const {
     CoreIrScalarEvolutionLiteAnalysisResult result(&function);

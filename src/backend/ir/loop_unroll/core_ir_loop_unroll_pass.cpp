@@ -29,10 +29,12 @@ namespace {
 using sysycc::detail::erase_instruction;
 using sysycc::detail::insert_instruction_before;
 
-PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
+PassResult fail_missing_core_ir(CompilerContext &context,
+                                const char *pass_name) {
     const std::string message =
         std::string(pass_name) + " requires a built core ir result";
-    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler, message);
+    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                              message);
     return PassResult::Failure(message);
 }
 
@@ -67,7 +69,8 @@ CoreIrBasicBlock *get_use_location_block(const CoreIrUse &use) {
     return user->get_parent();
 }
 
-bool instruction_is_unrollable_body_instruction(const CoreIrInstruction &instruction) {
+bool instruction_is_unrollable_body_instruction(
+    const CoreIrInstruction &instruction) {
     if (instruction.get_is_terminator() ||
         instruction.get_opcode() == CoreIrOpcode::Phi ||
         instruction.get_opcode() == CoreIrOpcode::Call) {
@@ -83,6 +86,7 @@ bool instruction_is_unrollable_body_instruction(const CoreIrInstruction &instruc
     case CoreIrOpcode::Binary:
     case CoreIrOpcode::Unary:
     case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
     case CoreIrOpcode::Cast:
         return true;
     default:
@@ -116,11 +120,20 @@ CoreIrInstruction *clone_instruction(
         return clone.release();
     }
     case CoreIrOpcode::Compare: {
-        const auto &compare = static_cast<const CoreIrCompareInst &>(instruction);
+        const auto &compare =
+            static_cast<const CoreIrCompareInst &>(instruction);
         auto clone = std::make_unique<CoreIrCompareInst>(
             compare.get_predicate(), compare.get_type(), compare.get_name(),
             remap(compare.get_lhs()), remap(compare.get_rhs()));
         clone->set_source_span(compare.get_source_span());
+        return clone.release();
+    }
+    case CoreIrOpcode::Select: {
+        const auto &select = static_cast<const CoreIrSelectInst &>(instruction);
+        auto clone = std::make_unique<CoreIrSelectInst>(
+            select.get_type(), select.get_name(), remap(select.get_condition()),
+            remap(select.get_true_value()), remap(select.get_false_value()));
+        clone->set_source_span(select.get_source_span());
         return clone.release();
     }
     case CoreIrOpcode::Cast: {
@@ -156,7 +169,8 @@ CoreIrInstruction *clone_instruction(
         return clone.release();
     }
     case CoreIrOpcode::GetElementPtr: {
-        const auto &gep = static_cast<const CoreIrGetElementPtrInst &>(instruction);
+        const auto &gep =
+            static_cast<const CoreIrGetElementPtrInst &>(instruction);
         std::vector<CoreIrValue *> indices;
         indices.reserve(gep.get_index_count());
         for (std::size_t index = 0; index < gep.get_index_count(); ++index) {
@@ -185,8 +199,9 @@ CoreIrInstruction *clone_instruction(
         const auto &store = static_cast<const CoreIrStoreInst &>(instruction);
         std::unique_ptr<CoreIrStoreInst> clone;
         if (store.get_stack_slot() != nullptr) {
-            clone = std::make_unique<CoreIrStoreInst>(
-                store.get_type(), remap(store.get_value()), store.get_stack_slot());
+            clone = std::make_unique<CoreIrStoreInst>(store.get_type(),
+                                                      remap(store.get_value()),
+                                                      store.get_stack_slot());
         } else {
             clone = std::make_unique<CoreIrStoreInst>(
                 store.get_type(), remap(store.get_value()),
@@ -212,7 +227,8 @@ std::size_t count_unrollable_body_instructions(const CoreIrBasicBlock &body) {
     return count;
 }
 
-std::size_t count_unrollable_body_instructions(const std::vector<CoreIrBasicBlock *> &blocks) {
+std::size_t count_unrollable_body_instructions(
+    const std::vector<CoreIrBasicBlock *> &blocks) {
     std::size_t count = 0;
     for (CoreIrBasicBlock *block : blocks) {
         if (block != nullptr) {
@@ -228,8 +244,9 @@ struct HeaderPhiInfo {
     CoreIrValue *latch_value = nullptr;
 };
 
-std::optional<std::vector<HeaderPhiInfo>> collect_header_phi_infos(
-    CoreIrBasicBlock &header, CoreIrBasicBlock *preheader, CoreIrBasicBlock *latch) {
+std::optional<std::vector<HeaderPhiInfo>>
+collect_header_phi_infos(CoreIrBasicBlock &header, CoreIrBasicBlock *preheader,
+                         CoreIrBasicBlock *latch) {
     if (preheader == nullptr || latch == nullptr) {
         return std::nullopt;
     }
@@ -244,12 +261,11 @@ std::optional<std::vector<HeaderPhiInfo>> collect_header_phi_infos(
             return std::nullopt;
         }
 
-        std::size_t preheader_index =
-            phi->get_incoming_block(0) == preheader
-                ? 0
-                : phi->get_incoming_block(1) == preheader
-                      ? 1
-                      : phi->get_incoming_count();
+        std::size_t preheader_index = phi->get_incoming_block(0) == preheader
+                                          ? 0
+                                      : phi->get_incoming_block(1) == preheader
+                                          ? 1
+                                          : phi->get_incoming_count();
         if (preheader_index >= phi->get_incoming_count()) {
             return std::nullopt;
         }
@@ -282,7 +298,8 @@ bool instruction_has_only_unrollable_uses(
         }
         auto *phi = dynamic_cast<CoreIrPhiInst *>(user);
         if (phi != nullptr && header_phis.find(phi) != header_phis.end() &&
-            phi->get_incoming_block(use.get_operand_index()) == instruction.get_parent()) {
+            phi->get_incoming_block(use.get_operand_index()) ==
+                instruction.get_parent()) {
             continue;
         }
         return false;
@@ -313,8 +330,9 @@ void replace_header_phi_external_uses(
     }
 }
 
-bool rewrite_exit_lcssa_phis(CoreIrBasicBlock &exit_block, const CoreIrLoopInfo &loop,
-                             const std::unordered_map<CoreIrPhiInst *, CoreIrValue *> &final_values) {
+bool rewrite_exit_lcssa_phis(
+    CoreIrBasicBlock &exit_block, const CoreIrLoopInfo &loop,
+    const std::unordered_map<CoreIrPhiInst *, CoreIrValue *> &final_values) {
     std::vector<std::pair<CoreIrPhiInst *, CoreIrValue *>> rewrites;
     for (const auto &instruction_ptr : exit_block.get_instructions()) {
         auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction_ptr.get());
@@ -323,14 +341,16 @@ bool rewrite_exit_lcssa_phis(CoreIrBasicBlock &exit_block, const CoreIrLoopInfo 
         }
 
         CoreIrValue *replacement = nullptr;
-        for (std::size_t index = 0; index < phi->get_incoming_count(); ++index) {
+        for (std::size_t index = 0; index < phi->get_incoming_count();
+             ++index) {
             CoreIrBasicBlock *incoming_block = phi->get_incoming_block(index);
             if (!loop_contains_block(loop, incoming_block)) {
                 return false;
             }
 
             CoreIrValue *incoming_value = phi->get_incoming_value(index);
-            if (auto *incoming_phi = dynamic_cast<CoreIrPhiInst *>(incoming_value);
+            if (auto *incoming_phi =
+                    dynamic_cast<CoreIrPhiInst *>(incoming_value);
                 incoming_phi != nullptr) {
                 auto it = final_values.find(incoming_phi);
                 if (it == final_values.end()) {
@@ -340,7 +360,8 @@ bool rewrite_exit_lcssa_phis(CoreIrBasicBlock &exit_block, const CoreIrLoopInfo 
             } else if (auto *incoming_instruction =
                            dynamic_cast<CoreIrInstruction *>(incoming_value);
                        incoming_instruction != nullptr &&
-                       loop_contains_block(loop, incoming_instruction->get_parent())) {
+                       loop_contains_block(
+                           loop, incoming_instruction->get_parent())) {
                 return false;
             }
 
@@ -366,15 +387,16 @@ bool rewrite_exit_lcssa_phis(CoreIrBasicBlock &exit_block, const CoreIrLoopInfo 
     return true;
 }
 
-bool fully_unroll_small_loop(CoreIrFunction &,
-                             const CoreIrLoopInfo &loop,
-                             const CoreIrCanonicalInductionVarInfo &iv,
-                             const CoreIrScalarEvolutionLiteAnalysisResult &scev,
-                             CoreIrContext &core_ir_context) {
-    std::optional<std::uint64_t> trip_count = scev.get_constant_trip_count(loop);
-    if (!trip_count.has_value() || *trip_count > 128 || loop.get_latches().size() != 1 ||
-        loop.get_blocks().size() < 2 || loop.get_blocks().size() > 3 ||
-        loop.get_preheader() == nullptr ||
+bool fully_unroll_small_loop(
+    CoreIrFunction &, const CoreIrLoopInfo &loop,
+    const CoreIrCanonicalInductionVarInfo &iv,
+    const CoreIrScalarEvolutionLiteAnalysisResult &scev,
+    CoreIrContext &core_ir_context) {
+    std::optional<std::uint64_t> trip_count =
+        scev.get_constant_trip_count(loop);
+    if (!trip_count.has_value() || *trip_count > 128 ||
+        loop.get_latches().size() != 1 || loop.get_blocks().size() < 2 ||
+        loop.get_blocks().size() > 3 || loop.get_preheader() == nullptr ||
         iv.phi == nullptr || iv.latch == nullptr) {
         return false;
     }
@@ -396,7 +418,8 @@ bool fully_unroll_small_loop(CoreIrFunction &,
     if (body->get_instructions().empty() || latch->get_instructions().empty()) {
         return false;
     }
-    const auto phi_infos = collect_header_phi_infos(*header, loop.get_preheader(), latch);
+    const auto phi_infos =
+        collect_header_phi_infos(*header, loop.get_preheader(), latch);
     if (!phi_infos.has_value()) {
         return false;
     }
@@ -409,14 +432,15 @@ bool fully_unroll_small_loop(CoreIrFunction &,
 
     auto *header_branch = dynamic_cast<CoreIrCondJumpInst *>(
         header->get_instructions().back().get());
-    auto *body_jump = dynamic_cast<CoreIrJumpInst *>(
-        body->get_instructions().back().get());
-    auto *latch_jump = dynamic_cast<CoreIrJumpInst *>(
-        latch->get_instructions().back().get());
+    auto *body_jump =
+        dynamic_cast<CoreIrJumpInst *>(body->get_instructions().back().get());
+    auto *latch_jump =
+        dynamic_cast<CoreIrJumpInst *>(latch->get_instructions().back().get());
     auto *preheader_jump = dynamic_cast<CoreIrJumpInst *>(
         loop.get_preheader()->get_instructions().back().get());
-    if (header_branch == nullptr || body_jump == nullptr || latch_jump == nullptr ||
-        preheader_jump == nullptr || preheader_jump->get_target_block() != header) {
+    if (header_branch == nullptr || body_jump == nullptr ||
+        latch_jump == nullptr || preheader_jump == nullptr ||
+        preheader_jump->get_target_block() != header) {
         return false;
     }
     if (body == latch) {
@@ -439,7 +463,8 @@ bool fully_unroll_small_loop(CoreIrFunction &,
     }
 
     const std::size_t body_instruction_count =
-        count_unrollable_body_instructions({body, body == latch ? nullptr : latch});
+        count_unrollable_body_instructions(
+            {body, body == latch ? nullptr : latch});
     if (body_instruction_count == 0 ||
         body_instruction_count * *trip_count > 768) {
         return false;
@@ -489,16 +514,19 @@ bool fully_unroll_small_loop(CoreIrFunction &,
     for (std::uint64_t iteration = 0; iteration < *trip_count; ++iteration) {
         std::unordered_map<const CoreIrValue *, CoreIrValue *> value_map;
         for (const HeaderPhiInfo &phi_info : *phi_infos) {
-            value_map.emplace(phi_info.phi, current_phi_values.at(phi_info.phi));
+            value_map.emplace(phi_info.phi,
+                              current_phi_values.at(phi_info.phi));
         }
 
-        for (CoreIrBasicBlock *block : {body, body == latch ? nullptr : latch}) {
+        for (CoreIrBasicBlock *block :
+             {body, body == latch ? nullptr : latch}) {
             if (block == nullptr) {
                 continue;
             }
             for (const auto &instruction_ptr : block->get_instructions()) {
                 CoreIrInstruction *instruction = instruction_ptr.get();
-                if (instruction == nullptr || instruction->get_is_terminator()) {
+                if (instruction == nullptr ||
+                    instruction->get_is_terminator()) {
                     continue;
                 }
                 CoreIrInstruction *clone =
@@ -516,8 +544,9 @@ bool fully_unroll_small_loop(CoreIrFunction &,
 
         for (const HeaderPhiInfo &phi_info : *phi_infos) {
             auto next_it = value_map.find(phi_info.latch_value);
-            current_phi_values[phi_info.phi] =
-                next_it == value_map.end() ? phi_info.latch_value : next_it->second;
+            current_phi_values[phi_info.phi] = next_it == value_map.end()
+                                                   ? phi_info.latch_value
+                                                   : next_it->second;
         }
     }
 
@@ -534,18 +563,24 @@ bool fully_unroll_small_loop(CoreIrFunction &,
 
 } // namespace
 
-PassKind CoreIrLoopUnrollPass::Kind() const { return PassKind::CoreIrLoopUnroll; }
+PassKind CoreIrLoopUnrollPass::Kind() const {
+    return PassKind::CoreIrLoopUnroll;
+}
 
-const char *CoreIrLoopUnrollPass::Name() const { return "CoreIrLoopUnrollPass"; }
+const char *CoreIrLoopUnrollPass::Name() const {
+    return "CoreIrLoopUnrollPass";
+}
 
 PassResult CoreIrLoopUnrollPass::Run(CompilerContext &context) {
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
-    CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();
+    CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
         return fail_missing_core_ir(context, Name());
     }
 
-    CoreIrAnalysisManager *analysis_manager = build_result->get_analysis_manager();
+    CoreIrAnalysisManager *analysis_manager =
+        build_result->get_analysis_manager();
     CoreIrContext *core_ir_context = build_result->get_context();
     if (analysis_manager == nullptr || core_ir_context == nullptr) {
         return PassResult::Failure("missing core ir loop unroll dependencies");
@@ -556,9 +591,11 @@ PassResult CoreIrLoopUnrollPass::Run(CompilerContext &context) {
         const CoreIrLoopInfoAnalysisResult &loop_info =
             analysis_manager->get_or_compute<CoreIrLoopInfoAnalysis>(*function);
         const CoreIrInductionVarAnalysisResult &induction_vars =
-            analysis_manager->get_or_compute<CoreIrInductionVarAnalysis>(*function);
+            analysis_manager->get_or_compute<CoreIrInductionVarAnalysis>(
+                *function);
         const CoreIrScalarEvolutionLiteAnalysisResult &scev =
-            analysis_manager->get_or_compute<CoreIrScalarEvolutionLiteAnalysis>(*function);
+            analysis_manager->get_or_compute<CoreIrScalarEvolutionLiteAnalysis>(
+                *function);
 
         bool function_changed = false;
         for (const auto &loop_ptr : loop_info.get_loops()) {

@@ -6,6 +6,7 @@
 #include "backend/ir/analysis/dominator_tree_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
+#include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
