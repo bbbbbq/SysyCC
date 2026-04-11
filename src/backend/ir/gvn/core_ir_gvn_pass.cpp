@@ -67,6 +67,7 @@ void append_memory_location_key(std::string &key,
         key += std::to_string(index);
         key.push_back('/');
     }
+    key += location.exact_access_path ? "exact" : "inexact";
     key.push_back(';');
 }
 

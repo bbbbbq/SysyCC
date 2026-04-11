@@ -3,11 +3,9 @@
 #include <string>
 #include <vector>
 
-#include "backend/ir/loop_unroll/core_ir_loop_unroll_pass.hpp"
+#include "backend/ir/if_conversion/core_ir_if_conversion_pass.hpp"
 #include "backend/ir/loop_simplify/core_ir_loop_simplify_pass.hpp"
-#include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
-#include "backend/ir/simple_loop_unswitch/core_ir_simple_loop_unswitch_pass.hpp"
-#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
+#include "backend/ir/loop_unroll/core_ir_loop_unroll_pass.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -16,14 +14,18 @@
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
-#include "compiler/pass/pass.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
+#include "backend/ir/simple_loop_unswitch/core_ir_simple_loop_unswitch_pass.hpp"
+#include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
+#include "compiler/pass/pass.hpp"
 
 using namespace sysycc;
 
 namespace {
 
-std::size_t count_substring(const std::string &text, const std::string &needle) {
+std::size_t count_substring(const std::string &text,
+                            const std::string &needle) {
     if (needle.empty()) {
         return 0;
     }
@@ -105,7 +107,8 @@ int main() {
     auto *header2 = function2->create_basic_block<CoreIrBasicBlock>("header");
     auto *body2 = function2->create_basic_block<CoreIrBasicBlock>("body");
     auto *exit2 = function2->create_basic_block<CoreIrBasicBlock>("exit");
-    auto *sum_slot = function2->create_stack_slot<CoreIrStackSlot>("sum", i32_type2, 4);
+    auto *sum_slot =
+        function2->create_stack_slot<CoreIrStackSlot>("sum", i32_type2, 4);
     auto *arr_slot =
         function2->create_stack_slot<CoreIrStackSlot>("arr", array4_i32, 4);
     auto *zero2 = context2->create_constant<CoreIrConstantInt>(i32_type2, 0);
@@ -137,11 +140,13 @@ int main() {
     auto *iv2 = header2->create_instruction<CoreIrPhiInst>(i32_type2, "iv");
     auto *cmp2 = header2->create_instruction<CoreIrCompareInst>(
         CoreIrComparePredicate::SignedLess, i1_type2, "cmp", iv2, four2);
-    header2->create_instruction<CoreIrCondJumpInst>(void_type2, cmp2, body2, exit2);
+    header2->create_instruction<CoreIrCondJumpInst>(void_type2, cmp2, body2,
+                                                    exit2);
     auto *sum_load = body2->create_instruction<CoreIrLoadInst>(
         i32_type2, "sum.load", sum_slot);
-    auto *loop_arr_addr = body2->create_instruction<CoreIrAddressOfStackSlotInst>(
-        ptr_array4_i32, "loop.arr.addr", arr_slot);
+    auto *loop_arr_addr =
+        body2->create_instruction<CoreIrAddressOfStackSlotInst>(
+            ptr_array4_i32, "loop.arr.addr", arr_slot);
     auto *elem_addr = body2->create_instruction<CoreIrGetElementPtrInst>(
         ptr_i32_type2, "elem.addr", loop_arr_addr,
         std::vector<CoreIrValue *>{zero2, iv2});
@@ -153,8 +158,8 @@ int main() {
     auto *next_iv2 = body2->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type2, "iv.next", iv2, one2);
     body2->create_instruction<CoreIrJumpInst>(void_type2, header2);
-    auto *exit_sum =
-        exit2->create_instruction<CoreIrLoadInst>(i32_type2, "sum.exit", sum_slot);
+    auto *exit_sum = exit2->create_instruction<CoreIrLoadInst>(
+        i32_type2, "sum.exit", sum_slot);
     exit2->create_instruction<CoreIrReturnInst>(void_type2, exit_sum);
     iv2->add_incoming(entry2, zero2);
     iv2->add_incoming(body2, next_iv2);
@@ -197,7 +202,8 @@ int main() {
     auto *sum3 = header3->create_instruction<CoreIrPhiInst>(i32_type3, "sum");
     auto *cmp3 = header3->create_instruction<CoreIrCompareInst>(
         CoreIrComparePredicate::SignedLess, i1_type3, "cmp", iv3, four3);
-    header3->create_instruction<CoreIrCondJumpInst>(void_type3, cmp3, body3, exit3);
+    header3->create_instruction<CoreIrCondJumpInst>(void_type3, cmp3, body3,
+                                                    exit3);
     auto *sum_next3 = body3->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type3, "sum.next", sum3, iv3);
     auto *iv_next3 = body3->create_instruction<CoreIrBinaryInst>(
@@ -230,8 +236,8 @@ int main() {
         i32_type3b, std::vector<const CoreIrType *>{}, false);
     auto *module3b = context3b->create_module<CoreIrModule>(
         "ir_core_loop_unroll_split_latch");
-    auto *function3b =
-        module3b->create_function<CoreIrFunction>("main", function_type3b, false);
+    auto *function3b = module3b->create_function<CoreIrFunction>(
+        "main", function_type3b, false);
     auto *entry3b = function3b->create_basic_block<CoreIrBasicBlock>("entry");
     auto *header3b = function3b->create_basic_block<CoreIrBasicBlock>("header");
     auto *body3b = function3b->create_basic_block<CoreIrBasicBlock>("body");
@@ -243,10 +249,12 @@ int main() {
 
     entry3b->create_instruction<CoreIrJumpInst>(void_type3b, header3b);
     auto *iv3b = header3b->create_instruction<CoreIrPhiInst>(i32_type3b, "iv");
-    auto *sum3b = header3b->create_instruction<CoreIrPhiInst>(i32_type3b, "sum");
+    auto *sum3b =
+        header3b->create_instruction<CoreIrPhiInst>(i32_type3b, "sum");
     auto *cmp3b = header3b->create_instruction<CoreIrCompareInst>(
         CoreIrComparePredicate::SignedLess, i1_type3b, "cmp", iv3b, four3b);
-    header3b->create_instruction<CoreIrCondJumpInst>(void_type3b, cmp3b, body3b, exit3b);
+    header3b->create_instruction<CoreIrCondJumpInst>(void_type3b, cmp3b, body3b,
+                                                     exit3b);
     auto *body_accum3b = body3b->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type3b, "body.accum", sum3b, iv3b);
     body3b->create_instruction<CoreIrJumpInst>(void_type3b, latch3b);
@@ -255,7 +263,8 @@ int main() {
     auto *iv_next3b = latch3b->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type3b, "iv.next", iv3b, one3b);
     latch3b->create_instruction<CoreIrJumpInst>(void_type3b, header3b);
-    auto *ret3b = exit3b->create_instruction<CoreIrReturnInst>(void_type3b, sum3b);
+    auto *ret3b =
+        exit3b->create_instruction<CoreIrReturnInst>(void_type3b, sum3b);
     iv3b->add_incoming(entry3b, zero3b);
     iv3b->add_incoming(latch3b, iv_next3b);
     sum3b->add_incoming(entry3b, zero3b);
@@ -268,8 +277,8 @@ int main() {
     CoreIrLoopUnrollPass split_latch_unroll_pass;
     assert(split_latch_unroll_pass.Run(compiler_context3b).ok);
 
-    auto *entry_jump3b =
-        dynamic_cast<CoreIrJumpInst *>(entry3b->get_instructions().back().get());
+    auto *entry_jump3b = dynamic_cast<CoreIrJumpInst *>(
+        entry3b->get_instructions().back().get());
     assert(entry_jump3b != nullptr);
     assert(entry_jump3b->get_target_block() == exit3b);
     assert(ret3b->get_return_value() != sum3b);
@@ -279,12 +288,13 @@ int main() {
     auto *i1_type4 = context4->create_type<CoreIrIntegerType>(1);
     auto *i32_type4 = context4->create_type<CoreIrIntegerType>(32);
     auto *array100_i32 = context4->create_type<CoreIrArrayType>(i32_type4, 100);
-    auto *ptr_array100_i32 = context4->create_type<CoreIrPointerType>(array100_i32);
+    auto *ptr_array100_i32 =
+        context4->create_type<CoreIrPointerType>(array100_i32);
     auto *ptr_i32_type4 = context4->create_type<CoreIrPointerType>(i32_type4);
     auto *function_type4 = context4->create_type<CoreIrFunctionType>(
         i32_type4, std::vector<const CoreIrType *>{}, false);
-    auto *module4 =
-        context4->create_module<CoreIrModule>("ir_core_loop_unroll_nested_memory");
+    auto *module4 = context4->create_module<CoreIrModule>(
+        "ir_core_loop_unroll_nested_memory");
     auto *function4 =
         module4->create_function<CoreIrFunction>("main", function_type4, false);
     auto *entry4 = function4->create_basic_block<CoreIrBasicBlock>("entry");
@@ -308,16 +318,18 @@ int main() {
         function4->create_stack_slot<CoreIrStackSlot>("arr", array100_i32, 4);
     auto *zero4 = context4->create_constant<CoreIrConstantInt>(i32_type4, 0);
     auto *one4 = context4->create_constant<CoreIrConstantInt>(i32_type4, 1);
-    auto *hundred4 = context4->create_constant<CoreIrConstantInt>(i32_type4, 100);
+    auto *hundred4 =
+        context4->create_constant<CoreIrConstantInt>(i32_type4, 100);
 
     auto *arr_addr4 = entry4->create_instruction<CoreIrAddressOfStackSlotInst>(
         ptr_array100_i32, "arr.addr", arr_slot4);
     for (std::uint64_t index = 0; index < 100; ++index) {
         auto *index_value =
             context4->create_constant<CoreIrConstantInt>(i32_type4, index);
-        auto *element_addr = entry4->create_instruction<CoreIrGetElementPtrInst>(
-            ptr_i32_type4, "arr.init." + std::to_string(index), arr_addr4,
-            std::vector<CoreIrValue *>{zero4, index_value});
+        auto *element_addr =
+            entry4->create_instruction<CoreIrGetElementPtrInst>(
+                ptr_i32_type4, "arr.init." + std::to_string(index), arr_addr4,
+                std::vector<CoreIrValue *>{zero4, index_value});
         entry4->create_instruction<CoreIrStoreInst>(void_type4, index_value,
                                                     element_addr);
     }
@@ -327,22 +339,25 @@ int main() {
     auto *outer_iv4 =
         outer_header4->create_instruction<CoreIrPhiInst>(i32_type4, "outer.iv");
     auto *outer_cmp4 = outer_header4->create_instruction<CoreIrCompareInst>(
-        CoreIrComparePredicate::SignedLess, i1_type4, "outer.cmp", outer_iv4, one4);
-    outer_header4->create_instruction<CoreIrCondJumpInst>(void_type4, outer_cmp4,
-                                                          outer_body4, outer_exit4);
-    outer_body4->create_instruction<CoreIrStoreInst>(void_type4, zero4, idx_slot4);
+        CoreIrComparePredicate::SignedLess, i1_type4, "outer.cmp", outer_iv4,
+        one4);
+    outer_header4->create_instruction<CoreIrCondJumpInst>(
+        void_type4, outer_cmp4, outer_body4, outer_exit4);
+    outer_body4->create_instruction<CoreIrStoreInst>(void_type4, zero4,
+                                                     idx_slot4);
     outer_body4->create_instruction<CoreIrJumpInst>(void_type4, inner_header4);
     auto *inner_iv4 =
         inner_header4->create_instruction<CoreIrPhiInst>(i32_type4, "inner.iv");
     auto *inner_cmp4 = inner_header4->create_instruction<CoreIrCompareInst>(
         CoreIrComparePredicate::SignedLess, i1_type4, "inner.cmp", inner_iv4,
         hundred4);
-    inner_header4->create_instruction<CoreIrCondJumpInst>(void_type4, inner_cmp4,
-                                                          inner_body4, inner_exit4);
+    inner_header4->create_instruction<CoreIrCondJumpInst>(
+        void_type4, inner_cmp4, inner_body4, inner_exit4);
     auto *sum_load4 = inner_body4->create_instruction<CoreIrLoadInst>(
         i32_type4, "sum.load", sum_slot4);
-    auto *loop_arr_addr4 = inner_body4->create_instruction<CoreIrAddressOfStackSlotInst>(
-        ptr_array100_i32, "loop.arr.addr", arr_slot4);
+    auto *loop_arr_addr4 =
+        inner_body4->create_instruction<CoreIrAddressOfStackSlotInst>(
+            ptr_array100_i32, "loop.arr.addr", arr_slot4);
     auto *elem_addr4 = inner_body4->create_instruction<CoreIrGetElementPtrInst>(
         ptr_i32_type4, "elem.addr", loop_arr_addr4,
         std::vector<CoreIrValue *>{zero4, inner_iv4});
@@ -350,16 +365,18 @@ int main() {
         i32_type4, "elem.load", elem_addr4);
     auto *sum_next4 = inner_body4->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type4, "sum.next", sum_load4, elem_load4);
-    inner_body4->create_instruction<CoreIrStoreInst>(void_type4, sum_next4, sum_slot4);
+    inner_body4->create_instruction<CoreIrStoreInst>(void_type4, sum_next4,
+                                                     sum_slot4);
     auto *inner_next4 = inner_body4->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type4, "inner.next", inner_iv4, one4);
     inner_body4->create_instruction<CoreIrJumpInst>(void_type4, inner_header4);
-    inner_exit4->create_instruction<CoreIrStoreInst>(void_type4, inner_iv4, idx_slot4);
+    inner_exit4->create_instruction<CoreIrStoreInst>(void_type4, inner_iv4,
+                                                     idx_slot4);
     auto *outer_next4 = inner_exit4->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type4, "outer.next", outer_iv4, one4);
     inner_exit4->create_instruction<CoreIrJumpInst>(void_type4, outer_header4);
-    auto *final_sum4 =
-        outer_exit4->create_instruction<CoreIrLoadInst>(i32_type4, "sum.exit", sum_slot4);
+    auto *final_sum4 = outer_exit4->create_instruction<CoreIrLoadInst>(
+        i32_type4, "sum.exit", sum_slot4);
     outer_exit4->create_instruction<CoreIrReturnInst>(void_type4, final_sum4);
     outer_iv4->add_incoming(entry4, zero4);
     outer_iv4->add_incoming(inner_exit4, outer_next4);
@@ -373,8 +390,8 @@ int main() {
     CoreIrLoopUnrollPass nested_memory_unroll_pass;
     assert(nested_memory_unroll_pass.Run(compiler_context4).ok);
 
-    auto *outer_body_jump4 =
-        dynamic_cast<CoreIrJumpInst *>(outer_body4->get_instructions().back().get());
+    auto *outer_body_jump4 = dynamic_cast<CoreIrJumpInst *>(
+        outer_body4->get_instructions().back().get());
     assert(outer_body_jump4 != nullptr);
     assert(outer_body_jump4->get_target_block() == inner_exit4);
 
@@ -383,7 +400,8 @@ int main() {
     auto *i1_type5 = context5->create_type<CoreIrIntegerType>(1);
     auto *i32_type5 = context5->create_type<CoreIrIntegerType>(32);
     auto *array4_i32_5 = context5->create_type<CoreIrArrayType>(i32_type5, 4);
-    auto *ptr_array4_i32_5 = context5->create_type<CoreIrPointerType>(array4_i32_5);
+    auto *ptr_array4_i32_5 =
+        context5->create_type<CoreIrPointerType>(array4_i32_5);
     auto *ptr_i32_type5 = context5->create_type<CoreIrPointerType>(i32_type5);
     auto *function_type5 = context5->create_type<CoreIrFunctionType>(
         i32_type5, std::vector<const CoreIrType *>{}, false);
@@ -420,11 +438,12 @@ int main() {
     for (std::uint64_t index = 0; index < 4; ++index) {
         auto *index_value =
             context5->create_constant<CoreIrConstantInt>(i32_type5, index + 1);
-        auto *element_addr = entry5->create_instruction<CoreIrGetElementPtrInst>(
-            ptr_i32_type5, "arr.init." + std::to_string(index), arr_addr5,
-            std::vector<CoreIrValue *>{zero5,
-                                       context5->create_constant<CoreIrConstantInt>(
-                                           i32_type5, index)});
+        auto *element_addr =
+            entry5->create_instruction<CoreIrGetElementPtrInst>(
+                ptr_i32_type5, "arr.init." + std::to_string(index), arr_addr5,
+                std::vector<CoreIrValue *>{
+                    zero5, context5->create_constant<CoreIrConstantInt>(
+                               i32_type5, index)});
         entry5->create_instruction<CoreIrStoreInst>(void_type5, index_value,
                                                     element_addr);
     }
@@ -433,31 +452,35 @@ int main() {
     auto *outer_iv5 =
         outer_header5->create_instruction<CoreIrPhiInst>(i32_type5, "outer.iv");
     auto *outer_cmp5 = outer_header5->create_instruction<CoreIrCompareInst>(
-        CoreIrComparePredicate::SignedLess, i1_type5, "outer.cmp", outer_iv5, one5);
-    outer_header5->create_instruction<CoreIrCondJumpInst>(void_type5, outer_cmp5,
-                                                          outer_body5, outer_exit5);
-    auto *flag_load5 =
-        outer_body5->create_instruction<CoreIrLoadInst>(i32_type5, "flag.load", flag_slot5);
+        CoreIrComparePredicate::SignedLess, i1_type5, "outer.cmp", outer_iv5,
+        one5);
+    outer_header5->create_instruction<CoreIrCondJumpInst>(
+        void_type5, outer_cmp5, outer_body5, outer_exit5);
+    auto *flag_load5 = outer_body5->create_instruction<CoreIrLoadInst>(
+        i32_type5, "flag.load", flag_slot5);
     auto *flag_cmp5 = outer_body5->create_instruction<CoreIrCompareInst>(
-        CoreIrComparePredicate::NotEqual, i1_type5, "flag.cmp", flag_load5, zero5);
-    outer_body5->create_instruction<CoreIrCondJumpInst>(void_type5, flag_cmp5, then5,
-                                                        outer_latch5);
+        CoreIrComparePredicate::NotEqual, i1_type5, "flag.cmp", flag_load5,
+        zero5);
+    outer_body5->create_instruction<CoreIrCondJumpInst>(void_type5, flag_cmp5,
+                                                        then5, outer_latch5);
     then5->create_instruction<CoreIrJumpInst>(void_type5, inner_header5);
     auto *inner_iv5 =
         inner_header5->create_instruction<CoreIrPhiInst>(i32_type5, "inner.iv");
-    auto *inner_sum5 =
-        inner_header5->create_instruction<CoreIrPhiInst>(i32_type5, "inner.sum");
+    auto *inner_sum5 = inner_header5->create_instruction<CoreIrPhiInst>(
+        i32_type5, "inner.sum");
     auto *inner_cmp5 = inner_header5->create_instruction<CoreIrCompareInst>(
-        CoreIrComparePredicate::SignedLess, i1_type5, "inner.cmp", inner_iv5, four5);
-    inner_header5->create_instruction<CoreIrCondJumpInst>(void_type5, inner_cmp5,
-                                                          inner_body5, inner_exit5);
+        CoreIrComparePredicate::SignedLess, i1_type5, "inner.cmp", inner_iv5,
+        four5);
+    inner_header5->create_instruction<CoreIrCondJumpInst>(
+        void_type5, inner_cmp5, inner_body5, inner_exit5);
     auto *elem_addr5 = inner_body5->create_instruction<CoreIrGetElementPtrInst>(
         ptr_i32_type5, "elem.addr", arr_addr5,
         std::vector<CoreIrValue *>{zero5, inner_iv5});
     auto *elem_load5 = inner_body5->create_instruction<CoreIrLoadInst>(
         i32_type5, "elem.load", elem_addr5);
     auto *inner_sum_next5 = inner_body5->create_instruction<CoreIrBinaryInst>(
-        CoreIrBinaryOpcode::Add, i32_type5, "inner.sum.next", inner_sum5, elem_load5);
+        CoreIrBinaryOpcode::Add, i32_type5, "inner.sum.next", inner_sum5,
+        elem_load5);
     auto *inner_iv_next5 = inner_body5->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type5, "inner.iv.next", inner_iv5, one5);
     inner_body5->create_instruction<CoreIrJumpInst>(void_type5, inner_header5);
@@ -487,5 +510,73 @@ int main() {
     assert(text5.find("outer.body.unsw.true:") != std::string::npos);
     assert(count_substring(text5, "%inner.sum.next = add i32") >= 5);
     assert(text5.find("jmp %outer.latch.unsw.true") != std::string::npos);
+
+    auto context6 = std::make_unique<CoreIrContext>();
+    auto *void_type6 = context6->create_type<CoreIrVoidType>();
+    auto *i1_type6 = context6->create_type<CoreIrIntegerType>(1);
+    auto *i32_type6 = context6->create_type<CoreIrIntegerType>(32);
+    auto *function_type6 = context6->create_type<CoreIrFunctionType>(
+        i32_type6, std::vector<const CoreIrType *>{}, false);
+    auto *module6 =
+        context6->create_module<CoreIrModule>("ir_core_loop_unroll_ifconv");
+    auto *function6 =
+        module6->create_function<CoreIrFunction>("main", function_type6, false);
+    auto *entry6 = function6->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header6 = function6->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body6 = function6->create_basic_block<CoreIrBasicBlock>("body");
+    auto *then6 = function6->create_basic_block<CoreIrBasicBlock>("then");
+    auto *else6 = function6->create_basic_block<CoreIrBasicBlock>("else");
+    auto *latch6 = function6->create_basic_block<CoreIrBasicBlock>("latch");
+    auto *exit6 = function6->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero6 = context6->create_constant<CoreIrConstantInt>(i32_type6, 0);
+    auto *one6 = context6->create_constant<CoreIrConstantInt>(i32_type6, 1);
+    auto *two6 = context6->create_constant<CoreIrConstantInt>(i32_type6, 2);
+    auto *three6 = context6->create_constant<CoreIrConstantInt>(i32_type6, 3);
+
+    entry6->create_instruction<CoreIrJumpInst>(void_type6, header6);
+    auto *iv6 = header6->create_instruction<CoreIrPhiInst>(i32_type6, "iv");
+    auto *cmp6 = header6->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type6, "cmp", iv6, three6);
+    header6->create_instruction<CoreIrCondJumpInst>(void_type6, cmp6, body6,
+                                                    exit6);
+    auto *body_cmp6 = body6->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type6, "body.cmp", iv6, two6);
+    body6->create_instruction<CoreIrCondJumpInst>(void_type6, body_cmp6, then6,
+                                                  else6);
+    auto *true_value6 = then6->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type6, "true.v", iv6, one6);
+    then6->create_instruction<CoreIrJumpInst>(void_type6, latch6);
+    auto *false_value6 = else6->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Sub, i32_type6, "false.v", iv6, one6);
+    else6->create_instruction<CoreIrJumpInst>(void_type6, latch6);
+    auto *merged6 =
+        latch6->create_instruction<CoreIrPhiInst>(i32_type6, "merged");
+    latch6->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type6, "mixed", merged6, iv6);
+    auto *next6 = latch6->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type6, "iv.next", iv6, one6);
+    latch6->create_instruction<CoreIrJumpInst>(void_type6, header6);
+    exit6->create_instruction<CoreIrReturnInst>(void_type6, zero6);
+    iv6->add_incoming(entry6, zero6);
+    iv6->add_incoming(latch6, next6);
+    merged6->add_incoming(then6, true_value6);
+    merged6->add_incoming(else6, false_value6);
+
+    CompilerContext compiler_context6;
+    compiler_context6.set_core_ir_build_result(
+        std::make_unique<CoreIrBuildResult>(std::move(context6), module6));
+    PassManager pass_manager6;
+    pass_manager6.AddPass(std::make_unique<CoreIrIfConversionPass>());
+    pass_manager6.AddPass(std::make_unique<CoreIrSimplifyCfgPass>());
+    pass_manager6.AddPass(std::make_unique<CoreIrLoopSimplifyPass>());
+    pass_manager6.AddPass(std::make_unique<CoreIrLoopUnrollPass>());
+    assert(pass_manager6.Run(compiler_context6).ok);
+
+    const std::string text6 = printer.print_module(*module6);
+    auto *entry_jump6 =
+        dynamic_cast<CoreIrJumpInst *>(entry6->get_instructions().back().get());
+    assert(entry_jump6 != nullptr);
+    assert(entry_jump6->get_target_block() == exit6);
+    assert(count_substring(text6, "select i1") >= 3);
     return 0;
 }

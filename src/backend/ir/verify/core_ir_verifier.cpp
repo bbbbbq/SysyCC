@@ -23,14 +23,15 @@ void add_issue(CoreIrVerifyResult &result, CoreIrVerifyIssueKind kind,
                std::string message, const CoreIrFunction *function = nullptr,
                const CoreIrBasicBlock *block = nullptr,
                const CoreIrInstruction *instruction = nullptr) {
-    result.add_issue(
-        CoreIrVerifyIssue{kind, std::move(message), function, block, instruction});
+    result.add_issue(CoreIrVerifyIssue{kind, std::move(message), function,
+                                       block, instruction});
 }
 
 bool contains_use(const CoreIrValue &value, const CoreIrInstruction &user,
                   std::size_t operand_index) {
     for (const CoreIrUse &use : value.get_uses()) {
-        if (use.get_user() == &user && use.get_operand_index() == operand_index) {
+        if (use.get_user() == &user &&
+            use.get_operand_index() == operand_index) {
             return true;
         }
     }
@@ -65,8 +66,8 @@ void verify_instruction_operands(
     CoreIrVerifyResult &result, const CoreIrInstruction &instruction,
     const CoreIrFunction &function,
     std::unordered_set<const CoreIrValue *> &seen_values) {
-    for (std::size_t operand_index = 0; operand_index < instruction.get_operands().size();
-         ++operand_index) {
+    for (std::size_t operand_index = 0;
+         operand_index < instruction.get_operands().size(); ++operand_index) {
         CoreIrValue *operand = instruction.get_operands()[operand_index];
         if (operand == nullptr) {
             add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
@@ -92,8 +93,8 @@ void verify_phi(CoreIrVerifyResult &result, const CoreIrPhiInst &phi,
         CoreIrValue *incoming_value = phi.get_incoming_value(index);
         if (incoming_block == nullptr || incoming_value == nullptr) {
             add_issue(result, CoreIrVerifyIssueKind::PhiIncomingMismatch,
-                      "phi incoming edge contains null block or value", &function,
-                      phi.get_parent(), &phi);
+                      "phi incoming edge contains null block or value",
+                      &function, phi.get_parent(), &phi);
             continue;
         }
         if (!incoming_blocks.insert(incoming_block).second) {
@@ -131,9 +132,10 @@ void verify_instruction_references(CoreIrVerifyResult &result,
                                    const CoreIrContext *context) {
     if (instruction.get_type() == nullptr ||
         instruction.get_type()->get_parent_context() != context) {
-        add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
-                  "instruction type does not belong to the current Core IR context",
-                  &function, instruction.get_parent(), &instruction);
+        add_issue(
+            result, CoreIrVerifyIssueKind::InvalidReference,
+            "instruction type does not belong to the current Core IR context",
+            &function, instruction.get_parent(), &instruction);
     }
 
     switch (instruction.get_opcode()) {
@@ -141,24 +143,32 @@ void verify_instruction_references(CoreIrVerifyResult &result,
     case CoreIrOpcode::Binary:
     case CoreIrOpcode::Unary:
     case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
     case CoreIrOpcode::Cast:
+    case CoreIrOpcode::ExtractElement:
+    case CoreIrOpcode::InsertElement:
+    case CoreIrOpcode::ShuffleVector:
+    case CoreIrOpcode::VectorReduceAdd:
     case CoreIrOpcode::GetElementPtr:
     case CoreIrOpcode::Load:
     case CoreIrOpcode::Store:
     case CoreIrOpcode::Return:
         return;
     case CoreIrOpcode::AddressOfFunction: {
-        const auto &address = static_cast<const CoreIrAddressOfFunctionInst &>(instruction);
+        const auto &address =
+            static_cast<const CoreIrAddressOfFunctionInst &>(instruction);
         if (address.get_function() == nullptr ||
             address.get_function()->get_parent() != module) {
-            add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
-                      "addr_of_function references a function outside the module",
-                      &function, instruction.get_parent(), &instruction);
+            add_issue(
+                result, CoreIrVerifyIssueKind::InvalidReference,
+                "addr_of_function references a function outside the module",
+                &function, instruction.get_parent(), &instruction);
         }
         return;
     }
     case CoreIrOpcode::AddressOfGlobal: {
-        const auto &address = static_cast<const CoreIrAddressOfGlobalInst &>(instruction);
+        const auto &address =
+            static_cast<const CoreIrAddressOfGlobalInst &>(instruction);
         if (address.get_global() == nullptr ||
             address.get_global()->get_parent() != module) {
             add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
@@ -173,7 +183,8 @@ void verify_instruction_references(CoreIrVerifyResult &result,
         if (address.get_stack_slot() == nullptr ||
             address.get_stack_slot()->get_parent() != &function) {
             add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
-                      "addr_of_stackslot references a stack slot outside the function",
+                      "addr_of_stackslot references a stack slot outside the "
+                      "function",
                       &function, instruction.get_parent(), &instruction);
         }
         return;
@@ -182,9 +193,10 @@ void verify_instruction_references(CoreIrVerifyResult &result,
         const auto &call = static_cast<const CoreIrCallInst &>(instruction);
         if (call.get_callee_type() == nullptr ||
             call.get_callee_type()->get_parent_context() != context) {
-            add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
-                      "call references a callee type outside the current context",
-                      &function, instruction.get_parent(), &instruction);
+            add_issue(
+                result, CoreIrVerifyIssueKind::InvalidReference,
+                "call references a callee type outside the current context",
+                &function, instruction.get_parent(), &instruction);
         }
         return;
     }
@@ -199,13 +211,15 @@ void verify_instruction_references(CoreIrVerifyResult &result,
         return;
     }
     case CoreIrOpcode::CondJump: {
-        const auto &cond_jump = static_cast<const CoreIrCondJumpInst &>(instruction);
+        const auto &cond_jump =
+            static_cast<const CoreIrCondJumpInst &>(instruction);
         if (cond_jump.get_true_block() == nullptr ||
             cond_jump.get_true_block()->get_parent() != &function ||
             cond_jump.get_false_block() == nullptr ||
             cond_jump.get_false_block()->get_parent() != &function) {
             add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
-                      "conditional jump target does not belong to the current function",
+                      "conditional jump target does not belong to the current "
+                      "function",
                       &function, instruction.get_parent(), &instruction);
         }
         return;
@@ -215,7 +229,8 @@ void verify_instruction_references(CoreIrVerifyResult &result,
 
 } // namespace
 
-CoreIrVerifyResult CoreIrVerifier::verify_module(const CoreIrModule &module) const {
+CoreIrVerifyResult
+CoreIrVerifier::verify_module(const CoreIrModule &module) const {
     CoreIrVerifyResult result;
     const CoreIrContext *context = module.get_parent_context();
     if (context == nullptr) {
@@ -240,8 +255,9 @@ CoreIrVerifyResult CoreIrVerifier::verify_module(const CoreIrModule &module) con
         }
         if (global->get_initializer() != nullptr &&
             global->get_initializer()->get_parent_context() != context) {
-            add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
-                      "global initializer does not belong to the module context");
+            add_issue(
+                result, CoreIrVerifyIssueKind::InvalidReference,
+                "global initializer does not belong to the module context");
         }
     }
 
@@ -253,7 +269,8 @@ CoreIrVerifyResult CoreIrVerifier::verify_module(const CoreIrModule &module) con
         }
         if (function->get_parent() != &module) {
             add_issue(result, CoreIrVerifyIssueKind::ModuleOwnership,
-                      "function parent pointer does not match module", function.get());
+                      "function parent pointer does not match module",
+                      function.get());
         }
         if (function->get_function_type() == nullptr ||
             function->get_function_type()->get_parent_context() != context) {
@@ -264,7 +281,8 @@ CoreIrVerifyResult CoreIrVerifier::verify_module(const CoreIrModule &module) con
         CoreIrVerifyResult function_result = verify_function(*function);
         if (!function_result.ok) {
             result.ok = false;
-            result.issues.insert(result.issues.end(), function_result.issues.begin(),
+            result.issues.insert(result.issues.end(),
+                                 function_result.issues.begin(),
                                  function_result.issues.end());
         }
     }
@@ -273,7 +291,8 @@ CoreIrVerifyResult CoreIrVerifier::verify_module(const CoreIrModule &module) con
 }
 
 CoreIrVerifyResult CoreIrVerifier::verify_function(
-    const CoreIrFunction &function, const CoreIrCfgAnalysisResult *cfg_analysis) const {
+    const CoreIrFunction &function,
+    const CoreIrCfgAnalysisResult *cfg_analysis) const {
     CoreIrVerifyResult result;
     const CoreIrModule *module = function.get_parent();
     const CoreIrContext *context =
@@ -316,7 +335,8 @@ CoreIrVerifyResult CoreIrVerifier::verify_function(
         if (stack_slot->get_allocated_type() == nullptr ||
             stack_slot->get_allocated_type()->get_parent_context() != context) {
             add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
-                      "stack slot allocated type does not belong to the function context",
+                      "stack slot allocated type does not belong to the "
+                      "function context",
                       &function);
         }
     }
@@ -343,7 +363,8 @@ CoreIrVerifyResult CoreIrVerifier::verify_function(
         }
 
         bool seen_non_phi = false;
-        for (std::size_t index = 0; index < block->get_instructions().size(); ++index) {
+        for (std::size_t index = 0; index < block->get_instructions().size();
+             ++index) {
             const auto &instruction_ptr = block->get_instructions()[index];
             if (instruction_ptr == nullptr) {
                 add_issue(result, CoreIrVerifyIssueKind::InstructionOwnership,
@@ -355,35 +376,40 @@ CoreIrVerifyResult CoreIrVerifier::verify_function(
             const CoreIrInstruction &instruction = *instruction_ptr;
             seen_values.insert(&instruction);
             verify_value_uses(result, instruction, function);
-            verify_instruction_operands(result, instruction, function, seen_values);
-            verify_instruction_references(result, instruction, function, module, context);
+            verify_instruction_operands(result, instruction, function,
+                                        seen_values);
+            verify_instruction_references(result, instruction, function, module,
+                                          context);
 
             if (instruction.get_parent() != block.get()) {
-                add_issue(result, CoreIrVerifyIssueKind::InstructionOwnership,
-                          "instruction parent pointer does not match basic block",
-                          &function, block.get(), &instruction);
+                add_issue(
+                    result, CoreIrVerifyIssueKind::InstructionOwnership,
+                    "instruction parent pointer does not match basic block",
+                    &function, block.get(), &instruction);
             }
 
             const bool is_phi = instruction.get_opcode() == CoreIrOpcode::Phi;
             if (is_phi && seen_non_phi) {
-                add_issue(result, CoreIrVerifyIssueKind::PhiLayout,
-                          "phi instruction is not placed at the start of the block",
-                          &function, block.get(), &instruction);
+                add_issue(
+                    result, CoreIrVerifyIssueKind::PhiLayout,
+                    "phi instruction is not placed at the start of the block",
+                    &function, block.get(), &instruction);
             }
             if (!is_phi) {
                 seen_non_phi = true;
             } else {
-                verify_phi(result, static_cast<const CoreIrPhiInst &>(instruction),
+                verify_phi(result,
+                           static_cast<const CoreIrPhiInst &>(instruction),
                            function, *cfg_analysis);
             }
 
-            const bool is_last =
-                index + 1 == block->get_instructions().size();
+            const bool is_last = index + 1 == block->get_instructions().size();
             if (instruction.get_is_terminator() != is_last) {
-                add_issue(result, CoreIrVerifyIssueKind::TerminatorLayout,
-                          is_last ? "basic block does not end with a terminator"
-                                  : "terminator appears before the end of the block",
-                          &function, block.get(), &instruction);
+                add_issue(
+                    result, CoreIrVerifyIssueKind::TerminatorLayout,
+                    is_last ? "basic block does not end with a terminator"
+                            : "terminator appears before the end of the block",
+                    &function, block.get(), &instruction);
             }
         }
     }
@@ -399,9 +425,9 @@ bool emit_core_ir_verify_result(CompilerContext &context,
     }
 
     for (const CoreIrVerifyIssue &issue : verify_result.issues) {
-        context.get_diagnostic_engine().add_error(
-            DiagnosticStage::Compiler,
-            std::string(pass_name) + ": " + issue.message);
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                  std::string(pass_name) +
+                                                      ": " + issue.message);
     }
     return false;
 }

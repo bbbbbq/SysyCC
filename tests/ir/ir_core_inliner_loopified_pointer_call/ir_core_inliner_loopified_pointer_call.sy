@@ -1,0 +1,26 @@
+const int N = 32;
+int A[N][N];
+int B[N];
+
+void loopified_pointer(int n, int A[][32], int B[]) {
+    int i;
+    int j;
+    int acc;
+
+    i = 0;
+    while (i < n) {
+        j = 0;
+        acc = 0;
+        while (j < n) {
+            acc = acc + A[i][j] * B[j];
+            j = j + 1;
+        }
+        B[i] = acc;
+        i = i + 1;
+    }
+}
+
+int main() {
+    loopified_pointer(getint(), A, B);
+    return 0;
+}

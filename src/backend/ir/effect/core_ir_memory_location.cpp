@@ -11,10 +11,14 @@ namespace {
 
 bool append_constant_indices(CoreIrMemoryLocation &location,
                              const CoreIrGetElementPtrInst &gep) {
+    if (!location.exact_access_path) {
+        return false;
+    }
     for (std::size_t index = 0; index < gep.get_index_count(); ++index) {
         const auto *constant_index =
             dynamic_cast<const CoreIrConstantInt *>(gep.get_index(index));
         if (constant_index == nullptr) {
+            location.exact_access_path = false;
             return false;
         }
         location.access_path.push_back(constant_index->get_value());
@@ -72,9 +76,7 @@ CoreIrMemoryLocation describe_memory_location(const CoreIrValue *value) {
     if (location.is_unknown()) {
         return location;
     }
-    if (!append_constant_indices(location, *gep)) {
-        return {};
-    }
+    append_constant_indices(location, *gep);
     return location;
 }
 

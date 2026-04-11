@@ -64,7 +64,7 @@ void test_rotates_phi_free_loop_header() {
     assert(entry_term->get_false_block() == exit);
 }
 
-void test_skips_header_with_phi() {
+void test_rotates_header_with_phi_and_exit_use() {
     auto context = std::make_unique<CoreIrContext>();
     auto *void_type = context->create_type<CoreIrVoidType>();
     auto *i1_type = context->create_type<CoreIrIntegerType>(1);
@@ -87,7 +87,7 @@ void test_skips_header_with_phi() {
         CoreIrComparePredicate::SignedLess, i1_type, "cmp", iv, one);
     header->create_instruction<CoreIrCondJumpInst>(void_type, cmp, body, exit);
     body->create_instruction<CoreIrJumpInst>(void_type, header);
-    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+    auto *ret = exit->create_instruction<CoreIrReturnInst>(void_type, iv);
     iv->add_incoming(entry, zero);
     iv->add_incoming(body, one);
 
@@ -96,10 +96,32 @@ void test_skips_header_with_phi() {
     CoreIrLoopRotatePass pass;
     assert(pass.Run(compiler_context).ok);
 
-    auto *entry_term =
-        dynamic_cast<CoreIrJumpInst *>(entry->get_instructions().back().get());
+    auto *entry_term = dynamic_cast<CoreIrCondJumpInst *>(
+        entry->get_instructions().back().get());
     assert(entry_term != nullptr);
-    assert(entry_term->get_target_block() == header);
+    assert(entry_term->get_true_block() == header);
+    assert(entry_term->get_false_block() == exit);
+
+    auto *header_term =
+        dynamic_cast<CoreIrJumpInst *>(header->get_instructions().back().get());
+    assert(header_term != nullptr);
+    assert(header_term->get_target_block() == body);
+
+    auto *body_term =
+        dynamic_cast<CoreIrCondJumpInst *>(body->get_instructions().back().get());
+    assert(body_term != nullptr);
+    assert(body_term->get_true_block() == header);
+    assert(body_term->get_false_block() == exit);
+
+    auto *exit_phi =
+        dynamic_cast<CoreIrPhiInst *>(exit->get_instructions().front().get());
+    assert(exit_phi != nullptr);
+    assert(exit_phi->get_incoming_count() == 2);
+    assert(exit_phi->get_incoming_block(0) == entry ||
+           exit_phi->get_incoming_block(1) == entry);
+    assert(exit_phi->get_incoming_block(0) == body ||
+           exit_phi->get_incoming_block(1) == body);
+    assert(ret->get_return_value() == exit_phi);
 }
 
 void test_rotates_real_cfg_header_compare_chain() {
@@ -150,7 +172,7 @@ void test_rotates_real_cfg_header_compare_chain() {
 
 int main() {
     test_rotates_phi_free_loop_header();
-    test_skips_header_with_phi();
+    test_rotates_header_with_phi_and_exit_use();
     test_rotates_real_cfg_header_compare_chain();
     return 0;
 }

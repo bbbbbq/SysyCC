@@ -54,7 +54,8 @@ bool instructions_share_exact_memory_access(const CoreIrInstruction &lhs,
 
 bool core_ir_memory_location_is_precise(
     const CoreIrMemoryLocation *location) noexcept {
-    return location != nullptr && !location->is_unknown();
+    return location != nullptr && !location->is_unknown() &&
+           location->exact_access_path;
 }
 
 CoreIrAliasKind get_precise_core_ir_memory_alias_kind(

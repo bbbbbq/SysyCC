@@ -11,10 +11,12 @@
 #include "backend/ir/effect/core_ir_effect.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
+#include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
 #include "backend/ir/shared/core/ir_stack_slot.hpp"
+#include "backend/ir/shared/core/ir_type.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
@@ -69,6 +71,49 @@ struct UnitRenameContext {
     std::vector<CoreIrValue *> value_stack;
     bool changed = false;
 };
+
+bool should_skip_complex_pointer_unit(const CoreIrPromotionUnitInfo &unit_info) {
+    const auto *pointer_type =
+        dynamic_cast<const CoreIrPointerType *>(unit_info.unit.value_type);
+    if (pointer_type == nullptr) {
+        return false;
+    }
+
+    const CoreIrType *pointee_type = pointer_type->get_pointee_type();
+    if (pointee_type == nullptr) {
+        return false;
+    }
+
+    return pointee_type->get_kind() == CoreIrTypeKind::Array ||
+           pointee_type->get_kind() == CoreIrTypeKind::Struct;
+}
+
+CoreIrValue *create_default_promoted_value(const CoreIrPromotionUnitInfo &unit_info) {
+    const CoreIrType *value_type = unit_info.unit.value_type;
+    CoreIrContext *context =
+        value_type == nullptr ? nullptr : value_type->get_parent_context();
+    if (value_type == nullptr || context == nullptr) {
+        return nullptr;
+    }
+
+    switch (value_type->get_kind()) {
+    case CoreIrTypeKind::Integer:
+        return context->create_constant<CoreIrConstantInt>(value_type, 0);
+    case CoreIrTypeKind::Float:
+        return context->create_constant<CoreIrConstantFloat>(value_type, "0.0");
+    case CoreIrTypeKind::Pointer:
+        return context->create_constant<CoreIrConstantNull>(value_type);
+    case CoreIrTypeKind::Vector:
+    case CoreIrTypeKind::Array:
+    case CoreIrTypeKind::Struct:
+        return context->create_constant<CoreIrConstantZeroInitializer>(value_type);
+    case CoreIrTypeKind::Void:
+    case CoreIrTypeKind::Function:
+        return nullptr;
+    }
+
+    return nullptr;
+}
 
 void build_dominator_children(
     CoreIrFunction &function, CoreIrAnalysisManager &analysis_manager,
@@ -158,11 +203,20 @@ void insert_mem2reg_phis(CoreIrFunction &function,
 
 void add_phi_incoming_for_successors(CoreIrBasicBlock &block,
                                      UnitRenameContext &rename_context) {
-    if (block.get_instructions().empty() || rename_context.value_stack.empty()) {
+    if (block.get_instructions().empty()) {
         return;
     }
 
-    auto add_incoming = [&rename_context, &block](CoreIrBasicBlock *successor) {
+    CoreIrValue *incoming_value = rename_context.value_stack.empty()
+                                      ? create_default_promoted_value(
+                                            *rename_context.unit_info)
+                                      : rename_context.value_stack.back();
+    if (incoming_value == nullptr) {
+        return;
+    }
+
+    auto add_incoming = [&rename_context, &block, incoming_value](
+                            CoreIrBasicBlock *successor) {
         if (successor == nullptr) {
             return;
         }
@@ -170,7 +224,7 @@ void add_phi_incoming_for_successors(CoreIrBasicBlock &block,
         if (phi_it == rename_context.inserted_phis.end() || phi_it->second == nullptr) {
             return;
         }
-        phi_it->second->add_incoming(&block, rename_context.value_stack.back());
+        phi_it->second->add_incoming(&block, incoming_value);
         rename_context.changed = true;
     };
 
@@ -320,6 +374,9 @@ PassResult CoreIrMem2RegPass::Run(CompilerContext &context) {
         bool function_changed = false;
         for (const CoreIrPromotionUnitInfo &unit_info :
              promotable_units.get_unit_infos()) {
+            if (should_skip_complex_pointer_unit(unit_info)) {
+                continue;
+            }
             UnitRenameContext rename_context;
             rename_context.unit_info = &unit_info;
             build_dominator_children(*function, *analysis_manager,

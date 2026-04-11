@@ -234,28 +234,25 @@ def run_with_limits(argv: list[str], *, input_path: Path | None = None,
             preexec_fn=preexec,
         )
         start = time.perf_counter()
-        while True:
-            returncode = proc.poll()
-            if returncode is not None:
-                stdout, stderr = proc.communicate()
-                return {
-                    "status": "ok",
-                    "elapsed": time.perf_counter() - start,
-                    "returncode": returncode,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                }
-            if time.perf_counter() - start >= wall_timeout_s:
-                os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait()
-                return {
-                    "status": "timeout",
-                    "elapsed": time.perf_counter() - start,
-                    "returncode": None,
-                    "stdout": b"",
-                    "stderr": b"",
-                }
-            time.sleep(0.02)
+        try:
+            stdout, stderr = proc.communicate(timeout=wall_timeout_s)
+            return {
+                "status": "ok",
+                "elapsed": time.perf_counter() - start,
+                "returncode": proc.returncode,
+                "stdout": stdout or b"",
+                "stderr": stderr or b"",
+            }
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            stdout, stderr = proc.communicate()
+            return {
+                "status": "timeout",
+                "elapsed": time.perf_counter() - start,
+                "returncode": None,
+                "stdout": stdout or b"",
+                "stderr": stderr or b"",
+            }
     finally:
         if stdin is not None:
             stdin.close()

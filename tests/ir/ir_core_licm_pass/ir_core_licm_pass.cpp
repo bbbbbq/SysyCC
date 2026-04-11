@@ -590,6 +590,67 @@ void test_hoists_invariant_store_past_unknown_later_read() {
     assert(!text2.empty());
 }
 
+void test_hoists_global_load_across_dynamic_other_global_store() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *array_type = context->create_type<CoreIrArrayType>(i32_type, 16);
+    auto *ptr_i32_type = context->create_type<CoreIrPointerType>(i32_type);
+    auto *ptr_array_type = context->create_type<CoreIrPointerType>(array_type);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module =
+        context->create_module<CoreIrModule>("licm_global_root_provenance");
+    auto *scalar =
+        module->create_global<CoreIrGlobal>("scalar", i32_type, nullptr, true,
+                                            false);
+    auto *array =
+        module->create_global<CoreIrGlobal>("array", array_type, nullptr, true,
+                                            false);
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *four = context->create_constant<CoreIrConstantInt>(i32_type, 4);
+
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *iv = header->create_instruction<CoreIrPhiInst>(i32_type, "iv");
+    auto *scalar_addr = header->create_instruction<CoreIrAddressOfGlobalInst>(
+        ptr_i32_type, "scalar.addr", scalar);
+    auto *scalar_load = header->create_instruction<CoreIrLoadInst>(
+        i32_type, "scalar.load", scalar_addr);
+    auto *cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "cmp", iv, four);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, cmp, body, exit);
+    auto *array_addr = body->create_instruction<CoreIrAddressOfGlobalInst>(
+        ptr_array_type, "array.addr", array);
+    auto *elem_ptr = body->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_i32_type, "elem.ptr", array_addr,
+        std::vector<CoreIrValue *>{iv});
+    body->create_instruction<CoreIrStoreInst>(void_type, scalar_load, elem_ptr);
+    auto *next_iv = body->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "iv.next", iv, one);
+    body->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, scalar_load);
+
+    iv->add_incoming(entry, zero);
+    iv->add_incoming(body, next_iv);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrLicmPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    assert(scalar_addr->get_parent() == entry);
+    assert(scalar_load->get_parent() == entry);
+    assert(elem_ptr->get_parent() == body);
+}
+
 } // namespace
 
 int main() {
@@ -606,5 +667,6 @@ int main() {
     test_does_not_hoist_store_when_read_precedes_it();
     test_hoists_speculatively_safe_stackslot_load();
     test_hoists_invariant_store_past_unknown_later_read();
+    test_hoists_global_load_across_dynamic_other_global_store();
     return 0;
 }

@@ -1,6 +1,7 @@
 #include "backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.hpp"
 
 #include <algorithm>
+#include <unordered_set>
 #include <memory>
 #include <vector>
 
@@ -178,6 +179,140 @@ bool eliminate_dead_stores(CoreIrBasicBlock &block,
     return changed;
 }
 
+bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
+    auto collect_address_only_dead_uses =
+        [](CoreIrValue *value, auto &self,
+           std::unordered_set<CoreIrInstruction *> &visited,
+           std::vector<CoreIrInstruction *> &removable_instructions,
+           std::vector<CoreIrStoreInst *> &stores) -> bool {
+        if (value == nullptr) {
+            return true;
+        }
+        for (const CoreIrUse &use : value->get_uses()) {
+            CoreIrInstruction *user = use.get_user();
+            if (user == nullptr) {
+                continue;
+            }
+            if (auto *store = dynamic_cast<CoreIrStoreInst *>(user);
+                store != nullptr) {
+                if (store->get_address() != value) {
+                    return false;
+                }
+                if (visited.insert(store).second) {
+                    stores.push_back(store);
+                }
+                continue;
+            }
+            if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(user);
+                gep != nullptr) {
+                if (!visited.insert(gep).second) {
+                    continue;
+                }
+                if (!self(gep, self, visited, removable_instructions, stores)) {
+                    return false;
+                }
+                removable_instructions.push_back(gep);
+                continue;
+            }
+            if (auto *cast = dynamic_cast<CoreIrCastInst *>(user);
+                cast != nullptr) {
+                if (!visited.insert(cast).second) {
+                    continue;
+                }
+                if (!self(cast, self, visited, removable_instructions, stores)) {
+                    return false;
+                }
+                removable_instructions.push_back(cast);
+                continue;
+            }
+            return false;
+        }
+        return true;
+    };
+
+    bool changed = false;
+    auto &stack_slots = function.get_stack_slots();
+
+    for (std::size_t slot_index = 0; slot_index < stack_slots.size();) {
+        CoreIrStackSlot *stack_slot = stack_slots[slot_index].get();
+        if (stack_slot == nullptr) {
+            stack_slots.erase(stack_slots.begin() +
+                              static_cast<std::ptrdiff_t>(slot_index));
+            changed = true;
+            continue;
+        }
+
+        bool has_load = false;
+        bool has_address_use = false;
+        std::vector<CoreIrStoreInst *> stores;
+        std::vector<CoreIrInstruction *> removable_address_instructions;
+        std::unordered_set<CoreIrInstruction *> visited_address_users;
+        for (const auto &block_ptr : function.get_basic_blocks()) {
+            CoreIrBasicBlock *block = block_ptr.get();
+            if (block == nullptr) {
+                continue;
+            }
+            for (const auto &instruction_ptr : block->get_instructions()) {
+                CoreIrInstruction *instruction = instruction_ptr.get();
+                if (instruction == nullptr) {
+                    continue;
+                }
+                if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
+                    load != nullptr && load->get_stack_slot() == stack_slot) {
+                    has_load = true;
+                    break;
+                }
+                if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
+                    store != nullptr && store->get_stack_slot() == stack_slot) {
+                    stores.push_back(store);
+                    continue;
+                }
+                if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(instruction);
+                    address != nullptr && address->get_stack_slot() == stack_slot) {
+                    if (visited_address_users.insert(address).second) {
+                        removable_address_instructions.push_back(address);
+                    }
+                    if (!collect_address_only_dead_uses(
+                            address, collect_address_only_dead_uses,
+                            visited_address_users,
+                            removable_address_instructions, stores)) {
+                        has_address_use = true;
+                        break;
+                    }
+                }
+            }
+            if (has_load || has_address_use) {
+                break;
+            }
+        }
+
+        if (has_load || has_address_use || stores.empty()) {
+            ++slot_index;
+            continue;
+        }
+
+        for (CoreIrStoreInst *store : stores) {
+            CoreIrBasicBlock *parent = store == nullptr ? nullptr : store->get_parent();
+            if (parent != nullptr) {
+                changed = erase_instruction(*parent, store) || changed;
+            }
+        }
+        for (auto it = removable_address_instructions.rbegin();
+             it != removable_address_instructions.rend(); ++it) {
+            CoreIrInstruction *instruction = *it;
+            CoreIrBasicBlock *parent =
+                instruction == nullptr ? nullptr : instruction->get_parent();
+            if (parent != nullptr) {
+                changed = erase_instruction(*parent, instruction) || changed;
+            }
+        }
+        stack_slots.erase(stack_slots.begin() + static_cast<std::ptrdiff_t>(slot_index));
+        changed = true;
+    }
+
+    return changed;
+}
+
 } // namespace
 
 PassKind CoreIrDeadStoreEliminationPass::Kind() const {
@@ -211,6 +346,8 @@ PassResult CoreIrDeadStoreEliminationPass::Run(CompilerContext &context) {
                 eliminate_dead_stores(*block, alias_analysis, memory_ssa) ||
                 function_changed;
         }
+        function_changed =
+            remove_store_only_dead_stack_slots(*function) || function_changed;
         if (function_changed) {
             effects.changed_functions.insert(function.get());
         }

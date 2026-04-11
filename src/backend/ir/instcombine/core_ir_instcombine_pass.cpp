@@ -55,6 +55,25 @@ bool erase_instruction_if_dead(CoreIrBasicBlock &block,
     return erase_instruction(block, instruction);
 }
 
+void erase_dead_instruction_tree(CoreIrValue *value) {
+    auto *instruction = dynamic_cast<CoreIrInstruction *>(value);
+    if (instruction == nullptr ||
+        !get_core_ir_instruction_effect(*instruction).is_pure_value ||
+        !instruction->get_uses().empty()) {
+        return;
+    }
+
+    std::vector<CoreIrValue *> operands = instruction->get_operands();
+    CoreIrBasicBlock *parent = instruction->get_parent();
+    if (parent == nullptr || !erase_instruction(*parent, instruction)) {
+        return;
+    }
+
+    for (CoreIrValue *operand : operands) {
+        erase_dead_instruction_tree(operand);
+    }
+}
+
 void erase_dead_address_chain(CoreIrBasicBlock &block, CoreIrValue *value) {
     CoreIrInstruction *instruction = dynamic_cast<CoreIrInstruction *>(value);
     while (instruction != nullptr &&
@@ -320,6 +339,263 @@ CoreIrConstantInt *create_int_constant(CoreIrContext &context,
     return context.create_constant<CoreIrConstantInt>(type, value);
 }
 
+bool is_integer_constant_value(CoreIrValue *value, std::uint64_t expected) {
+    const auto *constant = as_integer_constant(value);
+    return constant != nullptr && constant->get_value() == expected;
+}
+
+CoreIrValue *match_signed_half_div_expansion(CoreIrValue *value) {
+    auto *quotient = dynamic_cast<CoreIrBinaryInst *>(value);
+    if (quotient == nullptr ||
+        quotient->get_binary_opcode() != CoreIrBinaryOpcode::AShr ||
+        !is_integer_constant_value(quotient->get_rhs(), 1)) {
+        return nullptr;
+    }
+
+    auto *biased = dynamic_cast<CoreIrBinaryInst *>(quotient->get_lhs());
+    if (biased == nullptr || biased->get_binary_opcode() != CoreIrBinaryOpcode::Add) {
+        return nullptr;
+    }
+
+    auto *lhs_sign = dynamic_cast<CoreIrBinaryInst *>(biased->get_lhs());
+    auto *rhs_sign = dynamic_cast<CoreIrBinaryInst *>(biased->get_rhs());
+    CoreIrBinaryInst *sign = nullptr;
+    CoreIrValue *dividend = nullptr;
+    if (lhs_sign != nullptr) {
+        sign = lhs_sign;
+        dividend = biased->get_rhs();
+    } else if (rhs_sign != nullptr) {
+        sign = rhs_sign;
+        dividend = biased->get_lhs();
+    } else {
+        return nullptr;
+    }
+
+    const std::optional<std::size_t> bit_width =
+        get_integer_bit_width(dividend->get_type());
+    if (!bit_width.has_value() || *bit_width == 0 ||
+        sign->get_binary_opcode() != CoreIrBinaryOpcode::LShr ||
+        sign->get_lhs() != dividend ||
+        !is_integer_constant_value(sign->get_rhs(), *bit_width - 1)) {
+        return nullptr;
+    }
+
+    return dividend;
+}
+
+CoreIrValue *match_signed_half_rem_expansion(CoreIrValue *value) {
+    auto *remainder = dynamic_cast<CoreIrBinaryInst *>(value);
+    if (remainder == nullptr ||
+        remainder->get_binary_opcode() != CoreIrBinaryOpcode::Sub) {
+        return nullptr;
+    }
+
+    auto *doubled = dynamic_cast<CoreIrBinaryInst *>(remainder->get_rhs());
+    if (doubled == nullptr || doubled->get_binary_opcode() != CoreIrBinaryOpcode::Shl ||
+        !is_integer_constant_value(doubled->get_rhs(), 1)) {
+        return nullptr;
+    }
+
+    CoreIrValue *dividend = match_signed_half_div_expansion(doubled->get_lhs());
+    if (dividend == nullptr || remainder->get_lhs() != dividend) {
+        return nullptr;
+    }
+    return dividend;
+}
+
+CoreIrValue *match_parity_test_source(CoreIrValue *value) {
+    if (auto *srem = dynamic_cast<CoreIrBinaryInst *>(value);
+        srem != nullptr && srem->get_binary_opcode() == CoreIrBinaryOpcode::SRem &&
+        is_integer_constant_value(srem->get_rhs(), 2)) {
+        return srem->get_lhs();
+    }
+    return match_signed_half_rem_expansion(value);
+}
+
+CoreIrValue *match_even_odd_branch_source(CoreIrValue *value) {
+    if (CoreIrValue *source = match_parity_test_source(value); source != nullptr) {
+        return source;
+    }
+
+    auto *masked = dynamic_cast<CoreIrBinaryInst *>(value);
+    if (masked == nullptr || masked->get_binary_opcode() != CoreIrBinaryOpcode::And) {
+        return nullptr;
+    }
+
+    if (is_integer_constant_value(masked->get_lhs(), 1)) {
+        return masked->get_rhs();
+    }
+    if (is_integer_constant_value(masked->get_rhs(), 1)) {
+        return masked->get_lhs();
+    }
+    return nullptr;
+}
+
+std::vector<CoreIrBasicBlock *> collect_successors(const CoreIrBasicBlock &block) {
+    std::vector<CoreIrBasicBlock *> successors;
+    if (block.get_instructions().empty()) {
+        return successors;
+    }
+
+    auto append_unique = [&successors](CoreIrBasicBlock *successor) {
+        if (successor == nullptr ||
+            std::find(successors.begin(), successors.end(), successor) !=
+                successors.end()) {
+            return;
+        }
+        successors.push_back(successor);
+    };
+
+    CoreIrInstruction *terminator = block.get_instructions().back().get();
+    if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator); jump != nullptr) {
+        append_unique(jump->get_target_block());
+    } else if (auto *cond_jump = dynamic_cast<CoreIrCondJumpInst *>(terminator);
+               cond_jump != nullptr) {
+        append_unique(cond_jump->get_true_block());
+        append_unique(cond_jump->get_false_block());
+    }
+
+    return successors;
+}
+
+CoreIrBasicBlock *find_unique_predecessor(CoreIrBasicBlock &block) {
+    CoreIrFunction *function = block.get_parent();
+    if (function == nullptr) {
+        return nullptr;
+    }
+
+    CoreIrBasicBlock *predecessor = nullptr;
+    for (const auto &candidate_ptr : function->get_basic_blocks()) {
+        CoreIrBasicBlock *candidate = candidate_ptr.get();
+        if (candidate == nullptr || candidate == &block) {
+            continue;
+        }
+        for (CoreIrBasicBlock *successor : collect_successors(*candidate)) {
+            if (successor != &block) {
+                continue;
+            }
+            if (predecessor != nullptr) {
+                return nullptr;
+            }
+            predecessor = candidate;
+        }
+    }
+
+    return predecessor;
+}
+
+bool block_is_even_successor_for_value(CoreIrBasicBlock &block, CoreIrValue *value) {
+    CoreIrBasicBlock *predecessor = find_unique_predecessor(block);
+    if (predecessor == nullptr || predecessor->get_instructions().empty()) {
+        return false;
+    }
+
+    auto *cond_jump =
+        dynamic_cast<CoreIrCondJumpInst *>(predecessor->get_instructions().back().get());
+    if (cond_jump == nullptr) {
+        return false;
+    }
+
+    auto *compare = dynamic_cast<CoreIrCompareInst *>(cond_jump->get_condition());
+    if (compare == nullptr) {
+        return false;
+    }
+
+    const CoreIrComparePredicate predicate = compare->get_predicate();
+    if ((predicate != CoreIrComparePredicate::Equal &&
+         predicate != CoreIrComparePredicate::NotEqual) ||
+        !(is_zero_integer_constant(compare->get_lhs()) ||
+          is_zero_integer_constant(compare->get_rhs()))) {
+        return false;
+    }
+
+    CoreIrValue *parity_value =
+        is_zero_integer_constant(compare->get_lhs()) ? compare->get_rhs()
+                                                     : compare->get_lhs();
+    CoreIrValue *source = match_even_odd_branch_source(parity_value);
+    if (source != value) {
+        return false;
+    }
+
+    const bool true_successor_is_even = predicate == CoreIrComparePredicate::Equal;
+    if (cond_jump->get_true_block() == &block) {
+        return true_successor_is_even;
+    }
+    if (cond_jump->get_false_block() == &block) {
+        return !true_successor_is_even;
+    }
+    return false;
+}
+
+CoreIrValue *materialize_signed_div_by_two(CoreIrContext &context,
+                                           CoreIrBasicBlock &block,
+                                           CoreIrInstruction *anchor,
+                                           CoreIrValue *value,
+                                           const SourceSpan &source_span) {
+    const std::optional<std::size_t> bit_width = get_integer_bit_width(value->get_type());
+    if (!bit_width.has_value() || *bit_width == 0) {
+        return nullptr;
+    }
+
+    CoreIrValue *shift_amount =
+        create_int_constant(context, value->get_type(), *bit_width - 1);
+    auto sign = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::LShr, value->get_type(),
+        next_instcombine_name("instcombine.half.sign."), value, shift_amount);
+    sign->set_source_span(source_span);
+    CoreIrInstruction *sign_inst =
+        insert_instruction_before(block, anchor, std::move(sign));
+    if (sign_inst == nullptr) {
+        return nullptr;
+    }
+
+    auto biased = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, value->get_type(),
+        next_instcombine_name("instcombine.half.bias."), value, sign_inst);
+    biased->set_source_span(source_span);
+    CoreIrInstruction *biased_inst =
+        insert_instruction_before(block, anchor, std::move(biased));
+    if (biased_inst == nullptr) {
+        return nullptr;
+    }
+
+    CoreIrValue *one = create_int_constant(context, value->get_type(), 1);
+    auto quotient = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::AShr, value->get_type(),
+        next_instcombine_name("instcombine.half.quot."), biased_inst, one);
+    quotient->set_source_span(source_span);
+    return insert_instruction_before(block, anchor, std::move(quotient));
+}
+
+CoreIrValue *materialize_signed_rem_by_two(CoreIrContext &context,
+                                           CoreIrBasicBlock &block,
+                                           CoreIrInstruction *anchor,
+                                           CoreIrValue *value,
+                                           const SourceSpan &source_span) {
+    CoreIrValue *quotient =
+        materialize_signed_div_by_two(context, block, anchor, value, source_span);
+    if (quotient == nullptr) {
+        return nullptr;
+    }
+
+    CoreIrValue *one = create_int_constant(context, value->get_type(), 1);
+    auto doubled = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Shl, value->get_type(),
+        next_instcombine_name("instcombine.half.twice."), quotient, one);
+    doubled->set_source_span(source_span);
+    CoreIrInstruction *doubled_inst =
+        insert_instruction_before(block, anchor, std::move(doubled));
+    if (doubled_inst == nullptr) {
+        return nullptr;
+    }
+
+    auto remainder = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Sub, value->get_type(),
+        next_instcombine_name("instcombine.half.rem."), value, doubled_inst);
+    remainder->set_source_span(source_span);
+    return insert_instruction_before(block, anchor, std::move(remainder));
+}
+
 CoreIrValue *try_fold_phi(const CoreIrPhiInst &inst) {
     if (inst.get_incoming_count() == 0) {
         return nullptr;
@@ -340,6 +616,164 @@ CoreIrValue *try_fold_phi(const CoreIrPhiInst &inst) {
         }
     }
     return replacement;
+}
+
+bool binary_opcode_is_commutative(CoreIrBinaryOpcode opcode) {
+    switch (opcode) {
+    case CoreIrBinaryOpcode::Add:
+    case CoreIrBinaryOpcode::Mul:
+    case CoreIrBinaryOpcode::And:
+    case CoreIrBinaryOpcode::Or:
+    case CoreIrBinaryOpcode::Xor:
+        return true;
+    default:
+        return false;
+    }
+}
+
+CoreIrInstruction *find_first_non_phi_instruction(CoreIrBasicBlock &block) {
+    for (const auto &instruction : block.get_instructions()) {
+        if (instruction != nullptr &&
+            dynamic_cast<CoreIrPhiInst *>(instruction.get()) == nullptr) {
+            return instruction.get();
+        }
+    }
+    return nullptr;
+}
+
+bool value_is_available_for_phi_replacement(const CoreIrBasicBlock &block,
+                                            const CoreIrPhiInst &phi,
+                                            CoreIrValue *value) {
+    if (value == nullptr || value == &phi) {
+        return false;
+    }
+    auto *instruction = dynamic_cast<CoreIrInstruction *>(value);
+    if (instruction == nullptr) {
+        return true;
+    }
+    if (instruction->get_parent() != &block) {
+        return true;
+    }
+    return dynamic_cast<CoreIrPhiInst *>(instruction) != nullptr;
+}
+
+bool values_are_equivalent_for_phi_binop_hoist(const CoreIrValue *lhs,
+                                               const CoreIrValue *rhs) {
+    if (lhs == rhs) {
+        return true;
+    }
+    if (lhs == nullptr || rhs == nullptr) {
+        return false;
+    }
+    std::string lhs_key;
+    std::string rhs_key;
+    append_value_key(lhs_key, lhs);
+    append_value_key(rhs_key, rhs);
+    return lhs_key == rhs_key;
+}
+
+bool phi_has_same_block_phi_users(const CoreIrPhiInst &phi) {
+    for (const CoreIrUse &use : phi.get_uses()) {
+        CoreIrInstruction *user = use.get_user();
+        if (user != nullptr && user->get_parent() == phi.get_parent() &&
+            dynamic_cast<CoreIrPhiInst *>(user) != nullptr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+struct IdenticalIncomingBinaryMatch {
+    CoreIrBinaryOpcode opcode = CoreIrBinaryOpcode::Add;
+    CoreIrValue *lhs = nullptr;
+    CoreIrValue *rhs = nullptr;
+    SourceSpan source_span;
+    std::vector<CoreIrBinaryInst *> incoming_binaries;
+};
+
+std::optional<IdenticalIncomingBinaryMatch> match_identical_incoming_binary_phi(
+    CoreIrBasicBlock &block, const CoreIrPhiInst &phi) {
+    if (phi.get_incoming_count() < 2 || phi_has_same_block_phi_users(phi)) {
+        return std::nullopt;
+    }
+
+    std::optional<IdenticalIncomingBinaryMatch> match;
+    for (std::size_t index = 0; index < phi.get_incoming_count(); ++index) {
+        CoreIrBasicBlock *incoming_block = phi.get_incoming_block(index);
+        auto *binary =
+            dynamic_cast<CoreIrBinaryInst *>(phi.get_incoming_value(index));
+        if (incoming_block == nullptr || binary == nullptr ||
+            binary->get_parent() != incoming_block) {
+            return std::nullopt;
+        }
+
+        if (!match.has_value()) {
+            match = IdenticalIncomingBinaryMatch{
+                binary->get_binary_opcode(), binary->get_lhs(), binary->get_rhs(),
+                binary->get_source_span(), {binary}};
+            continue;
+        }
+
+        if (match->opcode != binary->get_binary_opcode()) {
+            return std::nullopt;
+        }
+
+        const bool same_operands =
+            values_are_equivalent_for_phi_binop_hoist(match->lhs, binary->get_lhs()) &&
+            values_are_equivalent_for_phi_binop_hoist(match->rhs, binary->get_rhs());
+        const bool swapped_operands =
+            binary_opcode_is_commutative(match->opcode) &&
+            values_are_equivalent_for_phi_binop_hoist(match->lhs, binary->get_rhs()) &&
+            values_are_equivalent_for_phi_binop_hoist(match->rhs, binary->get_lhs());
+        if (!same_operands && !swapped_operands) {
+            return std::nullopt;
+        }
+
+        match->incoming_binaries.push_back(binary);
+    }
+
+    if (!match.has_value() ||
+        !value_is_available_for_phi_replacement(block, phi, match->lhs) ||
+        !value_is_available_for_phi_replacement(block, phi, match->rhs)) {
+        return std::nullopt;
+    }
+
+    return match;
+}
+
+bool simplify_phi_of_identical_incoming_binaries(CoreIrBasicBlock &block,
+                                                 CoreIrPhiInst &phi) {
+    std::optional<IdenticalIncomingBinaryMatch> match =
+        match_identical_incoming_binary_phi(block, phi);
+    if (!match.has_value()) {
+        return false;
+    }
+
+    auto replacement = std::make_unique<CoreIrBinaryInst>(
+        match->opcode, phi.get_type(),
+        phi.get_name().empty() ? next_instcombine_name("instcombine.phi.bin.")
+                               : phi.get_name(),
+        match->lhs, match->rhs);
+    replacement->set_source_span(match->source_span);
+    CoreIrInstruction *anchor = find_first_non_phi_instruction(block);
+    CoreIrInstruction *replacement_inst =
+        insert_instruction_before(block, anchor, std::move(replacement));
+    if (replacement_inst == nullptr) {
+        return false;
+    }
+
+    phi.replace_all_uses_with(replacement_inst);
+    if (!erase_instruction(block, &phi)) {
+        return false;
+    }
+
+    std::unordered_set<CoreIrBinaryInst *> unique_binaries;
+    for (CoreIrBinaryInst *binary : match->incoming_binaries) {
+        if (binary != nullptr && unique_binaries.insert(binary).second) {
+            erase_dead_instruction_tree(binary);
+        }
+    }
+    return true;
 }
 
 CoreIrValue *try_fold_binary(CoreIrContext &context, const CoreIrBinaryInst &inst) {
@@ -666,6 +1100,81 @@ bool simplify_binary_identity(CoreIrContext &context, CoreIrBasicBlock &block,
     return true;
 }
 
+bool simplify_signed_half_div_rem(CoreIrContext &context,
+                                  CoreIrBasicBlock &block,
+                                  CoreIrBinaryInst &binary) {
+    if ((binary.get_binary_opcode() != CoreIrBinaryOpcode::SDiv &&
+         binary.get_binary_opcode() != CoreIrBinaryOpcode::SRem) ||
+        !is_integer_constant_value(binary.get_rhs(), 2)) {
+        return false;
+    }
+
+    if (binary.get_binary_opcode() == CoreIrBinaryOpcode::SDiv &&
+        block_is_even_successor_for_value(block, binary.get_lhs())) {
+        CoreIrValue *one = create_int_constant(context, binary.get_type(), 1);
+        auto shift = std::make_unique<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::AShr, binary.get_type(),
+            next_instcombine_name("instcombine.half.even."), binary.get_lhs(), one);
+        shift->set_source_span(binary.get_source_span());
+        CoreIrInstruction *replacement =
+            insert_instruction_before(block, &binary, std::move(shift));
+        if (replacement == nullptr) {
+            return false;
+        }
+        binary.replace_all_uses_with(replacement);
+        erase_instruction(block, &binary);
+        return true;
+    }
+
+    CoreIrValue *replacement =
+        binary.get_binary_opcode() == CoreIrBinaryOpcode::SDiv
+            ? materialize_signed_div_by_two(context, block, &binary,
+                                            binary.get_lhs(),
+                                            binary.get_source_span())
+            : materialize_signed_rem_by_two(context, block, &binary,
+                                            binary.get_lhs(),
+                                            binary.get_source_span());
+    if (replacement == nullptr) {
+        return false;
+    }
+
+    binary.replace_all_uses_with(replacement);
+    erase_instruction(block, &binary);
+    return true;
+}
+
+bool simplify_even_branch_signed_half_expansion(CoreIrContext &context,
+                                                CoreIrBasicBlock &block,
+                                                CoreIrBinaryInst &binary) {
+    if (binary.get_binary_opcode() != CoreIrBinaryOpcode::AShr ||
+        !is_integer_constant_value(binary.get_rhs(), 1)) {
+        return false;
+    }
+
+    CoreIrValue *source = match_signed_half_div_expansion(&binary);
+    if (source == nullptr || binary.get_lhs() == source ||
+        !block_is_even_successor_for_value(block, source)) {
+        return false;
+    }
+
+    CoreIrValue *one = create_int_constant(context, binary.get_type(), 1);
+    auto shift = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::AShr, binary.get_type(),
+        next_instcombine_name("instcombine.half.even."), source, one);
+    shift->set_source_span(binary.get_source_span());
+    CoreIrInstruction *replacement =
+        insert_instruction_before(block, &binary, std::move(shift));
+    if (replacement == nullptr) {
+        return false;
+    }
+
+    CoreIrValue *old_lhs = binary.get_lhs();
+    binary.replace_all_uses_with(replacement);
+    erase_instruction(block, &binary);
+    erase_dead_instruction_tree(old_lhs);
+    return true;
+}
+
 bool simplify_identity_cast(CoreIrBasicBlock &block, CoreIrCastInst &cast) {
     CoreIrValue *operand = cast.get_operand();
     if (operand == nullptr || operand->get_type() != cast.get_type()) {
@@ -800,6 +1309,46 @@ bool simplify_compare_orientation(CoreIrCompareInst &compare) {
     compare.set_operand(0, original_rhs);
     compare.set_operand(1, original_lhs);
     compare.set_predicate(flip_compare_predicate(compare.get_predicate()));
+    return true;
+}
+
+bool simplify_compare_signed_parity(CoreIrContext &context,
+                                    CoreIrBasicBlock &block,
+                                    CoreIrCompareInst &compare) {
+    const CoreIrComparePredicate predicate = compare.get_predicate();
+    if ((predicate != CoreIrComparePredicate::Equal &&
+         predicate != CoreIrComparePredicate::NotEqual) ||
+        !(is_zero_integer_constant(compare.get_lhs()) ||
+          is_zero_integer_constant(compare.get_rhs()))) {
+        return false;
+    }
+
+    CoreIrValue *parity_value =
+        is_zero_integer_constant(compare.get_lhs()) ? compare.get_rhs()
+                                                    : compare.get_lhs();
+    CoreIrValue *source = match_parity_test_source(parity_value);
+    if (source == nullptr) {
+        return false;
+    }
+
+    CoreIrValue *one = create_int_constant(context, source->get_type(), 1);
+    auto masked = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::And, source->get_type(),
+        next_instcombine_name("instcombine.parity.mask."), source, one);
+    masked->set_source_span(compare.get_source_span());
+    CoreIrInstruction *masked_inst =
+        insert_instruction_before(block, &compare, std::move(masked));
+    if (masked_inst == nullptr) {
+        return false;
+    }
+
+    CoreIrValue *zero = create_int_constant(context, source->get_type(), 0);
+    CoreIrCompareInst *replacement = replace_compare_instruction(
+        block, compare, predicate, masked_inst, zero);
+    if (replacement == nullptr) {
+        return false;
+    }
+    erase_dead_instruction_tree(parity_value);
     return true;
 }
 
@@ -1069,7 +1618,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
             erase_instruction(block, phi);
             return true;
         }
-        return false;
+        return simplify_phi_of_identical_incoming_binaries(block, *phi);
     }
 
     if (auto *binary = dynamic_cast<CoreIrBinaryInst *>(&instruction); binary != nullptr) {
@@ -1079,7 +1628,9 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
             erase_instruction(block, binary);
             return true;
         }
-        return simplify_commutative_binary(*binary) ||
+        return simplify_even_branch_signed_half_expansion(context, block, *binary) ||
+               simplify_commutative_binary(*binary) ||
+               simplify_signed_half_div_rem(context, block, *binary) ||
                simplify_binary_identity(context, block, *binary);
     }
 
@@ -1131,6 +1682,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
             return true;
         }
         return simplify_compare_boolean_wrapper(block, *compare) ||
+               simplify_compare_signed_parity(context, block, *compare) ||
                simplify_compare_orientation(*compare);
     }
 

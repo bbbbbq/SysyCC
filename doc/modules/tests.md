@@ -15,6 +15,7 @@ tests/
 │   ├── run_functional.sh
 │   ├── run_arm_functional.sh
 │   ├── run_arm_performance.sh
+│   ├── run_host_ir_performance.sh
 │   ├── run_functional_in_docker.sh
 │   ├── run_arm_functional_in_docker.sh
 │   ├── run_arm_performance_in_docker.sh
@@ -73,6 +74,10 @@ current scripts cover:
   generated program output against the bundled `.out` files
 - an ARM-performance benchmark runner that compares SysyCC-generated LLVM IR
   programs against a direct Clang baseline and writes a Markdown timing report
+- a host-side IR-performance runner for Core IR optimization work, which keeps
+  the same `SysyCC -> .ll -> clang link/run` measurement path but adds
+  compile/run timeouts so long-running or wedged cases do not stall the whole
+  suite
 - matching Docker wrappers for the recovered functional suite plus the ARM
   functional/performance runners, so the larger compiler2025 suites can be
   executed inside the repository Docker image instead of depending on the host

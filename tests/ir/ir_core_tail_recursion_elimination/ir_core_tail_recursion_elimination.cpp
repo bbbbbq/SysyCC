@@ -88,6 +88,9 @@ int main(int argc, char **argv) {
     assert(core_ir_fun.find("call i32 @fun") == std::string::npos);
     assert(core_ir_fun.find("%n.tr = phi i32") != std::string::npos);
     assert(core_ir_fun.find("%dep.tr = phi i32") != std::string::npos);
+    assert(core_ir_fun.find("fun.tailrecurse.backedge:") != std::string::npos);
+    assert(core_ir_fun.find("%n.tr.next = phi i32") != std::string::npos);
+    assert(core_ir_fun.find("%dep.tr.next = phi i32") != std::string::npos);
     assert(core_ir_non_tail.find("call i32 @non_tail") != std::string::npos);
 
     LowerIrPass lower_ir_pass;

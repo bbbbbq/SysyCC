@@ -22,8 +22,8 @@ CoreIrEffectInfo make_pure_value_effect() noexcept {
 
 } // namespace
 
-CoreIrMemoryBehavior
-merge_memory_behavior(CoreIrMemoryBehavior lhs, CoreIrMemoryBehavior rhs) noexcept {
+CoreIrMemoryBehavior merge_memory_behavior(CoreIrMemoryBehavior lhs,
+                                           CoreIrMemoryBehavior rhs) noexcept {
     if (lhs == CoreIrMemoryBehavior::ReadWrite ||
         rhs == CoreIrMemoryBehavior::ReadWrite) {
         return CoreIrMemoryBehavior::ReadWrite;
@@ -50,23 +50,30 @@ bool memory_behavior_writes(CoreIrMemoryBehavior behavior) noexcept {
            behavior == CoreIrMemoryBehavior::ReadWrite;
 }
 
-CoreIrEffectInfo get_core_ir_instruction_effect(
-    const CoreIrInstruction &instruction) noexcept {
+CoreIrEffectInfo
+get_core_ir_instruction_effect(const CoreIrInstruction &instruction) noexcept {
     switch (instruction.get_opcode()) {
     case CoreIrOpcode::Phi:
     case CoreIrOpcode::Binary:
     case CoreIrOpcode::Unary:
     case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
     case CoreIrOpcode::Cast:
+    case CoreIrOpcode::ExtractElement:
+    case CoreIrOpcode::InsertElement:
+    case CoreIrOpcode::ShuffleVector:
+    case CoreIrOpcode::VectorReduceAdd:
     case CoreIrOpcode::AddressOfFunction:
     case CoreIrOpcode::AddressOfGlobal:
     case CoreIrOpcode::AddressOfStackSlot:
     case CoreIrOpcode::GetElementPtr:
         return make_pure_value_effect();
     case CoreIrOpcode::Load:
-        return CoreIrEffectInfo{CoreIrMemoryBehavior::Read, false, false, false};
+        return CoreIrEffectInfo{CoreIrMemoryBehavior::Read, false, false,
+                                false};
     case CoreIrOpcode::Store:
-        return CoreIrEffectInfo{CoreIrMemoryBehavior::Write, false, false, false};
+        return CoreIrEffectInfo{CoreIrMemoryBehavior::Write, false, false,
+                                false};
     case CoreIrOpcode::Call: {
         bool captures_pointer_operand = false;
         for (CoreIrValue *operand : instruction.get_operands()) {
@@ -87,11 +94,12 @@ CoreIrEffectInfo get_core_ir_instruction_effect(
     return {};
 }
 
-CoreIrEffectInfo summarize_core_ir_function_effect(
-    const CoreIrFunction &function) noexcept {
+CoreIrEffectInfo
+summarize_core_ir_function_effect(const CoreIrFunction &function) noexcept {
     static thread_local std::unordered_set<const CoreIrFunction *> visiting;
     if (!visiting.insert(&function).second) {
-        return CoreIrEffectInfo{CoreIrMemoryBehavior::ReadWrite, false, true, false};
+        return CoreIrEffectInfo{CoreIrMemoryBehavior::ReadWrite, false, true,
+                                false};
     }
 
     CoreIrEffectInfo summary{};
@@ -106,10 +114,13 @@ CoreIrEffectInfo summarize_core_ir_function_effect(
                 continue;
             }
 
-            CoreIrEffectInfo effect = get_core_ir_instruction_effect(*instruction);
+            CoreIrEffectInfo effect =
+                get_core_ir_instruction_effect(*instruction);
             if (auto *call = dynamic_cast<CoreIrCallInst *>(instruction.get());
-                call != nullptr && call->get_is_direct_call() && module != nullptr) {
-                if (CoreIrFunction *callee = module->find_function(call->get_callee_name());
+                call != nullptr && call->get_is_direct_call() &&
+                module != nullptr) {
+                if (CoreIrFunction *callee =
+                        module->find_function(call->get_callee_name());
                     callee != nullptr && !callee->get_basic_blocks().empty()) {
                     effect = summarize_core_ir_function_effect(*callee);
                 }
@@ -120,7 +131,8 @@ CoreIrEffectInfo summarize_core_ir_function_effect(
             summary.may_capture_pointer_operands =
                 summary.may_capture_pointer_operands ||
                 effect.may_capture_pointer_operands;
-            summary.is_pure_value = summary.is_pure_value && effect.is_pure_value;
+            summary.is_pure_value =
+                summary.is_pure_value && effect.is_pure_value;
         }
     }
 

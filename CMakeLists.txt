@@ -120,6 +120,7 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/if_conversion/core_ir_if_conversion_pass.cpp
     src/backend/ir/instcombine/core_ir_instcombine_pass.cpp
     src/backend/ir/indvar_simplify/core_ir_indvar_simplify_pass.cpp
+    src/backend/ir/remainder_strength_reduction/core_ir_remainder_strength_reduction_pass.cpp
     src/backend/ir/lcssa/core_ir_lcssa_pass.cpp
     src/backend/ir/licm/core_ir_licm_pass.cpp
     src/backend/ir/local_cse/core_ir_local_cse_pass.cpp

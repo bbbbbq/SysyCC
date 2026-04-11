@@ -90,6 +90,8 @@ std::unique_ptr<CoreIrFunction> clone_promoted_function(
     promoted->set_is_readonly(original.get_is_readonly());
     promoted->set_is_writeonly(original.get_is_writeonly());
     promoted->set_is_norecurse(original.get_is_norecurse());
+    promoted->set_parameter_nocapture(original.get_parameter_nocapture());
+    promoted->set_parameter_readonly(original.get_parameter_readonly());
 
     std::unordered_map<const CoreIrValue *, CoreIrValue *> value_map;
     for (std::size_t index = 0; index < original.get_parameters().size(); ++index) {

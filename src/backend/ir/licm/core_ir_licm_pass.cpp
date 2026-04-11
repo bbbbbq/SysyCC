@@ -150,6 +150,7 @@ bool instruction_is_pure_licm_candidate(
     case CoreIrOpcode::Binary:
     case CoreIrOpcode::Unary:
     case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
     case CoreIrOpcode::Cast:
     case CoreIrOpcode::AddressOfFunction:
     case CoreIrOpcode::AddressOfGlobal:
@@ -182,6 +183,7 @@ bool instruction_is_speculatively_safe_address_materialization(
     case CoreIrOpcode::Binary:
     case CoreIrOpcode::Unary:
     case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
     case CoreIrOpcode::Phi:
     case CoreIrOpcode::Load:
     case CoreIrOpcode::Store:
@@ -326,6 +328,10 @@ bool load_is_hoistable(const CoreIrLoadInst &load, const CoreIrLoopInfo &loop,
         location->kind == CoreIrMemoryLocationKind::Unknown) {
         return false;
     }
+    if (location->kind == CoreIrMemoryLocationKind::ArgumentDerived &&
+        !location->exact_access_path) {
+        return false;
+    }
 
     for (const auto &block_ptr : function.get_basic_blocks()) {
         if (block_ptr == nullptr ||
@@ -355,7 +361,8 @@ bool load_is_speculatively_safe_to_hoist(
             alias_analysis.get_location_for_instruction(&load);
         return location != nullptr &&
                (location->kind == CoreIrMemoryLocationKind::Global ||
-                location->kind == CoreIrMemoryLocationKind::ArgumentDerived);
+                (location->kind == CoreIrMemoryLocationKind::ArgumentDerived &&
+                 location->exact_access_path));
     }
 
     CoreIrBasicBlock *header = loop.get_header();
@@ -496,10 +503,11 @@ bool is_profitable_to_hoist(
     case CoreIrOpcode::AddressOfFunction:
     case CoreIrOpcode::AddressOfGlobal:
     case CoreIrOpcode::AddressOfStackSlot:
-        return false;
+        return count_loop_uses(instruction, loop) >= 1;
     case CoreIrOpcode::Binary:
     case CoreIrOpcode::Unary:
     case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
     case CoreIrOpcode::Cast:
     case CoreIrOpcode::GetElementPtr:
         break;

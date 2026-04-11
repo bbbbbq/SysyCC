@@ -30,14 +30,24 @@ bool is_path_prefix(const std::vector<std::uint64_t> &prefix,
 CoreIrAliasKind
 alias_same_root_memory_locations(const CoreIrMemoryLocation &lhs,
                                  const CoreIrMemoryLocation &rhs) noexcept {
-    if (same_access_path(lhs.access_path, rhs.access_path)) {
+    const std::size_t shared_prefix =
+        std::min(lhs.access_path.size(), rhs.access_path.size());
+    for (std::size_t index = 0; index < shared_prefix; ++index) {
+        if (lhs.access_path[index] != rhs.access_path[index]) {
+            return CoreIrAliasKind::NoAlias;
+        }
+    }
+    if (lhs.exact_access_path && rhs.exact_access_path &&
+        same_access_path(lhs.access_path, rhs.access_path)) {
         return CoreIrAliasKind::MustAlias;
     }
-    if (is_path_prefix(lhs.access_path, rhs.access_path) ||
-        is_path_prefix(rhs.access_path, lhs.access_path)) {
+    if ((lhs.exact_access_path &&
+         is_path_prefix(lhs.access_path, rhs.access_path)) ||
+        (rhs.exact_access_path &&
+         is_path_prefix(rhs.access_path, lhs.access_path))) {
         return CoreIrAliasKind::MayAlias;
     }
-    return CoreIrAliasKind::NoAlias;
+    return CoreIrAliasKind::MayAlias;
 }
 
 } // namespace

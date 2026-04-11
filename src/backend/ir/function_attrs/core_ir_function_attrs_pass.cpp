@@ -93,6 +93,10 @@ PassResult CoreIrFunctionAttrsPass::Run(CompilerContext &context) {
             function->set_parameter_nocapture(summary->parameter_nocapture);
             changed = true;
         }
+        if (function->get_parameter_readonly() != summary->parameter_readonly) {
+            function->set_parameter_readonly(summary->parameter_readonly);
+            changed = true;
+        }
         effects.module_changed = effects.module_changed || changed;
     }
 

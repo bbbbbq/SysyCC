@@ -22,7 +22,6 @@ namespace sysycc {
 namespace {
 
 using sysycc::detail::erase_instruction;
-
 PassResult fail_missing_core_ir(CompilerContext &context,
                                 const char *pass_name) {
     const std::string message =

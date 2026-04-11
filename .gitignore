@@ -19,6 +19,7 @@ tests/compiler2025/*
 !tests/compiler2025/run_arm_functional_in_docker.sh
 !tests/compiler2025/run_arm_performance.sh
 !tests/compiler2025/run_arm_performance_in_docker.sh
+!tests/compiler2025/run_host_ir_performance.sh
 !tests/compiler2025/runtime_builtin_compat.c
 !tests/compiler2025/sylib.c
 !tests/compiler2025/sylib.h

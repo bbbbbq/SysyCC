@@ -23,8 +23,11 @@ if grep -Eq 'call i32 @helper' "${CORE_IR_FILE}"; then
     exit 1
 fi
 
-grep -Eq '^func @too_complex\(i32 %x\) -> i32 internal \{$' "${CORE_IR_FILE}"
-grep -Eq '^  %t[0-9]+ = call i32 @too_complex\(i32 7\)$' "${CORE_IR_FILE}"
-grep -Eq '^  %t[0-9]+ = add i32 %t[0-9]+, 6$' "${CORE_IR_FILE}"
+if grep -Eq 'call i32 @too_complex' "${CORE_IR_FILE}"; then
+    echo "expected structured multi-block call to be inlined away" >&2
+    exit 1
+fi
 
-echo "verified: inliner removes simple internal direct calls while leaving multi-block callees alone"
+grep -Eq '^func @too_complex\(i32 %x\) -> i32 \{$' "${CORE_IR_FILE}"
+
+echo "verified: inliner consumes simple and structured multi-block direct calls while preserving externally visible definitions"

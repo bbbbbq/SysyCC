@@ -19,6 +19,7 @@
 #include "backend/ir/if_conversion/core_ir_if_conversion_pass.hpp"
 #include "backend/ir/indvar_simplify/core_ir_indvar_simplify_pass.hpp"
 #include "backend/ir/instcombine/core_ir_instcombine_pass.hpp"
+#include "backend/ir/remainder_strength_reduction/core_ir_remainder_strength_reduction_pass.hpp"
 #include "backend/ir/lcssa/core_ir_lcssa_pass.hpp"
 #include "backend/ir/licm/core_ir_licm_pass.hpp"
 #include "backend/ir/local_cse/core_ir_local_cse_pass.hpp"
@@ -139,6 +140,8 @@ void append_module_fixed_point_pipeline(PassManager &pass_manager) {
 
 void append_lowering_pipeline(PassManager &pass_manager) {
     pass_manager.AddPass(std::make_unique<CoreIrLoopVectorizePass>());
+    pass_manager.AddPass(
+        std::make_unique<CoreIrRemainderStrengthReductionPass>());
     pass_manager.AddPass(std::make_unique<LowerIrPass>());
 }
 

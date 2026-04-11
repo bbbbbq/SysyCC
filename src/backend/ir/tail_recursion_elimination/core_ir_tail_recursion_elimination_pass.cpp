@@ -141,8 +141,16 @@ bool eliminate_tail_recursion(CoreIrFunction &function) {
         std::make_unique<CoreIrJumpInst>(void_type, header));
     basic_blocks.insert(basic_blocks.begin(), std::move(entry));
 
+    auto backedge = std::make_unique<CoreIrBasicBlock>(
+        function.get_name() + ".tailrecurse.backedge");
+    backedge->set_parent(&function);
+    CoreIrBasicBlock *backedge_block = backedge.get();
+    basic_blocks.insert(basic_blocks.begin() + 1, std::move(backedge));
+
     std::vector<CoreIrPhiInst *> parameter_phis;
+    std::vector<CoreIrPhiInst *> backedge_phis;
     parameter_phis.reserve(function.get_parameters().size());
+    backedge_phis.reserve(function.get_parameters().size());
     for (std::size_t index = 0; index < function.get_parameters().size(); ++index) {
         CoreIrParameter *parameter = function.get_parameters()[index].get();
         if (parameter == nullptr || parameter->get_type() == nullptr) {
@@ -160,6 +168,22 @@ bool eliminate_tail_recursion(CoreIrFunction &function) {
         replace_value_uses(*parameter, phi_ptr);
         phi_ptr->add_incoming(entry_block, parameter);
         parameter_phis.push_back(phi_ptr);
+
+        std::string backedge_phi_name =
+            parameter->get_name().empty()
+                ? "arg" + std::to_string(index) + ".tr.next"
+                : parameter->get_name() + ".tr.next";
+        auto backedge_phi =
+            std::make_unique<CoreIrPhiInst>(parameter->get_type(),
+                                            backedge_phi_name);
+        CoreIrPhiInst *backedge_phi_ptr =
+            static_cast<CoreIrPhiInst *>(backedge_block->append_instruction(
+                std::move(backedge_phi)));
+        if (backedge_phi_ptr == nullptr) {
+            return false;
+        }
+        phi_ptr->add_incoming(backedge_block, backedge_phi_ptr);
+        backedge_phis.push_back(backedge_phi_ptr);
     }
 
     bool changed = false;
@@ -167,18 +191,21 @@ bool eliminate_tail_recursion(CoreIrFunction &function) {
         if (site.block == nullptr || site.call == nullptr || site.ret == nullptr) {
             return false;
         }
-        for (std::size_t index = 0; index < parameter_phis.size(); ++index) {
-            parameter_phis[index]->add_incoming(site.block,
-                                                site.call->get_argument(index));
+        for (std::size_t index = 0; index < backedge_phis.size(); ++index) {
+            backedge_phis[index]->add_incoming(site.block,
+                                               site.call->get_argument(index));
         }
         if (!erase_instruction(*site.block, site.ret) ||
             !erase_instruction(*site.block, site.call)) {
             return false;
         }
         site.block->append_instruction(
-            std::make_unique<CoreIrJumpInst>(void_type, header));
+            std::make_unique<CoreIrJumpInst>(void_type, backedge_block));
         changed = true;
     }
+
+    backedge_block->append_instruction(
+        std::make_unique<CoreIrJumpInst>(void_type, header));
 
     if (changed) {
         function.set_is_norecurse(true);

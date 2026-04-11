@@ -13,6 +13,7 @@
 #include "backend/ir/shared/core/ir_stack_slot.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 #include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
+#include "backend/ir/verify/core_ir_verifier.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
 
 using namespace sysycc;
@@ -65,11 +66,15 @@ int main() {
     CoreIrMem2RegPass pass;
     assert(pass.Run(compiler_context).ok);
 
+    CoreIrVerifier verifier;
+    assert(verifier.verify_module(*module).ok);
+
     CoreIrRawPrinter printer;
     const std::string text = printer.print_module(*module);
     assert(text.find("phi i32 [ 0, %entry ], [ %body.next, %body ]") !=
            std::string::npos);
     assert(text.find("load i32, %value") == std::string::npos);
     assert(text.find("store i32 0, %value") == std::string::npos);
+
     return 0;
 }

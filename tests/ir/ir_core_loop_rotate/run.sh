@@ -27,4 +27,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}"
 
-echo "verified: LoopRotate rotates phi-free loop headers across real CFG shapes and skips loops that still require header phis"
+echo "verified: LoopRotate rotates phi-free and simple phi-header loop conditions into precheck+latch form"

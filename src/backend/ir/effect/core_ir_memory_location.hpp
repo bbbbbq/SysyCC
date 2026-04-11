@@ -25,6 +25,7 @@ struct CoreIrMemoryLocation {
     const CoreIrParameter *parameter = nullptr;
     std::size_t parameter_index = 0;
     std::vector<std::uint64_t> access_path;
+    bool exact_access_path = true;
 
     static CoreIrMemoryLocation make_unknown() noexcept {
         return CoreIrMemoryLocation{};
@@ -34,7 +35,9 @@ struct CoreIrMemoryLocation {
         return kind == CoreIrMemoryLocationKind::Unknown;
     }
 
-    bool has_constant_path() const noexcept { return !is_unknown(); }
+    bool has_constant_path() const noexcept {
+        return !is_unknown() && exact_access_path;
+    }
 };
 
 CoreIrMemoryLocation describe_memory_location(const CoreIrValue *value);
