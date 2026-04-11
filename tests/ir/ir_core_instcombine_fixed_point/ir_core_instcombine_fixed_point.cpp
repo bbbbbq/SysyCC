@@ -62,6 +62,7 @@ CompilerContext make_context(std::unique_ptr<CoreIrContext> context,
     CompilerContext compiler_context;
     compiler_context.set_core_ir_build_result(
         std::make_unique<CoreIrBuildResult>(std::move(context), module));
+    compiler_context.set_optimization_level(OptimizationLevel::O1);
     return compiler_context;
 }
 
@@ -206,6 +207,50 @@ void test_instcombine_uses_incremental_worklist_stats() {
     assert(text.find("ret i1 1") != std::string::npos);
 }
 
+void test_instcombine_recovers_recursive_parity_and_even_half() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{i32_type}, false);
+    auto *module = context->create_module<CoreIrModule>(
+        "instcombine_recursive_parity");
+    auto *function =
+        module->create_function<CoreIrFunction>("fun", function_type, false);
+    auto *n = function->create_parameter<CoreIrParameter>(i32_type, "n");
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *even = function->create_basic_block<CoreIrBasicBlock>("even");
+    auto *odd = function->create_basic_block<CoreIrBasicBlock>("odd");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *two = context->create_constant<CoreIrConstantInt>(i32_type, 2);
+
+    auto *rem = entry->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::SRem, i32_type, "rem", n, two);
+    auto *cmp = entry->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::Equal, i1_type, "cmp", rem, zero);
+    entry->create_instruction<CoreIrCondJumpInst>(void_type, cmp, even, odd);
+
+    auto *half = even->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::SDiv, i32_type, "half", n, two);
+    even->create_instruction<CoreIrReturnInst>(void_type, half);
+    odd->create_instruction<CoreIrReturnInst>(void_type, zero);
+
+    CompilerContext compiler_context = make_context(std::move(context), module);
+    CoreIrInstCombinePass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    CoreIrRawPrinter printer;
+    const std::string text = printer.print_module(*module);
+    assert(text.find("srem i32") == std::string::npos);
+    assert(text.find("sdiv i32") == std::string::npos);
+    assert(text.find("and i32 %n, 1") != std::string::npos);
+    assert(text.find("ashr i32 %n, 1") != std::string::npos);
+    assert(text.find("lshr i32 %n, 31") == std::string::npos);
+    assert(text.find("shl i32") == std::string::npos);
+    assert(text.find("sub i32 %n") == std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -213,5 +258,6 @@ int main() {
     test_fixed_point_respects_iteration_cap();
     test_fixed_point_real_pipeline_contracts_after_instcombine();
     test_instcombine_uses_incremental_worklist_stats();
+    test_instcombine_recovers_recursive_parity_and_even_half();
     return 0;
 }
