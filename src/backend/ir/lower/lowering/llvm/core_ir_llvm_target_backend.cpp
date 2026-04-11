@@ -18,6 +18,7 @@
 #include "backend/ir/shared/core/ir_module.hpp"
 #include "backend/ir/shared/core/ir_stack_slot.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
+#include "backend/ir/shared/detail/core_ir_rewrite_utils.hpp"
 #include "backend/ir/shared/ir_kind.hpp"
 #include "backend/ir/shared/ir_result.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
@@ -25,6 +26,21 @@
 namespace sysycc {
 
 namespace {
+
+bool points_to_float_leaf(const CoreIrType *type) {
+    if (type == nullptr) {
+        return false;
+    }
+    if (const auto *float_type = dynamic_cast<const CoreIrFloatType *>(type);
+        float_type != nullptr) {
+        return true;
+    }
+    if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
+        array_type != nullptr) {
+        return points_to_float_leaf(array_type->get_element_type());
+    }
+    return false;
+}
 
 std::string get_default_target_triple() {
 #if defined(__APPLE__) && defined(__aarch64__)
@@ -644,8 +660,33 @@ bool CoreIrLlvmTargetBackend::append_instruction(
     case CoreIrOpcode::GetElementPtr: {
         const auto &gep_instruction =
             static_cast<const CoreIrGetElementPtrInst &>(instruction);
-        const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
-            gep_instruction.get_base()->get_type());
+        const auto *result_pointer_type =
+            dynamic_cast<const CoreIrPointerType *>(gep_instruction.get_type());
+        const bool allow_chain_flatten =
+            result_pointer_type != nullptr &&
+            points_to_float_leaf(result_pointer_type->get_pointee_type());
+        const CoreIrValue *emitted_base = gep_instruction.get_base();
+        std::vector<const CoreIrValue *> emitted_indices;
+        auto chain_it = emitted_gep_chains_.find(gep_instruction.get_base());
+        if (allow_chain_flatten && chain_it != emitted_gep_chains_.end() &&
+            chain_it->second.root_base != nullptr &&
+            gep_instruction.get_index_count() > 1 &&
+            detail::is_zero_integer_constant(gep_instruction.get_index(0))) {
+            emitted_base = chain_it->second.root_base;
+            emitted_indices = chain_it->second.indices;
+            for (std::size_t index = 1; index < gep_instruction.get_index_count();
+                 ++index) {
+                emitted_indices.push_back(gep_instruction.get_index(index));
+            }
+        } else {
+            emitted_indices.reserve(gep_instruction.get_index_count());
+            for (std::size_t index = 0; index < gep_instruction.get_index_count();
+                 ++index) {
+                emitted_indices.push_back(gep_instruction.get_index(index));
+            }
+        }
+        const auto *base_pointer_type =
+            dynamic_cast<const CoreIrPointerType *>(emitted_base->get_type());
         if (base_pointer_type == nullptr) {
             diagnostic_engine.add_error(
                 DiagnosticStage::Compiler,
@@ -657,16 +698,16 @@ bool CoreIrLlvmTargetBackend::append_instruction(
                 " = getelementptr inbounds ";
         text += format_type(base_pointer_type->get_pointee_type());
         text += ", ptr ";
-        text += format_pointer_ref(gep_instruction.get_base());
-        for (std::size_t index = 0; index < gep_instruction.get_index_count();
-             ++index) {
-            CoreIrValue *index_value = gep_instruction.get_index(index);
+        text += format_pointer_ref(emitted_base);
+        for (const CoreIrValue *index_value : emitted_indices) {
             text += ", ";
             text += format_type(index_value->get_type());
             text += " ";
             text += format_value_ref(index_value);
         }
         text += "\n";
+        emitted_gep_chains_[&gep_instruction] =
+            EmittedGepChain{emitted_base, emitted_indices};
         return true;
     }
     case CoreIrOpcode::Load: {
@@ -1232,6 +1273,7 @@ bool CoreIrLlvmTargetBackend::append_function(
     }
     text += " {\n";
     emitted_value_names_.clear();
+    emitted_gep_chains_.clear();
     emitted_stack_slot_names_.clear();
     used_stack_slot_names_.clear();
     next_value_id_ = 0;
