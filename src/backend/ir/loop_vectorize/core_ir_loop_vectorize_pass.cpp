@@ -1706,22 +1706,22 @@ bool interleave_runtime_mul_reduction_loop(
 
     auto guard_block = std::make_unique<CoreIrBasicBlock>(
         make_unique_block_name(function, "pair.guard"));
-    auto pair_header = std::make_unique<CoreIrBasicBlock>(
-        make_unique_block_name(function, "pair.header"));
+    auto pair_body_preheader = std::make_unique<CoreIrBasicBlock>(
+        make_unique_block_name(function, "pair.body.preheader"));
     auto pair_body = std::make_unique<CoreIrBasicBlock>(
         make_unique_block_name(function, "pair.body"));
-    auto pair_exit = std::make_unique<CoreIrBasicBlock>(
-        make_unique_block_name(function, "pair.exit"));
+    auto pair_loopexit = std::make_unique<CoreIrBasicBlock>(
+        make_unique_block_name(function, "pair.loopexit"));
     CoreIrBasicBlock *guard_block_ptr =
         insert_new_block_before(function, pattern.header, std::move(guard_block));
-    CoreIrBasicBlock *pair_header_ptr =
-        insert_new_block_before(function, pattern.header, std::move(pair_header));
+    CoreIrBasicBlock *pair_body_preheader_ptr = insert_new_block_before(
+        function, pattern.header, std::move(pair_body_preheader));
     CoreIrBasicBlock *pair_body_ptr =
         insert_new_block_before(function, pattern.header, std::move(pair_body));
-    CoreIrBasicBlock *pair_exit_ptr =
-        insert_new_block_before(function, pattern.header, std::move(pair_exit));
-    if (guard_block_ptr == nullptr || pair_header_ptr == nullptr ||
-        pair_body_ptr == nullptr || pair_exit_ptr == nullptr) {
+    CoreIrBasicBlock *pair_loopexit_ptr = insert_new_block_before(
+        function, pattern.header, std::move(pair_loopexit));
+    if (guard_block_ptr == nullptr || pair_body_preheader_ptr == nullptr ||
+        pair_body_ptr == nullptr || pair_loopexit_ptr == nullptr) {
         return false;
     }
 
@@ -1822,19 +1822,17 @@ bool interleave_runtime_mul_reduction_loop(
         insert_instruction_before(*guard_block_ptr, nullptr, std::move(can_run));
     guard_block_ptr->append_instruction(
         std::make_unique<CoreIrCondJumpInst>(void_type, can_run_value,
-                                             pair_header_ptr, pattern.header));
+                                             pair_body_preheader_ptr,
+                                             pattern.header));
+
+    pair_body_preheader_ptr->create_instruction<CoreIrJumpInst>(void_type, pair_body_ptr);
 
     auto *pair_iv =
-        pair_header_ptr->create_instruction<CoreIrPhiInst>(i32_type, "pair.iv");
-    auto *pair_red = pair_header_ptr->create_instruction<CoreIrPhiInst>(
+        pair_body_ptr->create_instruction<CoreIrPhiInst>(i32_type, "pair.iv");
+    auto *pair_red = pair_body_ptr->create_instruction<CoreIrPhiInst>(
         pattern.reduction_phi->get_type(), "pair.red");
-    auto *pair_cmp = pair_header_ptr->create_instruction<CoreIrCompareInst>(
-        header_compare->get_predicate(), i1_type, "pair.cmp", pair_iv,
-        pair_end_value);
-    pair_header_ptr->create_instruction<CoreIrCondJumpInst>(
-        void_type, pair_cmp, pair_body_ptr, pair_exit_ptr);
-    pair_iv->add_incoming(guard_block_ptr, start_value);
-    pair_red->add_incoming(guard_block_ptr, initial_scalar);
+    pair_iv->add_incoming(pair_body_preheader_ptr, start_value);
+    pair_red->add_incoming(pair_body_preheader_ptr, initial_scalar);
 
     std::unordered_map<const CoreIrValue *, CoreIrValue *> first_map;
     first_map.emplace(pattern.iv, pair_iv);
@@ -1869,13 +1867,17 @@ bool interleave_runtime_mul_reduction_loop(
     CoreIrValue *second_red_value = second_map.at(pattern.reduction_update);
     auto *pair_iv_next = pair_body_ptr->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type, "pair.iv.next", pair_iv, two32);
-    pair_body_ptr->create_instruction<CoreIrJumpInst>(void_type, pair_header_ptr);
+    auto *pair_cmp = pair_body_ptr->create_instruction<CoreIrCompareInst>(
+        header_compare->get_predicate(), i1_type, "pair.cmp", pair_iv_next,
+        pair_end_value);
+    pair_body_ptr->create_instruction<CoreIrCondJumpInst>(
+        void_type, pair_cmp, pair_body_ptr, pair_loopexit_ptr);
     pair_iv->add_incoming(pair_body_ptr, pair_iv_next);
     pair_red->add_incoming(pair_body_ptr, second_red_value);
 
-    pair_exit_ptr->create_instruction<CoreIrJumpInst>(void_type, pattern.header);
-    pattern.iv->add_incoming(pair_exit_ptr, pair_iv);
-    pattern.reduction_phi->add_incoming(pair_exit_ptr, pair_red);
+    pair_loopexit_ptr->create_instruction<CoreIrJumpInst>(void_type, pattern.header);
+    pattern.iv->add_incoming(pair_loopexit_ptr, pair_iv_next);
+    pattern.reduction_phi->add_incoming(pair_loopexit_ptr, second_red_value);
     return true;
 }
 

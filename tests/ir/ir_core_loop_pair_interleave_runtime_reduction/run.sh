@@ -19,8 +19,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_file_nonempty "${IR_OUTPUT_FILE}"
 
 grep -q "pair.guard:" "${IR_OUTPUT_FILE}"
-grep -q "pair.header:" "${IR_OUTPUT_FILE}"
+grep -q "pair.body.preheader:" "${IR_OUTPUT_FILE}"
 grep -q "pair.body:" "${IR_OUTPUT_FILE}"
-grep -q "pair.exit:" "${IR_OUTPUT_FILE}"
+grep -q "pair.loopexit:" "${IR_OUTPUT_FILE}"
 
 echo "verified: loop vectorize emits pair-interleave runtime reduction blocks"
