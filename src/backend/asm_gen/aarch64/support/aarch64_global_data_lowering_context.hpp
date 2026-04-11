@@ -16,6 +16,11 @@ class AArch64GlobalDataLoweringContext {
                                           bool is_global_symbol) = 0;
     virtual void record_symbol_reference(const std::string &name,
                                          AArch64SymbolKind kind) = 0;
+    virtual AArch64SymbolReference
+    make_symbol_reference(const std::string &name, AArch64SymbolKind kind,
+                          AArch64SymbolBinding binding,
+                          std::optional<AArch64SectionKind> section_kind = std::nullopt,
+                          long long addend = 0, bool is_defined = false) const = 0;
     virtual void report_error(const std::string &message) = 0;
 };
 

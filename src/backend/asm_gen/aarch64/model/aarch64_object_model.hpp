@@ -175,6 +175,7 @@ class AArch64DataFragment {
 
 class AArch64Symbol {
   private:
+    std::uint32_t id_ = 0;
     std::string name_;
     AArch64SymbolKind kind_ = AArch64SymbolKind::Object;
     std::optional<AArch64SectionKind> section_kind_;
@@ -185,6 +186,8 @@ class AArch64Symbol {
   public:
     explicit AArch64Symbol(std::string name) : name_(std::move(name)) {}
 
+    std::uint32_t get_id() const noexcept { return id_; }
+    void set_id(std::uint32_t id) noexcept { id_ = id; }
     const std::string &get_name() const noexcept { return name_; }
     AArch64SymbolKind get_kind() const noexcept { return kind_; }
     void set_kind(AArch64SymbolKind kind) noexcept { kind_ = kind; }
@@ -254,6 +257,7 @@ class AArch64ObjectModule {
     std::unordered_map<std::string, unsigned> debug_file_ids_;
     std::vector<AArch64DataObject> data_objects_;
     std::map<std::string, AArch64Symbol> symbols_;
+    std::uint32_t next_symbol_id_ = 1;
 
   public:
     // Object metadata stays here. Asm-only state must live in AArch64AsmModule.
@@ -288,6 +292,9 @@ class AArch64ObjectModule {
                                  bool is_defined, bool is_global,
                                  bool is_referenced) {
         auto [it, inserted] = symbols_.emplace(name, AArch64Symbol(name));
+        if (inserted) {
+            it->second.set_id(next_symbol_id_++);
+        }
         if (inserted || kind != AArch64SymbolKind::Object) {
             it->second.set_kind(kind);
         }
@@ -306,6 +313,36 @@ class AArch64ObjectModule {
             it->second.mark_referenced();
         }
         return it->second;
+    }
+    AArch64SymbolDescriptor describe_symbol(
+        const std::string &name, AArch64SymbolKind fallback_kind,
+        AArch64SymbolBinding fallback_binding = AArch64SymbolBinding::Unknown,
+        std::optional<AArch64SectionKind> fallback_section_kind = std::nullopt,
+        bool fallback_defined = false) const {
+        const auto it = symbols_.find(name);
+        if (it == symbols_.end()) {
+            AArch64SymbolDescriptor descriptor = AArch64SymbolDescriptor::named(
+                name, fallback_kind, fallback_binding, fallback_section_kind,
+                fallback_defined);
+            return descriptor;
+        }
+        return AArch64SymbolDescriptor{
+            it->second.get_id(),
+            it->second.get_name(),
+            it->second.get_kind(),
+            it->second.get_section_kind(),
+            it->second.get_binding(),
+            it->second.get_is_defined()};
+    }
+    AArch64SymbolReference make_symbol_reference(
+        const std::string &name, AArch64SymbolKind fallback_kind,
+        AArch64SymbolBinding fallback_binding = AArch64SymbolBinding::Unknown,
+        std::optional<AArch64SectionKind> fallback_section_kind = std::nullopt,
+        long long addend = 0, bool fallback_defined = false) const {
+        return AArch64SymbolReference::from_descriptor(
+            describe_symbol(name, fallback_kind, fallback_binding,
+                            fallback_section_kind, fallback_defined),
+            addend);
     }
     const std::map<std::string, AArch64Symbol> &get_symbols() const noexcept {
         return symbols_;

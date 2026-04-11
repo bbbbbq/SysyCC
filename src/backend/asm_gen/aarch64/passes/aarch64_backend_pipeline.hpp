@@ -5,24 +5,54 @@
 #include <string>
 
 #include "backend/asm_gen/aarch64/model/aarch64_codegen_model.hpp"
+#include "backend/asm_gen/aarch64/passes/aarch64_machine_lowering_pass.hpp"
 #include "backend/asm_gen/aarch64/passes/aarch64_emission_pass.hpp"
 #include "backend/asm_gen/aarch64/passes/aarch64_frame_finalize_pass.hpp"
 #include "backend/asm_gen/aarch64/passes/aarch64_register_allocation_pass.hpp"
 #include "backend/asm_gen/aarch64/passes/aarch64_spill_rewrite_pass.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_backend_context.hpp"
 #include "backend/asm_gen/asm_result.hpp"
 
 namespace sysycc {
 
 class DiagnosticEngine;
+class CoreIrModule;
 
 class AArch64BackendPipeline {
   private:
+    AArch64MachineLoweringPass machine_lowering_pass_;
     AArch64RegisterAllocationPass register_allocation_pass_;
     AArch64SpillRewritePass spill_rewrite_pass_;
     AArch64FrameFinalizePass frame_finalize_pass_;
     AArch64EmissionPass emission_pass_;
 
   public:
+    bool build_and_finalize_module(const CoreIrModule &module,
+                                   const BackendOptions &backend_options,
+                                   DiagnosticEngine &diagnostic_engine,
+                                   AArch64AsmModule &asm_module,
+                                   AArch64MachineModule &machine_module,
+                                   AArch64ObjectModule &object_module) const {
+        AArch64CodegenContext codegen_context{
+            &module,
+            &backend_options,
+            &diagnostic_engine,
+            AArch64AsmModule{},
+            AArch64MachineModule{},
+            AArch64ObjectModule{}};
+        if (!build_and_finalize_module(codegen_context)) {
+            return false;
+        }
+        asm_module = std::move(codegen_context.asm_module);
+        machine_module = std::move(codegen_context.machine_module);
+        object_module = std::move(codegen_context.object_module);
+        return true;
+    }
+
+    bool build_module(AArch64CodegenContext &codegen_context) const {
+        return machine_lowering_pass_.run(codegen_context);
+    }
+
     bool finalize_function(AArch64MachineFunction &function,
                            DiagnosticEngine &diagnostic_engine) const {
         if (!register_allocation_pass_.run(function, diagnostic_engine)) {
@@ -43,6 +73,14 @@ class AArch64BackendPipeline {
             }
         }
         return true;
+    }
+
+    bool build_and_finalize_module(AArch64CodegenContext &codegen_context) const {
+        if (!build_module(codegen_context)) {
+            return false;
+        }
+        return finalize_module(codegen_context.machine_module,
+                               *codegen_context.diagnostic_engine);
     }
 
     std::unique_ptr<AsmResult>

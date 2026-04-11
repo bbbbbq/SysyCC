@@ -1,8 +1,6 @@
 #include "backend/asm_gen/aarch64/aarch64_asm_backend.hpp"
 
 #include "backend/asm_gen/aarch64/passes/aarch64_backend_pipeline.hpp"
-#include "backend/asm_gen/aarch64/passes/aarch64_machine_lowering_pass.hpp"
-#include "backend/asm_gen/aarch64/support/aarch64_backend_context.hpp"
 
 namespace sysycc {
 
@@ -12,27 +10,10 @@ bool AArch64AsmBackend::BuildModule(const CoreIrModule &module,
                                     AArch64AsmModule &asm_module,
                                     AArch64MachineModule &machine_module,
                                     AArch64ObjectModule &object_module) const {
-    AArch64CodegenContext codegen_context{
-        &module,
-        &backend_options,
-        &diagnostic_engine,
-        AArch64AsmModule{},
-        AArch64MachineModule{},
-        AArch64ObjectModule{}};
-    AArch64MachineLoweringPass machine_lowering_pass;
-    if (!machine_lowering_pass.run(codegen_context)) {
-        return false;
-    }
-
     AArch64BackendPipeline backend_pipeline;
-    if (!backend_pipeline.finalize_module(codegen_context.machine_module,
-                                          diagnostic_engine)) {
-        return false;
-    }
-    asm_module = std::move(codegen_context.asm_module);
-    machine_module = std::move(codegen_context.machine_module);
-    object_module = std::move(codegen_context.object_module);
-    return true;
+    return backend_pipeline.build_and_finalize_module(
+        module, backend_options, diagnostic_engine, asm_module, machine_module,
+        object_module);
 }
 
 std::unique_ptr<AsmResult>

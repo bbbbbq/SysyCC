@@ -114,9 +114,9 @@ bool emit_call_with_abi(AArch64MachineBlock &machine_block, const CoreIrCallInst
     }
     const AArch64AbiLocation &return_location =
         abi_info.return_value.locations.front();
-    context.append_copy_to_physical_reg(machine_block,
-                                        return_location.physical_reg,
-                                        return_location.reg_kind, result_reg);
+    context.append_copy_from_physical_reg(machine_block, result_reg,
+                                          return_location.physical_reg,
+                                          return_location.reg_kind);
     return true;
 }
 

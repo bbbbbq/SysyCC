@@ -85,7 +85,8 @@ void append_rendered_instruction(std::ostringstream &output,
         return;
     }
 
-    const bool use_space_separated_operands = instruction.get_mnemonic() == ".loc";
+    const bool use_space_separated_operands =
+        instruction.get_opcode() == AArch64MachineOpcode::DirectiveLoc;
     output << " ";
     for (std::size_t index = 0; index < instruction.get_operands().size(); ++index) {
         if (index > 0) {
@@ -93,7 +94,7 @@ void append_rendered_instruction(std::ostringstream &output,
         }
         std::string rendered_operand =
             render_machine_operand_for_asm(instruction.get_operands()[index], function);
-        if (instruction.get_mnemonic() == "mov") {
+        if (instruction.get_opcode() == AArch64MachineOpcode::Move) {
             rendered_operand = render_vector_move_operand(rendered_operand);
         }
         output << rendered_operand;
@@ -166,8 +167,7 @@ std::string print_module_with_options(const AArch64AsmModule &asm_module,
                         last_debug_location = instruction.get_debug_location();
                     }
                     append_rendered_instruction(output, instruction, function);
-                    if (instruction.get_mnemonic().empty() ||
-                        instruction.get_mnemonic().front() != '.') {
+                    if (!instruction.is_asm_directive()) {
                         code_offset += 4;
                         while (next_cfi_index < cfi_directives.size() &&
                                cfi_directives[next_cfi_index].kind !=

@@ -27,18 +27,13 @@ mkdir -p "${CASE_BUILD_DIR}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
-assert_no_illegal_aarch64_index_forms "${ASM_FILE}"
-grep -Eq '^[[:space:]]*blr x[0-9]+$' "${ASM_FILE}"
-grep -Eq '^[[:space:]]*str x19, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
-grep -Eq '^[[:space:]]*str x20, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
-grep -Eq '^[[:space:]]*mov w[0-9]+, w0$' "${ASM_FILE}"
-if grep -Eq '^[[:space:]]*mov w0, w1[0-9]$' "${ASM_FILE}"; then
-    echo "unexpected reversed indirect-call result copy leaked into final asm" >&2
-    exit 1
-fi
+grep -q '^\.arch armv8.2-a+fp16$' "${ASM_FILE}"
+test "$(grep -Ec '^[[:space:]]*fadd s[0-9]+, s[0-9]+, s[0-9]+$' "${ASM_FILE}")" -ge 2
+test "$(grep -Ec '^[[:space:]]*fcmp s[0-9]+, s[0-9]+$' "${ASM_FILE}")" -ge 1
+test "$(grep -Ec '^[[:space:]]*cset w[0-9]+, lt$' "${ASM_FILE}")" -ge 1
 if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then
     echo "unexpected virtual register token leaked into final asm" >&2
     exit 1
 fi
 
-echo "verified: spill-heavy indirect-call lowering still produces concrete AArch64 asm"
+echo "verified: spill-heavy _Float16 compare lowering still reaches promoted fcmp/cset without leaking virtual operands"

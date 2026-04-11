@@ -47,6 +47,11 @@ class AArch64LoweringFacadeServices
                                           bool is_global_symbol) = 0;
     virtual void record_symbol_reference(const std::string &name,
                                          AArch64SymbolKind kind) = 0;
+    virtual AArch64SymbolReference
+    make_symbol_reference(const std::string &name, AArch64SymbolKind kind,
+                          AArch64SymbolBinding binding,
+                          std::optional<AArch64SectionKind> section_kind = std::nullopt,
+                          long long addend = 0, bool is_defined = false) const = 0;
     virtual AArch64VirtualReg
     create_virtual_reg(AArch64MachineFunction &function,
                        const CoreIrType *type) const = 0;
@@ -127,6 +132,11 @@ class AArch64GlobalDataLoweringFacade final
                                   bool is_global_symbol) override;
     void record_symbol_reference(const std::string &name,
                                  AArch64SymbolKind kind) override;
+    AArch64SymbolReference make_symbol_reference(
+        const std::string &name, AArch64SymbolKind kind,
+        AArch64SymbolBinding binding,
+        std::optional<AArch64SectionKind> section_kind = std::nullopt,
+        long long addend = 0, bool is_defined = false) const override;
     void report_error(const std::string &message) override;
 };
 
@@ -206,6 +216,11 @@ class AArch64FunctionLoweringFacade final
                              AArch64MachineFunction &function) override;
     void record_symbol_reference(const std::string &name,
                                  AArch64SymbolKind kind) override;
+    AArch64SymbolReference make_symbol_reference(
+        const std::string &name, AArch64SymbolKind kind,
+        AArch64SymbolBinding binding,
+        std::optional<AArch64SectionKind> section_kind = std::nullopt,
+        long long addend = 0, bool is_defined = false) const override;
     bool is_position_independent() const override;
     bool
     is_nonpreemptible_global_symbol(const std::string &name) const override;

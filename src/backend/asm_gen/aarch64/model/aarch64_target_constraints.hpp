@@ -73,6 +73,32 @@ inline constexpr std::array<unsigned, 4> kAArch64SpillScratchFloatPhysicalRegs =
     static_cast<unsigned>(AArch64PhysicalReg::V31),
 };
 
+inline constexpr std::array<unsigned, 11>
+    kAArch64FixedBorrowableGeneralPhysicalRegs = {
+        static_cast<unsigned>(AArch64PhysicalReg::X0),
+        static_cast<unsigned>(AArch64PhysicalReg::X1),
+        static_cast<unsigned>(AArch64PhysicalReg::X2),
+        static_cast<unsigned>(AArch64PhysicalReg::X3),
+        static_cast<unsigned>(AArch64PhysicalReg::X4),
+        static_cast<unsigned>(AArch64PhysicalReg::X5),
+        static_cast<unsigned>(AArch64PhysicalReg::X6),
+        static_cast<unsigned>(AArch64PhysicalReg::X7),
+        static_cast<unsigned>(AArch64PhysicalReg::X8),
+        static_cast<unsigned>(AArch64PhysicalReg::X16),
+        static_cast<unsigned>(AArch64PhysicalReg::X17),
+    };
+
+inline constexpr std::array<unsigned, 8> kAArch64FixedBorrowableFloatPhysicalRegs = {
+    static_cast<unsigned>(AArch64PhysicalReg::V0),
+    static_cast<unsigned>(AArch64PhysicalReg::V1),
+    static_cast<unsigned>(AArch64PhysicalReg::V2),
+    static_cast<unsigned>(AArch64PhysicalReg::V3),
+    static_cast<unsigned>(AArch64PhysicalReg::V4),
+    static_cast<unsigned>(AArch64PhysicalReg::V5),
+    static_cast<unsigned>(AArch64PhysicalReg::V6),
+    static_cast<unsigned>(AArch64PhysicalReg::V7),
+};
+
 inline constexpr std::array<unsigned, 18> kAArch64DefaultCallerClobberedGeneralRegs = {
     static_cast<unsigned>(AArch64PhysicalReg::X0),
     static_cast<unsigned>(AArch64PhysicalReg::X1),

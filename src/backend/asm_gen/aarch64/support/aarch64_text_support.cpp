@@ -498,14 +498,15 @@ std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
     }
     if (const auto *condition_code = operand.get_condition_code_operand();
         condition_code != nullptr) {
-        return condition_code->code;
+        return std::string(render_aarch64_condition_code(condition_code->code));
     }
     if (const auto *zero_register = operand.get_zero_register_operand();
         zero_register != nullptr) {
         return zero_register_name(zero_register->use_64bit);
     }
     if (const auto *shift = operand.get_shift_operand(); shift != nullptr) {
-        return shift->mnemonic + " #" + std::to_string(shift->amount);
+        return std::string(render_aarch64_shift_kind(shift->kind)) + " #" +
+               std::to_string(shift->amount);
     }
     if (const auto *stack_pointer = operand.get_stack_pointer_operand();
         stack_pointer != nullptr) {
