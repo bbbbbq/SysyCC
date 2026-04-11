@@ -522,6 +522,26 @@ bool add_runtime_rotated_exit_incomings(
     return true;
 }
 
+bool match_runtime_iv_access(CoreIrBasicBlock *header, CoreIrBasicBlock *body,
+                             CoreIrValue *address, CoreIrPhiInst *iv,
+                             AccessInfo &info);
+
+bool populate_runtime_mul_reduction_vector_accesses(
+    RuntimeMulReductionInterleavePattern &pattern) {
+    if (pattern.header == nullptr || pattern.body == nullptr || pattern.iv == nullptr ||
+        pattern.lhs_load == nullptr || pattern.rhs_load == nullptr) {
+        return false;
+    }
+    pattern.lhs_access = {};
+    pattern.rhs_access = {};
+    return match_runtime_iv_access(pattern.header, pattern.body,
+                                   pattern.lhs_load->get_address(), pattern.iv,
+                                   pattern.lhs_access) &&
+           match_runtime_iv_access(pattern.header, pattern.body,
+                                   pattern.rhs_load->get_address(), pattern.iv,
+                                   pattern.rhs_access);
+}
+
 bool instruction_is_runtime_reduction_update(CoreIrInstruction *instruction,
                                              CoreIrPhiInst *phi) {
     auto *binary = dynamic_cast<CoreIrBinaryInst *>(instruction);
@@ -1274,16 +1294,6 @@ bool match_runtime_mul_reduction_interleave_pattern(
                 pattern.rhs_load = load;
             }
         }
-    }
-
-    if (pattern.lhs_load == nullptr || pattern.rhs_load == nullptr ||
-        !match_runtime_iv_access(pattern.header, pattern.body,
-                                 pattern.lhs_load->get_address(), pattern.iv,
-                                 pattern.lhs_access) ||
-        !match_runtime_iv_access(pattern.header, pattern.body,
-                                 pattern.rhs_load->get_address(), pattern.iv,
-                                 pattern.rhs_access)) {
-        return false;
     }
 
     return !pattern.body_instructions.empty();
@@ -2266,6 +2276,9 @@ bool vectorize_runtime_mul_reduction_loop_in_function(
             if (!match_runtime_mul_reduction_interleave_pattern(fresh_cfg,
                                                                 *header,
                                                                 pattern)) {
+                continue;
+            }
+            if (!populate_runtime_mul_reduction_vector_accesses(pattern)) {
                 continue;
             }
             if (vectorize_runtime_mul_reduction_loop(function, pattern, context)) {
