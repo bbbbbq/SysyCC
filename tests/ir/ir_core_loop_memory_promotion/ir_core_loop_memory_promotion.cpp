@@ -4,6 +4,7 @@
 
 #include "backend/ir/lcssa/core_ir_lcssa_pass.hpp"
 #include "backend/ir/loop_memory_promotion/core_ir_loop_memory_promotion_pass.hpp"
+#include "backend/ir/verify/core_ir_verifier.hpp"
 #include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
@@ -17,6 +18,25 @@
 #include "compiler/compiler_context/compiler_context.hpp"
 
 using namespace sysycc;
+
+namespace {
+
+void assert_module_verifies(const CoreIrModule &module) {
+    CoreIrVerifier verifier;
+    assert(verifier.verify_module(module).ok);
+}
+
+bool block_has_phi(const CoreIrBasicBlock &block) {
+    for (const auto &instruction_ptr : block.get_instructions()) {
+        if (instruction_ptr == nullptr) {
+            continue;
+        }
+        return dynamic_cast<CoreIrPhiInst *>(instruction_ptr.get()) != nullptr;
+    }
+    return false;
+}
+
+} // namespace
 
 int main() {
     auto context = std::make_unique<CoreIrContext>();
@@ -65,6 +85,7 @@ int main() {
     assert(lcssa.Run(compiler_context).ok);
     CoreIrLoopMemoryPromotionPass pass;
     assert(pass.Run(compiler_context).ok);
+    assert_module_verifies(*module);
 
     CoreIrRawPrinter printer;
     const std::string text = printer.print_module(*module);
@@ -142,6 +163,7 @@ int main() {
     assert(lcssa2.Run(compiler_context2).ok);
     CoreIrLoopMemoryPromotionPass pass2;
     assert(pass2.Run(compiler_context2).ok);
+    assert_module_verifies(*module2);
 
     const std::string text2 = printer.print_module(*module2);
     assert(text2.find("%field0.load = load i32") == std::string::npos);
@@ -221,6 +243,7 @@ int main() {
     assert(lcssa3.Run(compiler_context3).ok);
     CoreIrLoopMemoryPromotionPass pass3;
     assert(pass3.Run(compiler_context3).ok);
+    assert_module_verifies(*module3);
 
     const std::string text3 = printer.print_module(*module3);
     assert(text3.find("%field0.load = load i32") == std::string::npos);
@@ -278,6 +301,7 @@ int main() {
     assert(lcssa4.Run(compiler_context4).ok);
     CoreIrLoopMemoryPromotionPass pass4;
     assert(pass4.Run(compiler_context4).ok);
+    assert_module_verifies(*module4);
 
     const std::string text4 = printer.print_module(*module4);
     assert(text4.find("%sum.inner.load = load i32, stackslot %sum") == std::string::npos);
@@ -389,6 +413,7 @@ int main() {
         assert(lcssa5.Run(compiler_context5).ok);
         CoreIrLoopMemoryPromotionPass pass5;
         assert(pass5.Run(compiler_context5).ok);
+        assert_module_verifies(*module5);
 
         const std::string text5 = printer.print_module(*module5);
         assert(text5.find("%field0.inner.load = load i32") == std::string::npos);
@@ -461,17 +486,18 @@ int main() {
         assert(lcssa6.Run(compiler_context6).ok);
         CoreIrLoopMemoryPromotionPass pass6;
         assert(pass6.Run(compiler_context6).ok);
+        assert_module_verifies(*module6);
 
         const std::string text6 = printer.print_module(*module6);
-        assert(text6.find("%sum.first.load = load i32, %sum") !=
+        assert(text6.find("%sum.first.load = load i32, %sum") ==
                std::string::npos);
-        assert(text6.find("%sum.second.load = load i32, %sum") !=
+        assert(text6.find("%sum.second.load = load i32, %sum") ==
                std::string::npos);
-        assert(text6.find("store i32 %sum.first.next, %sum") !=
+        assert(text6.find("store i32 %sum.first.next, %sum") ==
                std::string::npos);
-        assert(text6.find("store i32 %sum.second.next, %sum") !=
+        assert(text6.find("store i32 %sum.second.next, %sum") ==
                std::string::npos);
-        assert(text6.find("%sum.loop.") == std::string::npos);
+        assert(text6.find("%sum.loop.") != std::string::npos);
     }
     {
         auto context7 = std::make_unique<CoreIrContext>();
@@ -536,12 +562,13 @@ int main() {
         assert(lcssa7.Run(compiler_context7).ok);
         CoreIrLoopMemoryPromotionPass pass7;
         assert(pass7.Run(compiler_context7).ok);
+        assert_module_verifies(*module7);
 
         const std::string text7 = printer.print_module(*module7);
-        assert(text7.find("%tank.load = load i32, %tank") != std::string::npos);
-        assert(text7.find("store i32 %tank.next, %tank") != std::string::npos);
-        assert(text7.find("store i32 0, %tank") != std::string::npos);
-        assert(text7.find("%tank.loop.") == std::string::npos);
+        assert(text7.find("%tank.load = load i32, %tank") == std::string::npos);
+        assert(text7.find("store i32 %tank.next, %tank") == std::string::npos);
+        assert(text7.find("%tank.exit = load i32, %tank") == std::string::npos);
+        assert(text7.find("%tank.loop.") != std::string::npos);
     }
     {
         auto context8 = std::make_unique<CoreIrContext>();
@@ -622,6 +649,7 @@ int main() {
         assert(lcssa8.Run(compiler_context8).ok);
         CoreIrLoopMemoryPromotionPass pass8;
         assert(pass8.Run(compiler_context8).ok);
+        assert_module_verifies(*module8);
 
         const std::string text8 = printer.print_module(*module8);
         assert(text8.find("%field0.load = load i32") == std::string::npos);
@@ -629,6 +657,192 @@ int main() {
         assert(text8.find("%field0.exit = load i32") == std::string::npos);
         assert(text8.find("%state.loop.") != std::string::npos);
         assert(text8.find("store i32 %field0.after") != std::string::npos);
+    }
+    {
+        auto context9 = std::make_unique<CoreIrContext>();
+        auto *void_type9 = context9->create_type<CoreIrVoidType>();
+        auto *i1_type9 = context9->create_type<CoreIrIntegerType>(1);
+        auto *i32_type9 = context9->create_type<CoreIrIntegerType>(32);
+        auto *array2_i32_9 = context9->create_type<CoreIrArrayType>(i32_type9, 2);
+        auto *ptr_array2_i32_9 =
+            context9->create_type<CoreIrPointerType>(array2_i32_9);
+        auto *ptr_i32_type9 = context9->create_type<CoreIrPointerType>(i32_type9);
+        auto *function_type9 = context9->create_type<CoreIrFunctionType>(
+            i32_type9, std::vector<const CoreIrType *>{}, false);
+        auto *module9 = context9->create_module<CoreIrModule>(
+            "ir_core_loop_memory_promotion_access_path_whole_store");
+        auto *function9 =
+            module9->create_function<CoreIrFunction>("main", function_type9, false);
+        auto *entry9 = function9->create_basic_block<CoreIrBasicBlock>("entry");
+        auto *header9 = function9->create_basic_block<CoreIrBasicBlock>("header");
+        auto *body9 = function9->create_basic_block<CoreIrBasicBlock>("body");
+        auto *exit9 = function9->create_basic_block<CoreIrBasicBlock>("exit");
+        auto *state9 =
+            function9->create_stack_slot<CoreIrStackSlot>("state", array2_i32_9, 4);
+        auto *zero9 = context9->create_constant<CoreIrConstantInt>(i32_type9, 0);
+        auto *one9 = context9->create_constant<CoreIrConstantInt>(i32_type9, 1);
+        auto *three9 = context9->create_constant<CoreIrConstantInt>(i32_type9, 3);
+        auto *state_zero9 =
+            context9->create_constant<CoreIrConstantZeroInitializer>(array2_i32_9);
+
+        auto *entry_state_addr9 =
+            entry9->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_9, "state.addr", state9);
+        auto *entry_field0_addr9 = entry9->create_instruction<CoreIrGetElementPtrInst>(
+            ptr_i32_type9, "field0.addr", entry_state_addr9,
+            std::vector<CoreIrValue *>{zero9, zero9});
+        entry9->create_instruction<CoreIrStoreInst>(void_type9, one9, entry_field0_addr9);
+        entry9->create_instruction<CoreIrJumpInst>(void_type9, header9);
+        auto *iv9 = header9->create_instruction<CoreIrPhiInst>(i32_type9, "iv");
+        auto *cmp9 = header9->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::SignedLess, i1_type9, "cmp", iv9, three9);
+        header9->create_instruction<CoreIrCondJumpInst>(void_type9, cmp9, body9, exit9);
+
+        body9->create_instruction<CoreIrStoreInst>(void_type9, state_zero9, state9);
+        auto *loop_state_addr9 =
+            body9->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_9, "state.addr.loop", state9);
+        auto *loop_field0_addr9 = body9->create_instruction<CoreIrGetElementPtrInst>(
+            ptr_i32_type9, "field0.addr.loop", loop_state_addr9,
+            std::vector<CoreIrValue *>{zero9, zero9});
+        auto *field0_load9 = body9->create_instruction<CoreIrLoadInst>(
+            i32_type9, "field0.load", loop_field0_addr9);
+        auto *field0_next9 = body9->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type9, "field0.next", field0_load9, one9);
+        body9->create_instruction<CoreIrStoreInst>(void_type9, field0_next9,
+                                                   loop_field0_addr9);
+        auto *next_iv9 = body9->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type9, "iv.next", iv9, one9);
+        body9->create_instruction<CoreIrJumpInst>(void_type9, header9);
+
+        auto *exit_state_addr9 =
+            exit9->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_9, "state.addr.exit", state9);
+        auto *exit_field0_addr9 = exit9->create_instruction<CoreIrGetElementPtrInst>(
+            ptr_i32_type9, "field0.addr.exit", exit_state_addr9,
+            std::vector<CoreIrValue *>{zero9, zero9});
+        auto *exit_load9 = exit9->create_instruction<CoreIrLoadInst>(
+            i32_type9, "field0.exit", exit_field0_addr9);
+        exit9->create_instruction<CoreIrReturnInst>(void_type9, exit_load9);
+        iv9->add_incoming(entry9, zero9);
+        iv9->add_incoming(body9, next_iv9);
+
+        CompilerContext compiler_context9;
+        compiler_context9.set_core_ir_build_result(
+            std::make_unique<CoreIrBuildResult>(std::move(context9), module9));
+        CoreIrLcssaPass lcssa9;
+        assert(lcssa9.Run(compiler_context9).ok);
+        CoreIrLoopMemoryPromotionPass pass9;
+        assert(pass9.Run(compiler_context9).ok);
+        assert_module_verifies(*module9);
+
+        const std::string text9 = printer.print_module(*module9);
+        assert(text9.find("%field0.load = load i32") == std::string::npos);
+        assert(text9.find("store i32 %field0.next") == std::string::npos);
+        assert(text9.find("%field0.exit = load i32") == std::string::npos);
+        assert(text9.find("store [2 x i32] zeroinitializer, %state") !=
+               std::string::npos);
+        assert(text9.find("%state.loop.") != std::string::npos);
+    }
+    {
+        auto context10 = std::make_unique<CoreIrContext>();
+        auto *void_type10 = context10->create_type<CoreIrVoidType>();
+        auto *i1_type10 = context10->create_type<CoreIrIntegerType>(1);
+        auto *i32_type10 = context10->create_type<CoreIrIntegerType>(32);
+        auto *array2_i32_10 = context10->create_type<CoreIrArrayType>(i32_type10, 2);
+        auto *ptr_array2_i32_10 =
+            context10->create_type<CoreIrPointerType>(array2_i32_10);
+        auto *ptr_i32_type10 = context10->create_type<CoreIrPointerType>(i32_type10);
+        auto *function_type10 = context10->create_type<CoreIrFunctionType>(
+            i32_type10, std::vector<const CoreIrType *>{}, false);
+        auto *module10 = context10->create_module<CoreIrModule>(
+            "ir_core_loop_memory_promotion_access_path_join_phi");
+        auto *function10 =
+            module10->create_function<CoreIrFunction>("main", function_type10, false);
+        auto *entry10 = function10->create_basic_block<CoreIrBasicBlock>("entry");
+        auto *header10 = function10->create_basic_block<CoreIrBasicBlock>("header");
+        auto *body10 = function10->create_basic_block<CoreIrBasicBlock>("body");
+        auto *reset10 = function10->create_basic_block<CoreIrBasicBlock>("reset");
+        auto *join10 = function10->create_basic_block<CoreIrBasicBlock>("join");
+        auto *exit10 = function10->create_basic_block<CoreIrBasicBlock>("exit");
+        auto *state10 =
+            function10->create_stack_slot<CoreIrStackSlot>("state", array2_i32_10, 4);
+        auto *zero10 = context10->create_constant<CoreIrConstantInt>(i32_type10, 0);
+        auto *one10 = context10->create_constant<CoreIrConstantInt>(i32_type10, 1);
+        auto *two10 = context10->create_constant<CoreIrConstantInt>(i32_type10, 2);
+        auto *five10 = context10->create_constant<CoreIrConstantInt>(i32_type10, 5);
+        auto *state_zero10 =
+            context10->create_constant<CoreIrConstantZeroInitializer>(array2_i32_10);
+
+        auto *entry_state_addr10 =
+            entry10->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_10, "state.addr", state10);
+        auto *entry_field0_addr10 =
+            entry10->create_instruction<CoreIrGetElementPtrInst>(
+                ptr_i32_type10, "field0.addr", entry_state_addr10,
+                std::vector<CoreIrValue *>{zero10, zero10});
+        entry10->create_instruction<CoreIrStoreInst>(void_type10, five10,
+                                                     entry_field0_addr10);
+        entry10->create_instruction<CoreIrJumpInst>(void_type10, header10);
+        auto *iv10 = header10->create_instruction<CoreIrPhiInst>(i32_type10, "iv");
+        auto *cmp10 = header10->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::SignedLess, i1_type10, "cmp", iv10, two10);
+        header10->create_instruction<CoreIrCondJumpInst>(void_type10, cmp10, body10,
+                                                         exit10);
+
+        auto *reset_cmp10 = body10->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::Equal, i1_type10, "reset.cmp", iv10, zero10);
+        body10->create_instruction<CoreIrCondJumpInst>(void_type10, reset_cmp10, reset10,
+                                                       join10);
+
+        reset10->create_instruction<CoreIrStoreInst>(void_type10, state_zero10, state10);
+        reset10->create_instruction<CoreIrJumpInst>(void_type10, join10);
+
+        auto *join_state_addr10 =
+            join10->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_10, "state.addr.join", state10);
+        auto *join_field0_addr10 =
+            join10->create_instruction<CoreIrGetElementPtrInst>(
+                ptr_i32_type10, "field0.addr.join", join_state_addr10,
+                std::vector<CoreIrValue *>{zero10, zero10});
+        auto *field0_load10 = join10->create_instruction<CoreIrLoadInst>(
+            i32_type10, "field0.load", join_field0_addr10);
+        auto *field0_next10 = join10->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type10, "field0.next", field0_load10, one10);
+        join10->create_instruction<CoreIrStoreInst>(void_type10, field0_next10,
+                                                    join_field0_addr10);
+        auto *next_iv10 = join10->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type10, "iv.next", iv10, one10);
+        join10->create_instruction<CoreIrJumpInst>(void_type10, header10);
+
+        auto *exit_state_addr10 =
+            exit10->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_array2_i32_10, "state.addr.exit", state10);
+        auto *exit_field0_addr10 =
+            exit10->create_instruction<CoreIrGetElementPtrInst>(
+                ptr_i32_type10, "field0.addr.exit", exit_state_addr10,
+                std::vector<CoreIrValue *>{zero10, zero10});
+        auto *exit_load10 = exit10->create_instruction<CoreIrLoadInst>(
+            i32_type10, "field0.exit", exit_field0_addr10);
+        exit10->create_instruction<CoreIrReturnInst>(void_type10, exit_load10);
+        iv10->add_incoming(entry10, zero10);
+        iv10->add_incoming(join10, next_iv10);
+
+        CompilerContext compiler_context10;
+        compiler_context10.set_core_ir_build_result(
+            std::make_unique<CoreIrBuildResult>(std::move(context10), module10));
+        CoreIrLcssaPass lcssa10;
+        assert(lcssa10.Run(compiler_context10).ok);
+        CoreIrLoopMemoryPromotionPass pass10;
+        assert(pass10.Run(compiler_context10).ok);
+        assert_module_verifies(*module10);
+
+        const std::string text10 = printer.print_module(*module10);
+        assert(text10.find("%field0.load = load i32") == std::string::npos);
+        assert(text10.find("%field0.exit = load i32") == std::string::npos);
+        assert(text10.find("store [2 x i32] zeroinitializer, %state") !=
+               std::string::npos);
+        assert(block_has_phi(*join10));
     }
     return 0;
 }

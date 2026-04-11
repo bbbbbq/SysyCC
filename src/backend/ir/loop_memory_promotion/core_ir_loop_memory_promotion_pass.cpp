@@ -192,6 +192,26 @@ bool instruction_matches_access_info(const CoreIrInstruction &instruction,
 
 const CoreIrType *resolve_access_path_type(const CoreIrType *root_type,
                                            const std::vector<std::uint64_t> &path);
+const CoreIrConstant *extract_constant_for_access_path(
+    const CoreIrConstant *constant, const std::vector<std::uint64_t> &path);
+
+bool get_store_slot_and_path(const CoreIrStoreInst &store,
+                             CoreIrStackSlot *&stack_slot,
+                             std::vector<std::uint64_t> &path,
+                             bool &exact_path) {
+    stack_slot = nullptr;
+    path.clear();
+    exact_path = true;
+    if (store.get_stack_slot() != nullptr) {
+        stack_slot = store.get_stack_slot();
+        return true;
+    }
+    if (store.get_address() == nullptr) {
+        return false;
+    }
+    return trace_stack_slot_prefix(store.get_address(), stack_slot, path, exact_path) &&
+           stack_slot != nullptr;
+}
 
 std::unordered_map<std::string, UnitLoopAccessInfo>
 collect_loop_unit_accesses(const CoreIrLoopInfo &loop,
@@ -340,6 +360,40 @@ collect_loop_unit_accesses(const CoreIrLoopInfo &loop,
         }
     }
 
+    for (CoreIrBasicBlock *block : loop.get_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+            const auto *constant =
+                store == nullptr ? nullptr
+                                 : dynamic_cast<const CoreIrConstant *>(store->get_value());
+            if (store == nullptr || constant == nullptr) {
+                continue;
+            }
+
+            CoreIrStackSlot *stack_slot = nullptr;
+            std::vector<std::uint64_t> path;
+            bool exact_path = true;
+            if (!get_store_slot_and_path(*store, stack_slot, path, exact_path) ||
+                !exact_path || stack_slot == nullptr || !path.empty()) {
+                continue;
+            }
+
+            for (auto &[_, info] : infos) {
+                if (info.kind != CoreIrPromotionUnitKind::AccessPath ||
+                    info.slot != stack_slot ||
+                    extract_constant_for_access_path(constant, info.access_path) ==
+                        nullptr) {
+                    continue;
+                }
+                info.def_blocks.insert(block);
+                info.use_blocks.insert(block);
+            }
+        }
+    }
+
     for (auto it = infos.begin(); it != infos.end();) {
         bool invalid = false;
         const auto blocked_it = blocked_prefixes.find(it->second.slot);
@@ -385,17 +439,79 @@ const CoreIrType *resolve_access_path_type(const CoreIrType *root_type,
 const CoreIrConstant *extract_constant_for_access_path(
     const CoreIrConstant *constant, const std::vector<std::uint64_t> &path) {
     const CoreIrConstant *current = constant;
-    for (std::uint64_t index : path) {
+    const CoreIrType *current_type = constant == nullptr ? nullptr : constant->get_type();
+    for (std::size_t path_index = 0; path_index < path.size(); ++path_index) {
+        const std::uint64_t index = path[path_index];
         if (dynamic_cast<const CoreIrConstantZeroInitializer *>(current) != nullptr) {
-            return current;
+            CoreIrContext *parent_context = current->get_parent_context();
+            const std::vector<std::uint64_t> remaining_path(
+                path.begin() + static_cast<std::ptrdiff_t>(path_index), path.end());
+            const CoreIrType *leaf_type =
+                resolve_access_path_type(current_type, remaining_path);
+            if (parent_context == nullptr || leaf_type == nullptr) {
+                return current;
+            }
+            return parent_context->create_constant<CoreIrConstantZeroInitializer>(
+                leaf_type);
         }
         const auto *aggregate = dynamic_cast<const CoreIrConstantAggregate *>(current);
         if (aggregate == nullptr || index >= aggregate->get_elements().size()) {
             return nullptr;
         }
+        if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
+            array_type != nullptr) {
+            current_type = array_type->get_element_type();
+        } else if (const auto *struct_type =
+                       dynamic_cast<const CoreIrStructType *>(current_type);
+                   struct_type != nullptr) {
+            if (index >= struct_type->get_element_types().size()) {
+                return nullptr;
+            }
+            current_type = struct_type->get_element_types()[index];
+        } else {
+            return nullptr;
+        }
         current = aggregate->get_elements()[index];
     }
     return current;
+}
+
+CoreIrValue *extract_store_leaf_value(const CoreIrStoreInst &store,
+                                      const UnitLoopAccessInfo &access_info) {
+    if (instruction_matches_access_info(store, access_info)) {
+        return store.get_value();
+    }
+    if (access_info.kind != CoreIrPromotionUnitKind::AccessPath) {
+        return nullptr;
+    }
+
+    CoreIrStackSlot *stack_slot = nullptr;
+    std::vector<std::uint64_t> path;
+    bool exact_path = true;
+    if (!get_store_slot_and_path(store, stack_slot, path, exact_path) ||
+        !exact_path || stack_slot != access_info.slot || !path.empty()) {
+        return nullptr;
+    }
+
+    const auto *constant = dynamic_cast<const CoreIrConstant *>(store.get_value());
+    const CoreIrConstant *leaf =
+        extract_constant_for_access_path(constant, access_info.access_path);
+    return const_cast<CoreIrConstant *>(leaf);
+}
+
+bool store_clobbers_access_info(const CoreIrStoreInst &store,
+                                const UnitLoopAccessInfo &access_info) {
+    if (instruction_matches_access_info(store, access_info)) {
+        return true;
+    }
+    if (access_info.kind != CoreIrPromotionUnitKind::AccessPath) {
+        return false;
+    }
+    CoreIrStackSlot *stack_slot = nullptr;
+    std::vector<std::uint64_t> path;
+    bool exact_path = true;
+    return get_store_slot_and_path(store, stack_slot, path, exact_path) &&
+           exact_path && stack_slot == access_info.slot && path.empty();
 }
 
 CoreIrValue *find_initial_value_in_preheader(
@@ -413,20 +529,9 @@ CoreIrValue *find_initial_value_in_preheader(
                 return store->get_value();
             }
             if (access_info.kind == CoreIrPromotionUnitKind::AccessPath) {
-                const CoreIrPromotionUnitInfo *unit =
-                    promotable_units.find_unit_for_instruction(store);
-                if (unit == access_info.unit_info) {
-                    return store->get_value();
-                }
-                if (store->get_stack_slot() == access_info.slot) {
-                    const CoreIrConstant *constant =
-                        dynamic_cast<const CoreIrConstant *>(store->get_value());
-                    const CoreIrConstant *leaf =
-                        extract_constant_for_access_path(constant,
-                                                         access_info.access_path);
-                    if (leaf != nullptr) {
-                        return const_cast<CoreIrConstant *>(leaf);
-                    }
+                if (CoreIrValue *leaf = extract_store_leaf_value(*store, access_info);
+                    leaf != nullptr) {
+                    return leaf;
                 }
             }
         }
@@ -667,8 +772,18 @@ bool rename_promoted_slot(CoreIrBasicBlock &block, const CoreIrLoopInfo &loop,
         }
 
         if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
-            store != nullptr && in_unit(store)) {
-            promotion_context.value_stack.push_back(store->get_value());
+            store != nullptr && (in_unit(store) || store_clobbers_access_info(*store, access_info))) {
+            CoreIrValue *stored_value = extract_store_leaf_value(*store, access_info);
+            if (stored_value == nullptr && !in_unit(store)) {
+                ++index;
+                continue;
+            }
+            promotion_context.value_stack.push_back(
+                stored_value == nullptr ? store->get_value() : stored_value);
+            if (!in_unit(store)) {
+                ++index;
+                continue;
+            }
             CoreIrValue *address = store->get_address();
             erase_instruction(block, store);
             if (address != nullptr) {
@@ -765,7 +880,7 @@ CoreIrInstruction *find_first_exit_block_access_clobber(
             continue;
         }
         auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
-        if (store != nullptr && instruction_matches_access_info(*store, access_info)) {
+        if (store != nullptr && store_clobbers_access_info(*store, access_info)) {
             return instruction;
         }
         if (instruction->get_is_terminator()) {
@@ -781,6 +896,7 @@ bool rewrite_exit_block_local_loads(CoreIrBasicBlock &exit_block,
                                     const UnitLoopAccessInfo &access_info,
                                     CoreIrValue *replacement) {
     bool changed = false;
+    CoreIrValue *current_replacement = replacement;
     auto &instructions = exit_block.get_instructions();
     std::size_t index = 0;
     while (index < instructions.size()) {
@@ -791,8 +907,14 @@ bool rewrite_exit_block_local_loads(CoreIrBasicBlock &exit_block,
         }
 
         auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
-        if (store != nullptr && instruction_matches_access_info(*store, access_info)) {
-            break;
+        if (store != nullptr && store_clobbers_access_info(*store, access_info)) {
+            CoreIrValue *leaf_value = extract_store_leaf_value(*store, access_info);
+            if (leaf_value == nullptr) {
+                break;
+            }
+            current_replacement = leaf_value;
+            ++index;
+            continue;
         }
 
         auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
@@ -801,7 +923,7 @@ bool rewrite_exit_block_local_loads(CoreIrBasicBlock &exit_block,
             continue;
         }
 
-        load->replace_all_uses_with(replacement);
+        load->replace_all_uses_with(current_replacement);
         CoreIrValue *address = load->get_address();
         erase_instruction(exit_block, load);
         if (address != nullptr) {
@@ -959,31 +1081,6 @@ bool exit_blocks_contain_local_store_conflict(const CoreIrLoopInfo &loop,
     return false;
 }
 
-bool whole_slot_has_multiple_loop_local_stores(const CoreIrLoopInfo &loop,
-                                               const UnitLoopAccessInfo &access_info) {
-    if (access_info.kind != CoreIrPromotionUnitKind::WholeSlot) {
-        return false;
-    }
-
-    std::size_t matching_stores = 0;
-    for (CoreIrBasicBlock *block : loop.get_blocks()) {
-        if (block == nullptr) {
-            continue;
-        }
-        for (const auto &instruction_ptr : block->get_instructions()) {
-            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
-            if (store == nullptr || !instruction_matches_access_info(*store, access_info)) {
-                continue;
-            }
-            ++matching_stores;
-            if (matching_stores > 1) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 bool whole_slot_accesses_nested_subloop(const CoreIrLoopInfo &loop,
                                         const UnitLoopAccessInfo &access_info) {
     if (access_info.kind != CoreIrPromotionUnitKind::WholeSlot) {
@@ -1022,6 +1119,38 @@ bool whole_slot_accesses_nested_subloop(const CoreIrLoopInfo &loop,
     return false;
 }
 
+bool access_path_has_nonconstant_whole_slot_store(const CoreIrLoopInfo &loop,
+                                                  const UnitLoopAccessInfo &access_info) {
+    if (access_info.kind != CoreIrPromotionUnitKind::AccessPath) {
+        return false;
+    }
+
+    for (CoreIrBasicBlock *block : loop.get_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+            if (store == nullptr) {
+                continue;
+            }
+
+            CoreIrStackSlot *stack_slot = nullptr;
+            std::vector<std::uint64_t> path;
+            bool exact_path = true;
+            if (!get_store_slot_and_path(*store, stack_slot, path, exact_path) ||
+                !exact_path || stack_slot != access_info.slot || !path.empty()) {
+                continue;
+            }
+
+            if (dynamic_cast<const CoreIrConstant *>(store->get_value()) == nullptr) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool can_promote_slot_in_loop(const CoreIrFunction &function,
                               const CoreIrLoopInfo &loop,
                               const CoreIrPromotableStackSlotAnalysisResult &promotable_units,
@@ -1031,29 +1160,17 @@ bool can_promote_slot_in_loop(const CoreIrFunction &function,
         loop.get_preheader() == nullptr) {
         return false;
     }
-    if (access_info.kind == CoreIrPromotionUnitKind::WholeSlot &&
-        access_info.def_blocks.size() > 1) {
-        return false;
-    }
-    // Whole-slot promotion currently tracks one live value per renamed path.
-    // Once a loop writes the same slot twice in one iteration, especially
-    // across a conditional reset edge, that single-stack model can bypass the
-    // later store. Keep those shapes in memory until the promotion logic grows
-    // a per-edge merge model for whole-slot scalars.
-    if (whole_slot_has_multiple_loop_local_stores(loop, access_info)) {
-        return false;
-    }
     // Outer-loop promotion can bypass loop-local reset stores on the edge into an
     // inner loop, so keep whole-slot scalars in memory when the accesses live in
     // nested subloops.
     if (whole_slot_accesses_nested_subloop(loop, access_info)) {
         return false;
     }
-    if (access_info.kind == CoreIrPromotionUnitKind::WholeSlot &&
-        unit_has_outside_store(function, loop, promotable_units, access_info)) {
+    if (access_path_has_nonconstant_whole_slot_store(loop, access_info)) {
         return false;
     }
-    if (exit_blocks_contain_local_store_conflict(loop, access_info)) {
+    if (access_info.kind == CoreIrPromotionUnitKind::WholeSlot &&
+        unit_has_outside_store(function, loop, promotable_units, access_info)) {
         return false;
     }
     if (find_initial_value_in_preheader(*loop.get_preheader(), access_info,
