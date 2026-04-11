@@ -143,13 +143,14 @@ std::vector<std::size_t> collect_block_successors(
     }
 
     const AArch64MachineInstr &last = instructions.back();
-    if (last.get_mnemonic() == "ret") {
+    if (last.get_opcode() == AArch64MachineOpcode::Return) {
         return successors;
     }
 
     if (instructions.size() >= 2) {
         const AArch64MachineInstr &second_last = instructions[instructions.size() - 2];
-        if (second_last.get_mnemonic() == "cbnz" && last.get_mnemonic() == "b") {
+        if (second_last.get_opcode() == AArch64MachineOpcode::CompareBranchNonZero &&
+            last.get_opcode() == AArch64MachineOpcode::Branch) {
             if (second_last.get_operands().size() >= 2) {
                 const auto *label = second_last.get_operands()[1].get_label_operand();
                 if (label != nullptr) {
@@ -172,7 +173,7 @@ std::vector<std::size_t> collect_block_successors(
         }
     }
 
-    if (last.get_mnemonic() == "cbnz") {
+    if (last.get_opcode() == AArch64MachineOpcode::CompareBranchNonZero) {
         if (last.get_operands().size() >= 2) {
             const auto *label = last.get_operands()[1].get_label_operand();
             if (label != nullptr) {
@@ -188,7 +189,7 @@ std::vector<std::size_t> collect_block_successors(
         return successors;
     }
 
-    if (last.get_mnemonic() == "b") {
+    if (last.get_opcode() == AArch64MachineOpcode::Branch) {
         if (!last.get_operands().empty()) {
             const auto *label = last.get_operands()[0].get_label_operand();
             if (label != nullptr) {

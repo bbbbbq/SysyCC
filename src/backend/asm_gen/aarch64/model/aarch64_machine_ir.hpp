@@ -4,6 +4,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -15,6 +16,78 @@
 namespace sysycc {
 
 class CoreIrStackSlot;
+
+enum class AArch64MachineOpcode : unsigned char {
+    Unknown,
+    DirectiveLoc,
+    DirectiveCfi,
+    Return,
+    Branch,
+    BranchLink,
+    BranchLinkRegister,
+    BranchConditional,
+    CompareBranchZero,
+    CompareBranchNonZero,
+    MoveWideZero,
+    MoveWideKeep,
+    Move,
+    Add,
+    Sub,
+    And,
+    Orr,
+    Eor,
+    Mul,
+    SignedDiv,
+    UnsignedDiv,
+    ShiftLeft,
+    ShiftRightLogical,
+    ShiftRightArithmetic,
+    Compare,
+    ConditionalSelect,
+    ConditionalSet,
+    Adrp,
+    StorePair,
+    LoadPair,
+    Load,
+    Store,
+    LoadByte,
+    StoreByte,
+    LoadHalf,
+    StoreHalf,
+    LoadUnscaled,
+    StoreUnscaled,
+    LoadByteUnscaled,
+    StoreByteUnscaled,
+    LoadHalfUnscaled,
+    StoreHalfUnscaled,
+    FloatMove,
+    FloatAdd,
+    FloatSub,
+    FloatMul,
+    FloatDiv,
+    FloatCompare,
+    SignedIntToFloat,
+    UnsignedIntToFloat,
+    FloatToSignedInt,
+    FloatToUnsignedInt,
+    FloatConvert,
+};
+
+struct AArch64MachineOpcodeDescriptor {
+    AArch64MachineOpcode opcode = AArch64MachineOpcode::Unknown;
+    std::string_view canonical_mnemonic;
+    bool is_directive = false;
+    bool is_call = false;
+    bool is_branch = false;
+};
+
+AArch64MachineOpcode
+classify_aarch64_machine_opcode(std::string_view mnemonic) noexcept;
+std::string_view
+aarch64_machine_opcode_mnemonic(AArch64MachineOpcode opcode) noexcept;
+bool aarch64_machine_opcode_is_directive(AArch64MachineOpcode opcode) noexcept;
+const AArch64MachineOpcodeDescriptor &
+describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept;
 
 enum class AArch64MachineOperandKind : unsigned char {
     VirtualReg,
@@ -29,6 +102,37 @@ enum class AArch64MachineOperandKind : unsigned char {
     MemoryAddress,
 };
 
+enum class AArch64ConditionCode : unsigned char {
+    Eq,
+    Ne,
+    Hs,
+    Lo,
+    Mi,
+    Pl,
+    Vs,
+    Vc,
+    Hi,
+    Ls,
+    Ge,
+    Lt,
+    Gt,
+    Le,
+    Al,
+};
+
+enum class AArch64ShiftKind : unsigned char {
+    Lsl,
+    Lsr,
+    Asr,
+};
+
+std::optional<AArch64ConditionCode>
+parse_aarch64_condition_code(std::string_view text) noexcept;
+std::string_view render_aarch64_condition_code(AArch64ConditionCode code) noexcept;
+std::optional<AArch64ShiftKind>
+parse_aarch64_shift_kind(std::string_view text) noexcept;
+std::string_view render_aarch64_shift_kind(AArch64ShiftKind kind) noexcept;
+
 struct AArch64MachineVirtualRegOperand {
     AArch64VirtualReg reg;
     bool is_def = false;
@@ -40,7 +144,7 @@ struct AArch64MachinePhysicalRegOperand {
 };
 
 struct AArch64MachineConditionCodeOperand {
-    std::string code;
+    AArch64ConditionCode code = AArch64ConditionCode::Eq;
 };
 
 struct AArch64MachineImmediateOperand {
@@ -133,7 +237,7 @@ struct AArch64MachineZeroRegisterOperand {
 };
 
 struct AArch64MachineShiftOperand {
-    std::string mnemonic;
+    AArch64ShiftKind kind = AArch64ShiftKind::Lsl;
     unsigned amount = 0;
 };
 
@@ -215,8 +319,10 @@ class AArch64MachineOperand {
     static AArch64MachineOperand symbol(AArch64SymbolReference reference);
     static AArch64MachineOperand symbol(AArch64MachineSymbolReference reference);
     static AArch64MachineOperand label(std::string text);
+    static AArch64MachineOperand condition_code(AArch64ConditionCode code);
     static AArch64MachineOperand condition_code(std::string code);
     static AArch64MachineOperand zero_register(bool use_64bit);
+    static AArch64MachineOperand shift(AArch64ShiftKind kind, unsigned amount);
     static AArch64MachineOperand shift(std::string mnemonic, unsigned amount);
     static AArch64MachineOperand stack_pointer(bool use_64bit = true);
     static AArch64MachineOperand memory_address_virtual_reg(
@@ -295,6 +401,7 @@ class AArch64MachineOperand {
 
 class AArch64MachineInstr {
   private:
+    AArch64MachineOpcode opcode_ = AArch64MachineOpcode::Unknown;
     std::string mnemonic_;
     std::vector<AArch64MachineOperand> operands_;
     AArch64InstructionFlags flags_;
@@ -306,6 +413,15 @@ class AArch64MachineInstr {
     std::optional<AArch64CallClobberMask> call_clobber_mask_;
 
   public:
+    AArch64MachineInstr(AArch64MachineOpcode opcode,
+                        std::vector<AArch64MachineOperand> operands,
+                        AArch64InstructionFlags flags = {},
+                        std::optional<AArch64DebugLocation> debug_location =
+                            std::nullopt,
+                        std::vector<std::size_t> implicit_defs = {},
+                        std::vector<std::size_t> implicit_uses = {},
+                        std::optional<AArch64CallClobberMask> call_clobber_mask =
+                            std::nullopt);
     AArch64MachineInstr(std::string mnemonic,
                         std::vector<AArch64MachineOperand> operands,
                         AArch64InstructionFlags flags = {},
@@ -322,6 +438,10 @@ class AArch64MachineInstr {
                         std::vector<std::size_t> implicit_uses,
                         std::optional<AArch64CallClobberMask> call_clobber_mask);
 
+    AArch64MachineOpcode get_opcode() const noexcept { return opcode_; }
+    const AArch64MachineOpcodeDescriptor &get_opcode_descriptor() const noexcept {
+        return describe_aarch64_machine_opcode(opcode_);
+    }
     const std::string &get_mnemonic() const noexcept { return mnemonic_; }
     const std::vector<AArch64MachineOperand> &get_operands() const noexcept {
         return operands_;
@@ -346,6 +466,10 @@ class AArch64MachineInstr {
     }
     const std::optional<AArch64DebugLocation> &get_debug_location() const noexcept {
         return debug_location_;
+    }
+    bool is_asm_directive() const noexcept {
+        return get_opcode_descriptor().is_directive ||
+               (!mnemonic_.empty() && mnemonic_.front() == '.');
     }
     void set_debug_location(AArch64DebugLocation debug_location) {
         debug_location_ = std::move(debug_location);
@@ -373,9 +497,7 @@ class AArch64MachineBlock {
     }
 
     void append_instruction(AArch64MachineInstr instruction) {
-        if (pending_debug_location_.has_value() &&
-            (instruction.get_mnemonic().empty() ||
-             instruction.get_mnemonic().front() != '.')) {
+        if (pending_debug_location_.has_value() && !instruction.is_asm_directive()) {
             if (!instruction.get_debug_location().has_value()) {
                 instruction.set_debug_location(*pending_debug_location_);
             }

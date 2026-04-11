@@ -1,5 +1,6 @@
 #include "backend/asm_gen/aarch64/passes/aarch64_spill_rewrite_pass.hpp"
 
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <set>
@@ -56,9 +57,28 @@ struct AArch64SpillRewriteStep {
 };
 
 struct AArch64InstructionRewritePlan {
+    enum class AddressScratchStrategy : unsigned char {
+        NotNeeded,
+        Shared,
+        SharedAfterRepair,
+        StrictReserved,
+    };
+
+    enum class AddressScratchFailureStage : unsigned char {
+        None,
+        SharedAssignment,
+        SharedRepair,
+        StrictAssignment,
+    };
+
     std::vector<AArch64SpillRewriteOperand> operands;
     std::vector<AArch64ScratchAssignment> assignments;
     bool needs_address_scratch = false;
+    bool attempted_strict_address_retry = false;
+    AddressScratchStrategy address_scratch_strategy =
+        AddressScratchStrategy::NotNeeded;
+    AddressScratchFailureStage address_scratch_failure_stage =
+        AddressScratchFailureStage::None;
     std::vector<AArch64SpillRewriteStep> steps;
     std::string failure_reason;
 };
@@ -169,6 +189,28 @@ find_spill_assignment(const AArch64InstructionRewritePlan &plan,
     return nullptr;
 }
 
+const AArch64SpillRewriteOperand *
+find_spill_operand(const AArch64InstructionRewritePlan &plan,
+                   std::size_t virtual_reg_id) {
+    for (const AArch64SpillRewriteOperand &operand : plan.operands) {
+        if (operand.virtual_reg_id == virtual_reg_id) {
+            return &operand;
+        }
+    }
+    return nullptr;
+}
+
+bool spill_operand_can_share_address_scratch(
+    const AArch64SpillRewriteOperand &operand,
+    const AArch64MachineFunction &function) {
+    if (!spill_operand_has_any_def(operand)) {
+        return true;
+    }
+    const auto maybe_offset =
+        function.get_frame_info().get_virtual_reg_spill_offset(operand.virtual_reg_id);
+    return !maybe_offset.has_value() || !spill_slot_requires_address_scratch(*maybe_offset);
+}
+
 AArch64MachineOperand rewrite_spilled_operand(
     const AArch64MachineOperand &operand,
     const std::unordered_map<std::size_t, unsigned> &mapping,
@@ -221,7 +263,11 @@ AArch64MachineOperand rewrite_spilled_operand(
 
 std::string build_spill_assignment_error(const AArch64MachineInstr &instruction,
                                          std::size_t general_role_refs,
-                                         std::size_t float_role_refs) {
+                                         std::size_t float_role_refs,
+                                         std::size_t general_scratch_regs,
+                                         std::size_t float_scratch_regs,
+                                         bool needs_address_scratch,
+                                         const AArch64InstructionRewritePlan &plan) {
     std::ostringstream message;
     message << "unsupported spill split shape for AArch64 instruction '"
             << instruction.get_mnemonic() << "'";
@@ -246,6 +292,46 @@ std::string build_spill_assignment_error(const AArch64MachineInstr &instruction,
     if (!emitted_clause) {
         message << " in the current spill rewriter";
     }
+    message << " (available general scratch=" << general_scratch_regs
+            << ", floating scratch=" << float_scratch_regs;
+    if (instruction.get_flags().is_call ||
+        instruction.get_call_clobber_mask().has_value()) {
+        message << ", call-like";
+    }
+    if (needs_address_scratch) {
+        message << ", needs address scratch";
+        switch (plan.address_scratch_strategy) {
+        case AArch64InstructionRewritePlan::AddressScratchStrategy::NotNeeded:
+            break;
+        case AArch64InstructionRewritePlan::AddressScratchStrategy::Shared:
+            message << ", address strategy=shared";
+            break;
+        case AArch64InstructionRewritePlan::AddressScratchStrategy::SharedAfterRepair:
+            message << ", address strategy=shared-repaired";
+            break;
+        case AArch64InstructionRewritePlan::AddressScratchStrategy::StrictReserved:
+            message << ", address strategy=strict-reserved";
+            break;
+        }
+        if (plan.attempted_strict_address_retry) {
+            message << ", strict retry attempted";
+        }
+        switch (plan.address_scratch_failure_stage) {
+        case AArch64InstructionRewritePlan::AddressScratchFailureStage::None:
+            break;
+        case AArch64InstructionRewritePlan::AddressScratchFailureStage::
+            SharedAssignment:
+            message << ", failure stage=shared-assign";
+            break;
+        case AArch64InstructionRewritePlan::AddressScratchFailureStage::SharedRepair:
+            message << ", failure stage=shared-repair";
+            break;
+        case AArch64InstructionRewritePlan::AddressScratchFailureStage::StrictAssignment:
+            message << ", failure stage=strict-assign";
+            break;
+        }
+    }
+    message << ")";
     return message.str();
 }
 
@@ -337,6 +423,97 @@ bool is_dedicated_float_spill_scratch(unsigned reg) {
                      reg) != kAArch64SpillScratchFloatPhysicalRegs.end();
 }
 
+bool physical_reg_group_can_share_address_scratch(
+    const AArch64InstructionRewritePlan &plan, const AArch64MachineFunction &function,
+    unsigned physical_reg) {
+    for (const AArch64ScratchAssignment &assignment : plan.assignments) {
+        if (assignment.physical_reg != physical_reg) {
+            continue;
+        }
+        const AArch64SpillRewriteOperand *operand =
+            find_spill_operand(plan, assignment.virtual_reg_id);
+        if (operand == nullptr) {
+            continue;
+        }
+        if (!spill_operand_can_share_address_scratch(*operand, function)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool swap_spill_assignment_groups(AArch64InstructionRewritePlan &plan,
+                                  unsigned lhs_reg, unsigned rhs_reg) {
+    std::optional<bool> lhs_borrowed;
+    std::optional<bool> rhs_borrowed;
+    for (const AArch64ScratchAssignment &assignment : plan.assignments) {
+        if (assignment.physical_reg == lhs_reg && !lhs_borrowed.has_value()) {
+            lhs_borrowed = assignment.borrowed;
+        } else if (assignment.physical_reg == rhs_reg && !rhs_borrowed.has_value()) {
+            rhs_borrowed = assignment.borrowed;
+        }
+    }
+    if (!lhs_borrowed.has_value()) {
+        return false;
+    }
+    if (!rhs_borrowed.has_value()) {
+        rhs_borrowed = false;
+    }
+
+    for (AArch64ScratchAssignment &assignment : plan.assignments) {
+        if (assignment.physical_reg == lhs_reg) {
+            assignment.physical_reg = rhs_reg;
+            assignment.borrowed = *rhs_borrowed;
+        } else if (assignment.physical_reg == rhs_reg) {
+            assignment.physical_reg = lhs_reg;
+            assignment.borrowed = *lhs_borrowed;
+        }
+    }
+    return true;
+}
+
+bool repair_address_scratch_group(AArch64InstructionRewritePlan &plan,
+                                  const AArch64MachineFunction &function) {
+    if (!plan.needs_address_scratch) {
+        return true;
+    }
+    if (physical_reg_group_can_share_address_scratch(
+            plan, function, kAArch64SpillAddressPhysicalReg)) {
+        return true;
+    }
+
+    std::unordered_set<unsigned> visited;
+    for (const AArch64ScratchAssignment &assignment : plan.assignments) {
+        const unsigned candidate_reg = assignment.physical_reg;
+        if (candidate_reg == kAArch64SpillAddressPhysicalReg ||
+            is_float_physical_reg(candidate_reg) ||
+            visited.find(candidate_reg) != visited.end()) {
+            continue;
+        }
+        visited.insert(candidate_reg);
+        if (!physical_reg_group_can_share_address_scratch(plan, function,
+                                                          candidate_reg)) {
+            continue;
+        }
+        if (!swap_spill_assignment_groups(plan, kAArch64SpillAddressPhysicalReg,
+                                          candidate_reg)) {
+            continue;
+        }
+        if (physical_reg_group_can_share_address_scratch(
+                plan, function, kAArch64SpillAddressPhysicalReg)) {
+            return true;
+        }
+        swap_spill_assignment_groups(plan, kAArch64SpillAddressPhysicalReg,
+                                     candidate_reg);
+    }
+    return false;
+}
+
+bool instruction_acts_like_call(const AArch64MachineInstr &instruction) {
+    return instruction.get_flags().is_call ||
+           instruction.get_call_clobber_mask().has_value();
+}
+
 void record_instruction_used_physical_regs(
     const AArch64MachineOperand &operand, const AArch64MachineFunction &function,
     std::unordered_set<unsigned> &general_regs,
@@ -391,9 +568,10 @@ void record_instruction_used_physical_regs(
 }
 
 AArch64ScratchPool build_general_spill_scratch_pool(
+    const AArch64MachineInstr &instruction,
     const AArch64MachineFunction &function,
     const std::unordered_set<unsigned> &instruction_general_regs,
-    bool is_call_instruction) {
+    bool needs_address_scratch, bool allow_address_reg_sharing) {
     AArch64ScratchPool pool;
     std::set<unsigned> allocated;
     for (const auto &[id, physical_reg] : function.get_virtual_reg_allocation()) {
@@ -417,6 +595,10 @@ AArch64ScratchPool build_general_spill_scratch_pool(
     for (unsigned reg : kAArch64SpillScratchGeneralPhysicalRegs) {
         append_if_available(reg, false);
     }
+    if (!needs_address_scratch ||
+        (needs_address_scratch && allow_address_reg_sharing)) {
+        append_if_available(kAArch64SpillAddressPhysicalReg, false);
+    }
     for (unsigned reg : kAArch64CallerSavedAllocatableGeneralPhysicalRegs) {
         if (allocated.find(reg) == allocated.end()) {
             append_if_available(reg, false);
@@ -427,8 +609,13 @@ AArch64ScratchPool build_general_spill_scratch_pool(
             append_if_available(reg, false);
         }
     }
+    if (!instruction_acts_like_call(instruction)) {
+        for (unsigned reg : kAArch64FixedBorrowableGeneralPhysicalRegs) {
+            append_if_available(reg, true);
+        }
+    }
     for (unsigned reg : kAArch64CallerSavedAllocatableGeneralPhysicalRegs) {
-        if (!is_call_instruction && allocated.find(reg) != allocated.end()) {
+        if (allocated.find(reg) != allocated.end()) {
             append_if_available(reg, true);
         }
     }
@@ -441,9 +628,9 @@ AArch64ScratchPool build_general_spill_scratch_pool(
 }
 
 AArch64ScratchPool build_float_spill_scratch_pool(
+    const AArch64MachineInstr &instruction,
     const AArch64MachineFunction &function,
-    const std::unordered_set<unsigned> &instruction_float_regs,
-    bool is_call_instruction) {
+    const std::unordered_set<unsigned> &instruction_float_regs) {
     AArch64ScratchPool pool;
     std::set<unsigned> allocated;
     for (const auto &[id, physical_reg] : function.get_virtual_reg_allocation()) {
@@ -477,8 +664,13 @@ AArch64ScratchPool build_float_spill_scratch_pool(
             append_if_available(reg, false);
         }
     }
+    if (!instruction_acts_like_call(instruction)) {
+        for (unsigned reg : kAArch64FixedBorrowableFloatPhysicalRegs) {
+            append_if_available(reg, true);
+        }
+    }
     for (unsigned reg : kAArch64CallerSavedAllocatableFloatPhysicalRegs) {
-        if (!is_call_instruction && allocated.find(reg) != allocated.end()) {
+        if (allocated.find(reg) != allocated.end()) {
             append_if_available(reg, true);
         }
     }
@@ -507,7 +699,6 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
     std::vector<const AArch64SpillRewriteOperand *> general_use_operands;
     std::vector<const AArch64SpillRewriteOperand *> general_def_operands;
     std::vector<const AArch64SpillRewriteOperand *> general_value_alias_uses;
-    std::vector<const AArch64SpillRewriteOperand *> general_address_alias_uses;
     std::vector<const AArch64SpillRewriteOperand *> float_use_operands;
     std::vector<const AArch64SpillRewriteOperand *> float_def_operands;
     std::vector<const AArch64SpillRewriteOperand *> float_alias_uses;
@@ -548,39 +739,91 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
                 general_value_alias_uses.push_back(&operand);
             }
         }
-        if (!is_float && !has_def && !has_value_use && has_address_use) {
-            general_address_alias_uses.push_back(&operand);
-        }
     }
 
-    // Reuse value-use scratch registers before falling back to address-base aliases.
-    std::vector<const AArch64SpillRewriteOperand *> general_alias_uses =
-        general_value_alias_uses;
-    general_alias_uses.insert(general_alias_uses.end(),
-                              general_address_alias_uses.begin(),
-                              general_address_alias_uses.end());
-
-    const AArch64ScratchPool general_scratch_pool =
-        build_general_spill_scratch_pool(function, instruction_general_regs,
-                                         instruction.get_flags().is_call);
     const AArch64ScratchPool float_scratch_pool =
-        build_float_spill_scratch_pool(function, instruction_float_regs,
-                                       instruction.get_flags().is_call);
+        build_float_spill_scratch_pool(instruction, function,
+                                       instruction_float_regs);
 
-    const bool assigned_general = assign_spill_bank_operands(
-        plan, general_use_operands, general_def_operands, general_alias_uses,
-        general_scratch_pool);
-    const bool assigned_float = assign_spill_bank_operands(
-        plan, float_use_operands, float_def_operands, float_alias_uses,
-        float_scratch_pool);
+    std::size_t general_scratch_count = 0;
+    std::size_t float_scratch_count = float_scratch_pool.regs.size();
+    bool assigned = false;
 
-    if (!assigned_general || !assigned_float) {
+    auto try_assign = [&](bool allow_address_reg_sharing) -> bool {
+        plan.assignments.clear();
+        if (!plan.needs_address_scratch) {
+            plan.address_scratch_strategy =
+                AArch64InstructionRewritePlan::AddressScratchStrategy::NotNeeded;
+        } else if (allow_address_reg_sharing) {
+            plan.address_scratch_strategy =
+                AArch64InstructionRewritePlan::AddressScratchStrategy::Shared;
+        } else {
+            plan.address_scratch_strategy =
+                AArch64InstructionRewritePlan::AddressScratchStrategy::StrictReserved;
+        }
+        const AArch64ScratchPool current_general_pool =
+            build_general_spill_scratch_pool(instruction, function,
+                                             instruction_general_regs,
+                                             plan.needs_address_scratch,
+                                             allow_address_reg_sharing);
+        general_scratch_count = current_general_pool.regs.size();
+        float_scratch_count = float_scratch_pool.regs.size();
+        const bool assigned_general = assign_spill_bank_operands(
+            plan, general_use_operands, general_def_operands,
+            general_value_alias_uses, current_general_pool);
+        const bool assigned_float = assign_spill_bank_operands(
+            plan, float_use_operands, float_def_operands, float_alias_uses,
+            float_scratch_pool);
+        if (!assigned_general || !assigned_float) {
+            if (plan.needs_address_scratch) {
+                plan.address_scratch_failure_stage =
+                    allow_address_reg_sharing
+                        ? AArch64InstructionRewritePlan::
+                              AddressScratchFailureStage::SharedAssignment
+                        : AArch64InstructionRewritePlan::
+                              AddressScratchFailureStage::StrictAssignment;
+            }
+            return false;
+        }
+        if (allow_address_reg_sharing) {
+            const bool shareable_before_repair =
+                physical_reg_group_can_share_address_scratch(
+                    plan, function, kAArch64SpillAddressPhysicalReg);
+            if (!repair_address_scratch_group(plan, function)) {
+                plan.address_scratch_failure_stage =
+                    AArch64InstructionRewritePlan::AddressScratchFailureStage::
+                        SharedRepair;
+                return false;
+            }
+            if (!shareable_before_repair) {
+                plan.address_scratch_strategy =
+                    AArch64InstructionRewritePlan::AddressScratchStrategy::
+                        SharedAfterRepair;
+            }
+        }
+        plan.address_scratch_failure_stage =
+            AArch64InstructionRewritePlan::AddressScratchFailureStage::None;
+        return true;
+    };
+
+    // First try to share x28 as a value scratch when the address-temp users allow it.
+    // If that staged assignment cannot be repaired, fall back to reserving x28 strictly
+    // for large-offset frame materialization.
+    assigned = try_assign(true);
+    if (!assigned && plan.needs_address_scratch) {
+        plan.attempted_strict_address_retry = true;
+        assigned = try_assign(false);
+    }
+
+    if (!assigned) {
         const std::size_t general_roles =
             general_use_operands.size() + general_def_operands.size();
         const std::size_t float_roles =
             float_use_operands.size() + float_def_operands.size();
         plan.failure_reason = build_spill_assignment_error(
-            instruction, general_roles, float_roles);
+            instruction, general_roles, float_roles,
+            general_scratch_count, float_scratch_count,
+            plan.needs_address_scratch, plan);
         return plan;
     }
 
@@ -589,20 +832,62 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
         spill_mapping.emplace(assignment.virtual_reg_id, assignment.physical_reg);
     }
 
+    std::vector<const AArch64SpillRewriteOperand *> load_operands;
+    std::vector<const AArch64SpillRewriteOperand *> store_operands;
     for (const AArch64SpillRewriteOperand &operand : plan.operands) {
-        if (!spill_operand_has_any_use(operand)) {
-            continue;
+        if (spill_operand_has_any_use(operand)) {
+            load_operands.push_back(&operand);
         }
+        if (spill_operand_has_any_def(operand)) {
+            store_operands.push_back(&operand);
+        }
+    }
+    std::stable_sort(load_operands.begin(), load_operands.end(),
+                     [&](const AArch64SpillRewriteOperand *lhs,
+                         const AArch64SpillRewriteOperand *rhs) {
+                         const AArch64ScratchAssignment *lhs_assignment =
+                             find_spill_assignment(plan, lhs->virtual_reg_id);
+                         const AArch64ScratchAssignment *rhs_assignment =
+                             find_spill_assignment(plan, rhs->virtual_reg_id);
+                         const bool lhs_is_address_reg =
+                             lhs_assignment != nullptr &&
+                             lhs_assignment->physical_reg ==
+                                 kAArch64SpillAddressPhysicalReg;
+                         const bool rhs_is_address_reg =
+                             rhs_assignment != nullptr &&
+                             rhs_assignment->physical_reg ==
+                                 kAArch64SpillAddressPhysicalReg;
+                         return !lhs_is_address_reg && rhs_is_address_reg;
+                     });
+    std::stable_sort(store_operands.begin(), store_operands.end(),
+                     [&](const AArch64SpillRewriteOperand *lhs,
+                         const AArch64SpillRewriteOperand *rhs) {
+                         const AArch64ScratchAssignment *lhs_assignment =
+                             find_spill_assignment(plan, lhs->virtual_reg_id);
+                         const AArch64ScratchAssignment *rhs_assignment =
+                             find_spill_assignment(plan, rhs->virtual_reg_id);
+                         const bool lhs_is_address_reg =
+                             lhs_assignment != nullptr &&
+                             lhs_assignment->physical_reg ==
+                                 kAArch64SpillAddressPhysicalReg;
+                         const bool rhs_is_address_reg =
+                             rhs_assignment != nullptr &&
+                             rhs_assignment->physical_reg ==
+                                 kAArch64SpillAddressPhysicalReg;
+                         return lhs_is_address_reg && !rhs_is_address_reg;
+                     });
+
+    for (const AArch64SpillRewriteOperand *operand : load_operands) {
         const AArch64ScratchAssignment *assignment =
-            find_spill_assignment(plan, operand.virtual_reg_id);
+            find_spill_assignment(plan, operand->virtual_reg_id);
         if (assignment == nullptr) {
             continue;
         }
         plan.steps.push_back(AArch64SpillRewriteStep{
             AArch64SpillRewriteStep::Kind::LoadUse,
-            operand.virtual_reg_id,
+            operand->virtual_reg_id,
             assignment->physical_reg,
-            operand.kind,
+            operand->kind,
             std::nullopt});
     }
 
@@ -623,20 +908,17 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
                             instruction.get_implicit_uses(),
                             instruction.get_call_clobber_mask())});
 
-    for (const AArch64SpillRewriteOperand &operand : plan.operands) {
-        if (!spill_operand_has_any_def(operand)) {
-            continue;
-        }
+    for (const AArch64SpillRewriteOperand *operand : store_operands) {
         const AArch64ScratchAssignment *assignment =
-            find_spill_assignment(plan, operand.virtual_reg_id);
+            find_spill_assignment(plan, operand->virtual_reg_id);
         if (assignment == nullptr) {
             continue;
         }
         plan.steps.push_back(AArch64SpillRewriteStep{
             AArch64SpillRewriteStep::Kind::StoreDef,
-            operand.virtual_reg_id,
+            operand->virtual_reg_id,
             assignment->physical_reg,
-            operand.kind,
+            operand->kind,
             std::nullopt});
     }
 

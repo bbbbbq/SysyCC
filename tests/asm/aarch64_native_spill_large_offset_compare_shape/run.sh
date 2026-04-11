@@ -28,17 +28,12 @@ assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 assert_file_nonempty "${ASM_FILE}"
 
 assert_no_illegal_aarch64_index_forms "${ASM_FILE}"
-grep -Eq '^[[:space:]]*blr x[0-9]+$' "${ASM_FILE}"
-grep -Eq '^[[:space:]]*str x19, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
-grep -Eq '^[[:space:]]*str x20, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
-grep -Eq '^[[:space:]]*mov w[0-9]+, w0$' "${ASM_FILE}"
-if grep -Eq '^[[:space:]]*mov w0, w1[0-9]$' "${ASM_FILE}"; then
-    echo "unexpected reversed indirect-call result copy leaked into final asm" >&2
-    exit 1
-fi
+grep -Eq '^[[:space:]]*add x[0-9]+, x[0-9]+, #508$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*cmp w[0-9]+, w[0-9]+$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*cset w[0-9]+, lt$' "${ASM_FILE}"
 if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then
     echo "unexpected virtual register token leaked into final asm" >&2
     exit 1
 fi
 
-echo "verified: spill-heavy indirect-call lowering still produces concrete AArch64 asm"
+echo "verified: large-offset spill pressure still lowers compare-heavy code into concrete AArch64 asm"

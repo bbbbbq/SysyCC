@@ -124,7 +124,7 @@ bool has_exact_instruction_shape(const AArch64MachineInstr &instruction,
             actual_shift != nullptr) {
             const auto *expected_shift = expected_operand.get_shift_operand();
             if (expected_shift == nullptr ||
-                actual_shift->mnemonic != expected_shift->mnemonic ||
+                actual_shift->kind != expected_shift->kind ||
                 actual_shift->amount != expected_shift->amount) {
                 return false;
             }

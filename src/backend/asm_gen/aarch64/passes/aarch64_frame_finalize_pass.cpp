@@ -55,8 +55,7 @@ void append_saved_reg_load(std::vector<AArch64MachineInstr> &instructions,
 }
 
 bool is_real_machine_instruction(const AArch64MachineInstr &instruction) {
-    return instruction.get_mnemonic().empty() ||
-           instruction.get_mnemonic().front() != '.';
+    return !instruction.is_asm_directive();
 }
 
 std::size_t count_real_instruction_bytes(

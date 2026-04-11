@@ -31,6 +31,11 @@ assert_no_illegal_aarch64_index_forms "${ASM_FILE}"
 grep -q '^  bl inc$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*str x19, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
 grep -Eq '^[[:space:]]*str x20, \[x29, #-[0-9]+\]$' "${ASM_FILE}"
+grep -Eq '^[[:space:]]*mov w[0-9]+, w0$' "${ASM_FILE}"
+if grep -Eq '^[[:space:]]*mov w0, w1[0-9]$' "${ASM_FILE}"; then
+    echo "unexpected reversed call-result copy leaked into final asm" >&2
+    exit 1
+fi
 if grep -Eq '%[ud][0-9]+[wx]' "${ASM_FILE}"; then
     echo "unexpected virtual register token leaked into final asm" >&2
     exit 1
