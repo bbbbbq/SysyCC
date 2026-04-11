@@ -374,11 +374,26 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
             {AArch64MachineOperand::immediate(std::to_string(frame_size + 16))}));
         break;
     case AArch64StandardFrameShellOpKind::DeallocateLocalFrame:
+        bundle.frame_record_directives.push_back(
+            AArch64CfiDirective{
+                .kind = AArch64CfiDirectiveKind::DefCfaOffset,
+                .reg = static_cast<unsigned>(AArch64PhysicalReg::X29),
+                .offset = 16});
         bundle.asm_instructions.push_back(
             cfi_instruction(".cfi_def_cfa_offset",
                             {AArch64MachineOperand::immediate("16")}));
         break;
     case AArch64StandardFrameShellOpKind::RestoreFrameRecord:
+        bundle.frame_record_directives.push_back(
+            AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::Restore,
+                                .reg = static_cast<unsigned>(AArch64PhysicalReg::X29)});
+        bundle.frame_record_directives.push_back(
+            AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::Restore,
+                                .reg = static_cast<unsigned>(AArch64PhysicalReg::X30)});
+        bundle.frame_record_directives.push_back(
+            AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::DefCfa,
+                                .reg = 31,
+                                .offset = 0});
         bundle.asm_instructions.push_back(
             cfi_instruction(".cfi_restore",
                             {AArch64MachineOperand::immediate("29")}));

@@ -46,6 +46,36 @@ bool same_debug_location(const AArch64DebugLocation &lhs,
            lhs.column == rhs.column;
 }
 
+void append_rendered_cfi_directive(std::ostringstream &output,
+                                   const AArch64CfiDirective &directive) {
+    switch (directive.kind) {
+    case AArch64CfiDirectiveKind::StartProcedure:
+        output << "  .cfi_startproc\n";
+        return;
+    case AArch64CfiDirectiveKind::EndProcedure:
+        output << "  .cfi_endproc\n";
+        return;
+    case AArch64CfiDirectiveKind::DefCfa:
+        output << "  .cfi_def_cfa "
+               << (directive.reg == 31 ? "sp" : std::to_string(directive.reg))
+               << ", " << directive.offset << "\n";
+        return;
+    case AArch64CfiDirectiveKind::DefCfaRegister:
+        output << "  .cfi_def_cfa_register " << directive.reg << "\n";
+        return;
+    case AArch64CfiDirectiveKind::DefCfaOffset:
+        output << "  .cfi_def_cfa_offset " << directive.offset << "\n";
+        return;
+    case AArch64CfiDirectiveKind::Offset:
+        output << "  .cfi_offset " << directive.reg << ", " << directive.offset
+               << "\n";
+        return;
+    case AArch64CfiDirectiveKind::Restore:
+        output << "  .cfi_restore " << directive.reg << "\n";
+        return;
+    }
+}
+
 void append_rendered_instruction(std::ostringstream &output,
                                  const AArch64MachineInstr &instruction,
                                  const AArch64MachineFunction &function) {
@@ -112,8 +142,18 @@ std::string print_module_with_options(const AArch64AsmModule &asm_module,
             }
             output << ".p2align 2\n";
             output << ".type " << function.get_name() << ", %function\n";
+            const std::vector<AArch64CfiDirective> &cfi_directives =
+                function.get_frame_record().get_cfi_directives();
+            std::size_t next_cfi_index = 0;
+            std::size_t code_offset = 0;
             for (const AArch64MachineBlock &block : function.get_blocks()) {
                 output << block.get_label() << ":\n";
+                while (next_cfi_index < cfi_directives.size() &&
+                       cfi_directives[next_cfi_index].kind ==
+                           AArch64CfiDirectiveKind::StartProcedure) {
+                    append_rendered_cfi_directive(output,
+                                                 cfi_directives[next_cfi_index++]);
+                }
                 std::optional<AArch64DebugLocation> last_debug_location;
                 for (const AArch64MachineInstr &instruction : block.get_instructions()) {
                     if (instruction.get_debug_location().has_value() &&
@@ -126,7 +166,25 @@ std::string print_module_with_options(const AArch64AsmModule &asm_module,
                         last_debug_location = instruction.get_debug_location();
                     }
                     append_rendered_instruction(output, instruction, function);
+                    if (instruction.get_mnemonic().empty() ||
+                        instruction.get_mnemonic().front() != '.') {
+                        code_offset += 4;
+                        while (next_cfi_index < cfi_directives.size() &&
+                               cfi_directives[next_cfi_index].kind !=
+                                   AArch64CfiDirectiveKind::StartProcedure &&
+                               cfi_directives[next_cfi_index].kind !=
+                                   AArch64CfiDirectiveKind::EndProcedure &&
+                               cfi_directives[next_cfi_index].code_offset ==
+                                   code_offset) {
+                            append_rendered_cfi_directive(
+                                output, cfi_directives[next_cfi_index++]);
+                        }
+                    }
                 }
+            }
+            while (next_cfi_index < cfi_directives.size()) {
+                append_rendered_cfi_directive(output,
+                                             cfi_directives[next_cfi_index++]);
             }
             output << ".size " << function.get_name() << ", .-" << function.get_name()
                    << "\n";

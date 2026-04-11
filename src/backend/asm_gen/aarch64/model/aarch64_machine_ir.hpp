@@ -390,6 +390,7 @@ class AArch64FunctionFrameInfo {
     std::unordered_map<const CoreIrStackSlot *, std::size_t> stack_slot_offsets_;
     std::unordered_map<std::size_t, std::size_t> virtual_reg_spill_offsets_;
     std::unordered_map<unsigned, std::size_t> saved_physical_reg_offsets_;
+    std::unordered_map<unsigned, std::size_t> borrowed_scratch_reg_offsets_;
     std::set<unsigned> saved_physical_regs_;
     std::size_t local_size_ = 0;
     std::size_t frame_size_ = 0;
@@ -425,6 +426,16 @@ class AArch64FunctionFrameInfo {
     }
     std::size_t get_saved_physical_reg_offset(unsigned reg) const {
         return saved_physical_reg_offsets_.at(reg);
+    }
+    bool has_borrowed_scratch_reg_offset(unsigned reg) const noexcept {
+        return borrowed_scratch_reg_offsets_.find(reg) !=
+               borrowed_scratch_reg_offsets_.end();
+    }
+    void set_borrowed_scratch_reg_offset(unsigned reg, std::size_t offset) {
+        borrowed_scratch_reg_offsets_[reg] = offset;
+    }
+    std::size_t get_borrowed_scratch_reg_offset(unsigned reg) const {
+        return borrowed_scratch_reg_offsets_.at(reg);
     }
     void set_local_size(std::size_t local_size) noexcept { local_size_ = local_size; }
     std::size_t get_local_size() const noexcept { return local_size_; }
