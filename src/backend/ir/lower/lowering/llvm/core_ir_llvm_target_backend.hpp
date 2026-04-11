@@ -4,7 +4,6 @@
 #include <unordered_set>
 #include <sstream>
 #include <string>
-#include <vector>
 
 #include "backend/ir/lower/lowering/core_ir_target_backend.hpp"
 
@@ -22,16 +21,10 @@ class CoreIrValue;
 
 class CoreIrLlvmTargetBackend final : public CoreIrTargetBackend {
   private:
-    struct EmittedGepChain {
-        const CoreIrValue *root_base = nullptr;
-        std::vector<const CoreIrValue *> indices;
-    };
-
     std::ostringstream output_;
     std::size_t helper_id_ = 0;
     std::size_t next_value_id_ = 0;
     std::unordered_map<const CoreIrValue *, std::string> emitted_value_names_;
-    std::unordered_map<const CoreIrValue *, EmittedGepChain> emitted_gep_chains_;
     std::unordered_map<const CoreIrStackSlot *, std::string> emitted_stack_slot_names_;
     std::unordered_set<std::string> used_stack_slot_names_;
 
