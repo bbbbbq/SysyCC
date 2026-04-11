@@ -2,6 +2,7 @@
 
 #include <array>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -211,10 +212,11 @@ std::string build_spill_assignment_error(const AArch64MachineInstr &instruction,
                                          std::size_t general_role_refs,
                                          std::size_t float_role_refs) {
     std::ostringstream message;
-    message << "AArch64 spill rewrite could not assign the available scratch registers";
+    message << "unsupported spill split shape for AArch64 instruction '"
+            << instruction.get_mnemonic() << "'";
     bool emitted_clause = false;
     if (general_role_refs != 0) {
-        message << " for " << general_role_refs << " general role reference";
+        message << " with " << general_role_refs << " general role reference";
         if (general_role_refs != 1) {
             message << "s";
         }
@@ -231,19 +233,17 @@ std::string build_spill_assignment_error(const AArch64MachineInstr &instruction,
         emitted_clause = true;
     }
     if (!emitted_clause) {
-        message << " for an unsupported scratch-role configuration";
+        message << " in the current spill rewriter";
     }
-    message << " in AArch64 instruction '" << instruction.get_mnemonic() << "'";
     return message.str();
 }
 
-template <std::size_t N>
 bool assign_spill_bank_operands(
     AArch64InstructionRewritePlan &plan,
     const std::vector<const AArch64SpillRewriteOperand *> &use_operands,
     const std::vector<const AArch64SpillRewriteOperand *> &def_operands,
     const std::vector<const AArch64SpillRewriteOperand *> &aliasable_use_operands,
-    const std::array<unsigned, N> &scratch_regs) {
+    const std::vector<unsigned> &scratch_regs) {
     std::size_t next_scratch = 0;
     std::unordered_set<std::size_t> consumed_alias_sources;
 
@@ -309,9 +309,68 @@ bool assign_spill_bank_operands(
     return true;
 }
 
+bool is_dedicated_general_spill_scratch(unsigned reg) {
+    return std::find(kAArch64SpillScratchGeneralPhysicalRegs.begin(),
+                     kAArch64SpillScratchGeneralPhysicalRegs.end(),
+                     reg) != kAArch64SpillScratchGeneralPhysicalRegs.end() ||
+           reg == kAArch64SpillAddressPhysicalReg;
+}
+
+bool is_dedicated_float_spill_scratch(unsigned reg) {
+    return std::find(kAArch64SpillScratchFloatPhysicalRegs.begin(),
+                     kAArch64SpillScratchFloatPhysicalRegs.end(),
+                     reg) != kAArch64SpillScratchFloatPhysicalRegs.end();
+}
+
+std::vector<unsigned>
+build_general_spill_scratch_pool(const AArch64MachineFunction &function) {
+    std::vector<unsigned> regs(kAArch64SpillScratchGeneralPhysicalRegs.begin(),
+                               kAArch64SpillScratchGeneralPhysicalRegs.end());
+    std::set<unsigned> allocated;
+    for (const auto &[id, physical_reg] : function.get_virtual_reg_allocation()) {
+        (void)id;
+        allocated.insert(physical_reg);
+    }
+    for (unsigned reg : kAArch64CallerSavedAllocatableGeneralPhysicalRegs) {
+        if (allocated.find(reg) == allocated.end()) {
+            regs.push_back(reg);
+        }
+    }
+    for (unsigned reg : kAArch64CalleeSavedAllocatableGeneralPhysicalRegs) {
+        if (allocated.find(reg) == allocated.end()) {
+            regs.push_back(reg);
+        }
+    }
+    return regs;
+}
+
+std::vector<unsigned>
+build_float_spill_scratch_pool(const AArch64MachineFunction &function) {
+    std::vector<unsigned> regs(kAArch64SpillScratchFloatPhysicalRegs.begin(),
+                               kAArch64SpillScratchFloatPhysicalRegs.end());
+    std::set<unsigned> allocated;
+    for (const auto &[id, physical_reg] : function.get_virtual_reg_allocation()) {
+        (void)id;
+        allocated.insert(physical_reg);
+    }
+    for (unsigned reg : kAArch64CallerSavedAllocatableFloatPhysicalRegs) {
+        if (allocated.find(reg) == allocated.end()) {
+            regs.push_back(reg);
+        }
+    }
+    for (unsigned reg : kAArch64CalleeSavedAllocatableFloatPhysicalRegs) {
+        if (allocated.find(reg) == allocated.end()) {
+            regs.push_back(reg);
+        }
+    }
+    return regs;
+}
+
 AArch64InstructionRewritePlan
 build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
-                               const AArch64MachineFunction &function) {
+                               const AArch64MachineFunction &function,
+                               const std::vector<unsigned> &general_scratch_regs,
+                               const std::vector<unsigned> &float_scratch_regs) {
     AArch64InstructionRewritePlan plan;
     std::unordered_map<std::size_t, std::size_t> operand_indices;
 
@@ -377,10 +436,10 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
 
     const bool assigned_general = assign_spill_bank_operands(
         plan, general_use_operands, general_def_operands, general_alias_uses,
-        kAArch64SpillScratchGeneralPhysicalRegs);
+        general_scratch_regs);
     const bool assigned_float = assign_spill_bank_operands(
         plan, float_use_operands, float_def_operands, float_alias_uses,
-        kAArch64SpillScratchFloatPhysicalRegs);
+        float_scratch_regs);
 
     if (!assigned_general || !assigned_float) {
         const std::size_t general_roles =
@@ -460,18 +519,32 @@ void add_backend_error(DiagnosticEngine &diagnostic_engine,
 
 bool AArch64SpillRewritePass::run(AArch64MachineFunction &function,
                                   DiagnosticEngine &diagnostic_engine) const {
+    const std::vector<unsigned> general_scratch_regs =
+        build_general_spill_scratch_pool(function);
+    const std::vector<unsigned> float_scratch_regs =
+        build_float_spill_scratch_pool(function);
     for (AArch64MachineBlock &block : function.get_blocks()) {
         std::vector<AArch64MachineInstr> rewritten;
         for (AArch64MachineInstr &instruction : block.get_instructions()) {
             AArch64InstructionRewritePlan rewrite_plan =
-                build_instruction_rewrite_plan(instruction, function);
+                build_instruction_rewrite_plan(instruction, function,
+                                               general_scratch_regs,
+                                               float_scratch_regs);
             if (!rewrite_plan.failure_reason.empty()) {
                 add_backend_error(diagnostic_engine, rewrite_plan.failure_reason);
                 return false;
             }
 
             for (const AArch64ScratchAssignment &assignment : rewrite_plan.assignments) {
-                if (!is_float_physical_reg(assignment.physical_reg)) {
+                if (!is_float_physical_reg(assignment.physical_reg) &&
+                    (is_dedicated_general_spill_scratch(assignment.physical_reg) ||
+                     is_aarch64_callee_saved_allocatable_general_physical_reg(
+                         assignment.physical_reg))) {
+                    function.get_frame_info().mark_saved_physical_reg(
+                        assignment.physical_reg);
+                } else if (is_float_physical_reg(assignment.physical_reg) &&
+                           is_aarch64_callee_saved_allocatable_float_physical_reg(
+                               assignment.physical_reg)) {
                     function.get_frame_info().mark_saved_physical_reg(
                         assignment.physical_reg);
                 }
