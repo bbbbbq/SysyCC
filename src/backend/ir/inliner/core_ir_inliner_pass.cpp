@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "backend/ir/analysis/analysis_manager.hpp"
+#include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -26,6 +27,7 @@ using sysycc::detail::clone_instruction_remapped;
 constexpr std::size_t kInlineBudget = 160;
 constexpr std::size_t kAlwaysInlineBudget = 192;
 constexpr std::size_t kPointerLoopInlineBudget = 16;
+constexpr std::size_t kLoopifiedScalarHotLoopInlineBudget = 32;
 
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
     const std::string message =
@@ -109,6 +111,24 @@ bool callee_has_cfg_backedge(const CoreIrFunction &callee) {
     return false;
 }
 
+bool block_is_inside_loop(
+    const CoreIrBasicBlock *block,
+    const CoreIrLoopInfoAnalysisResult &loop_info) {
+    if (block == nullptr) {
+        return false;
+    }
+
+    for (const auto &loop_ptr : loop_info.get_loops()) {
+        const CoreIrLoopInfo *loop = loop_ptr.get();
+        if (loop != nullptr &&
+            loop->get_blocks().find(const_cast<CoreIrBasicBlock *>(block)) !=
+                loop->get_blocks().end()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::vector<CoreIrBasicBlock *> collect_terminator_successors(
     CoreIrInstruction *terminator) {
     std::vector<CoreIrBasicBlock *> successors;
@@ -155,7 +175,8 @@ bool rewrite_phi_predecessor(CoreIrBasicBlock *successor,
 }
 
 bool callee_is_inline_candidate(CoreIrFunction &callee,
-                                const CoreIrCallGraphAnalysisResult &call_graph) {
+                                const CoreIrCallGraphAnalysisResult &call_graph,
+                                bool callsite_in_loop) {
     if (callee.get_basic_blocks().empty() || callee.get_is_variadic() ||
         call_graph.is_recursive(&callee) ||
         callee.get_basic_blocks().front() == nullptr) {
@@ -173,7 +194,9 @@ bool callee_is_inline_candidate(CoreIrFunction &callee,
         return false;
     }
     if (!callee.get_is_always_inline() && !callee_has_pointer_parameter(callee) &&
-        callee_has_cfg_backedge(callee)) {
+        callee_has_cfg_backedge(callee) &&
+        (!callsite_in_loop ||
+         inline_cost > kLoopifiedScalarHotLoopInlineBudget)) {
         return false;
     }
     bool saw_return = false;
@@ -454,6 +477,8 @@ PassResult CoreIrInlinerPass::Run(CompilerContext &context) {
         if (caller == nullptr) {
             continue;
         }
+        const CoreIrLoopInfoAnalysisResult &loop_info =
+            analysis_manager->get_or_compute<CoreIrLoopInfoAnalysis>(*caller);
         bool changed = false;
         for (std::size_t block_index = 0;
              block_index < caller->get_basic_blocks().size(); ++block_index) {
@@ -461,6 +486,7 @@ PassResult CoreIrInlinerPass::Run(CompilerContext &context) {
             if (block == nullptr) {
                 continue;
             }
+            const bool callsite_in_loop = block_is_inside_loop(block, loop_info);
             auto &instructions = block->get_instructions();
             for (std::size_t index = 0; index < instructions.size();) {
                 auto *call = dynamic_cast<CoreIrCallInst *>(instructions[index].get());
@@ -470,7 +496,8 @@ PassResult CoreIrInlinerPass::Run(CompilerContext &context) {
                 }
                 CoreIrFunction *callee = module->find_function(call->get_callee_name());
                 if (callee == nullptr || callee == caller ||
-                    !callee_is_inline_candidate(*callee, call_graph)) {
+                    !callee_is_inline_candidate(*callee, call_graph,
+                                                callsite_in_loop)) {
                     ++index;
                     continue;
                 }
