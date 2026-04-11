@@ -193,6 +193,20 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
                                       true);
     }
 
+    AArch64SymbolReference
+    make_symbol_reference(const std::string &name, AArch64SymbolKind kind,
+                          AArch64SymbolBinding binding,
+                          std::optional<AArch64SectionKind> section_kind = std::nullopt,
+                          long long addend = 0,
+                          bool is_defined = false) const override {
+        if (object_module_ != nullptr) {
+            return object_module_->make_symbol_reference(
+                name, kind, binding, section_kind, addend, is_defined);
+        }
+        return AArch64SymbolReference::direct(name, kind, binding, section_kind,
+                                              addend, is_defined);
+    }
+
     unsigned record_debug_file(const SourceFile *source_file) {
         if (object_module_ == nullptr || source_file == nullptr ||
             source_file->empty()) {
@@ -303,8 +317,9 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
     void append_helper_call(AArch64MachineBlock &machine_block,
                             const std::string &symbol_name) override {
         record_symbol_reference(symbol_name, AArch64SymbolKind::Helper);
-        const AArch64SymbolReference helper_symbol =
-            AArch64SymbolReference::direct(symbol_name, AArch64SymbolKind::Helper);
+        const AArch64SymbolReference helper_symbol = make_symbol_reference(
+            symbol_name, AArch64SymbolKind::Helper,
+            AArch64SymbolBinding::Global);
         machine_block.append_instruction(
             AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(helper_symbol)},
                                 AArch64InstructionFlags{.is_call = true}, {},

@@ -60,6 +60,15 @@ void AArch64GlobalDataLoweringFacade::record_symbol_reference(
     services_.record_symbol_reference(name, kind);
 }
 
+AArch64SymbolReference AArch64GlobalDataLoweringFacade::make_symbol_reference(
+    const std::string &name, AArch64SymbolKind kind,
+    AArch64SymbolBinding binding,
+    std::optional<AArch64SectionKind> section_kind, long long addend,
+    bool is_defined) const {
+    return services_.make_symbol_reference(name, kind, binding, section_kind,
+                                           addend, is_defined);
+}
+
 void AArch64GlobalDataLoweringFacade::report_error(const std::string &message) {
     add_facade_error(services_.diagnostic_engine(), message);
 }
@@ -176,6 +185,15 @@ bool AArch64FunctionLoweringFacade::add_constant_offset(
 void AArch64FunctionLoweringFacade::record_symbol_reference(
     const std::string &name, AArch64SymbolKind kind) {
     services_.record_symbol_reference(name, kind);
+}
+
+AArch64SymbolReference AArch64FunctionLoweringFacade::make_symbol_reference(
+    const std::string &name, AArch64SymbolKind kind,
+    AArch64SymbolBinding binding,
+    std::optional<AArch64SectionKind> section_kind, long long addend,
+    bool is_defined) const {
+    return services_.make_symbol_reference(name, kind, binding, section_kind,
+                                           addend, is_defined);
 }
 
 bool AArch64FunctionLoweringFacade::is_position_independent() const {
@@ -345,8 +363,8 @@ void AArch64FunctionLoweringFacade::finish_stack_argument_area(
 void AArch64FunctionLoweringFacade::emit_direct_call(
     AArch64MachineBlock &machine_block, const std::string &callee_name) {
     services_.record_symbol_reference(callee_name, AArch64SymbolKind::Function);
-    const AArch64SymbolReference callee_symbol =
-        AArch64SymbolReference::direct(callee_name, AArch64SymbolKind::Function);
+    const AArch64SymbolReference callee_symbol = services_.make_symbol_reference(
+        callee_name, AArch64SymbolKind::Function, AArch64SymbolBinding::Global);
     machine_block.append_instruction(
         AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(callee_symbol)},
                             AArch64InstructionFlags{.is_call = true}, {}, {},
@@ -365,8 +383,8 @@ bool AArch64FunctionLoweringFacade::emit_indirect_call(
 void AArch64FunctionLoweringFacade::append_helper_call(
     AArch64MachineBlock &machine_block, const std::string &symbol_name) {
     services_.record_symbol_reference(symbol_name, AArch64SymbolKind::Helper);
-    const AArch64SymbolReference helper_symbol =
-        AArch64SymbolReference::direct(symbol_name, AArch64SymbolKind::Helper);
+    const AArch64SymbolReference helper_symbol = services_.make_symbol_reference(
+        symbol_name, AArch64SymbolKind::Helper, AArch64SymbolBinding::Global);
     machine_block.append_instruction(
         AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(helper_symbol)},
                             AArch64InstructionFlags{.is_call = true}, {}, {},

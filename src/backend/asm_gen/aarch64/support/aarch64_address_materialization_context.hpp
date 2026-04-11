@@ -40,6 +40,11 @@ class AArch64AddressMaterializationContext {
                                                   const CoreIrType *target_type) = 0;
     virtual void record_symbol_reference(const std::string &name,
                                          AArch64SymbolKind kind) = 0;
+    virtual AArch64SymbolReference
+    make_symbol_reference(const std::string &name, AArch64SymbolKind kind,
+                          AArch64SymbolBinding binding,
+                          std::optional<AArch64SectionKind> section_kind = std::nullopt,
+                          long long addend = 0, bool is_defined = false) const = 0;
     virtual bool is_position_independent() const = 0;
     virtual bool is_nonpreemptible_global_symbol(const std::string &name) const = 0;
     virtual bool is_nonpreemptible_function_symbol(const std::string &name) const = 0;

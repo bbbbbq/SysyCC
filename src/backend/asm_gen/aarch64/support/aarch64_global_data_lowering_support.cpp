@@ -329,10 +329,9 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
             {AArch64RelocationRecord{
                 get_storage_size(type) <= 4 ? AArch64RelocationKind::Absolute32
                                             : AArch64RelocationKind::Absolute64,
-                AArch64SymbolReference::direct(symbol_name,
-                                              AArch64SymbolKind::Object,
-                                              AArch64SymbolBinding::Unknown,
-                                              std::nullopt, offset),
+                context.make_symbol_reference(
+                    symbol_name, AArch64SymbolKind::Object,
+                    AArch64SymbolBinding::Unknown, std::nullopt, offset),
                 0,
             }});
         return true;

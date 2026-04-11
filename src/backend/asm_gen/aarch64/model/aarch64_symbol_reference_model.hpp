@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
@@ -21,6 +22,7 @@ enum class AArch64SymbolBinding : unsigned char {
 };
 
 struct AArch64SymbolDescriptor {
+    std::uint32_t id = 0;
     std::string name;
     AArch64SymbolKind kind = AArch64SymbolKind::Object;
     std::optional<AArch64SectionKind> section_kind;
@@ -33,7 +35,7 @@ struct AArch64SymbolDescriptor {
         std::optional<AArch64SectionKind> section_kind = std::nullopt,
         bool is_defined = false) {
         return AArch64SymbolDescriptor{
-            std::move(name), kind, section_kind, binding, is_defined};
+            0, std::move(name), kind, section_kind, binding, is_defined};
     }
 };
 
@@ -58,6 +60,7 @@ struct AArch64SymbolReference {
     }
 
     const std::string &get_name() const noexcept { return symbol.name; }
+    bool has_symbol_id() const noexcept { return symbol.id != 0; }
 };
 
 } // namespace sysycc

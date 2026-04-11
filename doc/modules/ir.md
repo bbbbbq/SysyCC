@@ -753,6 +753,18 @@ LLVM IR lowering path:
   - `passes/` for backend-internal emission and frame-finalization steps
   while still keeping one public `AArch64AsmGenPass` entry at the compiler
   pipeline boundary
+- the native AArch64 machine IR now also carries a typed opcode compatibility
+  layer on top of the already-typed operands, so core backend consumers such as
+  regalloc/emission/object encoding no longer need to rely only on raw
+  mnemonic-string checks for the most structural instruction classes
+- the native AArch64 direct object writer now also splits its machine
+  instruction encoding support into a dedicated helper layer, so the main ELF
+  writer file is less responsible for both section/symbol/debug orchestration
+  and per-instruction encoding details at the same time
+- the native AArch64 object writer now also starts to separate debug/unwind
+  section construction from the main ELF serialization file, so `.eh_frame` and
+  `.debug_line` generation are no longer forced to live inline next to symbol /
+  relocation / section-table assembly
 - the native AArch64 backend now also models call instructions as clobber points,
   saves/restores actually used callee-saved scratch/allocation registers in the
   function frame, and lowers integer cast legalization through explicit
@@ -796,6 +808,11 @@ LLVM IR lowering path:
   `AArch64RegisterAllocationPass`, `AArch64SpillRewritePass`,
   `AArch64FrameFinalizePass`, and `AArch64EmissionPass` now form the
   backend-local pipeline under the single public `AArch64AsmGenPass`.
+- `AArch64BackendPipeline` now owns the whole native backend flow, including the
+  initial `AArch64MachineLoweringPass` and the backend-local
+  `AArch64CodegenContext` assembly. `AArch64AsmBackend` now remains only as a
+  thin adapter that forwards the public backend entry to that internal
+  pipeline.
 - `AArch64MachineLoweringPass` now only builds machine IR/module state; it no
   longer runs register allocation or frame finalization on the side. Those
   stages are driven only by the internal backend pipeline.
