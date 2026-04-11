@@ -43,6 +43,7 @@ class CoreIrFunction {
     std::vector<std::unique_ptr<CoreIrStackSlot>> stack_slots_;
     std::vector<std::unique_ptr<CoreIrBasicBlock>> basic_blocks_;
     std::vector<bool> parameter_nocapture_;
+    std::vector<bool> parameter_readonly_;
 
   public:
     CoreIrFunction(std::string name, const CoreIrFunctionType *function_type,
@@ -102,6 +103,14 @@ class CoreIrFunction {
 
     void set_parameter_nocapture(std::vector<bool> parameter_nocapture) {
         parameter_nocapture_ = std::move(parameter_nocapture);
+    }
+
+    const std::vector<bool> &get_parameter_readonly() const noexcept {
+        return parameter_readonly_;
+    }
+
+    void set_parameter_readonly(std::vector<bool> parameter_readonly) {
+        parameter_readonly_ = std::move(parameter_readonly);
     }
 
     bool get_is_variadic() const noexcept {

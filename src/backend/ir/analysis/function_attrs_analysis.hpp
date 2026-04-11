@@ -17,6 +17,7 @@ struct CoreIrFunctionAttrsSummary {
     CoreIrMemoryBehavior memory_behavior = CoreIrMemoryBehavior::ReadWrite;
     bool is_norecurse = false;
     std::vector<bool> parameter_nocapture;
+    std::vector<bool> parameter_readonly;
     const CoreIrConstant *constant_return = nullptr;
     std::optional<std::size_t> returned_parameter_index;
 };
