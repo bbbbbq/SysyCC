@@ -939,6 +939,13 @@ std::uint32_t encode_conditional_branch_word(unsigned condition_bits,
     return 0x54000000U | (imm19 << 5) | (condition_bits & 0xfU);
 }
 
+std::uint32_t encode_compare_branch_word(std::uint32_t base, unsigned rt,
+                                         long long delta) {
+    const std::uint32_t imm19 =
+        static_cast<std::uint32_t>((delta >> 2) & 0x7ffffU);
+    return base | (imm19 << 5) | (rt & 0x1fU);
+}
+
 std::uint32_t encode_wide_move_word(std::uint32_t base, unsigned rd,
                                     unsigned imm16, unsigned hw) {
     return base | ((hw & 0x3U) << 21) | ((imm16 & 0xffffU) << 5) |
@@ -1044,6 +1051,35 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             return std::nullopt;
         }
         encoded.word = encode_conditional_branch_word(cond, *delta);
+        return encoded;
+    }
+
+    if (mnemonic == "cbz" || mnemonic == "cbnz") {
+        if (operands.size() != 2 || operands[1].get_label_operand() == nullptr) {
+            return unsupported("compare-and-branch operand shape");
+        }
+        const auto rt = resolve_general_reg_operand(
+            operands[0], function, false, false, diagnostic_engine,
+            mnemonic + " value");
+        if (!rt.has_value()) {
+            return std::nullopt;
+        }
+        const auto delta = resolve_branch_delta(
+            operands[1].get_label_operand()->label_text, pc_offset, scan_info,
+            diagnostic_engine, mnemonic);
+        if (!delta.has_value() || (*delta % 4) != 0 ||
+            !check_signed_range(*delta >> 2, -(1 << 18), (1 << 18) - 1,
+                                diagnostic_engine,
+                                "AArch64 direct object writer: compare-and-branch target out of range")) {
+            return std::nullopt;
+        }
+        std::uint32_t base = 0x34000000U;
+        if (mnemonic == "cbz") {
+            base = rt->use_64bit ? 0xB4000000U : 0x34000000U;
+        } else {
+            base = rt->use_64bit ? 0xB5000000U : 0x35000000U;
+        }
+        encoded.word = encode_compare_branch_word(base, rt->code, *delta);
         return encoded;
     }
 
