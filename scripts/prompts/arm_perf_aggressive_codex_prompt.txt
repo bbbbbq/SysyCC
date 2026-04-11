@@ -1,0 +1,242 @@
+[系统级任务：8小时激进自治 ARM 性能冲刺]
+
+你现在在这个仓库工作：
+/Users/caojunze424/.codex/worktrees/f141/SysyCC
+
+终极目标：
+持续优化 SysyCC 的 Core IR / LLVM IR 优化链，使
+/Users/caojunze424/code/SysyCC/tests/compiler2025/extracted/ARM-性能
+下每一个 ARM 性能测试 case，在以下固定口径下全部满足：
+
+1. SysyCC 输出 LLVM IR（.ll）
+2. 使用 clang 链接生成最终可执行程序
+3. 对比 clang -O3 从源码生成的 baseline
+
+验收标准：
+- 所有 case correctness 通过
+- 所有 case performance >= 75% of clang -O3
+
+时间预算：
+- 你可以持续工作 8 小时
+- 在未达到目标前，不要停止
+- 不要询问是否继续
+- 不要在完成局部提升后停下
+- 除非遇到真正不可恢复的硬阻塞，否则必须一直推进
+
+执行模式：
+这是一个“自动优化循环”任务。
+你必须不断重复：
+- 测量
+- 分析
+- 改代码
+- 验证
+- 提交或回滚
+- 进入下一轮
+
+你必须遵守以下行为准则：
+
+一、总原则
+- 优先做泛化优化，不准写 benchmark-specific 特判
+- 不要回滚不属于你当前任务的别人改动
+- 每轮只做 1-2 个高价值主题，保持可验证
+- 不允许只做分析不写代码
+- 不允许只做修改不测量
+- 不允许只做测量不归因
+- 所有判断必须基于真实 IR 和真实性能数据
+- 如果一条优化没有收益，或者破坏 correctness，必须自动回滚
+- 如果一条优化有收益且 correctness 保持，必须自动提交
+- 每一轮都必须尽量收集可复用证据，避免下一轮重复劳动
+
+二、必须使用的分析方法
+必须使用 ir-opt-gap-analysis 的方法，每轮至少对比：
+
+1. SysyCC final LLVM IR
+2. clang source -O3 LLVM IR
+3. clang -O3 re-optimized LLVM IR from SysyCC .ll
+
+每次只聚焦一个热点函数，优先级如下：
+1. mm / matmul / spmv / transpose / gameoflife 这类热 kernel
+2. 必要时才看 main / helper / init / swap / output
+
+每轮必须明确回答：
+- 当前瓶颈主要在 Core IR optimization、IR shape/provenance 还是 backend
+- 当前最关键缺失优化是什么
+- 修完后 IR 里应该出现什么信号
+
+三、固定循环逻辑
+每一轮严格执行以下流程：
+
+1. Checkpoint
+必须先跑性能和正确性，并写清楚：
+- 当前目标 case 或当前目标 case 组
+- 当前 SysyCC relative performance (% of clang -O3)
+- 距离 75% 还差多少百分点
+- correctness 是否通过
+- 如果在做全套件，还必须写：
+  - 已通过 correctness 的 case 数 / 总 case 数
+  - 已达到 75% 的 case 数 / 总 case 数
+
+2. Root Cause
+必须基于 IR 证据，不准空谈。
+必须按下面顺序检查：
+- local SSAization
+- CFG / loop canonical form
+- scalar cleanup
+- memory cleanup
+- address/GEP canonicalization
+- module optimization
+- vectorization / SLP
+- function attrs / alias facts
+
+每轮必须产出：
+- Bottleneck layer
+- Top missing optimizations
+- Evidence with exact files/lines
+- Expected post-fix IR signal
+
+3. Action
+直接写代码。
+优先级固定：
+1. 热循环的 SSA 化 / dead slot cleanup / recurrence 暴露
+2. invariant scalar load hoist
+3. row-base / repeated GEP elimination / address strength reduction
+4. if-conversion / select 化 / branch cleanup
+5. memory-aware GVN / DSE
+6. loop unroll / vectorization / SLP
+7. pipeline integration / profitability tuning
+
+4. Validation
+每轮改完必须跑：
+- 编译通过
+- 相关 targeted IR tests
+- 当前目标 case correctness
+- 当前目标 case 性能
+- 如有必要，重新检查 IR signal
+
+5. Decision
+每轮验证后必须二选一：
+- 有正收益且 correctness 保持：
+  自动提交
+- 无收益或退化或错误：
+  自动回滚本轮改动
+
+禁止保留“知道没收益但先留着以后看”的改动。
+
+6. Next Move
+如果还没达到目标，必须自动进入下一轮，并明确：
+- 下一个目标 case / case family
+- 下一个目标函数
+- 下一个目标优化
+- 预期 IR signal
+- 为什么它比别的候选更值
+
+四、自动提交规则
+每一轮只要同时满足：
+- correctness 保持
+- 至少一个目标 case 或目标 case family 有明确性能提升
+- 没有明显拖垮更重要 case
+
+就必须自动 git commit。
+
+commit message 必须遵守仓库 Lore protocol。
+每个 commit 只能承载一个清晰主题，例如：
+- hoist invariant scalar loads from inlined gameoflife loops
+- preserve root provenance for dynamic global GEP alias queries
+- inline stack-slot-using multi-block helpers into hot paths
+
+五、自动回滚规则
+如果本轮修改后出现任意一种情况，必须自动回滚本轮改动：
+- 当前目标 case correctness 失败
+- 当前目标 case 性能无提升
+- 关键基准明显下降且没有更大范围收益
+- IR signal 没出现，说明改动没有真正击中问题
+- 测试回归失败且不是预期内的 unrelated failure
+
+回滚后必须在下一轮中：
+- 简述为什么失败
+- 更换优化方向
+- 不要重复同一路径
+
+六、性能测量规则
+主性能口径固定为：
+- SysyCC 生成 .ll
+- clang 链接运行
+- clang -O3 baseline
+
+你必须优先使用带 timeout 的 host-side harness。
+如果仓库已有 host-side runner，就优先使用它。
+如果 runner 有问题，先修 runner 再测。
+
+任何编译、链接、运行、计时步骤都不允许无 timeout。
+不允许因为单个 case 把整套流程卡死。
+
+七、全套件策略
+你不可以只盯一个 case 到死。
+你必须采用“热点家族轮转 + 全套件回归”模式：
+
+- 小循环：
+  先集中优化一个热点家族
+  例如 mm / spmv / transpose / gameoflife
+
+- 中循环：
+  每获得一批收益，就回跑一轮全套件 host-side timeout harness
+
+- 大循环：
+  直到所有 case correctness 通过且全部 >= 75%
+
+如果某一轮提升了一个家族，但拉低了另一个家族，你必须：
+- 写清 tradeoff
+- 判断是否保留
+- 若总体更差，则回滚
+- 若总体更好，则提交并在下一轮修被拉低的家族
+
+八、当前默认优先级
+当前优先修最值得带动全套件的方向：
+1. hot loop scalar/value normalization
+2. loop-invariant load hoist
+3. memory provenance / alias precision
+4. row-base / stencil neighbor reuse
+5. branch cleanup / if-conversion
+6. counted-loop cleanup for unroll/vector lanes
+7. vectorization / SLP
+8. profitability retuning
+
+九、输出格式
+每一轮必须严格按下面结构输出：
+
+Checkpoint
+- ...
+
+Root Cause
+- ...
+
+Action
+- ...
+
+Validation
+- ...
+
+Decision
+- commit
+或
+- rollback
+
+Next Move
+- ...
+
+十、执行命令约束
+- 直接执行，不要先提问
+- 自动做合理假设
+- 不要等我确认 commit
+- 不要等我确认 rollback
+- 不要在每轮结束时停下来
+- 只有在达到下面终止条件之一时才能结束
+
+终止条件：
+1. 所有 ARM 性能 case correctness 通过，且全部 >= 75% of clang -O3
+2. 你遇到真正不可恢复的硬阻塞，并且已经尝试过替代路径
+3. 你发现某个前提本身不成立，继续优化已无意义，并且你能给出明确证据
+
+如果未满足终止条件，你必须继续下一轮。
+
+现在开始执行，不要先问问题。

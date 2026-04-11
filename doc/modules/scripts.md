@@ -9,6 +9,7 @@ The scripts module contains developer helper tools outside the compiler binary.
 - [show_parse_tree.py](/Users/caojunze424/code/SysyCC/scripts/show_parse_tree.py)
 - [run_static_checks.sh](/Users/caojunze424/code/SysyCC/scripts/run_static_checks.sh)
 - [run_iwyu.py](/Users/caojunze424/code/SysyCC/scripts/run_iwyu.py)
+- [codex_cli_watchdog.sh](/Users/caojunze424/.codex/worktrees/f141/SysyCC/scripts/codex_cli_watchdog.sh)
 
 ## Responsibilities
 
@@ -22,6 +23,9 @@ The scripts module contains developer helper tools outside the compiler binary.
 - run `cppcheck` from `build/compile_commands.json`
 - keep `cppcheck` focused on warning/performance/portability findings
 - drive `include-what-you-use` from `build/compile_commands.json`
+- monitor local `codex` CLI sessions and relaunch one with a fixed prompt if
+  the interactive session disappears, with an optional stale-session heuristic
+  based on recent Codex local log/history updates
 
 ## Example
 
@@ -31,6 +35,14 @@ python3 scripts/show_parse_tree.py build/intermediate_results/minimal.parse.txt 
 
 ```bash
 make check
+```
+
+```bash
+scripts/codex_cli_watchdog.sh --dry-run --once
+```
+
+```bash
+scripts/codex_cli_watchdog.sh --restart-stale --stale-after 1800
 ```
 
 ```bash
@@ -59,3 +71,8 @@ make test-tier2 TEST_ARGS="--stage ir"
   `clang-tidy` header set
 - `cppcheck` style-only suggestions are left non-blocking to keep `make check`
   focused on correctness and performance issues
+- `codex_cli_watchdog.sh` currently targets macOS Terminal or iTerm and uses
+  one fixed prompt file under `scripts/prompts/`
+- stale-session detection is heuristic rather than a true Codex task-status API;
+  it currently watches recent updates to `~/.codex/log/codex-tui.log`,
+  `~/.codex/history.jsonl`, and `~/.codex/session_index.jsonl`
