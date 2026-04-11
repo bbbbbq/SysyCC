@@ -22,5 +22,7 @@ grep -q "pair.guard:" "${IR_OUTPUT_FILE}"
 grep -q "pair.body.preheader:" "${IR_OUTPUT_FILE}"
 grep -q "pair.body:" "${IR_OUTPUT_FILE}"
 grep -q "pair.loopexit:" "${IR_OUTPUT_FILE}"
+grep -q "  %t33 = add i32 %t25, %t32" "${IR_OUTPUT_FILE}"
+grep -q "  %t19 = sub i32 %t18, %t33" "${IR_OUTPUT_FILE}"
 
 echo "verified: loop vectorize emits pair-interleave runtime reduction blocks"
