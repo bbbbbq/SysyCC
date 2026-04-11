@@ -251,6 +251,124 @@ void test_instcombine_recovers_recursive_parity_and_even_half() {
     assert(text.find("sub i32 %n") == std::string::npos);
 }
 
+void test_instcombine_hoists_identical_incoming_phi_binops() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{i1_type, i32_type}, false);
+    auto *module = context->create_module<CoreIrModule>(
+        "instcombine_phi_binop_hoist");
+    auto *function =
+        module->create_function<CoreIrFunction>("merge_add", function_type, false);
+    auto *cond = function->create_parameter<CoreIrParameter>(i1_type, "cond");
+    auto *depth = function->create_parameter<CoreIrParameter>(i32_type, "depth");
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *left = function->create_basic_block<CoreIrBasicBlock>("left");
+    auto *right = function->create_basic_block<CoreIrBasicBlock>("right");
+    auto *join = function->create_basic_block<CoreIrBasicBlock>("join");
+    auto *one_left = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *one_right = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+
+    entry->create_instruction<CoreIrCondJumpInst>(void_type, cond, left, right);
+    auto *inc_left = left->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "inc.left", depth, one_left);
+    left->create_instruction<CoreIrJumpInst>(void_type, join);
+    auto *inc_right = right->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "inc.right", one_right, depth);
+    right->create_instruction<CoreIrJumpInst>(void_type, join);
+    auto *merged = join->create_instruction<CoreIrPhiInst>(i32_type, "merged");
+    merged->add_incoming(left, inc_left);
+    merged->add_incoming(right, inc_right);
+    join->create_instruction<CoreIrReturnInst>(void_type, merged);
+
+    CompilerContext compiler_context = make_context(std::move(context), module);
+    CoreIrInstCombinePass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    CoreIrRawPrinter printer;
+    const std::string text = printer.print_module(*module);
+    assert(text.find("%inc.left =") == std::string::npos);
+    assert(text.find("%inc.right =") == std::string::npos);
+    assert(text.find("%merged = phi i32") == std::string::npos);
+    assert(text.find("%merged = add i32 %depth, 1") != std::string::npos);
+    assert(text.find("ret i32 %merged") != std::string::npos);
+}
+
+void test_instcombine_hoists_loop_carried_identical_phi_binops() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{i1_type, i32_type}, false);
+    auto *module = context->create_module<CoreIrModule>(
+        "instcombine_loop_phi_binop_hoist");
+    auto *function =
+        module->create_function<CoreIrFunction>("loop_merge", function_type, false);
+    auto *cond = function->create_parameter<CoreIrParameter>(i1_type, "cond");
+    auto *n = function->create_parameter<CoreIrParameter>(i32_type, "n");
+    auto *preheader = function->create_basic_block<CoreIrBasicBlock>("preheader");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *dispatch = function->create_basic_block<CoreIrBasicBlock>("dispatch");
+    auto *even = function->create_basic_block<CoreIrBasicBlock>("even");
+    auto *odd = function->create_basic_block<CoreIrBasicBlock>("odd");
+    auto *backedge = function->create_basic_block<CoreIrBasicBlock>("backedge");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one_a = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *one_b = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *one_c = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+
+    preheader->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *n_tr = header->create_instruction<CoreIrPhiInst>(i32_type, "n.tr");
+    auto *dep_tr = header->create_instruction<CoreIrPhiInst>(i32_type, "dep.tr");
+    auto *done = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::Equal, i1_type, "done", n_tr, zero);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, done, exit, dispatch);
+    dispatch->create_instruction<CoreIrCondJumpInst>(void_type, cond, even, odd);
+
+    auto *even_n = even->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Sub, i32_type, "even.n", n_tr, one_a);
+    auto *inc_even = even->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "inc.even", dep_tr, one_b);
+    even->create_instruction<CoreIrJumpInst>(void_type, backedge);
+
+    auto *odd_n = odd->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "odd.n", n_tr, one_c);
+    auto *inc_odd = odd->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "inc.odd", one_a, dep_tr);
+    odd->create_instruction<CoreIrJumpInst>(void_type, backedge);
+
+    auto *n_next = backedge->create_instruction<CoreIrPhiInst>(i32_type, "n.next");
+    auto *dep_next =
+        backedge->create_instruction<CoreIrPhiInst>(i32_type, "dep.next");
+    backedge->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, dep_tr);
+
+    n_tr->add_incoming(preheader, n);
+    n_tr->add_incoming(backedge, n_next);
+    dep_tr->add_incoming(preheader, zero);
+    dep_tr->add_incoming(backedge, dep_next);
+    n_next->add_incoming(even, even_n);
+    n_next->add_incoming(odd, odd_n);
+    dep_next->add_incoming(even, inc_even);
+    dep_next->add_incoming(odd, inc_odd);
+
+    CompilerContext compiler_context = make_context(std::move(context), module);
+    CoreIrInstCombinePass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    CoreIrRawPrinter printer;
+    const std::string text = printer.print_module(*module);
+    assert(text.find("%inc.even =") == std::string::npos);
+    assert(text.find("%inc.odd =") == std::string::npos);
+    assert(text.find("%dep.next = phi i32") == std::string::npos);
+    assert(text.find("%dep.next = add i32 %dep.tr, 1") != std::string::npos);
+    assert(text.find("backedge:") != std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -259,5 +377,7 @@ int main() {
     test_fixed_point_real_pipeline_contracts_after_instcombine();
     test_instcombine_uses_incremental_worklist_stats();
     test_instcombine_recovers_recursive_parity_and_even_half();
+    test_instcombine_hoists_identical_incoming_phi_binops();
+    test_instcombine_hoists_loop_carried_identical_phi_binops();
     return 0;
 }

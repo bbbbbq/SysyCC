@@ -618,6 +618,164 @@ CoreIrValue *try_fold_phi(const CoreIrPhiInst &inst) {
     return replacement;
 }
 
+bool binary_opcode_is_commutative(CoreIrBinaryOpcode opcode) {
+    switch (opcode) {
+    case CoreIrBinaryOpcode::Add:
+    case CoreIrBinaryOpcode::Mul:
+    case CoreIrBinaryOpcode::And:
+    case CoreIrBinaryOpcode::Or:
+    case CoreIrBinaryOpcode::Xor:
+        return true;
+    default:
+        return false;
+    }
+}
+
+CoreIrInstruction *find_first_non_phi_instruction(CoreIrBasicBlock &block) {
+    for (const auto &instruction : block.get_instructions()) {
+        if (instruction != nullptr &&
+            dynamic_cast<CoreIrPhiInst *>(instruction.get()) == nullptr) {
+            return instruction.get();
+        }
+    }
+    return nullptr;
+}
+
+bool value_is_available_for_phi_replacement(const CoreIrBasicBlock &block,
+                                            const CoreIrPhiInst &phi,
+                                            CoreIrValue *value) {
+    if (value == nullptr || value == &phi) {
+        return false;
+    }
+    auto *instruction = dynamic_cast<CoreIrInstruction *>(value);
+    if (instruction == nullptr) {
+        return true;
+    }
+    if (instruction->get_parent() != &block) {
+        return true;
+    }
+    return dynamic_cast<CoreIrPhiInst *>(instruction) != nullptr;
+}
+
+bool values_are_equivalent_for_phi_binop_hoist(const CoreIrValue *lhs,
+                                               const CoreIrValue *rhs) {
+    if (lhs == rhs) {
+        return true;
+    }
+    if (lhs == nullptr || rhs == nullptr) {
+        return false;
+    }
+    std::string lhs_key;
+    std::string rhs_key;
+    append_value_key(lhs_key, lhs);
+    append_value_key(rhs_key, rhs);
+    return lhs_key == rhs_key;
+}
+
+bool phi_has_same_block_phi_users(const CoreIrPhiInst &phi) {
+    for (const CoreIrUse &use : phi.get_uses()) {
+        CoreIrInstruction *user = use.get_user();
+        if (user != nullptr && user->get_parent() == phi.get_parent() &&
+            dynamic_cast<CoreIrPhiInst *>(user) != nullptr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+struct IdenticalIncomingBinaryMatch {
+    CoreIrBinaryOpcode opcode = CoreIrBinaryOpcode::Add;
+    CoreIrValue *lhs = nullptr;
+    CoreIrValue *rhs = nullptr;
+    SourceSpan source_span;
+    std::vector<CoreIrBinaryInst *> incoming_binaries;
+};
+
+std::optional<IdenticalIncomingBinaryMatch> match_identical_incoming_binary_phi(
+    CoreIrBasicBlock &block, const CoreIrPhiInst &phi) {
+    if (phi.get_incoming_count() < 2 || phi_has_same_block_phi_users(phi)) {
+        return std::nullopt;
+    }
+
+    std::optional<IdenticalIncomingBinaryMatch> match;
+    for (std::size_t index = 0; index < phi.get_incoming_count(); ++index) {
+        CoreIrBasicBlock *incoming_block = phi.get_incoming_block(index);
+        auto *binary =
+            dynamic_cast<CoreIrBinaryInst *>(phi.get_incoming_value(index));
+        if (incoming_block == nullptr || binary == nullptr ||
+            binary->get_parent() != incoming_block) {
+            return std::nullopt;
+        }
+
+        if (!match.has_value()) {
+            match = IdenticalIncomingBinaryMatch{
+                binary->get_binary_opcode(), binary->get_lhs(), binary->get_rhs(),
+                binary->get_source_span(), {binary}};
+            continue;
+        }
+
+        if (match->opcode != binary->get_binary_opcode()) {
+            return std::nullopt;
+        }
+
+        const bool same_operands =
+            values_are_equivalent_for_phi_binop_hoist(match->lhs, binary->get_lhs()) &&
+            values_are_equivalent_for_phi_binop_hoist(match->rhs, binary->get_rhs());
+        const bool swapped_operands =
+            binary_opcode_is_commutative(match->opcode) &&
+            values_are_equivalent_for_phi_binop_hoist(match->lhs, binary->get_rhs()) &&
+            values_are_equivalent_for_phi_binop_hoist(match->rhs, binary->get_lhs());
+        if (!same_operands && !swapped_operands) {
+            return std::nullopt;
+        }
+
+        match->incoming_binaries.push_back(binary);
+    }
+
+    if (!match.has_value() ||
+        !value_is_available_for_phi_replacement(block, phi, match->lhs) ||
+        !value_is_available_for_phi_replacement(block, phi, match->rhs)) {
+        return std::nullopt;
+    }
+
+    return match;
+}
+
+bool simplify_phi_of_identical_incoming_binaries(CoreIrBasicBlock &block,
+                                                 CoreIrPhiInst &phi) {
+    std::optional<IdenticalIncomingBinaryMatch> match =
+        match_identical_incoming_binary_phi(block, phi);
+    if (!match.has_value()) {
+        return false;
+    }
+
+    auto replacement = std::make_unique<CoreIrBinaryInst>(
+        match->opcode, phi.get_type(),
+        phi.get_name().empty() ? next_instcombine_name("instcombine.phi.bin.")
+                               : phi.get_name(),
+        match->lhs, match->rhs);
+    replacement->set_source_span(match->source_span);
+    CoreIrInstruction *anchor = find_first_non_phi_instruction(block);
+    CoreIrInstruction *replacement_inst =
+        insert_instruction_before(block, anchor, std::move(replacement));
+    if (replacement_inst == nullptr) {
+        return false;
+    }
+
+    phi.replace_all_uses_with(replacement_inst);
+    if (!erase_instruction(block, &phi)) {
+        return false;
+    }
+
+    std::unordered_set<CoreIrBinaryInst *> unique_binaries;
+    for (CoreIrBinaryInst *binary : match->incoming_binaries) {
+        if (binary != nullptr && unique_binaries.insert(binary).second) {
+            erase_dead_instruction_tree(binary);
+        }
+    }
+    return true;
+}
+
 CoreIrValue *try_fold_binary(CoreIrContext &context, const CoreIrBinaryInst &inst) {
     const auto *lhs = as_integer_constant(inst.get_lhs());
     const auto *rhs = as_integer_constant(inst.get_rhs());
@@ -1460,7 +1618,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
             erase_instruction(block, phi);
             return true;
         }
-        return false;
+        return simplify_phi_of_identical_incoming_binaries(block, *phi);
     }
 
     if (auto *binary = dynamic_cast<CoreIrBinaryInst *>(&instruction); binary != nullptr) {
