@@ -21,7 +21,7 @@ char *yyget_text(void *yyscanner);
 %lex-param { void *scanner }
 
 %token <node> INVALID
-%token <node> CONST VOLATILE EXTERN STATIC ATTRIBUTE ASM INLINE RESTRICT NULLABILITY LONG SIGNED SHORT UNSIGNED INT CHAR VOID FLOAT DOUBLE FLOAT16 IF ELSE WHILE FOR DO SWITCH CASE DEFAULT BREAK CONTINUE GOTO RETURN STRUCT UNION ENUM TYPEDEF TYPE_NAME
+%token <node> CONST VOLATILE EXTERN STATIC ATTRIBUTE ASM INLINE RESTRICT NULLABILITY LONG SIGNED SHORT UNSIGNED INT CHAR VOID FLOAT DOUBLE FLOAT16 IF ELSE WHILE FOR DO SWITCH CASE DEFAULT BREAK CONTINUE GOTO RETURN STRUCT UNION ENUM TYPEDEF SIZEOF TYPE_NAME
 %token <node> IDENTIFIER ANNOTATION_IDENT INT_LITERAL FLOAT_LITERAL CHAR_LITERAL STRING_LITERAL
 %token <node> PLUS MINUS MUL DIV MOD
 %token <node> INC DEC BITAND BITOR BITXOR BITNOT SHL SHR ARROW
@@ -50,7 +50,7 @@ char *yyget_text(void *yyscanner);
 %type <node> assignment_expr conditional_expr logical_or_expr logical_and_expr bit_or_expr
 %type <node> bit_xor_expr bit_and_expr eq_expr rel_expr shift_expr add_expr
 %type <node> mul_expr cast_expr unary_expr postfix_expr primary_expr
-%type <node> cast_target_type
+%type <node> cast_target_type sizeof_type_name sizeof_type_suffix_opt abstract_array_suffix_list
 %type <node> init_val init_val_list
 
 %start comp_unit
@@ -1135,9 +1135,36 @@ cast_target_type
       { $$ = sysycc::make_nonterminal_node("cast_target_type", {$1, $2, $3}); }
     ;
 
+sizeof_type_name
+    : type_qualifier_seq_opt type_specifier sizeof_type_suffix_opt
+      { $$ = sysycc::make_nonterminal_node("sizeof_type_name", {$1, $2, $3}); }
+    ;
+
+sizeof_type_suffix_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("sizeof_type_suffix_opt", {}); }
+    | pointer
+      { $$ = sysycc::make_nonterminal_node("sizeof_type_suffix_opt", {$1}); }
+    | abstract_array_suffix_list
+      { $$ = sysycc::make_nonterminal_node("sizeof_type_suffix_opt", {$1}); }
+    | pointer abstract_array_suffix_list
+      { $$ = sysycc::make_nonterminal_node("sizeof_type_suffix_opt", {$1, $2}); }
+    ;
+
+abstract_array_suffix_list
+    : LBRACKET expr_opt RBRACKET
+      { $$ = sysycc::make_nonterminal_node("abstract_array_suffix_list", {$1, $2, $3}); }
+    | abstract_array_suffix_list LBRACKET expr_opt RBRACKET
+      { $$ = sysycc::make_nonterminal_node("abstract_array_suffix_list", {$1, $2, $3, $4}); }
+    ;
+
 unary_expr
     : postfix_expr
       { $$ = sysycc::make_nonterminal_node("unary_expr", {$1}); }
+    | SIZEOF unary_expr
+      { $$ = sysycc::make_nonterminal_node("unary_expr", {$1, $2}); }
+    | SIZEOF LPAREN sizeof_type_name RPAREN
+      { $$ = sysycc::make_nonterminal_node("sizeof_type_expr", {$1, $2, $3, $4}); }
     | PLUS unary_expr
       { $$ = sysycc::make_nonterminal_node("unary_expr", {$1, $2}); }
     | MINUS unary_expr

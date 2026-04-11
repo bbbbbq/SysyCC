@@ -224,6 +224,11 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
         return validate_node(unary_expr->get_operand(), feature_registry,
                              error_info);
     }
+    case AstKind::SizeofTypeExpr: {
+        const auto *sizeof_type_expr = static_cast<const SizeofTypeExpr *>(node);
+        return validate_node(sizeof_type_expr->get_target_type(),
+                             feature_registry, error_info);
+    }
     case AstKind::PrefixExpr: {
         const auto *prefix_expr = static_cast<const PrefixExpr *>(node);
         return validate_node(prefix_expr->get_operand(), feature_registry,
@@ -335,11 +340,32 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
     }
     case AstKind::NamedType:
         return true;
+    case AstKind::ArrayType: {
+        const auto *array_type = static_cast<const ArrayTypeNode *>(node);
+        if (!validate_node(array_type->get_element_type(), feature_registry,
+                           error_info)) {
+            return false;
+        }
+        for (const auto &dimension : array_type->get_dimensions()) {
+            if (!validate_node(dimension.get(), feature_registry, error_info)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    case AstKind::StructType: {
+        const auto *struct_type = static_cast<const StructTypeNode *>(node);
+        for (const auto &field : struct_type->get_fields()) {
+            if (!validate_node(field.get(), feature_registry, error_info)) {
+                return false;
+            }
+        }
+        return true;
+    }
     case AstKind::UnknownDecl:
     case AstKind::UnknownStmt:
     case AstKind::UnknownExpr:
     case AstKind::UnknownType:
-    case AstKind::StructType:
     case AstKind::EnumType:
     case AstKind::CastExpr:
     case AstKind::BreakStmt:

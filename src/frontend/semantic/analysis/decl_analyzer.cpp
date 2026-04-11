@@ -24,18 +24,15 @@ namespace sysycc::detail {
 namespace {
 
 std::vector<SemanticFieldInfo>
-build_struct_semantic_fields(const StructDecl *struct_decl,
-                             const TypeResolver &type_resolver,
-                             const ConstantEvaluator &constant_evaluator,
-                             const ConversionChecker &conversion_checker,
-                             SemanticContext &semantic_context,
-                             const ScopeStack &scope_stack) {
+build_aggregate_semantic_fields(const std::vector<std::unique_ptr<Decl>> &field_decls,
+                                const TypeResolver &type_resolver,
+                                const ConstantEvaluator &constant_evaluator,
+                                const ConversionChecker &conversion_checker,
+                                SemanticContext &semantic_context,
+                                const ScopeStack &scope_stack) {
     std::vector<SemanticFieldInfo> fields;
-    if (struct_decl == nullptr) {
-        return fields;
-    }
-    fields.reserve(struct_decl->get_fields().size());
-    for (const auto &field : struct_decl->get_fields()) {
+    fields.reserve(field_decls.size());
+    for (const auto &field : field_decls) {
         if (field == nullptr || field->get_kind() != AstKind::FieldDecl) {
             continue;
         }
@@ -50,11 +47,28 @@ build_struct_semantic_fields(const StructDecl *struct_decl,
         }
         fields.emplace_back(
             field_decl->get_name(),
-            type_resolver.resolve_type(field_decl->get_declared_type(),
-                                       semantic_context, &scope_stack),
+            type_resolver.apply_array_dimensions(
+                type_resolver.resolve_type(field_decl->get_declared_type(),
+                                           semantic_context, &scope_stack),
+                field_decl->get_dimensions(), semantic_context),
             bit_width);
     }
     return fields;
+}
+
+std::vector<SemanticFieldInfo>
+build_struct_semantic_fields(const StructDecl *struct_decl,
+                             const TypeResolver &type_resolver,
+                             const ConstantEvaluator &constant_evaluator,
+                             const ConversionChecker &conversion_checker,
+                             SemanticContext &semantic_context,
+                             const ScopeStack &scope_stack) {
+    if (struct_decl == nullptr) {
+        return {};
+    }
+    return build_aggregate_semantic_fields(struct_decl->get_fields(), type_resolver,
+                                           constant_evaluator, conversion_checker,
+                                           semantic_context, scope_stack);
 }
 
 std::vector<SemanticFieldInfo>
@@ -64,31 +78,12 @@ build_union_semantic_fields(const UnionDecl *union_decl,
                             const ConversionChecker &conversion_checker,
                             SemanticContext &semantic_context,
                             const ScopeStack &scope_stack) {
-    std::vector<SemanticFieldInfo> fields;
     if (union_decl == nullptr) {
-        return fields;
+        return {};
     }
-    fields.reserve(union_decl->get_fields().size());
-    for (const auto &field : union_decl->get_fields()) {
-        if (field == nullptr || field->get_kind() != AstKind::FieldDecl) {
-            continue;
-        }
-        const auto *field_decl = static_cast<const FieldDecl *>(field.get());
-        std::optional<int> bit_width;
-        if (field_decl->get_bit_width() != nullptr) {
-            const auto width_value = constant_evaluator.get_integer_constant_value(
-                field_decl->get_bit_width(), semantic_context);
-            if (width_value.has_value()) {
-                bit_width = static_cast<int>(*width_value);
-            }
-        }
-        fields.emplace_back(
-            field_decl->get_name(),
-            type_resolver.resolve_type(field_decl->get_declared_type(),
-                                       semantic_context, &scope_stack),
-            bit_width);
-    }
-    return fields;
+    return build_aggregate_semantic_fields(union_decl->get_fields(), type_resolver,
+                                           constant_evaluator, conversion_checker,
+                                           semantic_context, scope_stack);
 }
 
 bool is_global_variable_definition(const VarDecl *var_decl) {
@@ -108,7 +103,16 @@ bool is_system_header_symbol(const SemanticSymbol *symbol,
 }
 
 bool is_anonymous_tag_name(const std::string &name) {
-    return name.empty() || name == "<anonymous>";
+    return name.empty() || name.rfind("<anonymous", 0) == 0;
+}
+
+std::string get_semantic_tag_name(std::string name,
+                                  const SourceSpan &source_span) {
+    if (!is_anonymous_tag_name(name)) {
+        return name;
+    }
+    return "<anonymous@" + std::to_string(source_span.get_line_begin()) + ":" +
+           std::to_string(source_span.get_col_begin()) + ">";
 }
 
 } // namespace
@@ -212,6 +216,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             var_decl->get_dimensions(), semantic_context);
         const bool is_file_scope = semantic_context.get_current_function() == nullptr;
         const bool has_initializer = var_decl->get_initializer() != nullptr;
+        const bool has_static_storage_duration =
+            is_file_scope || var_decl->get_is_static();
         const bool is_tentative_definition =
             is_file_scope && !var_decl->get_is_extern() && !has_initializer;
         const bool is_initialized_definition = is_file_scope && has_initializer;
@@ -219,10 +225,13 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             is_file_scope && var_decl->get_is_static();
         const bool has_external_linkage =
             is_file_scope && !var_decl->get_is_static();
-        const bool is_global_storage = is_file_scope || var_decl->get_is_extern();
+        const bool has_nonlocal_storage =
+            has_static_storage_duration || var_decl->get_is_extern();
+        const bool uses_linked_storage_identity =
+            is_file_scope || var_decl->get_is_extern();
 
         const SemanticSymbol *symbol = nullptr;
-        if (is_global_storage) {
+        if (uses_linked_storage_identity) {
             const SemanticSymbol *existing_symbol =
                 is_file_scope ? scope_stack.lookup_local(var_decl->get_name())
                               : scope_stack.lookup(var_decl->get_name());
@@ -247,7 +256,7 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                 }
 
                 VariableSemanticInfo updated_info(
-                    true,
+                    has_nonlocal_storage,
                     (existing_info != nullptr &&
                      existing_info->get_has_external_linkage()) ||
                         has_external_linkage,
@@ -274,7 +283,7 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                               var_decl->get_source_span())) {
                 semantic_model.bind_variable_info(
                     symbol, VariableSemanticInfo(
-                                is_global_storage, has_external_linkage,
+                                has_nonlocal_storage, has_external_linkage,
                                 has_internal_linkage,
                                 is_tentative_definition,
                                 is_initialized_definition));
@@ -285,12 +294,12 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
 
         semantic_model.bind_symbol(var_decl, symbol);
         semantic_model.bind_node_type(var_decl, declared_type);
-        if (!is_global_storage) {
+        if (!is_file_scope) {
             semantic_context.record_function_local_symbol(symbol);
         }
         expr_analyzer_.analyze_expr(var_decl->get_initializer(), semantic_context,
                                     scope_stack);
-        if (is_file_scope && var_decl->get_initializer() != nullptr &&
+        if (has_nonlocal_storage && var_decl->get_initializer() != nullptr &&
             !constant_evaluator_.is_static_storage_initializer(
                 var_decl->get_initializer(), declared_type, semantic_model)) {
             add_error(semantic_context,
@@ -468,10 +477,48 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                           dimension->get_source_span());
             }
         }
-        const SemanticType *aliased_type = type_resolver_.apply_array_dimensions(
-            type_resolver_.resolve_type(typedef_decl->get_aliased_type(),
-                                        semantic_context, &scope_stack),
-            typedef_decl->get_dimensions(), semantic_context);
+        const TypeNode *aliased_type_node = typedef_decl->get_aliased_type();
+        const SemanticType *aliased_type = nullptr;
+        if (aliased_type_node != nullptr &&
+            aliased_type_node->get_kind() == AstKind::StructType) {
+            const auto *struct_type_node =
+                static_cast<const StructTypeNode *>(aliased_type_node);
+            if (is_anonymous_tag_name(struct_type_node->get_name()) &&
+                !struct_type_node->get_fields().empty()) {
+                aliased_type = semantic_model.own_type(
+                    std::make_unique<StructSemanticType>(
+                        get_semantic_tag_name(struct_type_node->get_name(),
+                                              struct_type_node->get_source_span()),
+                        build_aggregate_semantic_fields(
+                            struct_type_node->get_fields(), type_resolver_,
+                            constant_evaluator_, conversion_checker_,
+                            semantic_context, scope_stack)));
+            }
+        } else if (aliased_type_node != nullptr &&
+                   aliased_type_node->get_kind() == AstKind::UnionType) {
+            const auto *union_type_node =
+                static_cast<const UnionTypeNode *>(aliased_type_node);
+            if (is_anonymous_tag_name(union_type_node->get_name()) &&
+                !union_type_node->get_fields().empty()) {
+                aliased_type = semantic_model.own_type(
+                    std::make_unique<UnionSemanticType>(
+                        get_semantic_tag_name(union_type_node->get_name(),
+                                              union_type_node->get_source_span()),
+                        build_aggregate_semantic_fields(
+                            union_type_node->get_fields(), type_resolver_,
+                            constant_evaluator_, conversion_checker_,
+                            semantic_context, scope_stack)));
+            }
+        }
+        if (aliased_type == nullptr) {
+            aliased_type = type_resolver_.apply_array_dimensions(
+                type_resolver_.resolve_type(aliased_type_node, semantic_context,
+                                            &scope_stack),
+                typedef_decl->get_dimensions(), semantic_context);
+        } else {
+            aliased_type = type_resolver_.apply_array_dimensions(
+                aliased_type, typedef_decl->get_dimensions(), semantic_context);
+        }
         if (const SemanticSymbol *existing_symbol =
                 scope_stack.lookup_local(typedef_decl->get_name());
             existing_symbol != nullptr &&
@@ -501,7 +548,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         const auto *struct_decl = static_cast<const StructDecl *>(decl);
         const auto *struct_type = semantic_model.own_type(
             std::make_unique<StructSemanticType>(
-                struct_decl->get_name(),
+                get_semantic_tag_name(struct_decl->get_name(),
+                                      struct_decl->get_source_span()),
                 build_struct_semantic_fields(struct_decl, type_resolver_,
                                              constant_evaluator_,
                                              conversion_checker_,
@@ -526,7 +574,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         const auto *union_decl = static_cast<const UnionDecl *>(decl);
         const auto *union_type = semantic_model.own_type(
             std::make_unique<UnionSemanticType>(
-                union_decl->get_name(),
+                get_semantic_tag_name(union_decl->get_name(),
+                                      union_decl->get_source_span()),
                 build_union_semantic_fields(union_decl, type_resolver_,
                                             constant_evaluator_,
                                             conversion_checker_,

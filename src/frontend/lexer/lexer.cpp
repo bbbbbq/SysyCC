@@ -104,6 +104,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::KwEnum;
     case TYPEDEF:
         return TokenKind::KwTypedef;
+    case SIZEOF:
+        return TokenKind::KwSizeof;
     case PLUS:
         return TokenKind::Plus;
     case MINUS:

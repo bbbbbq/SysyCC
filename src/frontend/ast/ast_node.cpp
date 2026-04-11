@@ -97,6 +97,21 @@ PointerNullabilityKind PointerTypeNode::get_nullability_kind() const noexcept {
     return nullability_kind_;
 }
 
+ArrayTypeNode::ArrayTypeNode(std::unique_ptr<TypeNode> element_type,
+                             std::vector<std::unique_ptr<Expr>> dimensions,
+                             SourceSpan source_span)
+    : TypeNode(AstKind::ArrayType, source_span),
+      element_type_(std::move(element_type)),
+      dimensions_(std::move(dimensions)) {}
+
+const TypeNode *ArrayTypeNode::get_element_type() const noexcept {
+    return element_type_.get();
+}
+
+const std::vector<std::unique_ptr<Expr>> &ArrayTypeNode::get_dimensions() const noexcept {
+    return dimensions_;
+}
+
 FunctionTypeNode::FunctionTypeNode(
     std::unique_ptr<TypeNode> return_type,
     std::vector<std::unique_ptr<TypeNode>> parameter_types, bool is_variadic,
@@ -116,11 +131,17 @@ FunctionTypeNode::get_parameter_types() const noexcept {
 
 bool FunctionTypeNode::get_is_variadic() const noexcept { return is_variadic_; }
 
-StructTypeNode::StructTypeNode(std::string name, SourceSpan source_span)
-    : TypeNode(AstKind::StructType, source_span),
-      name_(std::move(name)) {}
+StructTypeNode::StructTypeNode(std::string name,
+                               std::vector<std::unique_ptr<Decl>> fields,
+                               SourceSpan source_span)
+    : TypeNode(AstKind::StructType, source_span), name_(std::move(name)),
+      fields_(std::move(fields)) {}
 
 const std::string &StructTypeNode::get_name() const noexcept { return name_; }
+
+const std::vector<std::unique_ptr<Decl>> &StructTypeNode::get_fields() const noexcept {
+    return fields_;
+}
 
 UnionTypeNode::UnionTypeNode(std::string name,
                              std::vector<std::unique_ptr<Decl>> fields,
@@ -558,6 +579,15 @@ IdentifierExpr::IdentifierExpr(std::string name, SourceSpan source_span)
       name_(std::move(name)) {}
 
 const std::string &IdentifierExpr::get_name() const noexcept { return name_; }
+
+SizeofTypeExpr::SizeofTypeExpr(std::unique_ptr<TypeNode> target_type,
+                               SourceSpan source_span)
+    : Expr(AstKind::SizeofTypeExpr, source_span),
+      target_type_(std::move(target_type)) {}
+
+const TypeNode *SizeofTypeExpr::get_target_type() const noexcept {
+    return target_type_.get();
+}
 
 UnaryExpr::UnaryExpr(std::string operator_text, std::unique_ptr<Expr> operand,
                      SourceSpan source_span)

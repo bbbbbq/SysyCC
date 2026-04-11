@@ -55,6 +55,8 @@ class AstDumper {
                         int indent) const;
     void dump_return_stmt(const ReturnStmt *node, std::ostream &os,
                           int indent) const;
+    void dump_sizeof_type_expr(const SizeofTypeExpr *node, std::ostream &os,
+                               int indent) const;
     void dump_unary_expr(const UnaryExpr *node, std::ostream &os, int indent) const;
     void dump_prefix_expr(const PrefixExpr *node, std::ostream &os, int indent) const;
     void dump_postfix_expr(const PostfixExpr *node, std::ostream &os,

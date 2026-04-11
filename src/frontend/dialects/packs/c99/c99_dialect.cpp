@@ -39,6 +39,7 @@ void C99Dialect::contribute_lexer_keywords(
     registry.add_keyword("union", TokenKind::KwUnion);
     registry.add_keyword("enum", TokenKind::KwEnum);
     registry.add_keyword("typedef", TokenKind::KwTypedef);
+    registry.add_keyword("sizeof", TokenKind::KwSizeof);
 }
 
 void C99Dialect::contribute_parser_features(

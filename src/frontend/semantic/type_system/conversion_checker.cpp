@@ -111,7 +111,7 @@ bool is_void_pointer_type(const SemanticType *type) {
 bool is_standard_numeric_builtin_name(const std::string &name) {
     return name == "long double" || name == "double" || name == "long long int" ||
            name == "long int" || name == "float" || name == "int" ||
-           name == "ptrdiff_t" ||
+           name == "ptrdiff_t" || name == "size_t" ||
            name == "short" || name == "signed char" ||
            name == "unsigned int" || name == "unsigned short" ||
            name == "unsigned long" ||
@@ -521,7 +521,8 @@ bool ConversionChecker::is_arithmetic_type(const SemanticType *type) const {
         return false;
     }
     const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
-    if (name == "int" || name == "ptrdiff_t" || name == "short" ||
+    if (name == "int" || name == "ptrdiff_t" || name == "size_t" ||
+        name == "short" ||
         name == "signed char" ||
         name == "long int" || name == "long long int" ||
         name == "unsigned int" || name == "unsigned short" ||
@@ -570,7 +571,8 @@ bool ConversionChecker::is_integer_like_type(const SemanticType *type) const {
         return false;
     }
     const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
-    return name == "int" || name == "ptrdiff_t" || name == "short" ||
+    return name == "int" || name == "ptrdiff_t" || name == "size_t" ||
+           name == "short" ||
            name == "signed char" ||
            name == "long int" || name == "long long int" ||
            name == "unsigned int" || name == "unsigned short" ||
@@ -591,7 +593,8 @@ bool ConversionChecker::is_incrementable_type(const SemanticType *type) const {
         return false;
     }
     const auto &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
-    if (name == "int" || name == "ptrdiff_t" || name == "short" ||
+    if (name == "int" || name == "ptrdiff_t" || name == "size_t" ||
+        name == "short" ||
         name == "signed char" ||
         name == "long int" || name == "long long int" ||
         name == "unsigned int" || name == "unsigned short" ||
