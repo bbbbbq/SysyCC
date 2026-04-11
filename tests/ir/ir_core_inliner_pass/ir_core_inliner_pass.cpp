@@ -38,8 +38,29 @@ int main() {
         CoreIrBinaryOpcode::Add, i32_type, "sum", param, one);
     helper_entry->create_instruction<CoreIrReturnInst>(void_type, sum);
 
+    auto *helper_with_slot = module->create_function<CoreIrFunction>(
+        "helper_with_slot", callee_type, true);
+    helper_with_slot->set_is_always_inline(true);
+    auto *slot_param =
+        helper_with_slot->create_parameter<CoreIrParameter>(i32_type, "x");
+    auto *slot =
+        helper_with_slot->create_stack_slot<CoreIrStackSlot>("tmp", i32_type, 4);
+    auto *slot_entry =
+        helper_with_slot->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *slot_cmp = slot_entry->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::Equal, i1_type, "slot.cmp", slot_param, zero);
+    auto *slot_selected = slot_entry->create_instruction<CoreIrSelectInst>(
+        i32_type, "slot.sel", slot_cmp, one, slot_param);
+    slot_entry->create_instruction<CoreIrStoreInst>(void_type, slot_selected,
+                                                    slot);
+    auto *slot_loaded = slot_entry->create_instruction<CoreIrLoadInst>(
+        i32_type, "slot.loaded", slot);
+    auto *slot_sum = slot_entry->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "slot.sum", slot_loaded, one);
+    slot_entry->create_instruction<CoreIrReturnInst>(void_type, slot_sum);
+
     auto *too_complex =
-        module->create_function<CoreIrFunction>("too_complex", callee_type, true);
+        module->create_function<CoreIrFunction>("too_complex", callee_type, false);
     auto *too_complex_param =
         too_complex->create_parameter<CoreIrParameter>(i32_type, "x");
     auto *too_complex_entry =
@@ -56,9 +77,12 @@ int main() {
     auto *main_entry = main_fn->create_basic_block<CoreIrBasicBlock>("entry");
     auto *simple_call = main_entry->create_instruction<CoreIrCallInst>(
         i32_type, "call", "helper", callee_type, std::vector<CoreIrValue *>{five});
+    auto *slot_call = main_entry->create_instruction<CoreIrCallInst>(
+        i32_type, "slot.call", "helper_with_slot", callee_type,
+        std::vector<CoreIrValue *>{simple_call});
     auto *complex_call = main_entry->create_instruction<CoreIrCallInst>(
         i32_type, "complex", "too_complex", callee_type,
-        std::vector<CoreIrValue *>{simple_call});
+        std::vector<CoreIrValue *>{slot_call});
     main_entry->create_instruction<CoreIrReturnInst>(void_type, complex_call);
 
     CompilerContext compiler_context;
@@ -70,25 +94,51 @@ int main() {
     assert(result.ok);
 
     bool saw_helper_call = false;
+    bool saw_slot_call = false;
     bool saw_complex_call = false;
     bool saw_add = false;
-    for (const auto &instruction_ptr : main_entry->get_instructions()) {
-        CoreIrInstruction *instruction = instruction_ptr.get();
-        auto *call = dynamic_cast<CoreIrCallInst *>(instruction);
-        if (call != nullptr && call->get_is_direct_call()) {
-            if (call->get_callee_name() == "helper") {
-                saw_helper_call = true;
-            }
-            if (call->get_callee_name() == "too_complex") {
-                saw_complex_call = true;
-            }
+    bool saw_compare = false;
+    bool saw_cond_jump = false;
+    bool saw_select = false;
+    for (const auto &block_ptr : main_fn->get_basic_blocks()) {
+        if (block_ptr == nullptr) {
+            continue;
         }
-        if (dynamic_cast<CoreIrBinaryInst *>(instruction) != nullptr) {
-            saw_add = true;
+        for (const auto &instruction_ptr : block_ptr->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            auto *call = dynamic_cast<CoreIrCallInst *>(instruction);
+            if (call != nullptr && call->get_is_direct_call()) {
+                if (call->get_callee_name() == "helper") {
+                    saw_helper_call = true;
+                }
+                if (call->get_callee_name() == "helper_with_slot") {
+                    saw_slot_call = true;
+                }
+                if (call->get_callee_name() == "too_complex") {
+                    saw_complex_call = true;
+                }
+            }
+            if (dynamic_cast<CoreIrBinaryInst *>(instruction) != nullptr) {
+                saw_add = true;
+            }
+            if (dynamic_cast<CoreIrCompareInst *>(instruction) != nullptr) {
+                saw_compare = true;
+            }
+            if (dynamic_cast<CoreIrCondJumpInst *>(instruction) != nullptr) {
+                saw_cond_jump = true;
+            }
+            if (dynamic_cast<CoreIrSelectInst *>(instruction) != nullptr) {
+                saw_select = true;
+            }
         }
     }
     assert(!saw_helper_call);
-    assert(saw_complex_call);
+    assert(!saw_slot_call);
+    assert(!saw_complex_call);
     assert(saw_add);
+    assert(saw_compare);
+    assert(saw_cond_jump);
+    assert(saw_select);
+    assert(!main_fn->get_stack_slots().empty());
     return 0;
 }
