@@ -25,6 +25,7 @@ using sysycc::detail::clone_instruction_remapped;
 
 constexpr std::size_t kInlineBudget = 160;
 constexpr std::size_t kAlwaysInlineBudget = 192;
+constexpr std::size_t kPointerLoopInlineBudget = 16;
 
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
     const std::string message =
@@ -164,6 +165,11 @@ bool callee_is_inline_candidate(CoreIrFunction &callee,
     const std::size_t budget =
         callee.get_is_always_inline() ? kAlwaysInlineBudget : kInlineBudget;
     if (inline_cost > budget) {
+        return false;
+    }
+    if (!callee.get_is_always_inline() && callee_has_pointer_parameter(callee) &&
+        callee_has_cfg_backedge(callee) &&
+        inline_cost > kPointerLoopInlineBudget) {
         return false;
     }
     if (!callee.get_is_always_inline() && !callee_has_pointer_parameter(callee) &&
