@@ -93,19 +93,74 @@ compiler2025_run_binary_capture() {
     local input_file="$2"
     local actual_output_file="$3"
     local stderr_log_file="$4"
+    local timeout_seconds="${5:-0}"
+    local return_code=""
+    local status=0
 
+    COMPILER2025_LAST_RUN_STATUS="ok"
     set +e
-    if [[ -n "${input_file}" && -f "${input_file}" ]]; then
-        "${program_binary}" <"${input_file}" >"${actual_output_file}" \
-            2>"${stderr_log_file}"
-    else
-        "${program_binary}" >"${actual_output_file}" 2>"${stderr_log_file}"
-    fi
-    COMPILER2025_LAST_EXIT_CODE=$?
+    return_code="$({
+        python3 - "${program_binary}" "${input_file}" "${actual_output_file}" \
+            "${stderr_log_file}" "${timeout_seconds}" <<'PY'
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+program = Path(sys.argv[1])
+input_file = Path(sys.argv[2]) if sys.argv[2] else None
+actual_output_file = Path(sys.argv[3])
+stderr_log_file = Path(sys.argv[4])
+timeout_seconds = int(sys.argv[5])
+
+stdin = input_file.open("rb") if input_file is not None and input_file.is_file() else None
+try:
+    try:
+        completed = subprocess.run(
+            [str(program)],
+            stdin=stdin,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=None if timeout_seconds <= 0 else timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial_stdout = exc.stdout or b""
+        partial_stderr = exc.stderr or b""
+        newline = b"" if not partial_stdout or partial_stdout.endswith(b"\n") else b"\n"
+        actual_output_file.write_bytes(partial_stdout + newline)
+        timeout_message = (
+            f"timed out after {timeout_seconds}s while running {program}\n".encode()
+        )
+        stderr_newline = b"" if not partial_stderr or partial_stderr.endswith(b"\n") else b"\n"
+        stderr_log_file.write_bytes(partial_stderr + stderr_newline + timeout_message)
+        raise SystemExit(124)
+finally:
+    if stdin is not None:
+        stdin.close()
+
+stdout = completed.stdout or b""
+new_line = b"" if not stdout or stdout.endswith(b"\n") else b"\n"
+actual_output_file.write_bytes(stdout + new_line + f"{completed.returncode}\n".encode())
+stderr_log_file.write_bytes(completed.stderr or b"")
+print(completed.returncode)
+PY
+    })"
+    status=$?
     set -e
 
-    compiler2025_append_exit_code "${actual_output_file}" \
-        "${COMPILER2025_LAST_EXIT_CODE}"
+    if [[ "${status}" -ne 0 ]]; then
+        COMPILER2025_LAST_EXIT_CODE="${status}"
+        if [[ "${status}" -eq 124 ]]; then
+            COMPILER2025_LAST_RUN_STATUS="timeout"
+        else
+            COMPILER2025_LAST_RUN_STATUS="error"
+        fi
+        return "${status}"
+    fi
+
+    COMPILER2025_LAST_EXIT_CODE="${return_code}"
 }
 
 compiler2025_compile_runtime_ir() {
@@ -214,9 +269,11 @@ compiler2025_measure_binary_runtime() {
     local iteration_count="$4"
     local expected_exit_code="$5"
     local output_json_file="$6"
+    local timeout_seconds="${7:-0}"
 
     python3 - "${program_binary}" "${input_file}" "${warmup_count}" \
-        "${iteration_count}" "${expected_exit_code}" "${output_json_file}" <<'PY'
+        "${iteration_count}" "${expected_exit_code}" "${output_json_file}" \
+        "${timeout_seconds}" <<'PY'
 from __future__ import annotations
 
 import json
@@ -233,26 +290,36 @@ warmup = int(sys.argv[3])
 iterations = int(sys.argv[4])
 expected_exit = int(sys.argv[5])
 output_json = Path(sys.argv[6])
+timeout_seconds = int(sys.argv[7])
 
 if iterations <= 0:
     raise SystemExit("iterations must be > 0")
 if warmup < 0:
     raise SystemExit("warmup must be >= 0")
 
-def run_once() -> float:
+def run_once(label: str) -> float:
     stdin = None
     if input_file is not None and input_file.is_file():
         stdin = input_file.open("rb")
     devnull = open(os.devnull, "wb")
     start = time.perf_counter()
     try:
-        completed = subprocess.run(
-            [str(program)],
-            stdin=stdin,
-            stdout=devnull,
-            stderr=devnull,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                [str(program)],
+                stdin=stdin,
+                stdout=devnull,
+                stderr=devnull,
+                check=False,
+                timeout=None if timeout_seconds <= 0 else timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            timeout_suffix = f" after {timeout_seconds}s" if timeout_seconds > 0 else ""
+            print(
+                f"timed out while measuring {program} ({label}){timeout_suffix}",
+                file=sys.stderr,
+            )
+            raise SystemExit(124)
     finally:
         end = time.perf_counter()
         devnull.close()
@@ -265,10 +332,10 @@ def run_once() -> float:
         )
     return end - start
 
-for _ in range(warmup):
-    run_once()
+for index in range(warmup):
+    run_once(f"warmup {index + 1}/{warmup}")
 
-samples = [run_once() for _ in range(iterations)]
+samples = [run_once(f"sample {index + 1}/{iterations}") for index in range(iterations)]
 payload = {
     "samples": samples,
     "median_seconds": statistics.median(samples),

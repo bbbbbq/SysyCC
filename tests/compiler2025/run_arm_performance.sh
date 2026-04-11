@@ -32,12 +32,12 @@ require_positive_integer() {
 usage() {
     cat <<'EOF'
 Usage:
-  ./tests/compiler2025/run_arm_performance.sh [--case-root path] [--report path] [--iterations N] [--warmup N] [case_name ...]
+  ./tests/compiler2025/run_arm_performance.sh [--case-root path] [--report path] [--iterations N] [--warmup N] [--run-timeout N] [case_name ...]
 
 Examples:
   ./tests/compiler2025/run_arm_performance.sh
   ./tests/compiler2025/run_arm_performance.sh --iterations 3 --warmup 1 01_mm1
-  ./tests/compiler2025/run_arm_performance.sh --case-root /path/to/ARM-性能 crypto-1
+  ./tests/compiler2025/run_arm_performance.sh --run-timeout 180 --case-root /path/to/ARM-性能 crypto-1
 EOF
 }
 
@@ -72,6 +72,7 @@ write_report_metadata() {
         echo "- Case filter count: ${#SELECTED_CASES[@]}"
         echo "- Warmup runs: ${WARMUP_COUNT}"
         echo "- Timed runs: ${ITERATION_COUNT}"
+        echo "- Run timeout: ${RUN_TIMEOUT_SECONDS}s"
         echo "- Clang baseline flags: ${CLANG_BASELINE_OPT_LEVEL}"
         echo "- Markdown report: ${REPORT_FILE}"
     } >>"${REPORT_FILE}"
@@ -159,6 +160,7 @@ REPORT_FILE=""
 SELECTED_CASES=()
 ITERATION_COUNT="${SYSYCC_COMPILER2025_ARM_PERF_ITERATIONS:-1}"
 WARMUP_COUNT="${SYSYCC_COMPILER2025_ARM_PERF_WARMUP:-0}"
+RUN_TIMEOUT_SECONDS="${SYSYCC_COMPILER2025_ARM_PERF_RUN_TIMEOUT:-180}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -194,6 +196,14 @@ while [[ $# -gt 0 ]]; do
         WARMUP_COUNT="$2"
         shift 2
         ;;
+    --run-timeout)
+        if [[ $# -lt 2 ]]; then
+            echo "missing value for --run-timeout" >&2
+            exit 1
+        fi
+        RUN_TIMEOUT_SECONDS="$2"
+        shift 2
+        ;;
     -h|--help)
         usage
         exit 0
@@ -217,6 +227,7 @@ if [[ ! "${WARMUP_COUNT}" =~ ^[0-9]+$ ]]; then
     echo "--warmup must be a non-negative integer" >&2
     exit 1
 fi
+require_positive_integer "${RUN_TIMEOUT_SECONDS}" "--run-timeout"
 
 CASE_ROOT="$(compiler2025_resolve_case_root "${CASE_ROOT}")"
 if [[ -z "${REPORT_FILE}" ]]; then
@@ -263,14 +274,15 @@ while IFS= read -r -d '' source_file; do
     sysycc_timing_json="${case_dir}/${test_name}.sysycc.timing.json"
     clang_timing_json="${case_dir}/${test_name}.clang.timing.json"
 
-    if ! compiler2025_case_matches_filter "${test_name}" "${SELECTED_CASES[@]}"; then
+    if [[ "${#SELECTED_CASES[@]}" -gt 0 ]] && \
+        ! compiler2025_case_matches_filter "${test_name}" "${SELECTED_CASES[@]}"; then
         continue
     fi
 
     total_cases=$((total_cases + 1))
     mkdir -p "${case_dir}"
 
-    echo "==> [arm-performance/${test_name}] compiling"
+    echo "==> [arm-performance/${test_name}] compile SysyCC -> IR"
 
     if [[ ! -f "${expected_output_file}" ]]; then
         echo "[FAIL] arm-performance/${test_name}: missing expected output" >&2
@@ -297,6 +309,7 @@ while IFS= read -r -d '' source_file; do
         continue
     fi
 
+    echo "==> [arm-performance/${test_name}] link SysyCC binary"
     if ! clang "${ir_file}" "${RUNTIME_IR_FILE}" "${RUNTIME_COMPAT_SOURCE}" \
         "${RUNTIME_BUILTIN_STUB}" -fno-builtin -o "${sysycc_binary}" \
         >"${sysycc_link_log}" 2>&1; then
@@ -307,6 +320,7 @@ while IFS= read -r -d '' source_file; do
         continue
     fi
 
+    echo "==> [arm-performance/${test_name}] compile Clang baseline"
     if ! clang "${CLANG_BASELINE_OPT_LEVEL}" -std=gnu99 -x c \
         -include "${RUNTIME_HEADER}" -I "${SCRIPT_DIR}" \
         "${source_file}" "${RUNTIME_SOURCE}" -o "${clang_binary}" \
@@ -318,8 +332,21 @@ while IFS= read -r -d '' source_file; do
         continue
     fi
 
-    compiler2025_run_binary_capture "${sysycc_binary}" "${input_file}" \
-        "${sysycc_output_file}" "${sysycc_stderr_log}"
+    echo "==> [arm-performance/${test_name}] verify SysyCC output"
+    if ! compiler2025_run_binary_capture "${sysycc_binary}" "${input_file}" \
+        "${sysycc_output_file}" "${sysycc_stderr_log}" "${RUN_TIMEOUT_SECONDS}"; then
+        if [[ "${COMPILER2025_LAST_RUN_STATUS}" == "timeout" ]]; then
+            echo "[FAIL] arm-performance/${test_name}: SysyCC run timed out" >&2
+            append_result_row "${test_name}" "SYSYCC_TIMEOUT" "-" "-" "-" \
+                "$(basename "${sysycc_stderr_log}")"
+        else
+            echo "[FAIL] arm-performance/${test_name}: SysyCC run failed" >&2
+            append_result_row "${test_name}" "SYSYCC_RUN_FAIL" "-" "-" "-" \
+                "$(basename "${sysycc_stderr_log}")"
+        fi
+        failed_cases=$((failed_cases + 1))
+        continue
+    fi
     sysycc_exit_code="${COMPILER2025_LAST_EXIT_CODE}"
 
     if ! compiler2025_compare_expected_output "${expected_output_file}" \
@@ -331,8 +358,21 @@ while IFS= read -r -d '' source_file; do
         continue
     fi
 
-    compiler2025_run_binary_capture "${clang_binary}" "${input_file}" \
-        "${clang_output_file}" "${clang_stderr_log}"
+    echo "==> [arm-performance/${test_name}] verify Clang output"
+    if ! compiler2025_run_binary_capture "${clang_binary}" "${input_file}" \
+        "${clang_output_file}" "${clang_stderr_log}" "${RUN_TIMEOUT_SECONDS}"; then
+        if [[ "${COMPILER2025_LAST_RUN_STATUS}" == "timeout" ]]; then
+            echo "[FAIL] arm-performance/${test_name}: Clang run timed out" >&2
+            append_result_row "${test_name}" "CLANG_TIMEOUT" "-" "-" "-" \
+                "$(basename "${clang_stderr_log}")"
+        else
+            echo "[FAIL] arm-performance/${test_name}: Clang run failed" >&2
+            append_result_row "${test_name}" "CLANG_RUN_FAIL" "-" "-" "-" \
+                "$(basename "${clang_stderr_log}")"
+        fi
+        failed_cases=$((failed_cases + 1))
+        continue
+    fi
     clang_exit_code="${COMPILER2025_LAST_EXIT_CODE}"
 
     if ! compiler2025_compare_expected_output "${expected_output_file}" \
@@ -344,22 +384,46 @@ while IFS= read -r -d '' source_file; do
         continue
     fi
 
-    if ! compiler2025_measure_binary_runtime "${sysycc_binary}" "${input_file}" \
+    echo "==> [arm-performance/${test_name}] time SysyCC"
+    set +e
+    compiler2025_measure_binary_runtime "${sysycc_binary}" "${input_file}" \
         "${WARMUP_COUNT}" "${ITERATION_COUNT}" "${sysycc_exit_code}" \
-        "${sysycc_timing_json}" >"${case_dir}/${test_name}.sysycc.time.log" 2>&1; then
-        echo "[FAIL] arm-performance/${test_name}: SysyCC timing failed" >&2
-        append_result_row "${test_name}" "SYSYCC_BENCH_FAIL" "-" "-" "-" \
-            "$(basename "${case_dir}/${test_name}.sysycc.time.log")"
+        "${sysycc_timing_json}" "${RUN_TIMEOUT_SECONDS}" \
+        >"${case_dir}/${test_name}.sysycc.time.log" 2>&1
+    sysycc_bench_status=$?
+    set -e
+    if [[ "${sysycc_bench_status}" -ne 0 ]]; then
+        if [[ "${sysycc_bench_status}" -eq 124 ]]; then
+            echo "[FAIL] arm-performance/${test_name}: SysyCC timing timed out" >&2
+            append_result_row "${test_name}" "SYSYCC_BENCH_TIMEOUT" "-" "-" "-" \
+                "$(basename "${case_dir}/${test_name}.sysycc.time.log")"
+        else
+            echo "[FAIL] arm-performance/${test_name}: SysyCC timing failed" >&2
+            append_result_row "${test_name}" "SYSYCC_BENCH_FAIL" "-" "-" "-" \
+                "$(basename "${case_dir}/${test_name}.sysycc.time.log")"
+        fi
         failed_cases=$((failed_cases + 1))
         continue
     fi
 
-    if ! compiler2025_measure_binary_runtime "${clang_binary}" "${input_file}" \
+    echo "==> [arm-performance/${test_name}] time Clang"
+    set +e
+    compiler2025_measure_binary_runtime "${clang_binary}" "${input_file}" \
         "${WARMUP_COUNT}" "${ITERATION_COUNT}" "${clang_exit_code}" \
-        "${clang_timing_json}" >"${case_dir}/${test_name}.clang.time.log" 2>&1; then
-        echo "[FAIL] arm-performance/${test_name}: Clang timing failed" >&2
-        append_result_row "${test_name}" "CLANG_BENCH_FAIL" "-" "-" "-" \
-            "$(basename "${case_dir}/${test_name}.clang.time.log")"
+        "${clang_timing_json}" "${RUN_TIMEOUT_SECONDS}" \
+        >"${case_dir}/${test_name}.clang.time.log" 2>&1
+    clang_bench_status=$?
+    set -e
+    if [[ "${clang_bench_status}" -ne 0 ]]; then
+        if [[ "${clang_bench_status}" -eq 124 ]]; then
+            echo "[FAIL] arm-performance/${test_name}: Clang timing timed out" >&2
+            append_result_row "${test_name}" "CLANG_BENCH_TIMEOUT" "-" "-" "-" \
+                "$(basename "${case_dir}/${test_name}.clang.time.log")"
+        else
+            echo "[FAIL] arm-performance/${test_name}: Clang timing failed" >&2
+            append_result_row "${test_name}" "CLANG_BENCH_FAIL" "-" "-" "-" \
+                "$(basename "${case_dir}/${test_name}.clang.time.log")"
+        fi
         failed_cases=$((failed_cases + 1))
         continue
     fi
