@@ -530,6 +530,195 @@ resolve_float_reg_operand(const AArch64MachineOperand &operand,
     return std::nullopt;
 }
 
+bool is_supported_scalar_fp_kind(AArch64VirtualRegKind kind) {
+    return kind == AArch64VirtualRegKind::Float16 ||
+           kind == AArch64VirtualRegKind::Float32 ||
+           kind == AArch64VirtualRegKind::Float64;
+}
+
+std::size_t scalar_fp_size(AArch64VirtualRegKind kind) {
+    switch (kind) {
+    case AArch64VirtualRegKind::Float16:
+        return 2;
+    case AArch64VirtualRegKind::Float32:
+        return 4;
+    case AArch64VirtualRegKind::Float64:
+        return 8;
+    default:
+        return 0;
+    }
+}
+
+std::optional<std::uint32_t> fp_reg_move_base(AArch64VirtualRegKind kind) {
+    switch (kind) {
+    case AArch64VirtualRegKind::Float16:
+        return 0x1EE04000U;
+    case AArch64VirtualRegKind::Float32:
+        return 0x1E204000U;
+    case AArch64VirtualRegKind::Float64:
+        return 0x1E604000U;
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<std::uint32_t>
+fp_gp_move_base(AArch64VirtualRegKind fp_kind, bool gp_is_64bit, bool gp_to_fp) {
+    if (gp_to_fp) {
+        if (fp_kind == AArch64VirtualRegKind::Float32 && !gp_is_64bit) {
+            return 0x1E270000U;
+        }
+        if (fp_kind == AArch64VirtualRegKind::Float64 && gp_is_64bit) {
+            return 0x9E670000U;
+        }
+        return std::nullopt;
+    }
+    if (fp_kind == AArch64VirtualRegKind::Float32 && !gp_is_64bit) {
+        return 0x1E260000U;
+    }
+    if (fp_kind == AArch64VirtualRegKind::Float64 && gp_is_64bit) {
+        return 0x9E660000U;
+    }
+    return std::nullopt;
+}
+
+std::optional<std::uint32_t>
+fp_binary_base(const std::string &mnemonic, AArch64VirtualRegKind kind) {
+    if (kind == AArch64VirtualRegKind::Float16) {
+        if (mnemonic == "fadd")
+            return 0x1EE02800U;
+        if (mnemonic == "fsub")
+            return 0x1EE03800U;
+        if (mnemonic == "fmul")
+            return 0x1EE00800U;
+        if (mnemonic == "fdiv")
+            return 0x1EE01800U;
+    }
+    if (kind == AArch64VirtualRegKind::Float32) {
+        if (mnemonic == "fadd")
+            return 0x1E202800U;
+        if (mnemonic == "fsub")
+            return 0x1E203800U;
+        if (mnemonic == "fmul")
+            return 0x1E200800U;
+        if (mnemonic == "fdiv")
+            return 0x1E201800U;
+    }
+    if (kind == AArch64VirtualRegKind::Float64) {
+        if (mnemonic == "fadd")
+            return 0x1E602800U;
+        if (mnemonic == "fsub")
+            return 0x1E603800U;
+        if (mnemonic == "fmul")
+            return 0x1E600800U;
+        if (mnemonic == "fdiv")
+            return 0x1E601800U;
+    }
+    return std::nullopt;
+}
+
+std::optional<std::uint32_t> fcmp_base(AArch64VirtualRegKind kind) {
+    switch (kind) {
+    case AArch64VirtualRegKind::Float16:
+        return 0x1EE02000U;
+    case AArch64VirtualRegKind::Float32:
+        return 0x1E202000U;
+    case AArch64VirtualRegKind::Float64:
+        return 0x1E602000U;
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<std::uint32_t>
+int_to_fp_base(const std::string &mnemonic, AArch64VirtualRegKind fp_kind,
+               bool src_is_64bit) {
+    if (mnemonic == "scvtf") {
+        if (fp_kind == AArch64VirtualRegKind::Float16) {
+            return src_is_64bit ? 0x9EE20000U : 0x1EE20000U;
+        }
+        if (fp_kind == AArch64VirtualRegKind::Float32) {
+            return src_is_64bit ? 0x9E220000U : 0x1E220000U;
+        }
+        if (fp_kind == AArch64VirtualRegKind::Float64) {
+            return src_is_64bit ? 0x9E620000U : 0x1E620000U;
+        }
+    } else if (mnemonic == "ucvtf") {
+        if (fp_kind == AArch64VirtualRegKind::Float16) {
+            return src_is_64bit ? 0x9EE30000U : 0x1EE30000U;
+        }
+        if (fp_kind == AArch64VirtualRegKind::Float32) {
+            return src_is_64bit ? 0x9E230000U : 0x1E230000U;
+        }
+        if (fp_kind == AArch64VirtualRegKind::Float64) {
+            return src_is_64bit ? 0x9E630000U : 0x1E630000U;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::uint32_t>
+fp_to_int_base(const std::string &mnemonic, AArch64VirtualRegKind fp_kind,
+               bool dst_is_64bit) {
+    if (mnemonic == "fcvtzs") {
+        if (fp_kind == AArch64VirtualRegKind::Float16) {
+            return dst_is_64bit ? 0x9EF80000U : 0x1EF80000U;
+        }
+        if (fp_kind == AArch64VirtualRegKind::Float32) {
+            return dst_is_64bit ? 0x9E380000U : 0x1E380000U;
+        }
+        if (fp_kind == AArch64VirtualRegKind::Float64) {
+            return dst_is_64bit ? 0x9E780000U : 0x1E780000U;
+        }
+    } else if (mnemonic == "fcvtzu") {
+        if (fp_kind == AArch64VirtualRegKind::Float16) {
+            return dst_is_64bit ? 0x9EF90000U : 0x1EF90000U;
+        }
+        if (fp_kind == AArch64VirtualRegKind::Float32) {
+            return dst_is_64bit ? 0x9E390000U : 0x1E390000U;
+        }
+        if (fp_kind == AArch64VirtualRegKind::Float64) {
+            return dst_is_64bit ? 0x9E790000U : 0x1E790000U;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::uint32_t>
+fp_convert_base(AArch64VirtualRegKind dst_kind, AArch64VirtualRegKind src_kind) {
+    if (dst_kind == AArch64VirtualRegKind::Float16 &&
+        src_kind == AArch64VirtualRegKind::Float32) {
+        return 0x1E23C000U;
+    }
+    if (dst_kind == AArch64VirtualRegKind::Float32 &&
+        src_kind == AArch64VirtualRegKind::Float16) {
+        return 0x1EE24000U;
+    }
+    if (dst_kind == AArch64VirtualRegKind::Float16 &&
+        src_kind == AArch64VirtualRegKind::Float64) {
+        return 0x1E63C000U;
+    }
+    if (dst_kind == AArch64VirtualRegKind::Float64 &&
+        src_kind == AArch64VirtualRegKind::Float16) {
+        return 0x1EE2C000U;
+    }
+    if (dst_kind == AArch64VirtualRegKind::Float64 &&
+        src_kind == AArch64VirtualRegKind::Float32) {
+        return 0x1E22C000U;
+    }
+    if (dst_kind == AArch64VirtualRegKind::Float32 &&
+        src_kind == AArch64VirtualRegKind::Float64) {
+        return 0x1E624000U;
+    }
+    return std::nullopt;
+}
+
+bool encode_fp_reg_reg(std::uint32_t base, unsigned rd, unsigned rn,
+                       EncodedInstruction &encoded) {
+    encoded.word = base | ((rn & 0x1fU) << 5) | (rd & 0x1fU);
+    return true;
+}
+
 bool operand_is_float_reg_like(const AArch64MachineOperand &operand) {
     if (const auto *physical_reg = operand.get_physical_reg_operand();
         physical_reg != nullptr) {
@@ -1240,9 +1429,19 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             unsigned_base = is_load ? 0x79400000U : 0x79000000U;
             unscaled_base = is_load ? 0x78400000U : 0x78000000U;
         } else if (is_float) {
-            access_size = 8;
-            unsigned_base = is_load ? 0xFD400000U : 0xFD000000U;
-            unscaled_base = is_load ? 0xFC400000U : 0xFC000000U;
+            access_size = static_cast<unsigned>(scalar_fp_size(float_value->kind));
+            if (float_value->kind == AArch64VirtualRegKind::Float16) {
+                unsigned_base = is_load ? 0x7D400000U : 0x7D000000U;
+                unscaled_base = is_load ? 0x7C400000U : 0x7C000000U;
+            } else if (float_value->kind == AArch64VirtualRegKind::Float32) {
+                unsigned_base = is_load ? 0xBD400000U : 0xBD000000U;
+                unscaled_base = is_load ? 0xBC400000U : 0xBC000000U;
+            } else if (float_value->kind == AArch64VirtualRegKind::Float64) {
+                unsigned_base = is_load ? 0xFD400000U : 0xFD000000U;
+                unscaled_base = is_load ? 0xFC400000U : 0xFC000000U;
+            } else {
+                return unsupported("floating load/store kind");
+            }
         } else if (use_64bit) {
             access_size = 8;
             unsigned_base = is_load ? 0xF9400000U : 0xF9000000U;
@@ -1309,21 +1508,28 @@ std::optional<EncodedInstruction> encode_machine_instruction(
                 if (!src_float.has_value()) {
                     return std::nullopt;
                 }
-                if (dst_float->kind != AArch64VirtualRegKind::Float64 ||
-                    src_float->kind != AArch64VirtualRegKind::Float64) {
-                    return unsupported("non-double fmov");
+                if (!is_supported_scalar_fp_kind(dst_float->kind) ||
+                    dst_float->kind != src_float->kind) {
+                    return unsupported("unsupported scalar fmov register kind");
                 }
-                encoded.word = 0x1E604000U | ((src_float->code & 0x1fU) << 5) |
+                const auto base = fp_reg_move_base(dst_float->kind);
+                if (!base.has_value()) {
+                    return unsupported("unsupported scalar fmov register kind");
+                }
+                encoded.word = *base | ((src_float->code & 0x1fU) << 5) |
                                (dst_float->code & 0x1fU);
                 return encoded;
             }
             const auto src_general = resolve_general_reg_operand(
                 operands[1], function, false, false, diagnostic_engine, "fmov src");
-            if (!src_general.has_value() || !src_general->use_64bit ||
-                dst_float->kind != AArch64VirtualRegKind::Float64) {
+            const auto base =
+                src_general.has_value()
+                    ? fp_gp_move_base(dst_float->kind, src_general->use_64bit, true)
+                    : std::nullopt;
+            if (!src_general.has_value() || !base.has_value()) {
                 return std::nullopt;
             }
-            encoded.word = 0x9E670000U | ((src_general->code & 0x1fU) << 5) |
+            encoded.word = *base | ((src_general->code & 0x1fU) << 5) |
                            (dst_float->code & 0x1fU);
             return encoded;
         }
@@ -1331,12 +1537,14 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             operands[0], function, false, false, diagnostic_engine, "fmov dst");
         const auto src_float = resolve_float_reg_operand(
             operands[1], function, diagnostic_engine, "fmov src");
-        if (!dst_general.has_value() || !src_float.has_value() ||
-            !dst_general->use_64bit ||
-            src_float->kind != AArch64VirtualRegKind::Float64) {
+        const auto base = (dst_general.has_value() && src_float.has_value())
+                              ? fp_gp_move_base(src_float->kind, dst_general->use_64bit,
+                                                false)
+                              : std::nullopt;
+        if (!dst_general.has_value() || !src_float.has_value() || !base.has_value()) {
             return std::nullopt;
         }
-        encoded.word = 0x9E660000U | ((src_float->code & 0x1fU) << 5) |
+        encoded.word = *base | ((src_float->code & 0x1fU) << 5) |
                        (dst_general->code & 0x1fU);
         return encoded;
     }
@@ -1352,21 +1560,15 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             operands[1], function, diagnostic_engine, mnemonic + " lhs");
         const auto rm = resolve_float_reg_operand(
             operands[2], function, diagnostic_engine, mnemonic + " rhs");
+        const auto base = (rd.has_value() && rn.has_value() && rm.has_value())
+                              ? fp_binary_base(mnemonic, rd->kind)
+                              : std::nullopt;
         if (!rd.has_value() || !rn.has_value() || !rm.has_value() ||
-            rd->kind != AArch64VirtualRegKind::Float64 ||
-            rn->kind != AArch64VirtualRegKind::Float64 ||
-            rm->kind != AArch64VirtualRegKind::Float64) {
+            rd->kind != rn->kind || rd->kind != rm->kind ||
+            !base.has_value()) {
             return std::nullopt;
         }
-        std::uint32_t base = 0x1E602800U;
-        if (mnemonic == "fsub") {
-            base = 0x1E603800U;
-        } else if (mnemonic == "fmul") {
-            base = 0x1E600800U;
-        } else if (mnemonic == "fdiv") {
-            base = 0x1E601800U;
-        }
-        encoded.word = base | ((rm->code & 0x1fU) << 16) |
+        encoded.word = *base | ((rm->code & 0x1fU) << 16) |
                        ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
         return encoded;
     }
@@ -1377,16 +1579,17 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         }
         const auto rn = resolve_float_reg_operand(
             operands[0], function, diagnostic_engine, "fcmp lhs");
-        if (!rn.has_value() || rn->kind != AArch64VirtualRegKind::Float64) {
+        const auto base = rn.has_value() ? fcmp_base(rn->kind) : std::nullopt;
+        if (!rn.has_value() || !base.has_value()) {
             return std::nullopt;
         }
         if (const auto rm = resolve_float_reg_operand(
                 operands[1], function, diagnostic_engine, "fcmp rhs");
             rm.has_value()) {
-            if (rm->kind != AArch64VirtualRegKind::Float64) {
+            if (rm->kind != rn->kind) {
                 return std::nullopt;
             }
-            encoded.word = 0x1E602000U | ((rm->code & 0x1fU) << 16) |
+            encoded.word = *base | ((rm->code & 0x1fU) << 16) |
                            ((rn->code & 0x1fU) << 5);
             return encoded;
         }
@@ -1394,39 +1597,64 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         const auto *immediate = operands[1].get_immediate_operand();
         if ((imm.has_value() && *imm == 0) ||
             (immediate != nullptr && immediate->asm_text.find("0.0") != std::string::npos)) {
-            encoded.word = 0x1E602100U | ((rn->code & 0x1fU) << 5);
+            encoded.word = *base | ((rn->code & 0x1fU) << 5);
             return encoded;
         }
         return unsupported("fcmp immediate");
     }
 
-    if (mnemonic == "scvtf" || mnemonic == "fcvtzs") {
+    if (mnemonic == "scvtf" || mnemonic == "ucvtf" || mnemonic == "fcvtzs" ||
+        mnemonic == "fcvtzu") {
         if (operands.size() != 2) {
             return unsupported("int/float conversion operand shape");
         }
-        if (mnemonic == "scvtf") {
+        if (mnemonic == "scvtf" || mnemonic == "ucvtf") {
             const auto rd = resolve_float_reg_operand(
-                operands[0], function, diagnostic_engine, "scvtf dst");
+                operands[0], function, diagnostic_engine, mnemonic + " dst");
             const auto rn = resolve_general_reg_operand(
-                operands[1], function, false, false, diagnostic_engine, "scvtf src");
-            if (!rd.has_value() || !rn.has_value() ||
-                rd->kind != AArch64VirtualRegKind::Float64) {
+                operands[1], function, false, false, diagnostic_engine, mnemonic + " src");
+            const auto base =
+                (rd.has_value() && rn.has_value())
+                    ? int_to_fp_base(mnemonic, rd->kind, rn->use_64bit)
+                    : std::nullopt;
+            if (!rd.has_value() || !rn.has_value() || !base.has_value()) {
                 return std::nullopt;
             }
-            encoded.word = (rn->use_64bit ? 0x9E620000U : 0x1E620000U) |
+            encoded.word = *base |
                            ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
             return encoded;
         }
         const auto rd = resolve_general_reg_operand(
-            operands[0], function, false, false, diagnostic_engine, "fcvtzs dst");
+            operands[0], function, false, false, diagnostic_engine, mnemonic + " dst");
         const auto rn = resolve_float_reg_operand(
-            operands[1], function, diagnostic_engine, "fcvtzs src");
-        if (!rd.has_value() || !rn.has_value() ||
-            rn->kind != AArch64VirtualRegKind::Float64) {
+            operands[1], function, diagnostic_engine, mnemonic + " src");
+        const auto base =
+            (rd.has_value() && rn.has_value())
+                ? fp_to_int_base(mnemonic, rn->kind, rd->use_64bit)
+                : std::nullopt;
+        if (!rd.has_value() || !rn.has_value() || !base.has_value()) {
             return std::nullopt;
         }
-        encoded.word = (rd->use_64bit ? 0x9E780000U : 0x1E780000U) |
+        encoded.word = *base |
                        ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+        return encoded;
+    }
+
+    if (mnemonic == "fcvt") {
+        if (operands.size() != 2) {
+            return unsupported("fcvt operand shape");
+        }
+        const auto rd = resolve_float_reg_operand(
+            operands[0], function, diagnostic_engine, "fcvt dst");
+        const auto rn = resolve_float_reg_operand(
+            operands[1], function, diagnostic_engine, "fcvt src");
+        const auto base = (rd.has_value() && rn.has_value())
+                              ? fp_convert_base(rd->kind, rn->kind)
+                              : std::nullopt;
+        if (!rd.has_value() || !rn.has_value() || !base.has_value()) {
+            return std::nullopt;
+        }
+        encoded.word = *base | ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
         return encoded;
     }
 

@@ -1,0 +1,5 @@
+unsigned int roundtrip_u(unsigned int value) {
+    float temp;
+    temp = (float)value;
+    return (unsigned int)temp;
+}
