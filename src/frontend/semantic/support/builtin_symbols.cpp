@@ -1,12 +1,14 @@
 #include "frontend/semantic/support/builtin_symbols.hpp"
 
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "frontend/semantic/support/scope_stack.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
 #include "frontend/semantic/model/semantic_symbol.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
+#include "frontend/semantic/support/scope_stack.hpp"
+#include "frontend/support/builtin_typedef_inventory.hpp"
 
 namespace sysycc::detail {
 
@@ -34,6 +36,40 @@ const SemanticSymbol *register_builtin_function(
         SymbolKind::Function, name, function_type, nullptr));
     scope_stack.define(symbol);
     return symbol;
+}
+
+const SemanticType *get_builtin_typedef_group_type(
+    BuiltinTypedefGroup group, const SemanticType *signed_char_type,
+    const SemanticType *unsigned_char_type, const SemanticType *short_type,
+    const SemanticType *unsigned_short_type, const SemanticType *int_type,
+    const SemanticType *unsigned_int_type, const SemanticType *long_type,
+    const SemanticType *unsigned_long_type, const SemanticType *long_long_type,
+    const SemanticType *unsigned_long_long_type, const SemanticType *va_list_type) {
+    switch (group) {
+    case BuiltinTypedefGroup::SignedChar:
+        return signed_char_type;
+    case BuiltinTypedefGroup::UnsignedChar:
+        return unsigned_char_type;
+    case BuiltinTypedefGroup::Short:
+        return short_type;
+    case BuiltinTypedefGroup::UnsignedShort:
+        return unsigned_short_type;
+    case BuiltinTypedefGroup::Int:
+        return int_type;
+    case BuiltinTypedefGroup::UnsignedInt:
+        return unsigned_int_type;
+    case BuiltinTypedefGroup::Long:
+        return long_type;
+    case BuiltinTypedefGroup::UnsignedLong:
+        return unsigned_long_type;
+    case BuiltinTypedefGroup::LongLong:
+        return long_long_type;
+    case BuiltinTypedefGroup::UnsignedLongLong:
+        return unsigned_long_long_type;
+    case BuiltinTypedefGroup::VaList:
+        return va_list_type;
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -74,89 +110,23 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
         std::make_unique<BuiltinSemanticType>("long int"));
     const auto *va_list_type = semantic_model.own_type(
         std::make_unique<PointerSemanticType>(char_type));
+    const auto *void_ptr_type = semantic_model.own_type(
+        std::make_unique<PointerSemanticType>(void_type));
     const auto *int_ptr_type = semantic_model.own_type(
         std::make_unique<PointerSemanticType>(int_type));
     const auto *float_ptr_type = semantic_model.own_type(
         std::make_unique<PointerSemanticType>(float_type));
 
-    register_builtin_typedef(semantic_model, scope_stack, "int8_t",
-                             signed_char_type);
-    register_builtin_typedef(semantic_model, scope_stack, "uint8_t",
-                             unsigned_char_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__int8_t",
-                             signed_char_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__uint8_t",
-                             unsigned_char_type);
-    register_builtin_typedef(semantic_model, scope_stack, "int16_t",
-                             short_type);
-    register_builtin_typedef(semantic_model, scope_stack, "uint16_t",
-                             unsigned_short_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__int16_t",
-                             short_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__uint16_t",
-                             unsigned_short_type);
-    register_builtin_typedef(semantic_model, scope_stack, "int32_t",
-                             int_type_alias);
-    register_builtin_typedef(semantic_model, scope_stack, "uint32_t",
-                             unsigned_int_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__int32_t",
-                             int_type_alias);
-    register_builtin_typedef(semantic_model, scope_stack, "__uint32_t",
-                             unsigned_int_type);
-    register_builtin_typedef(semantic_model, scope_stack, "int64_t",
-                             long_long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "uint64_t",
-                             unsigned_long_long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__int64_t",
-                             long_long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__uint64_t",
-                             unsigned_long_long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "intptr_t",
-                             long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "uintptr_t",
-                             unsigned_long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "ptrdiff_t",
-                             long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "size_t",
-                             unsigned_long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__darwin_intptr_t",
-                             long_type);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_natural_t", unsigned_int_type);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_ptrdiff_t", long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__darwin_size_t",
-                             unsigned_long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "va_list",
-                             va_list_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__builtin_va_list",
-                             va_list_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__darwin_va_list",
-                             va_list_type);
-    register_builtin_typedef(semantic_model, scope_stack, "wchar_t",
-                             int_type_alias);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_ct_rune_t", int_type_alias);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_wchar_t", int_type_alias);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_rune_t", int_type_alias);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_wint_t", int_type_alias);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_clock_t", unsigned_long_type);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_socklen_t", unsigned_int_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__darwin_ssize_t",
-                             long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__darwin_time_t",
-                             long_type);
-    register_builtin_typedef(semantic_model, scope_stack, "__darwin_nl_item",
-                             int_type_alias);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_wctrans_t", int_type_alias);
-    register_builtin_typedef(semantic_model, scope_stack,
-                             "__darwin_wctype_t", unsigned_int_type);
+    for_each_builtin_typedef_inventory_entry(
+        [&](const BuiltinTypedefInventoryEntry &entry) {
+            register_builtin_typedef(
+                semantic_model, scope_stack, std::string(entry.name),
+                get_builtin_typedef_group_type(
+                    entry.group, signed_char_type, unsigned_char_type, short_type,
+                    unsigned_short_type, int_type_alias, unsigned_int_type,
+                    long_type, unsigned_long_type, long_long_type,
+                    unsigned_long_long_type, va_list_type));
+        });
 
     register_builtin_function(semantic_model, scope_stack, "getint", int_type,
                               {});
@@ -195,6 +165,13 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
                               double_type, {});
     register_builtin_function(semantic_model, scope_stack, "__builtin_infl",
                               long_double_type, {});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_object_size", unsigned_long_type,
+                              {void_ptr_type, int_type});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin___memcpy_chk", void_ptr_type,
+                              {void_ptr_type, void_ptr_type, unsigned_long_type,
+                               unsigned_long_type});
 }
 
 } // namespace sysycc::detail

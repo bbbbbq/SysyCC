@@ -1,0 +1,5 @@
+int main(void) {
+    putint((int)sizeof(int[2]));
+    putch(10);
+    return 0;
+}

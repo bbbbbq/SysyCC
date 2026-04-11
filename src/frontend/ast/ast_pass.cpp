@@ -207,6 +207,18 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         const auto *pointer_type = static_cast<const PointerTypeNode *>(node);
         return ast_contains_unknown_nodes(pointer_type->get_pointee_type());
     }
+    case AstKind::ArrayType: {
+        const auto *array_type = static_cast<const ArrayTypeNode *>(node);
+        if (ast_contains_unknown_nodes(array_type->get_element_type())) {
+            return true;
+        }
+        for (const auto &dimension : array_type->get_dimensions()) {
+            if (ast_contains_unknown_nodes(dimension.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
     case AstKind::FunctionType: {
         const auto *function_type = static_cast<const FunctionTypeNode *>(node);
         if (ast_contains_unknown_nodes(function_type->get_return_type())) {
@@ -224,6 +236,15 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
             static_cast<const QualifiedTypeNode *>(node);
         return ast_contains_unknown_nodes(qualified_type->get_base_type());
     }
+    case AstKind::StructType: {
+        const auto *struct_type = static_cast<const StructTypeNode *>(node);
+        for (const auto &field : struct_type->get_fields()) {
+            if (ast_contains_unknown_nodes(field.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
     case AstKind::UnionType: {
         const auto *union_type = static_cast<const UnionTypeNode *>(node);
         for (const auto &field : union_type->get_fields()) {
@@ -236,6 +257,10 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(node);
         return ast_contains_unknown_nodes(unary_expr->get_operand());
+    }
+    case AstKind::SizeofTypeExpr: {
+        const auto *sizeof_type_expr = static_cast<const SizeofTypeExpr *>(node);
+        return ast_contains_unknown_nodes(sizeof_type_expr->get_target_type());
     }
     case AstKind::PrefixExpr: {
         const auto *prefix_expr = static_cast<const PrefixExpr *>(node);
@@ -309,15 +334,6 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
     case AstKind::StringLiteralExpr:
     case AstKind::IdentifierExpr:
         return false;
-    case AstKind::StructType: {
-        const auto *struct_type = static_cast<const StructTypeNode *>(node);
-        for (const auto &field : struct_type->get_fields()) {
-            if (ast_contains_unknown_nodes(field.get())) {
-                return true;
-            }
-        }
-        return false;
-    }
     }
 
     return false;

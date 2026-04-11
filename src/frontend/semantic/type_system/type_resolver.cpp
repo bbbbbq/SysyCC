@@ -8,6 +8,7 @@
 #include "common/diagnostic/warning_options.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/model/semantic_diagnostic.hpp"
+#include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/support/semantic_context.hpp"
 #include "frontend/semantic/support/scope_stack.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
@@ -25,20 +26,38 @@ build_semantic_fields(const std::vector<std::unique_ptr<Decl>> &fields,
                       const ScopeStack *scope_stack) {
     std::vector<SemanticFieldInfo> semantic_fields;
     semantic_fields.reserve(fields.size());
+    ConstantEvaluator constant_evaluator;
     for (const auto &field : fields) {
         if (field == nullptr || field->get_kind() != AstKind::FieldDecl) {
             continue;
         }
         const auto *field_decl = static_cast<const FieldDecl *>(field.get());
-        const SemanticType *field_type = type_resolver.apply_array_dimensions(
-            type_resolver.resolve_type(field_decl->get_declared_type(),
-                                       semantic_context, scope_stack),
-            field_decl->get_dimensions(), semantic_context);
+        std::optional<int> bit_width;
+        if (field_decl->get_bit_width() != nullptr) {
+            const auto width_value = constant_evaluator.get_integer_constant_value(
+                field_decl->get_bit_width(), semantic_context);
+            if (width_value.has_value()) {
+                bit_width = static_cast<int>(*width_value);
+            }
+        }
         semantic_fields.emplace_back(
             field_decl->get_name(),
-            field_type);
+            type_resolver.apply_array_dimensions(
+                type_resolver.resolve_type(field_decl->get_declared_type(),
+                                           semantic_context, scope_stack),
+                field_decl->get_dimensions(), semantic_context),
+            bit_width);
     }
     return semantic_fields;
+}
+
+std::string get_semantic_tag_name(std::string name,
+                                  const SourceSpan &source_span) {
+    if (!name.empty() && name != "<anonymous>") {
+        return name;
+    }
+    return "<anonymous@" + std::to_string(source_span.get_line_begin()) + ":" +
+           std::to_string(source_span.get_col_begin()) + ">";
 }
 
 } // namespace
@@ -105,6 +124,13 @@ const SemanticType *TypeResolver::resolve_type(
         }
         return resolved_pointer;
     }
+    case AstKind::ArrayType: {
+        const auto *array_type = static_cast<const ArrayTypeNode *>(type_node);
+        return apply_array_dimensions(
+            resolve_type(array_type->get_element_type(), semantic_context,
+                         scope_stack),
+            array_type->get_dimensions(), semantic_context);
+    }
     case AstKind::FunctionType: {
         const auto *function_type =
             static_cast<const FunctionTypeNode *>(type_node);
@@ -129,7 +155,8 @@ const SemanticType *TypeResolver::resolve_type(
             }
         }
         return semantic_model.own_type(std::make_unique<StructSemanticType>(
-            struct_type->get_name(),
+            get_semantic_tag_name(struct_type->get_name(),
+                                  struct_type->get_source_span()),
             build_semantic_fields(struct_type->get_fields(), *this,
                                   semantic_context, scope_stack)));
     }
@@ -143,7 +170,8 @@ const SemanticType *TypeResolver::resolve_type(
             }
         }
         return semantic_model.own_type(std::make_unique<UnionSemanticType>(
-            union_type->get_name(),
+            get_semantic_tag_name(union_type->get_name(),
+                                  union_type->get_source_span()),
             build_semantic_fields(union_type->get_fields(), *this,
                                   semantic_context, scope_stack)));
     }
@@ -170,12 +198,14 @@ const SemanticType *TypeResolver::apply_array_dimensions(
     }
 
     SemanticModel &semantic_model = semantic_context.get_semantic_model();
+    ConstantEvaluator constant_evaluator;
     const SemanticType *current_type = base_type;
     for (auto it = dimensions.rbegin(); it != dimensions.rend(); ++it) {
         std::vector<int> semantic_dimensions(1, 0);
         if (it->get() != nullptr) {
             const std::optional<long long> dimension_value =
-                semantic_model.get_integer_constant_value(it->get());
+                constant_evaluator.get_integer_constant_value(it->get(),
+                                                              semantic_context);
             if (dimension_value.has_value() && *dimension_value > 0) {
                 semantic_dimensions[0] = static_cast<int>(*dimension_value);
             }

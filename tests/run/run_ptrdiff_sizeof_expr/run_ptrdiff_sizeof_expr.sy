@@ -1,0 +1,6 @@
+int main(void) {
+    int values[2];
+    putint((int)sizeof((&values[1]) - (&values[0])));
+    putch(10);
+    return 0;
+}

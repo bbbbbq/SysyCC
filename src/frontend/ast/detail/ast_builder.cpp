@@ -1906,11 +1906,19 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
             ParseTreeMatcher::label_starts_with(node->children[0].get(), "NOT") ||
             ParseTreeMatcher::label_starts_with(node->children[0].get(), "BITNOT") ||
             ParseTreeMatcher::label_starts_with(node->children[0].get(), "BITAND") ||
-            ParseTreeMatcher::label_starts_with(node->children[0].get(), "MUL")) {
+            ParseTreeMatcher::label_starts_with(node->children[0].get(), "MUL") ||
+            ParseTreeMatcher::label_starts_with(node->children[0].get(), "SIZEOF")) {
             return std::make_unique<UnaryExpr>(
                 get_operator_text(node->children[0].get()),
                 build_expr(node->children[1].get()), get_node_source_span(node));
         }
+    }
+
+    if (ParseTreeMatcher::label_equals(node, "sizeof_type_expr") &&
+        node->children.size() == 4) {
+        return std::make_unique<SizeofTypeExpr>(
+            build_cast_target_type(node->children[2].get()),
+            get_node_source_span(node));
     }
 
     if (ParseTreeMatcher::label_equals(node, "cast_expr") &&
@@ -2070,6 +2078,9 @@ std::unique_ptr<TypeNode> AstBuilder::build_cast_target_type(
 
     const ParseTreeNode *type_specifier =
         ParseTreeMatcher::find_first_child_with_label(node, "type_specifier");
+    const ParseTreeNode *sizeof_suffix =
+        ParseTreeMatcher::find_first_child_with_label(node,
+                                                      "sizeof_type_suffix_opt");
     TypeQualifierFlags pointee_qualifiers;
     collect_declaration_type_qualifiers(node, pointee_qualifiers.is_const,
                                         pointee_qualifiers.is_volatile);
@@ -2081,9 +2092,34 @@ std::unique_ptr<TypeNode> AstBuilder::build_cast_target_type(
 
     const ParseTreeNode *pointer =
         ParseTreeMatcher::find_first_child_with_label(node, "pointer");
-    return build_declared_type(type_specifier, pointer,
-                               pointee_qualifiers.is_const,
-                               pointee_qualifiers.is_volatile);
+    if (pointer == nullptr && sizeof_suffix != nullptr) {
+        pointer =
+            ParseTreeMatcher::find_first_child_with_label(sizeof_suffix, "pointer");
+    }
+    std::unique_ptr<TypeNode> declared_type =
+        build_declared_type(type_specifier, pointer,
+                            pointee_qualifiers.is_const,
+                            pointee_qualifiers.is_volatile);
+    if (const ParseTreeNode *array_suffix_list =
+            ParseTreeMatcher::find_first_child_with_label(
+                node, "abstract_array_suffix_list");
+        array_suffix_list != nullptr) {
+        declared_type = std::make_unique<ArrayTypeNode>(
+            std::move(declared_type),
+            collect_declarator_dimensions(array_suffix_list),
+            get_node_source_span(node));
+    } else if (sizeof_suffix != nullptr) {
+        if (const ParseTreeNode *nested_array_suffix_list =
+                ParseTreeMatcher::find_first_child_with_label(
+                    sizeof_suffix, "abstract_array_suffix_list");
+            nested_array_suffix_list != nullptr) {
+            declared_type = std::make_unique<ArrayTypeNode>(
+                std::move(declared_type),
+                collect_declarator_dimensions(nested_array_suffix_list),
+                get_node_source_span(node));
+        }
+    }
+    return declared_type;
 }
 
 std::vector<std::unique_ptr<Expr>>

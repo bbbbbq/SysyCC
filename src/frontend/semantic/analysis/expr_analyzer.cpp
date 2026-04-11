@@ -13,6 +13,7 @@
 #include "frontend/semantic/type_system/conversion_checker.hpp"
 #include "frontend/semantic/support/scope_stack.hpp"
 #include "frontend/semantic/support/semantic_context.hpp"
+#include "frontend/semantic/type_system/type_layout.hpp"
 #include "frontend/semantic/type_system/type_resolver.hpp"
 #include "frontend/semantic/model/semantic_diagnostic.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
@@ -142,6 +143,10 @@ const SemanticType *get_long_long_semantic_type(SemanticModel &semantic_model) {
 const SemanticType *get_unsigned_long_semantic_type(
     SemanticModel &semantic_model) {
     return get_builtin_semantic_type(semantic_model, "unsigned long");
+}
+
+const SemanticType *get_size_t_semantic_type(SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "size_t");
 }
 
 bool fits_signed_32(unsigned long long magnitude) {
@@ -838,12 +843,44 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                       std::vector<int>{static_cast<int>(decoded_text.size() + 1)})));
         return;
     }
+    case AstKind::SizeofTypeExpr: {
+        const auto *sizeof_type_expr = static_cast<const SizeofTypeExpr *>(expr);
+        const SemanticType *target_type = type_resolver_.resolve_type(
+            sizeof_type_expr->get_target_type(), semantic_context, &scope_stack);
+        semantic_model.bind_node_type(sizeof_type_expr,
+                                      get_size_t_semantic_type(semantic_model));
+        const auto type_size = get_semantic_type_size(target_type);
+        if (!type_size.has_value()) {
+            add_error(semantic_context,
+                      "operator 'sizeof' requires a complete object type",
+                      sizeof_type_expr->get_source_span());
+            return;
+        }
+        constant_evaluator_.bind_integer_constant_value(
+            sizeof_type_expr, static_cast<long long>(*type_size), semantic_context);
+        return;
+    }
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
         analyze_expr(unary_expr->get_operand(), semantic_context, scope_stack);
         const SemanticType *operand_type =
             semantic_model.get_node_type(unary_expr->get_operand());
         if (operand_type == nullptr) {
+            return;
+        }
+        if (unary_expr->get_operator_text() == "sizeof") {
+            semantic_model.bind_node_type(unary_expr,
+                                          get_size_t_semantic_type(semantic_model));
+            const auto operand_size = get_semantic_type_size(operand_type);
+            if (!operand_size.has_value()) {
+                add_error(semantic_context,
+                          "operator 'sizeof' requires a complete object type",
+                          unary_expr->get_source_span());
+                return;
+            }
+            constant_evaluator_.bind_integer_constant_value(
+                unary_expr, static_cast<long long>(*operand_size),
+                semantic_context);
             return;
         }
         if (unary_expr->get_operator_text() == "&") {

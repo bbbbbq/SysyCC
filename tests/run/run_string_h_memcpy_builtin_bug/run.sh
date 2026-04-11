@@ -14,4 +14,4 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" --dump-ir "${INPUT_FILE}"
 assert_file_nonempty "${IR_FILE}"
 
-echo "verified: string.h memcpy compiles successfully"
+echo "verified: string.h memcpy expands through the supported builtin surface"

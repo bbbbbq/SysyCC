@@ -1,0 +1,8 @@
+int foo(void) {
+    return 1;
+}
+
+int main(void) {
+    static int value = foo();
+    return value;
+}

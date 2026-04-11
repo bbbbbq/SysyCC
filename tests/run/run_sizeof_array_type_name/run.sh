@@ -24,4 +24,4 @@ build_and_link_ir_executable "${IR_FILE}" \
     "${PROGRAM_BINARY}"
 assert_program_output "${PROGRAM_BINARY}" /dev/null "${EXPECTED_OUTPUT}"
 
-echo "verified: Darwin private builtin typedefs work inside typedef-struct fields"
+echo "verified: sizeof(type-name) supports abstract array declarators"

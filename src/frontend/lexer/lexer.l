@@ -102,6 +102,8 @@ static int get_keyword_parser_token(sysycc::TokenKind kind) {
         return ENUM;
     case sysycc::TokenKind::KwTypedef:
         return TYPEDEF;
+    case sysycc::TokenKind::KwSizeof:
+        return SIZEOF;
     default:
         return IDENTIFIER;
     }
@@ -179,6 +181,8 @@ static const char *get_keyword_token_label(int token) {
         return "ENUM";
     case TYPEDEF:
         return "TYPEDEF";
+    case SIZEOF:
+        return "SIZEOF";
     default:
         return "IDENTIFIER";
     }

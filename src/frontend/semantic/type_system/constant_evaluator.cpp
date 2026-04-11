@@ -248,6 +248,8 @@ std::optional<long long> ConstantEvaluator::evaluate_integer_expr(
             static_cast<const CharLiteralExpr *>(expr)->get_value_text());
     case AstKind::IdentifierExpr:
         return semantic_model.get_integer_constant_value(expr);
+    case AstKind::SizeofTypeExpr:
+        return semantic_model.get_integer_constant_value(expr);
     case AstKind::CastExpr: {
         const auto *cast_expr = static_cast<const CastExpr *>(expr);
         const auto operand =
@@ -260,6 +262,9 @@ std::optional<long long> ConstantEvaluator::evaluate_integer_expr(
     }
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
+        if (unary_expr->get_operator_text() == "sizeof") {
+            return semantic_model.get_integer_constant_value(expr);
+        }
         const auto operand =
             evaluate_integer_expr(unary_expr->get_operand(), semantic_model);
         if (!operand.has_value()) {
@@ -400,6 +405,10 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
         const auto value = semantic_model.get_integer_constant_value(expr);
         return value.has_value() ? std::optional<long double>(*value) : std::nullopt;
     }
+    case AstKind::SizeofTypeExpr: {
+        const auto value = semantic_model.get_integer_constant_value(expr);
+        return value.has_value() ? std::optional<long double>(*value) : std::nullopt;
+    }
     case AstKind::CastExpr: {
         const auto *cast_expr = static_cast<const CastExpr *>(expr);
         const auto operand =
@@ -412,6 +421,11 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
     }
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
+        if (unary_expr->get_operator_text() == "sizeof") {
+            const auto value = semantic_model.get_integer_constant_value(expr);
+            return value.has_value() ? std::optional<long double>(*value)
+                                     : std::nullopt;
+        }
         const auto operand =
             evaluate_scalar_numeric_expr(unary_expr->get_operand(), semantic_model);
         if (!operand.has_value()) {

@@ -131,6 +131,21 @@ class PointerTypeNode : public TypeNode {
     PointerNullabilityKind get_nullability_kind() const noexcept;
 };
 
+// Represents an abstract array type such as int[2] inside sizeof(type-name).
+class ArrayTypeNode : public TypeNode {
+  private:
+    std::unique_ptr<TypeNode> element_type_;
+    std::vector<std::unique_ptr<Expr>> dimensions_;
+
+  public:
+    ArrayTypeNode(std::unique_ptr<TypeNode> element_type,
+                  std::vector<std::unique_ptr<Expr>> dimensions,
+                  SourceSpan source_span = {});
+
+    const TypeNode *get_element_type() const noexcept;
+    const std::vector<std::unique_ptr<Expr>> &get_dimensions() const noexcept;
+};
+
 // Represents a function type used under declarators such as function pointers.
 class FunctionTypeNode : public TypeNode {
   private:
@@ -157,7 +172,8 @@ class StructTypeNode : public TypeNode {
     std::vector<std::unique_ptr<Decl>> fields_;
 
   public:
-    StructTypeNode(std::string name, std::vector<std::unique_ptr<Decl>> fields = {},
+    StructTypeNode(std::string name,
+                   std::vector<std::unique_ptr<Decl>> fields = {},
                    SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
@@ -645,6 +661,18 @@ class IdentifierExpr : public Expr {
     explicit IdentifierExpr(std::string name, SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
+};
+
+// Represents sizeof(type-name).
+class SizeofTypeExpr : public Expr {
+  private:
+    std::unique_ptr<TypeNode> target_type_;
+
+  public:
+    explicit SizeofTypeExpr(std::unique_ptr<TypeNode> target_type,
+                            SourceSpan source_span = {});
+
+    const TypeNode *get_target_type() const noexcept;
 };
 
 // Represents a unary operator expression such as -x, !x, &x, or *p.

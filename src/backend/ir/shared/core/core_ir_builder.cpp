@@ -840,6 +840,10 @@ class CoreIrBuildSession {
             identifier != nullptr) {
             return build_identifier(*identifier);
         }
+        if (const auto *sizeof_type_expr = dynamic_cast<const SizeofTypeExpr *>(expr);
+            sizeof_type_expr != nullptr) {
+            return build_integer_constant_expr(*sizeof_type_expr);
+        }
         if (const auto *string_literal = dynamic_cast<const StringLiteralExpr *>(expr);
             string_literal != nullptr) {
             return build_string_literal_expr(*string_literal);
@@ -2047,6 +2051,9 @@ class CoreIrBuildSession {
     }
 
     CoreIrValue *build_unary_expr(const UnaryExpr &expr) {
+        if (expr.get_operator_text() == "sizeof") {
+            return build_integer_constant_expr(expr);
+        }
         if (expr.get_operator_text() == "+") {
             CoreIrValue *operand = build_expr(expr.get_operand());
             if (operand == nullptr) {

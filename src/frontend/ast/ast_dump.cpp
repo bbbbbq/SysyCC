@@ -203,6 +203,19 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         dump_node(pointer_type->get_pointee_type(), os, indent + 2);
         return;
     }
+    case AstKind::ArrayType: {
+        const auto *array_type = static_cast<const ArrayTypeNode *>(node);
+        write_indent(os, indent);
+        os << "ArrayType\n";
+        dump_source_span(node, os, indent + 2);
+        dump_node(array_type->get_element_type(), os, indent + 2);
+        for (const auto &dimension : array_type->get_dimensions()) {
+            write_indent(os, indent + 2);
+            os << "Dimension\n";
+            dump_node(dimension.get(), os, indent + 4);
+        }
+        return;
+    }
     case AstKind::FunctionType: {
         const auto *function_type = static_cast<const FunctionTypeNode *>(node);
         write_indent(os, indent);
@@ -283,6 +296,10 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         dump_source_span(node, os, indent + 2);
         return;
     }
+    case AstKind::SizeofTypeExpr:
+        dump_sizeof_type_expr(static_cast<const SizeofTypeExpr *>(node), os,
+                              indent);
+        return;
     case AstKind::UnaryExpr:
         dump_unary_expr(static_cast<const UnaryExpr *>(node), os, indent);
         return;
@@ -699,6 +716,14 @@ void AstDumper::dump_return_stmt(const ReturnStmt *node, std::ostream &os,
     os << "ReturnStmt\n";
     dump_source_span(node, os, indent + 2);
     dump_node(node->get_value(), os, indent + 2);
+}
+
+void AstDumper::dump_sizeof_type_expr(const SizeofTypeExpr *node,
+                                      std::ostream &os, int indent) const {
+    write_indent(os, indent);
+    os << "SizeofTypeExpr\n";
+    dump_source_span(node, os, indent + 2);
+    dump_node(node->get_target_type(), os, indent + 2);
 }
 
 void AstDumper::dump_unary_expr(const UnaryExpr *node, std::ostream &os,

@@ -35,7 +35,7 @@ std::optional<int> get_integer_rank_from_name(std::string_view name) {
         return 2;
     }
     if (name == "int" || name == "unsigned int" || name == "ptrdiff_t" ||
-        name == "enum") {
+        name == "size_t" || name == "enum") {
         return 3;
     }
     if (name == "long int" || name == "unsigned long") {
@@ -75,19 +75,22 @@ const SemanticType *get_canonical_integer_type_for_info(
         stripped_source->get_kind() == SemanticTypeKind::Builtin) {
         const auto &source_name =
             static_cast<const BuiltinSemanticType *>(stripped_source)->get_name();
-        if (!info.get_is_signed()) {
-            if (info.get_rank() == 1) {
-                return make_builtin_type(semantic_model, "unsigned char");
-            }
-            if (info.get_rank() == 2) {
-                return make_builtin_type(semantic_model, "unsigned short");
-            }
-            if (info.get_rank() == 3) {
-                return make_builtin_type(semantic_model, "unsigned int");
-            }
-            if (info.get_rank() == 4) {
-                return make_builtin_type(semantic_model, "unsigned long");
-            }
+            if (!info.get_is_signed()) {
+                if (info.get_rank() == 1) {
+                    return make_builtin_type(semantic_model, "unsigned char");
+                }
+                if (info.get_rank() == 2) {
+                    return make_builtin_type(semantic_model, "unsigned short");
+                }
+                if (info.get_rank() == 3) {
+                    return make_builtin_type(semantic_model, "unsigned int");
+                }
+                if (info.get_rank() == 4) {
+                    if (source_name == "size_t") {
+                        return make_builtin_type(semantic_model, "size_t");
+                    }
+                    return make_builtin_type(semantic_model, "unsigned long");
+                }
             if (info.get_rank() == 5) {
                 return make_builtin_type(semantic_model, "unsigned long long");
             }
@@ -212,6 +215,9 @@ IntegerConversionService::get_integer_type_info(const SemanticType *type) const 
     if (name == "ptrdiff_t") {
         return IntegerTypeInfo(true, 64, 4);
     }
+    if (name == "size_t") {
+        return IntegerTypeInfo(false, 64, 4);
+    }
 
     return std::nullopt;
 }
@@ -315,6 +321,9 @@ const SemanticType *IntegerConversionService::get_common_integer_type(
                                                ->get_name();
                     if (lhs_name == "ptrdiff_t" || rhs_name == "ptrdiff_t") {
                         return make_builtin_type(semantic_model, "ptrdiff_t");
+                    }
+                    if (lhs_name == "size_t" || rhs_name == "size_t") {
+                        return make_builtin_type(semantic_model, "size_t");
                     }
                     if (lhs_name == "long int" || rhs_name == "long int") {
                         return make_builtin_type(semantic_model, "long int");

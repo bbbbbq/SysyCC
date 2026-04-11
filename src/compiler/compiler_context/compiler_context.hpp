@@ -70,6 +70,7 @@ enum class TokenKind : uint8_t {
     KwUnion,
     KwEnum,
     KwTypedef,
+    KwSizeof,
     Plus,
     Minus,
     Star,
@@ -187,6 +188,7 @@ class Token {
         case TokenKind::KwUnion:
         case TokenKind::KwEnum:
         case TokenKind::KwTypedef:
+        case TokenKind::KwSizeof:
             return TokenCategory::Keyword;
         case TokenKind::Plus:
         case TokenKind::Minus:
@@ -328,6 +330,8 @@ class Token {
             return "KwEnum";
         case TokenKind::KwTypedef:
             return "KwTypedef";
+        case TokenKind::KwSizeof:
+            return "KwSizeof";
         case TokenKind::Plus:
             return "Plus";
         case TokenKind::Minus:
