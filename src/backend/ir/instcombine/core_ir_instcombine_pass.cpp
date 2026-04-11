@@ -320,6 +320,80 @@ CoreIrConstantInt *create_int_constant(CoreIrContext &context,
     return context.create_constant<CoreIrConstantInt>(type, value);
 }
 
+bool is_integer_constant_value(CoreIrValue *value, std::uint64_t expected) {
+    const auto *constant = as_integer_constant(value);
+    return constant != nullptr && constant->get_value() == expected;
+}
+
+CoreIrValue *materialize_signed_div_by_two(CoreIrContext &context,
+                                           CoreIrBasicBlock &block,
+                                           CoreIrInstruction *anchor,
+                                           CoreIrValue *value,
+                                           const SourceSpan &source_span) {
+    const std::optional<std::size_t> bit_width = get_integer_bit_width(value->get_type());
+    if (!bit_width.has_value() || *bit_width == 0) {
+        return nullptr;
+    }
+
+    CoreIrValue *shift_amount =
+        create_int_constant(context, value->get_type(), *bit_width - 1);
+    auto sign = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::LShr, value->get_type(),
+        next_instcombine_name("instcombine.half.sign."), value, shift_amount);
+    sign->set_source_span(source_span);
+    CoreIrInstruction *sign_inst =
+        insert_instruction_before(block, anchor, std::move(sign));
+    if (sign_inst == nullptr) {
+        return nullptr;
+    }
+
+    auto biased = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, value->get_type(),
+        next_instcombine_name("instcombine.half.bias."), value, sign_inst);
+    biased->set_source_span(source_span);
+    CoreIrInstruction *biased_inst =
+        insert_instruction_before(block, anchor, std::move(biased));
+    if (biased_inst == nullptr) {
+        return nullptr;
+    }
+
+    CoreIrValue *one = create_int_constant(context, value->get_type(), 1);
+    auto quotient = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::AShr, value->get_type(),
+        next_instcombine_name("instcombine.half.quot."), biased_inst, one);
+    quotient->set_source_span(source_span);
+    return insert_instruction_before(block, anchor, std::move(quotient));
+}
+
+CoreIrValue *materialize_signed_rem_by_two(CoreIrContext &context,
+                                           CoreIrBasicBlock &block,
+                                           CoreIrInstruction *anchor,
+                                           CoreIrValue *value,
+                                           const SourceSpan &source_span) {
+    CoreIrValue *quotient =
+        materialize_signed_div_by_two(context, block, anchor, value, source_span);
+    if (quotient == nullptr) {
+        return nullptr;
+    }
+
+    CoreIrValue *one = create_int_constant(context, value->get_type(), 1);
+    auto doubled = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Shl, value->get_type(),
+        next_instcombine_name("instcombine.half.twice."), quotient, one);
+    doubled->set_source_span(source_span);
+    CoreIrInstruction *doubled_inst =
+        insert_instruction_before(block, anchor, std::move(doubled));
+    if (doubled_inst == nullptr) {
+        return nullptr;
+    }
+
+    auto remainder = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Sub, value->get_type(),
+        next_instcombine_name("instcombine.half.rem."), value, doubled_inst);
+    remainder->set_source_span(source_span);
+    return insert_instruction_before(block, anchor, std::move(remainder));
+}
+
 CoreIrValue *try_fold_phi(const CoreIrPhiInst &inst) {
     if (inst.get_incoming_count() == 0) {
         return nullptr;
@@ -666,6 +740,32 @@ bool simplify_binary_identity(CoreIrContext &context, CoreIrBasicBlock &block,
     return true;
 }
 
+bool simplify_signed_half_div_rem(CoreIrContext &context,
+                                  CoreIrBasicBlock &block,
+                                  CoreIrBinaryInst &binary) {
+    if ((binary.get_binary_opcode() != CoreIrBinaryOpcode::SDiv &&
+         binary.get_binary_opcode() != CoreIrBinaryOpcode::SRem) ||
+        !is_integer_constant_value(binary.get_rhs(), 2)) {
+        return false;
+    }
+
+    CoreIrValue *replacement =
+        binary.get_binary_opcode() == CoreIrBinaryOpcode::SDiv
+            ? materialize_signed_div_by_two(context, block, &binary,
+                                            binary.get_lhs(),
+                                            binary.get_source_span())
+            : materialize_signed_rem_by_two(context, block, &binary,
+                                            binary.get_lhs(),
+                                            binary.get_source_span());
+    if (replacement == nullptr) {
+        return false;
+    }
+
+    binary.replace_all_uses_with(replacement);
+    erase_instruction(block, &binary);
+    return true;
+}
+
 bool simplify_identity_cast(CoreIrBasicBlock &block, CoreIrCastInst &cast) {
     CoreIrValue *operand = cast.get_operand();
     if (operand == nullptr || operand->get_type() != cast.get_type()) {
@@ -800,6 +900,47 @@ bool simplify_compare_orientation(CoreIrCompareInst &compare) {
     compare.set_operand(0, original_rhs);
     compare.set_operand(1, original_lhs);
     compare.set_predicate(flip_compare_predicate(compare.get_predicate()));
+    return true;
+}
+
+bool simplify_compare_signed_parity(CoreIrContext &context,
+                                    CoreIrBasicBlock &block,
+                                    CoreIrCompareInst &compare) {
+    const CoreIrComparePredicate predicate = compare.get_predicate();
+    if ((predicate != CoreIrComparePredicate::Equal &&
+         predicate != CoreIrComparePredicate::NotEqual) ||
+        !(is_zero_integer_constant(compare.get_lhs()) ||
+          is_zero_integer_constant(compare.get_rhs()))) {
+        return false;
+    }
+
+    auto *srem =
+        dynamic_cast<CoreIrBinaryInst *>(is_zero_integer_constant(compare.get_lhs())
+                                             ? compare.get_rhs()
+                                             : compare.get_lhs());
+    if (srem == nullptr || srem->get_binary_opcode() != CoreIrBinaryOpcode::SRem ||
+        !is_integer_constant_value(srem->get_rhs(), 2)) {
+        return false;
+    }
+
+    CoreIrValue *one = create_int_constant(context, srem->get_type(), 1);
+    auto masked = std::make_unique<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::And, srem->get_type(),
+        next_instcombine_name("instcombine.parity.mask."), srem->get_lhs(), one);
+    masked->set_source_span(compare.get_source_span());
+    CoreIrInstruction *masked_inst =
+        insert_instruction_before(block, &compare, std::move(masked));
+    if (masked_inst == nullptr) {
+        return false;
+    }
+
+    CoreIrValue *zero = create_int_constant(context, srem->get_type(), 0);
+    CoreIrCompareInst *replacement = replace_compare_instruction(
+        block, compare, predicate, masked_inst, zero);
+    if (replacement == nullptr) {
+        return false;
+    }
+    erase_instruction_if_dead(block, srem);
     return true;
 }
 
@@ -1080,6 +1221,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
             return true;
         }
         return simplify_commutative_binary(*binary) ||
+               simplify_signed_half_div_rem(context, block, *binary) ||
                simplify_binary_identity(context, block, *binary);
     }
 
@@ -1131,6 +1273,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
             return true;
         }
         return simplify_compare_boolean_wrapper(block, *compare) ||
+               simplify_compare_signed_parity(context, block, *compare) ||
                simplify_compare_orientation(*compare);
     }
 
