@@ -53,6 +53,8 @@ int main() {
                                                          true, false);
     auto *global_y = module->create_global<CoreIrGlobal>("y", i32_type, nullptr,
                                                          true, false);
+    auto *global_z = module->create_global<CoreIrGlobal>("z", i32_type, nullptr,
+                                                         true, false);
 
     auto *reuse_function = module->create_function<CoreIrFunction>(
         "reuse_live_on_entry", function_type_with_ptr, false);
@@ -128,6 +130,23 @@ int main() {
     loop_iv->add_incoming(loop_entry, zero);
     loop_iv->add_incoming(loop_body, loop_next);
 
+    auto *addr_function = module->create_function<CoreIrFunction>(
+        "reuse_global_address_across_domination", function_type, false);
+    auto *addr_entry =
+        addr_function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *addr_child =
+        addr_function->create_basic_block<CoreIrBasicBlock>("child");
+    auto *global_z_addr0 =
+        addr_entry->create_instruction<CoreIrAddressOfGlobalInst>(
+            ptr_i32_type, "z.addr.0", global_z);
+    addr_entry->create_instruction<CoreIrJumpInst>(void_type, addr_child);
+    auto *global_z_addr1 =
+        addr_child->create_instruction<CoreIrAddressOfGlobalInst>(
+            ptr_i32_type, "z.addr.1", global_z);
+    auto *z_load = addr_child->create_instruction<CoreIrLoadInst>(
+        i32_type, "z.load", global_z_addr1);
+    addr_child->create_instruction<CoreIrReturnInst>(void_type, z_load);
+
     CompilerContext compiler_context;
     compiler_context.set_core_ir_build_result(
         std::make_unique<CoreIrBuildResult>(std::move(context), module));
@@ -141,14 +160,18 @@ int main() {
     const std::size_t forward_offset = text.find("func @forward_from_store");
     const std::size_t loop_offset =
         text.find("func @reuse_across_noalias_loop_phi");
+    const std::size_t addr_offset =
+        text.find("func @reuse_global_address_across_domination");
     assert(reuse_offset != std::string::npos);
     assert(forward_offset != std::string::npos);
     assert(loop_offset != std::string::npos);
+    assert(addr_offset != std::string::npos);
     const std::string reuse_text =
         text.substr(reuse_offset, forward_offset - reuse_offset);
     const std::string forward_text =
         text.substr(forward_offset, loop_offset - forward_offset);
-    const std::string loop_text = text.substr(loop_offset);
+    const std::string loop_text = text.substr(loop_offset, addr_offset - loop_offset);
+    const std::string addr_text = text.substr(addr_offset);
 
     assert(reuse_text.find("%live1 = load i32") == std::string::npos);
     assert(count_occurrences(reuse_text, "load i32") == 1);
@@ -162,5 +185,8 @@ int main() {
     assert(count_occurrences(loop_text, "load i32, %x.addr") == 1);
     assert(loop_text.find("%loop.sum = add i32 %head.load, %head.load") !=
            std::string::npos);
+
+    assert(addr_text.find("%z.addr.1 = addr_of_global") == std::string::npos);
+    assert(addr_text.find("load i32, %z.addr.0") != std::string::npos);
     return 0;
 }

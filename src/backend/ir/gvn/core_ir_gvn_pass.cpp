@@ -146,6 +146,30 @@ std::string build_gvn_key(const CoreIrInstruction &instruction) {
         return key;
     }
 
+    if (const auto *address =
+            dynamic_cast<const CoreIrAddressOfGlobalInst *>(&instruction);
+        address != nullptr) {
+        key += "global:";
+        append_pointer_key(key, address->get_global());
+        return key;
+    }
+
+    if (const auto *address =
+            dynamic_cast<const CoreIrAddressOfStackSlotInst *>(&instruction);
+        address != nullptr) {
+        key += "stack:";
+        append_pointer_key(key, address->get_stack_slot());
+        return key;
+    }
+
+    if (const auto *address =
+            dynamic_cast<const CoreIrAddressOfFunctionInst *>(&instruction);
+        address != nullptr) {
+        key += "function:";
+        append_pointer_key(key, address->get_function());
+        return key;
+    }
+
     const auto *gep =
         dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction);
     if (gep != nullptr) {
@@ -176,6 +200,9 @@ bool is_gvn_candidate(const CoreIrInstruction &instruction) {
            dynamic_cast<const CoreIrUnaryInst *>(&instruction) != nullptr ||
            dynamic_cast<const CoreIrCompareInst *>(&instruction) != nullptr ||
            dynamic_cast<const CoreIrCastInst *>(&instruction) != nullptr ||
+           dynamic_cast<const CoreIrAddressOfGlobalInst *>(&instruction) != nullptr ||
+           dynamic_cast<const CoreIrAddressOfStackSlotInst *>(&instruction) != nullptr ||
+           dynamic_cast<const CoreIrAddressOfFunctionInst *>(&instruction) != nullptr ||
            dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction) !=
                nullptr;
 }
