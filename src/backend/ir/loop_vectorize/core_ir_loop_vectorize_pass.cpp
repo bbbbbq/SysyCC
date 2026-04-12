@@ -153,6 +153,12 @@ materialize_access_indices(CoreIrValue *root_base,
     return indices;
 }
 
+struct AccessInfo;
+
+std::vector<CoreIrValue *>
+materialize_scalar_access_indices(const AccessInfo &access,
+                                  CoreIrValue *varying_index);
+
 std::size_t get_vector_alignment_bytes(const CoreIrType *type) {
     const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
     if (vector_type == nullptr) {
@@ -174,11 +180,36 @@ std::size_t get_vector_alignment_bytes(const CoreIrType *type) {
     return 0;
 }
 
+std::size_t get_scalar_alignment_bytes(const CoreIrType *type) {
+    if (as_i32_type(type) != nullptr) {
+        return 4;
+    }
+    const auto *float_type = dynamic_cast<const CoreIrFloatType *>(type);
+    if (float_type != nullptr &&
+        float_type->get_float_kind() == CoreIrFloatKind::Float32) {
+        return 4;
+    }
+    return 0;
+}
+
 struct AccessInfo {
     CoreIrValue *root_base = nullptr;
     std::vector<CoreIrValue *> prefix_indices;
+    std::vector<CoreIrValue *> suffix_indices;
     CoreIrInstruction *address_instruction = nullptr;
 };
+
+std::vector<CoreIrValue *>
+materialize_scalar_access_indices(const AccessInfo &access,
+                                  CoreIrValue *varying_index) {
+    std::vector<CoreIrValue *> indices = access.prefix_indices;
+    if (varying_index != nullptr) {
+        indices.push_back(varying_index);
+    }
+    indices.insert(indices.end(), access.suffix_indices.begin(),
+                   access.suffix_indices.end());
+    return indices;
+}
 
 CoreIrBasicBlock *insert_new_block_before(CoreIrFunction &function,
                                           CoreIrBasicBlock *anchor,
@@ -331,14 +362,66 @@ bool match_iv_gep(CoreIrValue *address, CoreIrPhiInst *iv, AccessInfo &info) {
 
 CoreIrConstantAggregate *make_splat_vector_constant(CoreIrContext &context,
                                                     const CoreIrType *vector_type,
-                                                    const CoreIrConstantInt *scalar) {
-    if (vector_type == nullptr || scalar == nullptr) {
+                                                    const CoreIrConstant *scalar) {
+    const auto *vec_type = dynamic_cast<const CoreIrVectorType *>(vector_type);
+    if (vec_type == nullptr || scalar == nullptr ||
+        vec_type->get_element_type() == nullptr ||
+        !detail::are_equivalent_types(vec_type->get_element_type(),
+                                      scalar->get_type())) {
         return nullptr;
     }
-    const auto *vec_type = static_cast<const CoreIrVectorType *>(vector_type);
     std::vector<const CoreIrConstant *> elements(vec_type->get_element_count(), scalar);
     return context.create_constant<CoreIrConstantAggregate>(vector_type,
                                                             std::move(elements));
+}
+
+const CoreIrType *get_uniform_vector_type(CoreIrContext &context,
+                                          const CoreIrType *scalar_type,
+                                          std::size_t lane_count) {
+    if (scalar_type == nullptr) {
+        return nullptr;
+    }
+    if (const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(scalar_type);
+        vector_type != nullptr) {
+        return vector_type->get_element_count() == lane_count ? scalar_type : nullptr;
+    }
+    switch (scalar_type->get_kind()) {
+    case CoreIrTypeKind::Integer:
+    case CoreIrTypeKind::Float:
+        return context.create_type<CoreIrVectorType>(scalar_type, lane_count);
+    default:
+        return nullptr;
+    }
+}
+
+CoreIrValue *materialize_broadcast_value(CoreIrBasicBlock &body,
+                                         CoreIrInstruction *anchor,
+                                         CoreIrContext &context,
+                                         const CoreIrType *vector_type,
+                                         CoreIrValue *scalar_value,
+                                         const std::string &name);
+
+CoreIrValue *materialize_uniform_vector_value(CoreIrBasicBlock &body,
+                                              CoreIrInstruction *anchor,
+                                              CoreIrContext &context,
+                                              const CoreIrType *vector_type,
+                                              CoreIrValue *scalar_value,
+                                              const std::string &name) {
+    if (vector_type == nullptr || scalar_value == nullptr) {
+        return nullptr;
+    }
+    if (detail::are_equivalent_types(vector_type, scalar_value->get_type())) {
+        return scalar_value;
+    }
+    if (const auto *constant = dynamic_cast<const CoreIrConstant *>(scalar_value);
+        constant != nullptr) {
+        if (auto *splat = make_splat_vector_constant(context, vector_type, constant);
+            splat != nullptr) {
+            return splat;
+        }
+    }
+    return materialize_broadcast_value(body, anchor, context, vector_type,
+                                       scalar_value, name);
 }
 
 struct StoreLoopPattern {
@@ -402,6 +485,9 @@ struct RuntimeMulReductionInterleavePattern {
     CoreIrPhiInst *reduction_phi = nullptr;
     CoreIrInstruction *iv_next = nullptr;
     CoreIrInstruction *reduction_update = nullptr;
+    CoreIrBinaryInst *reduction_binary = nullptr;
+    CoreIrValue *predication_condition = nullptr;
+    bool predicated_update_on_true = false;
     CoreIrBinaryInst *mul = nullptr;
     CoreIrLoadInst *lhs_load = nullptr;
     CoreIrLoadInst *rhs_load = nullptr;
@@ -657,12 +743,15 @@ bool populate_runtime_mul_reduction_vector_accesses(
     }
     pattern.lhs_access = {};
     pattern.rhs_access = {};
-    return match_runtime_iv_access(pattern.header, pattern.body,
-                                   pattern.lhs_load->get_address(), pattern.iv,
-                                   pattern.lhs_access) &&
-           match_runtime_iv_access(pattern.header, pattern.body,
-                                   pattern.rhs_load->get_address(), pattern.iv,
-                                   pattern.rhs_access);
+    const bool lhs_ok =
+        match_runtime_iv_access(pattern.header, pattern.body,
+                                pattern.lhs_load->get_address(), pattern.iv,
+                                pattern.lhs_access);
+    const bool rhs_ok =
+        match_runtime_iv_access(pattern.header, pattern.body,
+                                pattern.rhs_load->get_address(), pattern.iv,
+                                pattern.rhs_access);
+    return lhs_ok && rhs_ok;
 }
 
 bool instruction_is_runtime_reduction_update(CoreIrInstruction *instruction,
@@ -689,9 +778,76 @@ CoreIrValue *get_runtime_reduction_step_value(CoreIrBinaryInst &update,
 bool match_runtime_mul_reduction_update(CoreIrValue *body_incoming,
                                         CoreIrPhiInst *phi,
                                         CoreIrInstruction *&update_instruction,
+                                        CoreIrBinaryInst *&reduction_binary,
                                         CoreIrBinaryInst *&mul_instruction) {
+    CoreIrValue *ignored_condition = nullptr;
+    bool ignored_update_side = false;
+    auto match_add_update =
+        [phi](CoreIrValue *candidate,
+              CoreIrBinaryInst *&candidate_update,
+              CoreIrBinaryInst *&candidate_mul) {
+            auto *binary = dynamic_cast<CoreIrBinaryInst *>(candidate);
+            if (!instruction_is_runtime_reduction_update(binary, phi)) {
+                return false;
+            }
+            CoreIrValue *step = get_runtime_reduction_step_value(*binary, *phi);
+            auto *mul = dynamic_cast<CoreIrBinaryInst *>(step);
+            if (mul == nullptr ||
+                mul->get_binary_opcode() != CoreIrBinaryOpcode::Mul) {
+                return false;
+            }
+            candidate_update = binary;
+            candidate_mul = mul;
+            return true;
+        };
+
+    CoreIrBinaryInst *candidate_update = nullptr;
+    if (match_add_update(body_incoming, candidate_update, mul_instruction)) {
+        update_instruction = candidate_update;
+        reduction_binary = candidate_update;
+        return true;
+    }
+
+    auto *select = dynamic_cast<CoreIrSelectInst *>(body_incoming);
+    if (select == nullptr) {
+        return false;
+    }
+
+    if (select->get_true_value() == phi &&
+        match_add_update(select->get_false_value(), candidate_update,
+                         mul_instruction)) {
+        update_instruction = select;
+        reduction_binary = candidate_update;
+        ignored_condition = select->get_condition();
+        ignored_update_side = false;
+        (void)ignored_condition;
+        (void)ignored_update_side;
+        return true;
+    }
+    if (select->get_false_value() == phi &&
+        match_add_update(select->get_true_value(), candidate_update,
+                         mul_instruction)) {
+        update_instruction = select;
+        reduction_binary = candidate_update;
+        ignored_condition = select->get_condition();
+        ignored_update_side = true;
+        (void)ignored_condition;
+        (void)ignored_update_side;
+        return true;
+    }
+    return false;
+}
+
+bool match_runtime_mul_reduction_update(CoreIrValue *body_incoming,
+                                        CoreIrPhiInst *phi,
+                                        CoreIrInstruction *&update_instruction,
+                                        CoreIrBinaryInst *&reduction_binary,
+                                        CoreIrBinaryInst *&mul_instruction,
+                                        CoreIrValue *&predication_condition,
+                                        bool &predicated_update_on_true) {
     auto match_add_update = [phi](CoreIrValue *candidate,
                                   CoreIrInstruction *&candidate_instruction,
+                                  CoreIrBinaryInst *&candidate_update,
                                   CoreIrBinaryInst *&candidate_mul) {
         auto *binary = dynamic_cast<CoreIrBinaryInst *>(candidate);
         if (!instruction_is_runtime_reduction_update(binary, phi)) {
@@ -703,11 +859,15 @@ bool match_runtime_mul_reduction_update(CoreIrValue *body_incoming,
             return false;
         }
         candidate_instruction = binary;
+        candidate_update = binary;
         candidate_mul = mul;
         return true;
     };
 
-    if (match_add_update(body_incoming, update_instruction, mul_instruction)) {
+    if (match_add_update(body_incoming, update_instruction, reduction_binary,
+                         mul_instruction)) {
+        predication_condition = nullptr;
+        predicated_update_on_true = false;
         return true;
     }
 
@@ -718,14 +878,18 @@ bool match_runtime_mul_reduction_update(CoreIrValue *body_incoming,
 
     if (select->get_true_value() == phi &&
         match_add_update(select->get_false_value(), update_instruction,
-                         mul_instruction)) {
+                         reduction_binary, mul_instruction)) {
         update_instruction = select;
+        predication_condition = select->get_condition();
+        predicated_update_on_true = false;
         return true;
     }
     if (select->get_false_value() == phi &&
         match_add_update(select->get_true_value(), update_instruction,
-                         mul_instruction)) {
+                         reduction_binary, mul_instruction)) {
         update_instruction = select;
+        predication_condition = select->get_condition();
+        predicated_update_on_true = true;
         return true;
     }
     return false;
@@ -759,16 +923,30 @@ bool match_runtime_iv_access(CoreIrBasicBlock *header, CoreIrBasicBlock *body,
     }
     std::vector<CoreIrValue *> indices;
     if (!collect_runtime_access_gep_chain(*gep, info.root_base, indices) ||
-        indices.empty() || indices.back() != iv) {
+        indices.empty()) {
         return false;
     }
-    for (std::size_t index = 0; index + 1 < indices.size(); ++index) {
+    auto iv_it = std::find(indices.begin(), indices.end(), iv);
+    if (iv_it == indices.end() ||
+        std::find(iv_it + 1, indices.end(), iv) != indices.end()) {
+        return false;
+    }
+    const std::size_t iv_position =
+        static_cast<std::size_t>(iv_it - indices.begin());
+    for (std::size_t index = 0; index < indices.size(); ++index) {
+        if (index == iv_position) {
+            continue;
+        }
         if (auto *instruction = dynamic_cast<CoreIrInstruction *>(indices[index]);
             instruction != nullptr &&
             (instruction->get_parent() == header || instruction->get_parent() == body)) {
             return false;
         }
-        info.prefix_indices.push_back(indices[index]);
+        if (index < iv_position) {
+            info.prefix_indices.push_back(indices[index]);
+        } else {
+            info.suffix_indices.push_back(indices[index]);
+        }
     }
     info.address_instruction = gep;
     return true;
@@ -1424,20 +1602,28 @@ bool match_runtime_mul_reduction_interleave_pattern(
             }
         }
         CoreIrInstruction *update = nullptr;
+        CoreIrBinaryInst *reduction_binary = nullptr;
         CoreIrBinaryInst *mul = nullptr;
-        if (match_runtime_mul_reduction_update(body_incoming, phi, update, mul)) {
+        CoreIrValue *predication_condition = nullptr;
+        bool predicated_update_on_true = false;
+        if (match_runtime_mul_reduction_update(body_incoming, phi, update,
+                                               reduction_binary, mul,
+                                               predication_condition,
+                                               predicated_update_on_true)) {
             pattern.reduction_phi = phi;
             pattern.reduction_update = update;
+            pattern.reduction_binary = reduction_binary;
+            pattern.predication_condition = predication_condition;
+            pattern.predicated_update_on_true = predicated_update_on_true;
             pattern.mul = mul;
             break;
         }
     }
     if (pattern.reduction_phi == nullptr || pattern.reduction_update == nullptr ||
-        pattern.mul == nullptr) {
+        pattern.reduction_binary == nullptr || pattern.mul == nullptr) {
         return false;
     }
-    if (shape.rotated_latch_exit &&
-        dynamic_cast<CoreIrSelectInst *>(pattern.reduction_update) != nullptr) {
+    if (shape.rotated_latch_exit && pattern.predication_condition != nullptr) {
         return false;
     }
 
@@ -1465,22 +1651,214 @@ bool match_runtime_mul_reduction_interleave_pattern(
     return !pattern.body_instructions.empty();
 }
 
+CoreIrValue *materialize_runtime_mul_vector_expression(
+    CoreIrBasicBlock &vector_body, CoreIrInstruction *anchor,
+    CoreIrContext &context, const RuntimeMulReductionInterleavePattern &pattern,
+    const CoreIrType *lane_vector_type, CoreIrValue *scalar_value,
+    std::unordered_map<const CoreIrValue *, CoreIrValue *> &vectorized_values,
+    const std::string &name_prefix) {
+    if (lane_vector_type == nullptr || scalar_value == nullptr) {
+        return nullptr;
+    }
+    if (auto it = vectorized_values.find(scalar_value);
+        it != vectorized_values.end()) {
+        return it->second;
+    }
+
+    const auto *vector_type =
+        dynamic_cast<const CoreIrVectorType *>(lane_vector_type);
+    if (vector_type == nullptr) {
+        return nullptr;
+    }
+    const CoreIrType *target_type =
+        get_uniform_vector_type(context, scalar_value->get_type(),
+                                vector_type->get_element_count());
+    if (target_type == nullptr) {
+        return nullptr;
+    }
+
+    auto *instruction = dynamic_cast<CoreIrInstruction *>(scalar_value);
+    if (instruction == nullptr || instruction->get_parent() != pattern.body) {
+        CoreIrValue *uniform_value = materialize_uniform_vector_value(
+            vector_body, anchor, context, target_type, scalar_value,
+            name_prefix + ".splat");
+        if (uniform_value != nullptr) {
+            vectorized_values.emplace(scalar_value, uniform_value);
+        }
+        return uniform_value;
+    }
+
+    auto make_name = [&](const std::string &fallback_suffix) {
+        const std::string &instruction_name = instruction->get_name();
+        if (!instruction_name.empty()) {
+            return name_prefix + "." + instruction_name;
+        }
+        return name_prefix + "." + fallback_suffix;
+    };
+
+    CoreIrValue *vector_value = nullptr;
+    switch (instruction->get_opcode()) {
+    case CoreIrOpcode::Binary: {
+        auto *binary = static_cast<CoreIrBinaryInst *>(instruction);
+        CoreIrValue *lhs = materialize_runtime_mul_vector_expression(
+            vector_body, anchor, context, pattern, lane_vector_type,
+            binary->get_lhs(), vectorized_values, make_name("lhs"));
+        CoreIrValue *rhs = materialize_runtime_mul_vector_expression(
+            vector_body, anchor, context, pattern, lane_vector_type,
+            binary->get_rhs(), vectorized_values, make_name("rhs"));
+        if (lhs == nullptr || rhs == nullptr) {
+            return nullptr;
+        }
+        vector_value = insert_instruction_before(
+            vector_body, anchor,
+            std::make_unique<CoreIrBinaryInst>(
+                binary->get_binary_opcode(), target_type, make_name("bin"), lhs,
+                rhs));
+        break;
+    }
+    case CoreIrOpcode::Unary: {
+        auto *unary = static_cast<CoreIrUnaryInst *>(instruction);
+        CoreIrValue *operand = materialize_runtime_mul_vector_expression(
+            vector_body, anchor, context, pattern, lane_vector_type,
+            unary->get_operand(), vectorized_values, make_name("operand"));
+        if (operand == nullptr) {
+            return nullptr;
+        }
+        vector_value = insert_instruction_before(
+            vector_body, anchor,
+            std::make_unique<CoreIrUnaryInst>(
+                unary->get_unary_opcode(), target_type, make_name("unary"),
+                operand));
+        break;
+    }
+    case CoreIrOpcode::Compare: {
+        auto *compare = static_cast<CoreIrCompareInst *>(instruction);
+        CoreIrValue *lhs = materialize_runtime_mul_vector_expression(
+            vector_body, anchor, context, pattern, lane_vector_type,
+            compare->get_lhs(), vectorized_values, make_name("lhs"));
+        CoreIrValue *rhs = materialize_runtime_mul_vector_expression(
+            vector_body, anchor, context, pattern, lane_vector_type,
+            compare->get_rhs(), vectorized_values, make_name("rhs"));
+        if (lhs == nullptr || rhs == nullptr) {
+            return nullptr;
+        }
+        vector_value = insert_instruction_before(
+            vector_body, anchor,
+            std::make_unique<CoreIrCompareInst>(
+                compare->get_predicate(), target_type, make_name("cmp"), lhs,
+                rhs));
+        break;
+    }
+    case CoreIrOpcode::Cast: {
+        auto *cast = static_cast<CoreIrCastInst *>(instruction);
+        CoreIrValue *operand = materialize_runtime_mul_vector_expression(
+            vector_body, anchor, context, pattern, lane_vector_type,
+            cast->get_operand(), vectorized_values, make_name("operand"));
+        if (operand == nullptr) {
+            return nullptr;
+        }
+        vector_value = insert_instruction_before(
+            vector_body, anchor,
+            std::make_unique<CoreIrCastInst>(cast->get_cast_kind(), target_type,
+                                             make_name("cast"), operand));
+        break;
+    }
+    case CoreIrOpcode::Select: {
+        auto *select = static_cast<CoreIrSelectInst *>(instruction);
+        CoreIrValue *condition = materialize_runtime_mul_vector_expression(
+            vector_body, anchor, context, pattern, lane_vector_type,
+            select->get_condition(), vectorized_values, make_name("cond"));
+        CoreIrValue *true_value = materialize_runtime_mul_vector_expression(
+            vector_body, anchor, context, pattern, lane_vector_type,
+            select->get_true_value(), vectorized_values, make_name("true"));
+        CoreIrValue *false_value = materialize_runtime_mul_vector_expression(
+            vector_body, anchor, context, pattern, lane_vector_type,
+            select->get_false_value(), vectorized_values, make_name("false"));
+        if (condition == nullptr || true_value == nullptr || false_value == nullptr) {
+            return nullptr;
+        }
+        vector_value = insert_instruction_before(
+            vector_body, anchor,
+            std::make_unique<CoreIrSelectInst>(target_type, make_name("sel"),
+                                               condition, true_value,
+                                               false_value));
+        break;
+    }
+    default:
+        return nullptr;
+    }
+
+    if (vector_value != nullptr) {
+        vectorized_values.emplace(scalar_value, vector_value);
+    }
+    return vector_value;
+}
+
 CoreIrValue *materialize_vector_load(CoreIrBasicBlock &body, CoreIrInstruction *anchor,
                                      CoreIrContext &context, const AccessInfo &access,
                                      CoreIrValue *index_value,
                                      const CoreIrType *vector_type,
                                      const std::string &name) {
-    std::vector<CoreIrValue *> indices =
-        materialize_access_indices(access.root_base, access.prefix_indices, index_value);
-    auto *ptr_type = context.create_type<CoreIrPointerType>(
-        static_cast<const CoreIrVectorType *>(vector_type)->get_element_type());
-    auto gep = std::make_unique<CoreIrGetElementPtrInst>(ptr_type, name + ".addr",
-                                                         access.root_base, std::move(indices));
-    CoreIrInstruction *addr_inst =
-        insert_instruction_before(body, anchor, std::move(gep));
-    auto load = std::make_unique<CoreIrLoadInst>(
-        vector_type, name, addr_inst, get_vector_alignment_bytes(vector_type));
-    return insert_instruction_before(body, anchor, std::move(load));
+    const auto *vec_type = dynamic_cast<const CoreIrVectorType *>(vector_type);
+    if (vec_type == nullptr) {
+        return nullptr;
+    }
+    if (access.suffix_indices.empty()) {
+        std::vector<CoreIrValue *> indices = materialize_access_indices(
+            access.root_base, access.prefix_indices, index_value);
+        auto *ptr_type = context.create_type<CoreIrPointerType>(
+            static_cast<const CoreIrType *>(vec_type->get_element_type()));
+        auto gep = std::make_unique<CoreIrGetElementPtrInst>(
+            ptr_type, name + ".addr", access.root_base, std::move(indices));
+        CoreIrInstruction *addr_inst =
+            insert_instruction_before(body, anchor, std::move(gep));
+        auto load = std::make_unique<CoreIrLoadInst>(
+            vector_type, name, addr_inst, get_vector_alignment_bytes(vector_type));
+        return insert_instruction_before(body, anchor, std::move(load));
+    }
+
+    if (index_value == nullptr) {
+        return nullptr;
+    }
+    auto *lane_ptr_type =
+        context.create_type<CoreIrPointerType>(vec_type->get_element_type());
+    auto *i64_type = context.create_type<CoreIrIntegerType>(64);
+    CoreIrValue *packed_value =
+        context.create_constant<CoreIrConstantZeroInitializer>(vector_type);
+    for (std::size_t lane = 0; lane < vec_type->get_element_count(); ++lane) {
+        CoreIrValue *lane_index = index_value;
+        if (lane != 0) {
+            auto *lane_offset = context.create_constant<CoreIrConstantInt>(
+                index_value->get_type(), lane);
+            lane_index = insert_instruction_before(
+                body, anchor,
+                std::make_unique<CoreIrBinaryInst>(
+                    CoreIrBinaryOpcode::Add, index_value->get_type(),
+                    name + ".index." + std::to_string(lane), index_value,
+                    lane_offset));
+        }
+        std::vector<CoreIrValue *> indices =
+            materialize_scalar_access_indices(access, lane_index);
+        auto *addr_inst = insert_instruction_before(
+            body, anchor,
+            std::make_unique<CoreIrGetElementPtrInst>(
+                lane_ptr_type, name + ".addr." + std::to_string(lane),
+                access.root_base, std::move(indices)));
+        auto *lane_value = insert_instruction_before(
+            body, anchor,
+            std::make_unique<CoreIrLoadInst>(
+                vec_type->get_element_type(),
+                name + ".lane." + std::to_string(lane), addr_inst,
+                get_scalar_alignment_bytes(vec_type->get_element_type())));
+        auto *lane_index64 =
+            context.create_constant<CoreIrConstantInt>(i64_type, lane);
+        packed_value = insert_instruction_before(
+            body, anchor,
+            std::make_unique<CoreIrInsertElementInst>(
+                vector_type, name + ".insert." + std::to_string(lane),
+                packed_value, lane_value, lane_index64));
+    }
+    return packed_value;
 }
 
 CoreIrValue *materialize_vector_load(CoreIrBasicBlock &body, CoreIrInstruction *anchor,
@@ -2094,9 +2472,13 @@ bool vectorize_runtime_mul_reduction_loop(
     }
     const bool ordered_float_reduction =
         dynamic_cast<const CoreIrFloatType *>(lane_type) != nullptr;
-    auto *reduction_update_binary =
-        dynamic_cast<CoreIrBinaryInst *>(pattern.reduction_update);
-    if (!ordered_float_reduction && reduction_update_binary == nullptr) {
+    if (pattern.reduction_binary == nullptr ||
+        (ordered_float_reduction && pattern.predication_condition != nullptr)) {
+        return false;
+    }
+    if (!ordered_float_reduction &&
+        pattern.reduction_binary->get_binary_opcode() != CoreIrBinaryOpcode::Add &&
+        pattern.reduction_binary->get_binary_opcode() != CoreIrBinaryOpcode::Sub) {
         return false;
     }
 
@@ -2307,11 +2689,32 @@ bool vectorize_runtime_mul_reduction_loop(
         auto *vec_mul = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
             CoreIrBinaryOpcode::Mul, vec_type,
             "vec.mul." + std::to_string(lane_group), lhs_vec, rhs_vec);
-        next_acc_values[lane_group] =
-            vector_body_ptr->create_instruction<CoreIrBinaryInst>(
-                reduction_update_binary->get_binary_opcode(), vec_type,
-                "vec.acc.next." + std::to_string(lane_group),
-                vec_accs[lane_group], vec_mul);
+        CoreIrValue *reduction_step = vec_mul;
+        if (pattern.predication_condition != nullptr) {
+            std::unordered_map<const CoreIrValue *, CoreIrValue *> vectorized_values;
+            vectorized_values.emplace(pattern.lhs_load, lhs_vec);
+            vectorized_values.emplace(pattern.rhs_load, rhs_vec);
+            vectorized_values.emplace(pattern.mul, vec_mul);
+            CoreIrValue *condition_vector = materialize_runtime_mul_vector_expression(
+                *vector_body_ptr, nullptr, context, pattern, vec_type,
+                pattern.predication_condition, vectorized_values,
+                "vec.pred." + std::to_string(lane_group));
+            if (condition_vector == nullptr) {
+                return false;
+            }
+            CoreIrValue *zero_step =
+                context.create_constant<CoreIrConstantZeroInitializer>(vec_type);
+            reduction_step = vector_body_ptr->create_instruction<CoreIrSelectInst>(
+                vec_type, "vec.mul.masked." + std::to_string(lane_group),
+                condition_vector,
+                pattern.predicated_update_on_true ? vec_mul : zero_step,
+                pattern.predicated_update_on_true ? zero_step : vec_mul);
+        }
+        next_acc_values[lane_group] = vector_body_ptr->create_instruction<
+            CoreIrBinaryInst>(pattern.reduction_binary->get_binary_opcode(),
+                              vec_type,
+                              "vec.acc.next." + std::to_string(lane_group),
+                              vec_accs[lane_group], reduction_step);
     }
     auto *vec_next = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, index_type, "vec.iv.next", vec_iv, sixteen32);
