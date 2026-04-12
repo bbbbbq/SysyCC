@@ -57,7 +57,7 @@ parse_typed_value_with_known_type(const std::string &type_text,
     AArch64LlvmImportTypedValue value;
     value.type_text = type_text;
     value.type = type;
-    value.value_text = trim_copy(value_text);
+    value.value_text = strip_leading_modifiers(trim_copy(value_text));
     if (!value.value_text.empty() && value.value_text.front() == '%') {
         value.kind = AArch64LlvmImportValueKind::Local;
         value.local_name = value.value_text.substr(1);
@@ -73,8 +73,9 @@ parse_typed_value_with_known_type(const std::string &type_text,
         constant.has_value()) {
         value.kind = AArch64LlvmImportValueKind::Constant;
         value.constant = *constant;
+        return value;
     }
-    return value;
+    return std::nullopt;
 }
 
 std::optional<AArch64LlvmImportTypedValue>
@@ -92,6 +93,28 @@ parse_typed_value(const std::string &text) {
     }
     return parse_typed_value_with_known_type(*type_text, *parsed_type,
                                              normalized.substr(position));
+}
+
+std::optional<AArch64LlvmImportTypedValue>
+parse_reference_value(const std::string &text) {
+    AArch64LlvmImportTypedValue value;
+    value.type_text = "ptr";
+    value.type.kind = AArch64LlvmImportTypeKind::Pointer;
+    value.value_text = strip_leading_modifiers(trim_copy(text));
+    if (value.value_text.empty()) {
+        return std::nullopt;
+    }
+    if (value.value_text.front() == '%') {
+        value.kind = AArch64LlvmImportValueKind::Local;
+        value.local_name = value.value_text.substr(1);
+        return value;
+    }
+    if (value.value_text.front() == '@') {
+        value.kind = AArch64LlvmImportValueKind::Global;
+        value.global_name = value.value_text.substr(1);
+        return value;
+    }
+    return std::nullopt;
 }
 
 std::optional<std::string> parse_branch_target(const std::string &text) {
@@ -161,10 +184,15 @@ parse_llvm_import_compare_spec(const AArch64LlvmImportInstruction &instruction) 
         return std::nullopt;
     }
 
-    spec.lhs =
-        AArch64LlvmImportTypedValue{*operand_type_text, *operand_type, operands[0]};
-    spec.rhs =
-        AArch64LlvmImportTypedValue{*operand_type_text, *operand_type, operands[1]};
+    auto lhs = parse_typed_value_with_known_type(*operand_type_text, *operand_type,
+                                                 operands[0]);
+    auto rhs = parse_typed_value_with_known_type(*operand_type_text, *operand_type,
+                                                 operands[1]);
+    if (!lhs.has_value() || !rhs.has_value()) {
+        return std::nullopt;
+    }
+    spec.lhs = std::move(*lhs);
+    spec.rhs = std::move(*rhs);
     return spec;
 }
 
@@ -411,15 +439,12 @@ parse_llvm_import_call_spec(const AArch64LlvmImportInstruction &instruction) {
         return std::nullopt;
     }
     spec.return_type = *return_type;
-    spec.callee_text = trim_copy(payload.substr(
-        return_type_position, open_paren_pos - return_type_position));
-    if (!spec.callee_text.empty() && spec.callee_text.front() == '@') {
-        spec.callee_kind = AArch64LlvmImportValueKind::Global;
-        spec.callee_global_name = spec.callee_text.substr(1);
-    } else if (!spec.callee_text.empty() && spec.callee_text.front() == '%') {
-        spec.callee_kind = AArch64LlvmImportValueKind::Local;
-        spec.callee_local_name = spec.callee_text.substr(1);
+    auto callee = parse_reference_value(
+        payload.substr(return_type_position, open_paren_pos - return_type_position));
+    if (!callee.has_value()) {
+        return std::nullopt;
     }
+    spec.callee = std::move(*callee);
     for (const std::string &argument_entry :
          split_top_level(payload.substr(open_paren_pos + 1,
                                         close_paren_pos - open_paren_pos - 1),

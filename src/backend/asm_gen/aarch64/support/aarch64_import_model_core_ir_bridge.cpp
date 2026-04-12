@@ -488,121 +488,32 @@ class RestrictedLlvmIrImporter {
         return pointer_type;
     }
 
-    const CoreIrConstant *parse_constant(const CoreIrType *type,
-                                         const std::string &text) {
-        if (type == nullptr) {
+    const CoreIrConstantGlobalAddress *unwrap_alias_target_global_address(
+        const CoreIrConstant *constant) const {
+        if (constant == nullptr) {
             return nullptr;
         }
-
-        const std::string trimmed = trim_copy(text);
-        if (trimmed == "zeroinitializer") {
-            return context_->create_constant<CoreIrConstantZeroInitializer>(type);
+        if (const auto *global_address =
+                dynamic_cast<const CoreIrConstantGlobalAddress *>(constant);
+            global_address != nullptr) {
+            return global_address;
         }
-
-        switch (type->get_kind()) {
-        case CoreIrTypeKind::Integer: {
-            const std::optional<std::uint64_t> value =
-                parse_integer_literal(trimmed);
-            if (!value.has_value()) {
-                return nullptr;
-            }
-            return context_->create_constant<CoreIrConstantInt>(type,
-                                                                *value);
-        }
-        case CoreIrTypeKind::Float: {
-            const auto *float_type = static_cast<const CoreIrFloatType *>(type);
-            const std::optional<std::string> normalized =
-                canonicalize_float_literal_text(float_type->get_float_kind(),
-                                                trimmed);
-            return normalized.has_value()
-                       ? context_->create_constant<CoreIrConstantFloat>(
-                             type, *normalized)
-                       : nullptr;
-        }
-        case CoreIrTypeKind::Pointer:
-            if (trimmed == "null") {
-                return context_->create_constant<CoreIrConstantNull>(type);
-            }
-            return nullptr;
-        case CoreIrTypeKind::Array: {
-            const bool square_bracketed =
-                trimmed.size() >= 2 && trimmed.front() == '[' &&
-                trimmed.back() == ']';
-            const bool angle_bracketed =
-                trimmed.size() >= 2 && trimmed.front() == '<' &&
-                trimmed.back() == '>';
-            if (!square_bracketed && !angle_bracketed) {
-                return nullptr;
-            }
-            const auto *array_type = static_cast<const CoreIrArrayType *>(type);
-            std::vector<const CoreIrConstant *> elements;
-            const std::string inner =
-                trim_copy(trimmed.substr(1, trimmed.size() - 2));
-            for (const std::string &element_entry : split_top_level(inner, ',')) {
-                if (element_entry.empty()) {
-                    continue;
-                }
-                std::size_t position = 0;
-                const std::optional<std::string> element_type_text =
-                    consume_type_token(element_entry, position);
-                const std::string element_value_text =
-                    trim_copy(element_entry.substr(position));
-                const CoreIrType *element_type =
-                    element_type_text.has_value()
-                        ? parse_type_text(*element_type_text)
-                        : array_type->get_element_type();
-                if (element_type == nullptr) {
-                    return nullptr;
-                }
-                const CoreIrConstant *element =
-                    parse_constant(array_type->get_element_type(),
-                                   element_value_text);
-                if (element == nullptr) {
-                    return nullptr;
-                }
-                elements.push_back(element);
-            }
-            return context_->create_constant<CoreIrConstantAggregate>(type,
-                                                                      elements);
-        }
-        case CoreIrTypeKind::Struct: {
-            if (trimmed.size() < 2 || trimmed.front() != '{' ||
-                trimmed.back() != '}') {
-                return nullptr;
-            }
-            const auto *struct_type = static_cast<const CoreIrStructType *>(type);
-            const std::vector<std::string> entries = split_top_level(
-                trim_copy(trimmed.substr(1, trimmed.size() - 2)), ',');
-            if (entries.size() != struct_type->get_element_types().size()) {
-                return nullptr;
-            }
-            std::vector<const CoreIrConstant *> elements;
-            for (std::size_t index = 0; index < entries.size(); ++index) {
-                std::size_t position = 0;
-                const std::optional<std::string> element_type_text =
-                    consume_type_token(entries[index], position);
-                const std::string element_value_text =
-                    trim_copy(entries[index].substr(position));
-                const CoreIrType *element_type =
-                    element_type_text.has_value()
-                        ? parse_type_text(*element_type_text)
-                        : struct_type->get_element_types()[index];
-                if (element_type == nullptr) {
-                    return nullptr;
-                }
-                const CoreIrConstant *element = parse_constant(
-                    struct_type->get_element_types()[index], element_value_text);
-                if (element == nullptr) {
-                    return nullptr;
-                }
-                elements.push_back(element);
-            }
-            return context_->create_constant<CoreIrConstantAggregate>(type,
-                                                                      elements);
-        }
-        default:
+        const auto *cast_constant =
+            dynamic_cast<const CoreIrConstantCast *>(constant);
+        if (cast_constant == nullptr) {
             return nullptr;
         }
+        if (cast_constant->get_cast_kind() == CoreIrCastKind::IntToPtr) {
+            if (const auto *nested_cast =
+                    dynamic_cast<const CoreIrConstantCast *>(
+                        cast_constant->get_operand());
+                nested_cast != nullptr &&
+                nested_cast->get_cast_kind() == CoreIrCastKind::PtrToInt) {
+                return unwrap_alias_target_global_address(
+                    nested_cast->get_operand());
+            }
+        }
+        return nullptr;
     }
 
     const CoreIrConstant *lower_import_constant(
@@ -622,6 +533,84 @@ class RestrictedLlvmIrImporter {
                                                                   constant.float_text);
         case AArch64LlvmImportConstantKind::NullPointer:
             return context_->create_constant<CoreIrConstantNull>(type);
+        case AArch64LlvmImportConstantKind::SymbolReference:
+            if (auto global_it = globals_.find(constant.symbol_name);
+                global_it != globals_.end()) {
+                return context_->create_constant<CoreIrConstantGlobalAddress>(
+                    type->get_kind() == CoreIrTypeKind::Pointer
+                        ? type
+                        : pointer_to(global_it->second->get_type()),
+                    global_it->second);
+            }
+            if (auto function_it = functions_.find(constant.symbol_name);
+                function_it != functions_.end()) {
+                return context_->create_constant<CoreIrConstantGlobalAddress>(
+                    type->get_kind() == CoreIrTypeKind::Pointer
+                        ? type
+                        : pointer_to(function_it->second->get_function_type()),
+                    function_it->second);
+            }
+            return nullptr;
+        case AArch64LlvmImportConstantKind::Bitcast:
+            if (type->get_kind() != CoreIrTypeKind::Pointer ||
+                constant.cast_operand == nullptr) {
+                return nullptr;
+            }
+            return lower_import_constant(type, *constant.cast_operand);
+        case AArch64LlvmImportConstantKind::IntToPtr:
+        case AArch64LlvmImportConstantKind::PtrToInt: {
+            const CoreIrType *source_type =
+                lower_import_type(constant.cast_source_type);
+            if (source_type == nullptr || constant.cast_operand == nullptr) {
+                return nullptr;
+            }
+            const CoreIrConstant *operand =
+                lower_import_constant(source_type, *constant.cast_operand);
+            if (operand == nullptr) {
+                return nullptr;
+            }
+            return context_->create_constant<CoreIrConstantCast>(
+                type,
+                constant.kind == AArch64LlvmImportConstantKind::IntToPtr
+                    ? CoreIrCastKind::IntToPtr
+                    : CoreIrCastKind::PtrToInt,
+                operand);
+        }
+        case AArch64LlvmImportConstantKind::GetElementPtr: {
+            const CoreIrType *source_type =
+                lower_import_type(constant.gep_source_type);
+            if (source_type == nullptr || constant.gep_base == nullptr) {
+                return nullptr;
+            }
+
+            const CoreIrConstant *base = lower_import_constant(
+                pointer_to(source_type), *constant.gep_base);
+            if (base == nullptr) {
+                return nullptr;
+            }
+
+            if (constant.gep_index_types.size() != constant.gep_indices.size()) {
+                return nullptr;
+            }
+            std::vector<const CoreIrConstant *> indices;
+            indices.reserve(constant.gep_indices.size());
+            for (std::size_t index = 0; index < constant.gep_indices.size();
+                 ++index) {
+                const CoreIrType *index_type =
+                    lower_import_type(constant.gep_index_types[index]);
+                if (index_type == nullptr) {
+                    return nullptr;
+                }
+                const CoreIrConstant *lowered = lower_import_constant(
+                    index_type, constant.gep_indices[index]);
+                if (lowered == nullptr) {
+                    return nullptr;
+                }
+                indices.push_back(lowered);
+            }
+            return context_->create_constant<CoreIrConstantGetElementPtr>(
+                type, base, indices);
+        }
         case AArch64LlvmImportConstantKind::Aggregate: {
             std::vector<const CoreIrConstant *> elements;
             if (type->get_kind() == CoreIrTypeKind::Array) {
@@ -693,10 +682,14 @@ class RestrictedLlvmIrImporter {
             return false;
         }
 
+        if (!global.initializer.is_valid()) {
+            add_error("unsupported LLVM global initializer: " +
+                          global.initializer_text,
+                      global.line, 1);
+            return false;
+        }
         const CoreIrConstant *initializer =
-            global.initializer.is_valid()
-                ? lower_import_constant(type, global.initializer)
-                : parse_constant(type, global.initializer_text);
+            lower_import_constant(type, global.initializer);
         if (initializer == nullptr) {
             add_error("unsupported LLVM global initializer: " +
                           global.initializer_text,
@@ -718,14 +711,23 @@ class RestrictedLlvmIrImporter {
     }
 
     bool lower_alias_definition(const AArch64LlvmImportAlias &alias) {
-        if (auto global_it = globals_.find(alias.target_name);
-            global_it != globals_.end()) {
-            globals_[alias.name] = global_it->second;
+        const CoreIrType *target_type = lower_import_type(alias.target_type);
+        if (target_type == nullptr || !alias.target.is_valid()) {
+            return false;
+        }
+        const CoreIrConstant *target =
+            lower_import_constant(target_type, alias.target);
+        const auto *global_address =
+            unwrap_alias_target_global_address(target);
+        if (global_address == nullptr) {
+            return false;
+        }
+        if (global_address->get_global() != nullptr) {
+            globals_[alias.name] = global_address->get_global();
             return true;
         }
-        if (auto function_it = functions_.find(alias.target_name);
-            function_it != functions_.end()) {
-            functions_[alias.name] = function_it->second;
+        if (global_address->get_function() != nullptr) {
+            functions_[alias.name] = global_address->get_function();
             return true;
         }
         return false;
@@ -776,100 +778,85 @@ class RestrictedLlvmIrImporter {
         return true;
     }
 
-    ResolvedAddress resolve_address_operand(
-        const std::string &text, CoreIrBasicBlock &block,
-        std::unordered_map<std::string, ValueBinding> &bindings,
-        std::size_t &synthetic_index, int line_number) {
-        const std::string trimmed = strip_leading_modifiers(trim_copy(text));
-        if (!trimmed.empty() && trimmed.front() == '%') {
-            const std::string name = trimmed.substr(1);
-            const auto it = bindings.find(name);
-            if (it == bindings.end()) {
-                add_error("unknown LLVM local value: " + trimmed, line_number, 1);
-                return {};
+    std::string describe_import_constant(
+        const AArch64LlvmImportConstant &constant) const {
+        switch (constant.kind) {
+        case AArch64LlvmImportConstantKind::Integer:
+            return std::to_string(constant.integer_value);
+        case AArch64LlvmImportConstantKind::Float:
+            return constant.float_text;
+        case AArch64LlvmImportConstantKind::NullPointer:
+            return "null";
+        case AArch64LlvmImportConstantKind::ZeroInitializer:
+            return "zeroinitializer";
+        case AArch64LlvmImportConstantKind::SymbolReference:
+            return "@" + constant.symbol_name;
+        case AArch64LlvmImportConstantKind::Bitcast:
+            if (constant.cast_operand == nullptr) {
+                return "bitcast(<null-operand>)";
             }
-            if (it->second.stack_slot != nullptr) {
-                ResolvedAddress resolved;
-                resolved.stack_slot = it->second.stack_slot;
-                return resolved;
+            return "bitcast (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::IntToPtr:
+            if (constant.cast_operand == nullptr) {
+                return "inttoptr(<null-operand>)";
             }
-            ResolvedAddress resolved;
-            resolved.address_value = it->second.value;
-            return resolved;
+            return "inttoptr (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::PtrToInt:
+            if (constant.cast_operand == nullptr) {
+                return "ptrtoint(<null-operand>)";
+            }
+            return "ptrtoint (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::GetElementPtr: {
+            if (constant.gep_base == nullptr) {
+                return "getelementptr(<null-base>)";
+            }
+            std::string text = "getelementptr ";
+            if (constant.gep_is_inbounds) {
+                text += "inbounds ";
+            }
+            text += "(" + constant.gep_source_type_text + ", ptr " +
+                    describe_import_constant(*constant.gep_base);
+            for (std::size_t index = 0; index < constant.gep_indices.size(); ++index) {
+                text += ", " + constant.gep_index_type_texts[index] + " " +
+                        describe_import_constant(constant.gep_indices[index]);
+            }
+            text += ")";
+            return text;
         }
-        if (!trimmed.empty() && trimmed.front() == '@') {
-            const std::string name = trimmed.substr(1);
-            if (auto global_it = globals_.find(name); global_it != globals_.end()) {
-                CoreIrGlobal *global = global_it->second;
-                const CoreIrType *pointer_type = pointer_to(global->get_type());
-                std::string synthetic_name = "ll.global.addr." +
-                                             std::to_string(synthetic_index++);
-                ResolvedAddress resolved;
-                resolved.address_value =
-                    block.create_instruction<CoreIrAddressOfGlobalInst>(
-                        pointer_type, synthetic_name, global);
-                return resolved;
+        case AArch64LlvmImportConstantKind::Aggregate: {
+            std::string text = "{ ";
+            for (std::size_t index = 0; index < constant.elements.size(); ++index) {
+                if (index != 0) {
+                    text += ", ";
+                }
+                text += describe_import_constant(constant.elements[index]);
             }
-            if (auto function_it = functions_.find(name);
-                function_it != functions_.end()) {
-                CoreIrFunction *function = function_it->second;
-                const CoreIrType *pointer_type =
-                    pointer_to(function->get_function_type());
-                std::string synthetic_name = "ll.function.addr." +
-                                             std::to_string(synthetic_index++);
-                ResolvedAddress resolved;
-                resolved.address_value =
-                    block.create_instruction<CoreIrAddressOfFunctionInst>(
-                        pointer_type, synthetic_name, function);
-                return resolved;
-            }
+            text += " }";
+            return text;
         }
-
-        add_error("unsupported LLVM address operand: " + trimmed, line_number, 1);
-        return {};
+        case AArch64LlvmImportConstantKind::Invalid:
+        default:
+            return "<invalid-constant>";
+        }
     }
 
-    CoreIrValue *resolve_value_operand(
-        const CoreIrType *type, const std::string &text, CoreIrBasicBlock &block,
-        std::unordered_map<std::string, ValueBinding> &bindings,
-        std::size_t &synthetic_index, int line_number) {
-        const std::string trimmed = strip_leading_modifiers(trim_copy(text));
-        if (trimmed.empty()) {
-            add_error("missing LLVM value operand", line_number, 1);
-            return nullptr;
+    std::string describe_typed_operand(const AArch64LlvmImportTypedValue &operand) const {
+        if (operand.kind == AArch64LlvmImportValueKind::Local) {
+            return "%" + operand.local_name;
         }
-
-        if (const CoreIrConstant *constant = parse_constant(type, trimmed);
-            constant != nullptr) {
-            return const_cast<CoreIrConstant *>(constant);
+        if (operand.kind == AArch64LlvmImportValueKind::Global) {
+            return "@" + operand.global_name;
         }
-        if (trimmed.front() == '%') {
-            const std::string name = trimmed.substr(1);
-            const auto it = bindings.find(name);
-            if (it == bindings.end()) {
-                add_error("unknown LLVM local value: " + trimmed, line_number, 1);
-                return nullptr;
-            }
-            if (it->second.value != nullptr) {
-                return it->second.value;
-            }
-            if (it->second.stack_slot != nullptr) {
-                const CoreIrType *pointer_type =
-                    pointer_to(it->second.stack_slot->get_allocated_type());
-                std::string synthetic_name = "ll.stack.addr." +
-                                             std::to_string(synthetic_index++);
-                return block.create_instruction<CoreIrAddressOfStackSlotInst>(
-                    pointer_type, synthetic_name, it->second.stack_slot);
-            }
+        if (operand.kind == AArch64LlvmImportValueKind::Constant) {
+            return describe_import_constant(operand.constant);
         }
-        if (trimmed.front() == '@') {
-            const ResolvedAddress resolved = resolve_address_operand(
-                trimmed, block, bindings, synthetic_index, line_number);
-            return resolved.address_value;
-        }
-
-        add_error("unsupported LLVM value operand: " + trimmed, line_number, 1);
-        return nullptr;
+        return "<unknown>";
     }
 
     ResolvedAddress resolve_typed_address_operand(
@@ -922,8 +909,14 @@ class RestrictedLlvmIrImporter {
                       line_number, 1);
             return {};
         }
-        return resolve_address_operand(operand.value_text, block, bindings,
-                                       synthetic_index, line_number);
+        if (operand.kind == AArch64LlvmImportValueKind::Constant) {
+            add_error("unsupported LLVM address operand: " +
+                          describe_typed_operand(operand),
+                      line_number, 1);
+            return {};
+        }
+        add_error("missing typed LLVM address operand", line_number, 1);
+        return {};
     }
 
     CoreIrValue *resolve_typed_value_operand(
@@ -960,8 +953,10 @@ class RestrictedLlvmIrImporter {
                 operand, block, bindings, synthetic_index, line_number);
             return resolved.address_value;
         }
-        return resolve_value_operand(type, operand.value_text, block, bindings,
-                                     synthetic_index, line_number);
+        add_error("unsupported LLVM value operand: " +
+                      describe_typed_operand(operand),
+                  line_number, 1);
+        return nullptr;
     }
 
     const CoreIrType *compute_gep_result_pointee(
@@ -1112,77 +1107,6 @@ class RestrictedLlvmIrImporter {
         return true;
     }
 
-    CoreIrValue *ensure_addressable_aggregate_operand(
-        const CoreIrType *aggregate_type, const std::string &text,
-        CoreIrFunction &function, CoreIrBasicBlock &block,
-        std::unordered_map<std::string, ValueBinding> &bindings,
-        std::size_t &synthetic_index, int line_number) {
-        const std::string trimmed = strip_leading_modifiers(trim_copy(text));
-        if (trimmed.empty()) {
-            return nullptr;
-        }
-        if (trimmed.front() == '%') {
-            const std::string name = trimmed.substr(1);
-            const auto it = bindings.find(name);
-            if (it == bindings.end()) {
-                add_error("unknown LLVM aggregate value: " + trimmed, line_number,
-                          1);
-                return nullptr;
-            }
-            if (it->second.stack_slot != nullptr) {
-                return materialize_stack_slot_address(block, it->second.stack_slot,
-                                                      synthetic_index);
-            }
-            if (it->second.value != nullptr) {
-                CoreIrStackSlot *slot = function.create_stack_slot<CoreIrStackSlot>(
-                    "ll.agg." + name, aggregate_type, get_storage_alignment(aggregate_type));
-                CoreIrValue *slot_address =
-                    materialize_stack_slot_address(block, slot, synthetic_index);
-                block.create_instruction<CoreIrStoreInst>(void_type(),
-                                                          it->second.value, slot);
-                ValueBinding updated = it->second;
-                updated.stack_slot = slot;
-                bindings[name] = updated;
-                return slot_address;
-            }
-        }
-        if (trimmed.front() == '@') {
-            const ResolvedAddress resolved =
-                resolve_address_operand(trimmed, block, bindings, synthetic_index,
-                                        line_number);
-            return resolved.address_value != nullptr
-                       ? resolved.address_value
-                       : materialize_stack_slot_address(block, resolved.stack_slot,
-                                                        synthetic_index);
-        }
-        if (const CoreIrConstant *constant = parse_constant(aggregate_type, trimmed);
-            constant != nullptr) {
-            const auto *aggregate =
-                dynamic_cast<const CoreIrConstantAggregate *>(constant);
-            const auto *zero_initializer =
-                dynamic_cast<const CoreIrConstantZeroInitializer *>(constant);
-            CoreIrStackSlot *slot = function.create_stack_slot<CoreIrStackSlot>(
-                "ll.const.vec." + std::to_string(synthetic_index), aggregate_type,
-                get_storage_alignment(aggregate_type));
-            const bool ok =
-                aggregate != nullptr
-                    ? materialize_constant_aggregate_to_slot(aggregate, slot, block,
-                                                             synthetic_index)
-                    : (zero_initializer != nullptr &&
-                       materialize_zero_initializer_to_slot(
-                           aggregate_type, slot, block, synthetic_index));
-            if (!ok) {
-                add_error("failed to materialize LLVM aggregate constant operand: " +
-                              trimmed,
-                          line_number, 1);
-                return nullptr;
-            }
-            return materialize_stack_slot_address(block, slot, synthetic_index);
-        }
-        add_error("unsupported LLVM aggregate operand: " + trimmed, line_number, 1);
-        return nullptr;
-    }
-
     CoreIrValue *ensure_addressable_aggregate_typed_operand(
         const CoreIrType *aggregate_type, const AArch64LlvmImportTypedValue &operand,
         CoreIrFunction &function, CoreIrBasicBlock &block,
@@ -1240,15 +1164,16 @@ class RestrictedLlvmIrImporter {
                            aggregate_type, slot, block, synthetic_index));
             if (!ok) {
                 add_error("failed to materialize LLVM aggregate constant operand: " +
-                              operand.value_text,
+                              describe_typed_operand(operand),
                           line_number, 1);
                 return nullptr;
             }
             return materialize_stack_slot_address(block, slot, synthetic_index);
         }
-        return ensure_addressable_aggregate_operand(aggregate_type, operand.value_text,
-                                                    function, block, bindings,
-                                                    synthetic_index, line_number);
+        add_error("unsupported LLVM aggregate operand: " +
+                      describe_typed_operand(operand),
+                  line_number, 1);
+        return nullptr;
     }
 
     bool copy_aggregate_between_addresses(CoreIrBasicBlock &block,
@@ -1839,7 +1764,7 @@ class RestrictedLlvmIrImporter {
                 shuffle_spec->mask_value.kind == AArch64LlvmImportValueKind::Constant
                     ? lower_import_constant(mask_type,
                                             shuffle_spec->mask_value.constant)
-                    : parse_constant(mask_type, shuffle_spec->mask_value.value_text);
+                    : nullptr;
             const auto *mask_aggregate =
                 dynamic_cast<const CoreIrConstantAggregate *>(mask_constant);
             if (lhs_address == nullptr || rhs_address == nullptr ||
@@ -2162,7 +2087,8 @@ class RestrictedLlvmIrImporter {
                     block, bindings, synthetic_index, line_number);
                 if (argument_type == nullptr || argument_value == nullptr) {
                     add_error("unsupported LLVM call argument: " +
-                                  argument.type_text + " " + argument.value_text,
+                                  argument.type_text + " " +
+                                  describe_typed_operand(argument),
                               line_number, 1);
                     return false;
                 }
@@ -2172,8 +2098,8 @@ class RestrictedLlvmIrImporter {
             const CoreIrFunctionType *callee_type =
                 context_->create_type<CoreIrFunctionType>(return_type,
                                                           argument_types, false);
-            if (call_spec->callee_kind == AArch64LlvmImportValueKind::Global) {
-                const std::string &callee_name = call_spec->callee_global_name;
+            if (call_spec->callee.kind == AArch64LlvmImportValueKind::Global) {
+                const std::string &callee_name = call_spec->callee.global_name;
                 CoreIrFunction *callee = nullptr;
                 if (auto callee_it = functions_.find(callee_name);
                     callee_it != functions_.end()) {
@@ -2192,22 +2118,15 @@ class RestrictedLlvmIrImporter {
                            : bind_instruction_result(result_name, call_value,
                                                      bindings);
             }
-            CoreIrValue *callee_value = nullptr;
-            if (call_spec->callee_kind == AArch64LlvmImportValueKind::Local) {
-                AArch64LlvmImportTypedValue callee_operand;
-                callee_operand.type_text = "ptr";
-                callee_operand.type.kind = AArch64LlvmImportTypeKind::Pointer;
-                callee_operand.value_text = call_spec->callee_text;
-                callee_operand.kind = AArch64LlvmImportValueKind::Local;
-                callee_operand.local_name = call_spec->callee_local_name;
-                callee_value = resolve_typed_value_operand(
-                    pointer_to(callee_type), callee_operand, block, bindings,
-                    synthetic_index, line_number);
-            } else {
-                callee_value = resolve_value_operand(
-                    pointer_to(callee_type), call_spec->callee_text, block,
-                    bindings, synthetic_index, line_number);
+            if (call_spec->callee.kind != AArch64LlvmImportValueKind::Local) {
+                add_error("unsupported LLVM call callee operand: " +
+                              describe_typed_operand(call_spec->callee),
+                          line_number, 1);
+                return false;
             }
+            CoreIrValue *callee_value = resolve_typed_value_operand(
+                pointer_to(callee_type), call_spec->callee, block, bindings,
+                synthetic_index, line_number);
             if (callee_value == nullptr) {
                 return false;
             }
@@ -2440,8 +2359,8 @@ class RestrictedLlvmIrImporter {
         }
         for (std::size_t index = 0; index < parsed_module.aliases.size(); ++index) {
             if (!resolved_aliases[index]) {
-                add_error("unsupported LLVM alias target: @" +
-                              parsed_module.aliases[index].target_name,
+                add_error("unsupported LLVM alias target: " +
+                              parsed_module.aliases[index].target_text,
                           parsed_module.aliases[index].line, 1);
             }
         }

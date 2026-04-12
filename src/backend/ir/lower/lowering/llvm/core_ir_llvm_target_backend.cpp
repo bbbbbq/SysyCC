@@ -185,6 +185,34 @@ std::string format_binary_opcode(CoreIrBinaryOpcode opcode) {
     return "";
 }
 
+std::string format_cast_kind(CoreIrCastKind kind) {
+    switch (kind) {
+    case CoreIrCastKind::SignExtend:
+        return "sext";
+    case CoreIrCastKind::ZeroExtend:
+        return "zext";
+    case CoreIrCastKind::Truncate:
+        return "trunc";
+    case CoreIrCastKind::SignedIntToFloat:
+        return "sitofp";
+    case CoreIrCastKind::UnsignedIntToFloat:
+        return "uitofp";
+    case CoreIrCastKind::FloatToSignedInt:
+        return "fptosi";
+    case CoreIrCastKind::FloatToUnsignedInt:
+        return "fptoui";
+    case CoreIrCastKind::FloatExtend:
+        return "fpext";
+    case CoreIrCastKind::FloatTruncate:
+        return "fptrunc";
+    case CoreIrCastKind::PtrToInt:
+        return "ptrtoint";
+    case CoreIrCastKind::IntToPtr:
+        return "inttoptr";
+    }
+    return "";
+}
+
 std::string format_float_binary_opcode(CoreIrBinaryOpcode opcode) {
     switch (opcode) {
     case CoreIrBinaryOpcode::Add:
@@ -541,6 +569,14 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
         }
         text += ")";
         return text;
+    }
+    if (const auto *cast_constant =
+            dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast_constant != nullptr) {
+        return format_cast_kind(cast_constant->get_cast_kind()) + " (" +
+               format_type(cast_constant->get_operand()->get_type()) + " " +
+               format_constant(cast_constant->get_operand()) + " to " +
+               format_type(cast_constant->get_type()) + ")";
     }
     return "<constant>";
 }

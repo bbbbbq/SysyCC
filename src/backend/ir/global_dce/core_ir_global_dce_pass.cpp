@@ -55,6 +55,12 @@ void collect_constant_references(
         for (const CoreIrConstant *index : gep->get_indices()) {
             collect_constant_references(index, functions, globals);
         }
+        return;
+    }
+    if (const auto *cast =
+            dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast != nullptr) {
+        collect_constant_references(cast->get_operand(), functions, globals);
     }
 }
 

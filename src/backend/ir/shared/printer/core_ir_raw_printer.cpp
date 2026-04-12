@@ -278,6 +278,13 @@ CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) const {
         result += ")";
         return result;
     }
+    if (const auto *cast_constant =
+            dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast_constant != nullptr) {
+        return format_cast_kind(cast_constant->get_cast_kind()) + "(" +
+               format_constant(cast_constant->get_operand()) + " -> " +
+               format_type(cast_constant->get_type()) + ")";
+    }
     return "<constant>";
 }
 

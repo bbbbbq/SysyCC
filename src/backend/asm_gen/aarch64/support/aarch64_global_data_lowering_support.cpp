@@ -8,6 +8,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_global.hpp"
+#include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 
@@ -131,9 +132,17 @@ bool split_constant_address(const CoreIrConstant *constant, std::string &symbol_
     if (const auto *global_address =
             dynamic_cast<const CoreIrConstantGlobalAddress *>(constant);
         global_address != nullptr) {
-        symbol_name = global_address->get_global()->get_name();
-        offset = 0;
-        return true;
+        if (global_address->get_global() != nullptr) {
+            symbol_name = global_address->get_global()->get_name();
+            offset = 0;
+            return true;
+        }
+        if (global_address->get_function() != nullptr) {
+            symbol_name = global_address->get_function()->get_name();
+            offset = 0;
+            return true;
+        }
+        return false;
     }
     if (const auto *gep_constant =
             dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
@@ -154,6 +163,22 @@ bool split_constant_address(const CoreIrConstant *constant, std::string &symbol_
         }
         offset += *gep_offset;
         return true;
+    }
+    if (const auto *cast_constant = dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast_constant != nullptr) {
+        if (cast_constant->get_cast_kind() == CoreIrCastKind::PtrToInt) {
+            return split_constant_address(cast_constant->get_operand(), symbol_name,
+                                          offset);
+        }
+        if (cast_constant->get_cast_kind() == CoreIrCastKind::IntToPtr) {
+            const auto *nested_cast =
+                dynamic_cast<const CoreIrConstantCast *>(cast_constant->get_operand());
+            if (nested_cast != nullptr &&
+                nested_cast->get_cast_kind() == CoreIrCastKind::PtrToInt) {
+                return split_constant_address(nested_cast->get_operand(), symbol_name,
+                                              offset);
+            }
+        }
     }
     return false;
 }
@@ -274,6 +299,22 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
     if (dynamic_cast<const CoreIrConstantNull *>(constant) != nullptr) {
         append_scalar_fragment(data_object, scalar_size(type), 0);
         return true;
+    }
+    if (const auto *cast_constant = dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast_constant != nullptr) {
+        if (cast_constant->get_cast_kind() == CoreIrCastKind::IntToPtr) {
+            return append_global_constant_fragments(data_object,
+                                                   cast_constant->get_operand(), type,
+                                                   context);
+        }
+        if (cast_constant->get_cast_kind() == CoreIrCastKind::PtrToInt &&
+            (dynamic_cast<const CoreIrConstantNull *>(cast_constant->get_operand()) !=
+                 nullptr ||
+             dynamic_cast<const CoreIrConstantZeroInitializer *>(
+                 cast_constant->get_operand()) != nullptr)) {
+            append_scalar_fragment(data_object, scalar_size(type), 0);
+            return true;
+        }
     }
     if (const auto *byte_string = dynamic_cast<const CoreIrConstantByteString *>(constant);
         byte_string != nullptr) {

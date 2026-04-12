@@ -54,6 +54,27 @@ std::optional<std::string> parse_symbol_name(const std::string &text,
     return llvm_import_parse_symbol_name(text, position, prefix);
 }
 
+std::optional<AArch64LlvmImportType>
+resolve_import_type(const AArch64LlvmImportModule &module,
+                    const AArch64LlvmImportType &type, int depth = 0) {
+    if (depth > 32) {
+        return std::nullopt;
+    }
+    if (type.kind != AArch64LlvmImportTypeKind::Named) {
+        return type;
+    }
+    for (auto it = module.named_types.rbegin(); it != module.named_types.rend(); ++it) {
+        if (it->name != type.named_type_name) {
+            continue;
+        }
+        if (it->is_opaque || !it->body_type.is_valid()) {
+            return std::nullopt;
+        }
+        return resolve_import_type(module, it->body_type, depth + 1);
+    }
+    return std::nullopt;
+}
+
 void add_error(AArch64LlvmImportModule &module, std::string message, int line = 0,
                int column = 0) {
     AArch64CodegenDiagnostic diagnostic;
@@ -301,8 +322,15 @@ bool parse_global_definition(AArch64LlvmImportModule &module,
 
     const std::string initializer_text =
         strip_trailing_alignment_suffix(trim_copy(remainder.substr(type_position)));
+    const AArch64LlvmImportType constant_type =
+        resolve_import_type(module, *parsed_type).value_or(*parsed_type);
     const auto initializer =
-        parse_llvm_import_constant_text(*parsed_type, initializer_text);
+        parse_llvm_import_constant_text(constant_type, initializer_text);
+    if (!initializer.has_value()) {
+        add_error(module, "failed to parse LLVM global initializer: " +
+                              initializer_text,
+                  line_number, 1);
+    }
 
     module.globals.push_back(AArch64LlvmImportGlobal{
         name.value(),
@@ -325,15 +353,58 @@ bool parse_alias_definition(AArch64LlvmImportModule &module,
         add_error(module, "failed to parse LLVM alias name", line_number, 1);
         return false;
     }
-    const std::size_t target_pos = line.rfind('@');
-    if (target_pos == std::string::npos || target_pos <= position) {
+    const std::size_t equal_pos = line.find('=', position);
+    if (equal_pos == std::string::npos) {
         add_error(module, "failed to parse LLVM alias target", line_number, 1);
         return false;
     }
-    module.aliases.push_back(
-        AArch64LlvmImportAlias{name.value(),
-                               trim_copy(line.substr(target_pos + 1)),
-                               line_number});
+
+    std::string remainder = trim_copy(line.substr(equal_pos + 1));
+    if (!starts_with(remainder, "alias ")) {
+        add_error(module, "failed to parse LLVM alias target", line_number, 1);
+        return false;
+    }
+    remainder = trim_copy(remainder.substr(6));
+    const std::vector<std::string> operands = split_top_level(remainder, ',');
+    if (operands.size() != 2) {
+        add_error(module, "failed to parse LLVM alias target", line_number, 1);
+        return false;
+    }
+
+    const std::string target_operand_text = trim_copy(operands[1]);
+    std::size_t target_position = 0;
+    const std::optional<std::string> target_type_text =
+        consume_type_token(target_operand_text, target_position);
+    if (!target_type_text.has_value()) {
+        add_error(module, "failed to parse LLVM alias target", line_number, 1);
+        return false;
+    }
+
+    const auto parsed_target_type =
+        parse_llvm_import_type_text(*target_type_text);
+    if (!parsed_target_type.has_value()) {
+        add_error(module, "failed to parse LLVM alias target", line_number, 1);
+        return false;
+    }
+
+    const AArch64LlvmImportType resolved_target_type =
+        resolve_import_type(module, *parsed_target_type)
+            .value_or(*parsed_target_type);
+    const std::string target_text =
+        trim_copy(target_operand_text.substr(target_position));
+    const auto target =
+        parse_llvm_import_constant_text(resolved_target_type, target_text);
+    if (!target.has_value()) {
+        add_error(module, "failed to parse LLVM alias target", line_number, 1);
+        return false;
+    }
+
+    module.aliases.push_back(AArch64LlvmImportAlias{name.value(),
+                                                    *target_type_text,
+                                                    *parsed_target_type,
+                                                    target_text,
+                                                    *target,
+                                                    line_number});
     return true;
 }
 

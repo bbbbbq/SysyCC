@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,11 @@ enum class AArch64LlvmImportConstantKind : unsigned char {
     Float,
     NullPointer,
     ZeroInitializer,
+    SymbolReference,
+    Bitcast,
+    IntToPtr,
+    PtrToInt,
+    GetElementPtr,
     Aggregate,
 };
 
@@ -50,6 +56,18 @@ struct AArch64LlvmImportConstant {
         AArch64LlvmImportConstantKind::Invalid;
     std::uint64_t integer_value = 0;
     std::string float_text;
+    std::string symbol_name;
+    std::string cast_source_type_text;
+    AArch64LlvmImportType cast_source_type;
+    std::string cast_target_type_text;
+    std::shared_ptr<AArch64LlvmImportConstant> cast_operand;
+    bool gep_is_inbounds = false;
+    std::string gep_source_type_text;
+    AArch64LlvmImportType gep_source_type;
+    std::shared_ptr<AArch64LlvmImportConstant> gep_base;
+    std::vector<std::string> gep_index_type_texts;
+    std::vector<AArch64LlvmImportType> gep_index_types;
+    std::vector<AArch64LlvmImportConstant> gep_indices;
     std::vector<AArch64LlvmImportConstant> elements;
 
     bool is_valid() const {
@@ -78,7 +96,10 @@ struct AArch64LlvmImportGlobal {
 
 struct AArch64LlvmImportAlias {
     std::string name;
-    std::string target_name;
+    std::string target_type_text;
+    AArch64LlvmImportType target_type;
+    std::string target_text;
+    AArch64LlvmImportConstant target;
     int line = 0;
 };
 

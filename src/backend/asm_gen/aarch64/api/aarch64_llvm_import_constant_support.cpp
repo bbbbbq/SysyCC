@@ -110,6 +110,237 @@ std::optional<std::string> canonicalize_float_literal_text(
     return format_float_literal(parsed);
 }
 
+struct ParsedTypedConstant {
+    std::string type_text;
+    AArch64LlvmImportType type;
+    AArch64LlvmImportConstant constant;
+};
+
+std::optional<AArch64LlvmImportConstant> parse_constant_impl(
+    const AArch64LlvmImportType &type, const std::string &text);
+
+std::optional<std::size_t> find_top_level_separator(const std::string &text,
+                                                    const std::string &needle) {
+    if (needle.empty() || text.size() < needle.size()) {
+        return std::nullopt;
+    }
+
+    int square_depth = 0;
+    int brace_depth = 0;
+    int paren_depth = 0;
+    int angle_depth = 0;
+    for (std::size_t index = 0; index + needle.size() <= text.size(); ++index) {
+        switch (text[index]) {
+        case '[':
+            ++square_depth;
+            break;
+        case ']':
+            --square_depth;
+            break;
+        case '{':
+            ++brace_depth;
+            break;
+        case '}':
+            --brace_depth;
+            break;
+        case '(':
+            ++paren_depth;
+            break;
+        case ')':
+            --paren_depth;
+            break;
+        case '<':
+            ++angle_depth;
+            break;
+        case '>':
+            --angle_depth;
+            break;
+        default:
+            break;
+        }
+
+        if (square_depth == 0 && brace_depth == 0 && paren_depth == 0 &&
+            angle_depth == 0 &&
+            text.compare(index, needle.size(), needle) == 0) {
+            return index;
+        }
+    }
+    return std::nullopt;
+}
+
+bool import_types_equal(const AArch64LlvmImportType &lhs,
+                        const AArch64LlvmImportType &rhs) {
+    if (lhs.kind != rhs.kind) {
+        return false;
+    }
+    if (lhs.integer_bit_width != rhs.integer_bit_width ||
+        lhs.array_element_count != rhs.array_element_count ||
+        lhs.array_uses_vector_syntax != rhs.array_uses_vector_syntax ||
+        lhs.named_type_name != rhs.named_type_name ||
+        lhs.element_types.size() != rhs.element_types.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < lhs.element_types.size(); ++index) {
+        if (!import_types_equal(lhs.element_types[index], rhs.element_types[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::optional<ParsedTypedConstant>
+parse_typed_constant(const std::string &text) {
+    const std::string normalized = llvm_import_trim_copy(text);
+    std::size_t position = 0;
+    const auto type_text =
+        llvm_import_consume_type_token(normalized, position);
+    if (!type_text.has_value()) {
+        return std::nullopt;
+    }
+    const auto type = parse_llvm_import_type_text(*type_text);
+    if (!type.has_value()) {
+        return std::nullopt;
+    }
+    const auto constant = parse_constant_impl(
+        *type, llvm_import_trim_copy(normalized.substr(position)));
+    if (!constant.has_value()) {
+        return std::nullopt;
+    }
+    return ParsedTypedConstant{*type_text, *type, std::move(*constant)};
+}
+
+std::optional<AArch64LlvmImportConstant> parse_gep_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    if (type.kind != AArch64LlvmImportTypeKind::Pointer) {
+        return std::nullopt;
+    }
+
+    std::string payload = llvm_import_trim_copy(text);
+    if (!llvm_import_starts_with(payload, "getelementptr ")) {
+        return std::nullopt;
+    }
+    payload = llvm_import_trim_copy(payload.substr(14));
+
+    AArch64LlvmImportConstant constant;
+    constant.kind = AArch64LlvmImportConstantKind::GetElementPtr;
+    if (llvm_import_starts_with(payload, "inbounds ")) {
+        constant.gep_is_inbounds = true;
+        payload = llvm_import_trim_copy(payload.substr(9));
+    }
+    if (payload.size() < 2 || payload.front() != '(' || payload.back() != ')') {
+        return std::nullopt;
+    }
+
+    const std::vector<std::string> operands = llvm_import_split_top_level(
+        llvm_import_trim_copy(payload.substr(1, payload.size() - 2)), ',');
+    if (operands.size() < 2) {
+        return std::nullopt;
+    }
+
+    constant.gep_source_type_text = llvm_import_trim_copy(operands[0]);
+    const auto source_type =
+        parse_llvm_import_type_text(constant.gep_source_type_text);
+    if (!source_type.has_value()) {
+        return std::nullopt;
+    }
+    constant.gep_source_type = *source_type;
+
+    const auto base = parse_typed_constant(operands[1]);
+    if (!base.has_value() || base->type.kind != AArch64LlvmImportTypeKind::Pointer) {
+        return std::nullopt;
+    }
+    constant.gep_base =
+        std::make_shared<AArch64LlvmImportConstant>(std::move(base->constant));
+
+    for (std::size_t index = 2; index < operands.size(); ++index) {
+        const auto typed_index = parse_typed_constant(operands[index]);
+        if (!typed_index.has_value() ||
+            typed_index->type.kind != AArch64LlvmImportTypeKind::Integer ||
+            typed_index->constant.kind != AArch64LlvmImportConstantKind::Integer) {
+            return std::nullopt;
+        }
+        constant.gep_index_type_texts.push_back(typed_index->type_text);
+        constant.gep_index_types.push_back(typed_index->type);
+        constant.gep_indices.push_back(std::move(typed_index->constant));
+    }
+
+    return constant;
+}
+
+std::optional<AArch64LlvmImportConstant> parse_cast_constant(
+    const AArch64LlvmImportType &target_type, const std::string &text,
+    const char *opcode_prefix, AArch64LlvmImportConstantKind kind,
+    AArch64LlvmImportTypeKind required_source_kind) {
+    std::string payload = llvm_import_trim_copy(text);
+    if (!llvm_import_starts_with(payload, opcode_prefix)) {
+        return std::nullopt;
+    }
+    payload = llvm_import_trim_copy(
+        payload.substr(std::strlen(opcode_prefix)));
+    if (payload.size() < 2 || payload.front() != '(' || payload.back() != ')') {
+        return std::nullopt;
+    }
+
+    payload = llvm_import_trim_copy(payload.substr(1, payload.size() - 2));
+    const auto to_pos = find_top_level_separator(payload, " to ");
+    if (!to_pos.has_value()) {
+        return std::nullopt;
+    }
+
+    const std::string source_text = llvm_import_trim_copy(payload.substr(0, *to_pos));
+    const std::string target_type_text =
+        llvm_import_trim_copy(payload.substr(*to_pos + 4));
+    const auto parsed_target_type = parse_llvm_import_type_text(target_type_text);
+    if (!parsed_target_type.has_value() ||
+        !import_types_equal(*parsed_target_type, target_type)) {
+        return std::nullopt;
+    }
+
+    const auto source = parse_typed_constant(source_text);
+    if (!source.has_value() || source->type.kind != required_source_kind) {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportConstant constant;
+    constant.kind = kind;
+    constant.cast_source_type_text = source->type_text;
+    constant.cast_source_type = source->type;
+    constant.cast_target_type_text = target_type_text;
+    constant.cast_operand =
+        std::make_shared<AArch64LlvmImportConstant>(std::move(source->constant));
+    return constant;
+}
+
+std::optional<AArch64LlvmImportConstant> parse_bitcast_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    if (type.kind != AArch64LlvmImportTypeKind::Pointer) {
+        return std::nullopt;
+    }
+    return parse_cast_constant(type, text, "bitcast ",
+                               AArch64LlvmImportConstantKind::Bitcast,
+                               AArch64LlvmImportTypeKind::Pointer);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_inttoptr_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    if (type.kind != AArch64LlvmImportTypeKind::Pointer) {
+        return std::nullopt;
+    }
+    return parse_cast_constant(type, text, "inttoptr ",
+                               AArch64LlvmImportConstantKind::IntToPtr,
+                               AArch64LlvmImportTypeKind::Integer);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_ptrtoint_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    if (type.kind != AArch64LlvmImportTypeKind::Integer) {
+        return std::nullopt;
+    }
+    return parse_cast_constant(type, text, "ptrtoint ",
+                               AArch64LlvmImportConstantKind::PtrToInt,
+                               AArch64LlvmImportTypeKind::Pointer);
+}
+
 std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     const AArch64LlvmImportType &type, const std::string &text) {
     const std::string trimmed = llvm_import_trim_copy(text);
@@ -121,6 +352,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
 
     switch (type.kind) {
     case AArch64LlvmImportTypeKind::Integer: {
+        if (llvm_import_starts_with(trimmed, "ptrtoint ")) {
+            return parse_ptrtoint_constant(type, trimmed);
+        }
         const auto value = llvm_import_parse_integer_literal(trimmed);
         if (!value.has_value()) {
             return std::nullopt;
@@ -144,12 +378,27 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         return constant;
     }
     case AArch64LlvmImportTypeKind::Pointer: {
-        if (trimmed != "null") {
-            return std::nullopt;
+        if (llvm_import_starts_with(trimmed, "inttoptr ")) {
+            return parse_inttoptr_constant(type, trimmed);
         }
-        AArch64LlvmImportConstant constant;
-        constant.kind = AArch64LlvmImportConstantKind::NullPointer;
-        return constant;
+        if (llvm_import_starts_with(trimmed, "bitcast ")) {
+            return parse_bitcast_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "getelementptr ")) {
+            return parse_gep_constant(type, trimmed);
+        }
+        if (trimmed == "null") {
+            AArch64LlvmImportConstant constant;
+            constant.kind = AArch64LlvmImportConstantKind::NullPointer;
+            return constant;
+        }
+        if (!trimmed.empty() && trimmed.front() == '@') {
+            AArch64LlvmImportConstant constant;
+            constant.kind = AArch64LlvmImportConstantKind::SymbolReference;
+            constant.symbol_name = trimmed.substr(1);
+            return constant;
+        }
+        return std::nullopt;
     }
     case AArch64LlvmImportTypeKind::Array: {
         const bool square_bracketed =

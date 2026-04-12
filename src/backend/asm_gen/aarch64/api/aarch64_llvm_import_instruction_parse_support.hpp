@@ -23,6 +23,10 @@ struct AArch64LlvmImportTypedValue {
     std::string local_name;
     std::string global_name;
     AArch64LlvmImportConstant constant;
+
+    bool is_valid() const {
+        return kind != AArch64LlvmImportValueKind::Unknown;
+    }
 };
 
 struct AArch64LlvmImportBinarySpec {
@@ -76,10 +80,7 @@ struct AArch64LlvmImportGetElementPtrSpec {
 struct AArch64LlvmImportCallSpec {
     std::string return_type_text;
     AArch64LlvmImportType return_type;
-    std::string callee_text;
-    AArch64LlvmImportValueKind callee_kind = AArch64LlvmImportValueKind::Unknown;
-    std::string callee_local_name;
-    std::string callee_global_name;
+    AArch64LlvmImportTypedValue callee;
     std::vector<AArch64LlvmImportTypedValue> arguments;
 };
 
