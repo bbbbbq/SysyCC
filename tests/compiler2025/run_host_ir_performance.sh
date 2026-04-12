@@ -178,6 +178,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -216,46 +217,109 @@ runtime_stub_o = out_root / "runtime_builtin_stub.o"
 def run_with_limits(argv: list[str], *, input_path: Path | None = None,
                     wall_timeout_s: float, capture_stdout: bool = False,
                     cwd: Path | None = None, cpu_limit_s: int | None = None):
-    stdin = input_path.open("rb") if input_path is not None and input_path.exists() else None
-
-    def preexec() -> None:
-        os.setsid()
-        if cpu_limit_s is not None:
-            resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit_s, cpu_limit_s))
-
-    try:
-        proc = subprocess.Popen(
-            argv,
-            stdin=stdin,
-            stdout=subprocess.PIPE if capture_stdout else subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            cwd=str(cwd or project_root),
-            start_new_session=False,
-            preexec_fn=preexec,
-        )
+    def run_supervisor(result_path: Path, stdout_path: Path, stderr_path: Path) -> None:
+        stdin = None
+        stdout_stream = None
+        stderr_stream = None
+        proc = None
         start = time.perf_counter()
+
+        def write_result(status: str, elapsed: float, returncode: int | None,
+                         error_message: str | None = None) -> None:
+            payload = {
+                "status": status,
+                "elapsed": elapsed,
+                "returncode": returncode,
+            }
+            if error_message is not None:
+                payload["error"] = error_message
+            result_path.write_text(json.dumps(payload))
+
+        def preexec() -> None:
+            os.setsid()
+            if cpu_limit_s is not None:
+                resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit_s, cpu_limit_s))
+
         try:
-            stdout, stderr = proc.communicate(timeout=wall_timeout_s)
+            if input_path is not None and input_path.exists():
+                stdin = input_path.open("rb")
+            stdout_stream = (
+                stdout_path.open("wb") if capture_stdout else open(os.devnull, "wb")
+            )
+            stderr_stream = stderr_path.open("wb")
+            proc = subprocess.Popen(
+                argv,
+                stdin=stdin,
+                stdout=stdout_stream,
+                stderr=stderr_stream,
+                cwd=str(cwd or project_root),
+                start_new_session=False,
+                preexec_fn=preexec,
+            )
+            while True:
+                returncode = proc.poll()
+                elapsed = time.perf_counter() - start
+                if returncode is not None:
+                    write_result("ok", elapsed, returncode)
+                    return
+                if elapsed >= wall_timeout_s:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    write_result("timeout", elapsed, None)
+                    return
+                time.sleep(0.05)
+        except Exception as exc:
+            write_result("error", time.perf_counter() - start, None, str(exc))
+        finally:
+            if stdout_stream is not None:
+                stdout_stream.close()
+            if stderr_stream is not None:
+                stderr_stream.close()
+            if stdin is not None:
+                stdin.close()
+
+    with tempfile.TemporaryDirectory(prefix="sysycc-host-ir-run-") as temp_dir:
+        temp_root = Path(temp_dir)
+        result_path = temp_root / "result.json"
+        stdout_path = temp_root / "stdout.bin"
+        stderr_path = temp_root / "stderr.bin"
+        supervisor_pid = os.fork()
+        if supervisor_pid == 0:
+            try:
+                run_supervisor(result_path, stdout_path, stderr_path)
+                os._exit(0)
+            except BaseException:
+                os._exit(1)
+
+        _, status = os.waitpid(supervisor_pid, 0)
+        stdout = stdout_path.read_bytes() if stdout_path.exists() else b""
+        stderr = stderr_path.read_bytes() if stderr_path.exists() else b""
+        if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
             return {
-                "status": "ok",
-                "elapsed": time.perf_counter() - start,
-                "returncode": proc.returncode,
-                "stdout": stdout or b"",
-                "stderr": stderr or b"",
-            }
-        except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
-            stdout, stderr = proc.communicate()
-            return {
-                "status": "timeout",
-                "elapsed": time.perf_counter() - start,
+                "status": "error",
+                "elapsed": 0.0,
                 "returncode": None,
-                "stdout": stdout or b"",
-                "stderr": stderr or b"",
+                "stdout": stdout,
+                "stderr": stderr,
             }
-    finally:
-        if stdin is not None:
-            stdin.close()
+        if not result_path.exists():
+            return {
+                "status": "error",
+                "elapsed": 0.0,
+                "returncode": None,
+                "stdout": stdout,
+                "stderr": stderr,
+            }
+        payload = json.loads(result_path.read_text())
+        return {
+            "status": payload.get("status", "error"),
+            "elapsed": float(payload.get("elapsed", 0.0)),
+            "returncode": payload.get("returncode"),
+            "stdout": stdout,
+            "stderr": stderr,
+        }
 
 
 def normalize_text(text: str) -> str:
