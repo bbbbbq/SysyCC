@@ -240,6 +240,28 @@ bool rewrite_phi_predecessor(CoreIrBasicBlock *successor,
     return true;
 }
 
+std::string make_unique_block_name(const CoreIrFunction &function,
+                                   const std::string &base_name) {
+    auto is_used = [&function](const std::string &name) {
+        for (const auto &block_ptr : function.get_basic_blocks()) {
+            if (block_ptr != nullptr && block_ptr->get_name() == name) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (!is_used(base_name)) {
+        return base_name;
+    }
+    for (std::size_t suffix = 1;; ++suffix) {
+        std::string candidate = base_name + "." + std::to_string(suffix);
+        if (!is_used(candidate)) {
+            return candidate;
+        }
+    }
+}
+
 bool callee_is_inline_candidate(CoreIrFunction &callee,
                                 const CoreIrCallGraphAnalysisResult &call_graph,
                                 bool callsite_in_loop) {
@@ -333,10 +355,13 @@ bool inline_direct_call(CoreIrCallInst &call, CoreIrFunction &callee,
         return false;
     }
 
-    auto continuation = std::make_unique<CoreIrBasicBlock>(
+    const std::string continuation_name = make_unique_block_name(
+        *caller_function,
         call.get_name().empty() ? callee.get_name() + ".inline.cont." +
                                       std::to_string(inline_site_id)
                                 : call.get_name() + ".inline.cont");
+    auto continuation =
+        std::make_unique<CoreIrBasicBlock>(continuation_name);
     CoreIrBasicBlock *continuation_block =
         caller_function->append_basic_block(std::move(continuation));
     if (continuation_block == nullptr) {
@@ -402,9 +427,10 @@ bool inline_direct_call(CoreIrCallInst &call, CoreIrFunction &callee,
         if (original_block == nullptr) {
             continue;
         }
-        std::string block_name = callee.get_name() + ".inline." +
-                                 std::to_string(inline_site_id) + "." +
-                                 original_block->get_name();
+        std::string block_name = make_unique_block_name(
+            *caller_function, callee.get_name() + ".inline." +
+                                  std::to_string(inline_site_id) + "." +
+                                  original_block->get_name());
         CoreIrBasicBlock *cloned_block = caller_function->append_basic_block(
             std::make_unique<CoreIrBasicBlock>(std::move(block_name)));
         if (cloned_block == nullptr) {

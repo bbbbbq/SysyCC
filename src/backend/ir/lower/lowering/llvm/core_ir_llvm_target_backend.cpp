@@ -400,6 +400,25 @@ CoreIrLlvmTargetBackend::get_emitted_value_name(const CoreIrValue *value) {
     return name;
 }
 
+std::string
+CoreIrLlvmTargetBackend::get_emitted_block_name(const CoreIrBasicBlock *block) {
+    if (block == nullptr) {
+        return "<null-block>";
+    }
+    const auto it = emitted_block_names_.find(block);
+    if (it != emitted_block_names_.end()) {
+        return it->second;
+    }
+    std::string name = block->get_name();
+    if (name.empty() || name.size() > 255 ||
+        used_block_names_.find(name) != used_block_names_.end()) {
+        name = next_helper_name("bb");
+    }
+    emitted_block_names_.emplace(block, name);
+    used_block_names_.insert(name);
+    return name;
+}
+
 std::string CoreIrLlvmTargetBackend::get_emitted_stack_slot_name(
     const CoreIrStackSlot *stack_slot) {
     if (stack_slot == nullptr) {
@@ -668,7 +687,7 @@ bool CoreIrLlvmTargetBackend::append_instruction(
             text += "[ ";
             text += format_value_ref(incoming_value);
             text += ", %";
-            text += incoming_block->get_name();
+            text += get_emitted_block_name(incoming_block);
             text += " ]";
         }
         text += "\n";
@@ -1147,7 +1166,7 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         const auto &jump_instruction =
             static_cast<const CoreIrJumpInst &>(instruction);
         text += "  br label %";
-        text += jump_instruction.get_target_block()->get_name();
+        text += get_emitted_block_name(jump_instruction.get_target_block());
         text += "\n";
         return true;
     }
@@ -1187,9 +1206,9 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         text += "  br i1 ";
         text += condition_ref;
         text += ", label %";
-        text += cond_jump_instruction.get_true_block()->get_name();
+        text += get_emitted_block_name(cond_jump_instruction.get_true_block());
         text += ", label %";
-        text += cond_jump_instruction.get_false_block()->get_name();
+        text += get_emitted_block_name(cond_jump_instruction.get_false_block());
         text += "\n";
         return true;
     }
@@ -1292,7 +1311,9 @@ bool CoreIrLlvmTargetBackend::append_function(
     }
     text += " {\n";
     emitted_value_names_.clear();
+    emitted_block_names_.clear();
     emitted_stack_slot_names_.clear();
+    used_block_names_.clear();
     used_stack_slot_names_.clear();
     next_value_id_ = 0;
     helper_id_ = 0;
@@ -1301,7 +1322,7 @@ bool CoreIrLlvmTargetBackend::append_function(
                                   ? nullptr
                                   : function.get_basic_blocks().front().get();
     for (const auto &basic_block : function.get_basic_blocks()) {
-        text += basic_block->get_name();
+        text += get_emitted_block_name(basic_block.get());
         text += ":\n";
         if (basic_block.get() == entry_block) {
             for (const auto &stack_slot : function.get_stack_slots()) {
