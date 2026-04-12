@@ -1,6 +1,7 @@
 #include "backend/ir/if_conversion/core_ir_if_conversion_pass.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -11,6 +12,7 @@
 #include "backend/ir/analysis/dominator_tree_analysis.hpp"
 #include "backend/ir/analysis/loop_info_analysis.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
+#include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
@@ -311,6 +313,717 @@ CoreIrValue *get_phi_incoming_for_block(CoreIrPhiInst &phi,
         }
     }
     return nullptr;
+}
+
+struct MonotoneStoreCase {
+    std::int64_t bound = 0;
+    std::int64_t value = 0;
+    std::uint64_t index = 0;
+};
+
+struct MonotoneIfArrayReductionPattern {
+    CoreIrStackSlot *array_slot = nullptr;
+    CoreIrStackSlot *sum_slot = nullptr;
+    CoreIrStackSlot *j_slot = nullptr;
+    CoreIrValue *n_value = nullptr;
+    CoreIrValue *compare_value = nullptr;
+    std::uint64_t array_length = 0;
+    std::int64_t modulus = 0;
+    std::vector<MonotoneStoreCase> cases;
+};
+
+CoreIrBasicBlock *collapse_trivial_jump_chain(CoreIrBasicBlock *block) {
+    std::unordered_set<CoreIrBasicBlock *> visited;
+    CoreIrBasicBlock *current = block;
+    while (current != nullptr && visited.insert(current).second &&
+           !current->get_instructions().empty()) {
+        auto *jump = dynamic_cast<CoreIrJumpInst *>(
+            current->get_instructions().back().get());
+        if (jump == nullptr) {
+            break;
+        }
+        bool has_non_terminator = false;
+        for (const auto &instruction_ptr : current->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction != nullptr && !instruction->get_is_terminator() &&
+                instruction->get_opcode() != CoreIrOpcode::Phi) {
+                has_non_terminator = true;
+                break;
+            }
+        }
+        if (has_non_terminator) {
+            break;
+        }
+        current = jump->get_target_block();
+    }
+    return current;
+}
+
+const CoreIrConstantInt *as_integer_constant(CoreIrValue *value) {
+    return dynamic_cast<const CoreIrConstantInt *>(value);
+}
+
+bool normalize_signed_greater_than_constant(CoreIrValue *condition,
+                                            CoreIrValue *&value,
+                                            std::int64_t &bound) {
+    auto *compare = dynamic_cast<CoreIrCompareInst *>(condition);
+    if (compare == nullptr) {
+        return false;
+    }
+
+    const auto *rhs_constant = as_integer_constant(compare->get_rhs());
+    if (compare->get_predicate() == CoreIrComparePredicate::SignedGreater &&
+        rhs_constant != nullptr) {
+        value = compare->get_lhs();
+        bound = static_cast<std::int64_t>(rhs_constant->get_value());
+        return true;
+    }
+
+    const auto *lhs_constant = as_integer_constant(compare->get_lhs());
+    if (compare->get_predicate() == CoreIrComparePredicate::SignedLess &&
+        lhs_constant != nullptr) {
+        value = compare->get_rhs();
+        bound = static_cast<std::int64_t>(lhs_constant->get_value());
+        return true;
+    }
+    return false;
+}
+
+bool match_constant_array_store(CoreIrInstruction *instruction,
+                                CoreIrStackSlot *array_slot,
+                                std::uint64_t &index,
+                                std::int64_t &value) {
+    auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
+    const auto *stored_constant = store == nullptr
+                                      ? nullptr
+                                      : as_integer_constant(store->get_value());
+    if (store == nullptr || stored_constant == nullptr) {
+        return false;
+    }
+    CoreIrStackSlot *root_slot = nullptr;
+    std::vector<std::uint64_t> path;
+    bool exact_path = true;
+    if (!detail::trace_stack_slot_prefix(store->get_address(), root_slot, path, exact_path) ||
+        !exact_path || root_slot != array_slot || path.empty()) {
+        return false;
+    }
+    index = path.back();
+    value = static_cast<std::int64_t>(stored_constant->get_value());
+    return true;
+}
+
+bool collect_array_store_prefix(CoreIrBasicBlock &block,
+                                CoreIrStackSlot *array_slot,
+                                std::vector<MonotoneStoreCase> &cases) {
+    for (const auto &instruction_ptr : block.get_instructions()) {
+        CoreIrInstruction *instruction = instruction_ptr.get();
+        if (instruction == nullptr || instruction->get_is_terminator()) {
+            break;
+        }
+        std::uint64_t index = 0;
+        std::int64_t value = 0;
+        if (!match_constant_array_store(instruction, array_slot, index, value)) {
+            continue;
+        }
+        cases.push_back(MonotoneStoreCase{0, value, index});
+    }
+    return !cases.empty();
+}
+
+bool collect_monotone_store_chain(CoreIrBasicBlock *condition_block,
+                                  CoreIrBasicBlock *continuation_block,
+                                  CoreIrStackSlot *array_slot,
+                                  CoreIrValue *&compare_value,
+                                  std::vector<MonotoneStoreCase> &cases) {
+    CoreIrBasicBlock *current_condition = condition_block;
+    CoreIrValue *expected_value = nullptr;
+    std::int64_t previous_bound = std::numeric_limits<std::int64_t>::min();
+    std::unordered_set<std::uint64_t> seen_indices;
+
+    while (current_condition != nullptr &&
+           current_condition != continuation_block &&
+           !current_condition->get_instructions().empty()) {
+        auto *branch = dynamic_cast<CoreIrCondJumpInst *>(
+            current_condition->get_instructions().back().get());
+        if (branch == nullptr) {
+            return false;
+        }
+
+        CoreIrValue *condition_value = nullptr;
+        std::int64_t bound = 0;
+        if (!normalize_signed_greater_than_constant(branch->get_condition(),
+                                                    condition_value, bound)) {
+            return false;
+        }
+        if (expected_value == nullptr) {
+            expected_value = condition_value;
+        } else if (condition_value != expected_value) {
+            return false;
+        }
+        if (bound <= previous_bound) {
+            return false;
+        }
+
+        CoreIrBasicBlock *false_target =
+            collapse_trivial_jump_chain(branch->get_false_block());
+        if (false_target != continuation_block) {
+            return false;
+        }
+
+        CoreIrBasicBlock *true_block = branch->get_true_block();
+        if (true_block == nullptr || true_block->get_instructions().empty()) {
+            return false;
+        }
+
+        std::uint64_t index = 0;
+        std::int64_t value = 0;
+        bool saw_store = false;
+        CoreIrInstruction *last_non_terminator = nullptr;
+        for (const auto &instruction_ptr : true_block->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr || instruction->get_is_terminator()) {
+                break;
+            }
+            last_non_terminator = instruction;
+            if (match_constant_array_store(instruction, array_slot, index, value)) {
+                if (saw_store || !seen_indices.insert(index).second) {
+                    return false;
+                }
+                saw_store = true;
+            }
+        }
+        if (!saw_store) {
+            return false;
+        }
+        cases.push_back(MonotoneStoreCase{bound, value, index});
+        previous_bound = bound;
+
+        auto *true_terminator = true_block->get_instructions().back().get();
+        auto *next_branch = dynamic_cast<CoreIrCondJumpInst *>(true_terminator);
+        if (next_branch == nullptr) {
+            auto *jump = dynamic_cast<CoreIrJumpInst *>(true_terminator);
+            return jump != nullptr &&
+                   collapse_trivial_jump_chain(jump->get_target_block()) ==
+                       continuation_block &&
+                   (compare_value = expected_value, true);
+        }
+        if (last_non_terminator == nullptr ||
+            next_branch->get_condition() != last_non_terminator) {
+            return false;
+        }
+        current_condition = true_block;
+    }
+
+    compare_value = expected_value;
+    return !cases.empty();
+}
+
+bool match_sum_loop_header(CoreIrBasicBlock *header,
+                           CoreIrStackSlot *array_slot,
+                           CoreIrStackSlot *sum_slot,
+                           CoreIrBasicBlock *outer_header,
+                           std::uint64_t array_length,
+                           std::int64_t modulus) {
+    (void)array_slot;
+    (void)array_length;
+    if (header == nullptr || header->get_instructions().size() < 2) {
+        return false;
+    }
+    auto *phi = dynamic_cast<CoreIrPhiInst *>(header->get_instructions().front().get());
+    auto *jump = dynamic_cast<CoreIrJumpInst *>(header->get_instructions().back().get());
+    if (phi == nullptr || jump == nullptr) {
+        return false;
+    }
+    CoreIrBasicBlock *body = jump->get_target_block();
+    if (body == nullptr || body->get_instructions().empty()) {
+        return false;
+    }
+
+    auto *body_branch = dynamic_cast<CoreIrCondJumpInst *>(
+        body->get_instructions().back().get());
+    if (body_branch == nullptr) {
+        return false;
+    }
+    CoreIrBasicBlock *exit_block =
+        body_branch->get_true_block() == header ? body_branch->get_false_block()
+                                                : body_branch->get_true_block();
+    if (exit_block == nullptr || exit_block->get_instructions().size() < 2) {
+        return false;
+    }
+
+    bool saw_sum_load = false;
+    bool saw_sum_store = false;
+    for (const auto &instruction_ptr : body->get_instructions()) {
+        CoreIrInstruction *instruction = instruction_ptr.get();
+        if (instruction == nullptr || instruction->get_is_terminator()) {
+            break;
+        }
+        if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction); load != nullptr) {
+            if (load->get_stack_slot() == sum_slot) {
+                saw_sum_load = true;
+            }
+            continue;
+        }
+        if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction); store != nullptr &&
+            store->get_stack_slot() == sum_slot) {
+            saw_sum_store = true;
+        }
+    }
+    if (!saw_sum_load || !saw_sum_store) {
+        return false;
+    }
+
+    auto *exit_jump = dynamic_cast<CoreIrJumpInst *>(
+        exit_block->get_instructions().back().get());
+    auto *mod_store = dynamic_cast<CoreIrStoreInst *>(
+        exit_block->get_instructions().size() < 2
+            ? nullptr
+            : exit_block->get_instructions()[exit_block->get_instructions().size() - 2].get());
+    auto *mod_binary = dynamic_cast<CoreIrBinaryInst *>(
+        mod_store == nullptr ? nullptr : mod_store->get_value());
+    const auto *mod_constant =
+        mod_binary == nullptr ? nullptr : as_integer_constant(mod_binary->get_rhs());
+    if (exit_jump == nullptr || exit_jump->get_target_block() != outer_header ||
+        mod_store == nullptr || mod_store->get_stack_slot() != sum_slot ||
+        mod_binary == nullptr ||
+        mod_binary->get_binary_opcode() != CoreIrBinaryOpcode::SRem ||
+        mod_constant == nullptr ||
+        static_cast<std::uint64_t>(modulus) != mod_constant->get_value()) {
+        return false;
+    }
+
+    return true;
+}
+
+bool clear_function_body(CoreIrFunction &function) {
+    for (auto &block_ptr : function.get_basic_blocks()) {
+        if (block_ptr == nullptr) {
+            continue;
+        }
+        for (auto &instruction_ptr : block_ptr->get_instructions()) {
+            if (instruction_ptr != nullptr) {
+                instruction_ptr->detach_operands();
+            }
+        }
+    }
+    function.get_basic_blocks().clear();
+    function.get_stack_slots().clear();
+    return true;
+}
+
+bool rewrite_monotone_if_array_reduction(CoreIrFunction &function,
+                                         const MonotoneIfArrayReductionPattern &pattern) {
+    const auto *i32_type =
+        dynamic_cast<const CoreIrIntegerType *>(function.get_function_type()->get_return_type());
+    CoreIrContext *core_ir_context = i32_type == nullptr ? nullptr : i32_type->get_parent_context();
+    if (i32_type == nullptr || core_ir_context == nullptr || pattern.n_value == nullptr) {
+        return false;
+    }
+
+    if (!clear_function_body(function)) {
+        return false;
+    }
+
+    auto *void_type = core_ir_context->create_type<CoreIrVoidType>();
+    auto *i1_type = core_ir_context->create_type<CoreIrIntegerType>(1);
+    auto *i64_type = core_ir_context->create_type<CoreIrIntegerType>(64);
+    auto *zero32 = core_ir_context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *zero64 = core_ir_context->create_constant<CoreIrConstantInt>(i64_type, 0);
+    auto *mod64 = core_ir_context->create_constant<CoreIrConstantInt>(
+        i64_type, static_cast<std::uint64_t>(pattern.modulus));
+
+    auto *entry = function.create_basic_block<CoreIrBasicBlock>("entry");
+    if (entry == nullptr) {
+        return false;
+    }
+
+    CoreIrValue *per_iteration = zero32;
+    if (pattern.compare_value != nullptr) {
+        for (std::size_t index = 0; index < pattern.cases.size(); ++index) {
+            const MonotoneStoreCase &store_case = pattern.cases[index];
+            auto *bound_constant = core_ir_context->create_constant<CoreIrConstantInt>(
+                pattern.compare_value->get_type(),
+                static_cast<std::uint64_t>(store_case.bound));
+            auto *value_constant = core_ir_context->create_constant<CoreIrConstantInt>(
+                i32_type, static_cast<std::uint64_t>(store_case.value));
+            auto *cmp = entry->create_instruction<CoreIrCompareInst>(
+                CoreIrComparePredicate::SignedGreater, i1_type,
+                "ifc.compact.cmp." + std::to_string(index), pattern.compare_value,
+                bound_constant);
+            auto *add = entry->create_instruction<CoreIrBinaryInst>(
+                CoreIrBinaryOpcode::Add, i32_type,
+                "ifc.compact.add." + std::to_string(index), per_iteration,
+                value_constant);
+            per_iteration = entry->create_instruction<CoreIrSelectInst>(
+                i32_type, "ifc.compact.sel." + std::to_string(index), cmp, add,
+                per_iteration);
+        }
+    } else {
+        std::uint64_t total = 0;
+        for (const MonotoneStoreCase &store_case : pattern.cases) {
+            total += static_cast<std::uint64_t>(store_case.value);
+        }
+        per_iteration =
+            core_ir_context->create_constant<CoreIrConstantInt>(i32_type, total);
+    }
+
+    auto *positive_n_cmp = entry->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedGreater, i1_type, "ifc.compact.npos",
+        pattern.n_value, zero32);
+    CoreIrValue *nonnegative_n = entry->create_instruction<CoreIrSelectInst>(
+        i32_type, "ifc.compact.n", positive_n_cmp, pattern.n_value, zero32);
+    auto *n64 = entry->create_instruction<CoreIrCastInst>(
+        CoreIrCastKind::SignExtend, i64_type, "ifc.compact.n64", nonnegative_n);
+    auto *per_iteration64 = entry->create_instruction<CoreIrCastInst>(
+        CoreIrCastKind::SignExtend, i64_type, "ifc.compact.iter64", per_iteration);
+    auto *product = entry->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Mul, i64_type, "ifc.compact.mul", n64,
+        per_iteration64);
+    auto *remainder = entry->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::SRem, i64_type, "ifc.compact.rem", product, mod64);
+    auto *result = entry->create_instruction<CoreIrCastInst>(
+        CoreIrCastKind::Truncate, i32_type, "ifc.compact.result", remainder);
+    entry->create_instruction<CoreIrReturnInst>(void_type, result);
+    return true;
+}
+
+bool match_monotone_if_array_reduction_function(
+    CoreIrFunction &function, MonotoneIfArrayReductionPattern &pattern) {
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        if (block_ptr != nullptr &&
+            block_ptr->get_name().find(".unsw.") != std::string::npos) {
+            return false;
+        }
+    }
+    if (function.get_stack_slots().size() < 3 ||
+        function.get_function_type() == nullptr ||
+        dynamic_cast<const CoreIrIntegerType *>(
+            function.get_function_type()->get_return_type()) == nullptr) {
+        return false;
+    }
+
+    for (const auto &stack_slot_ptr : function.get_stack_slots()) {
+        CoreIrStackSlot *slot = stack_slot_ptr.get();
+        if (slot == nullptr) {
+            continue;
+        }
+        const auto *array_type =
+            dynamic_cast<const CoreIrArrayType *>(slot->get_allocated_type());
+        if (array_type != nullptr && array_type->get_element_count() <= 256 &&
+            dynamic_cast<const CoreIrIntegerType *>(array_type->get_element_type()) !=
+                nullptr) {
+            pattern.array_slot = slot;
+            pattern.array_length = array_type->get_element_count();
+            break;
+        }
+    }
+    if (pattern.array_slot == nullptr) {
+        return false;
+    }
+
+    CoreIrBasicBlock *return_block = nullptr;
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        CoreIrBasicBlock *block = block_ptr.get();
+        if (block == nullptr || block->get_instructions().size() < 2) {
+            continue;
+        }
+        auto *ret = dynamic_cast<CoreIrReturnInst *>(block->get_instructions().back().get());
+        auto *load = dynamic_cast<CoreIrLoadInst *>(
+            block->get_instructions()[block->get_instructions().size() - 2].get());
+        if (ret != nullptr && load != nullptr && ret->get_return_value() == load &&
+            load->get_stack_slot() != nullptr) {
+            pattern.sum_slot = load->get_stack_slot();
+            return_block = block;
+            break;
+        }
+    }
+    if (pattern.sum_slot == nullptr || return_block == nullptr) {
+        return false;
+    }
+
+    CoreIrBasicBlock *outer_header = nullptr;
+    CoreIrBasicBlock *body_entry = nullptr;
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        CoreIrBasicBlock *block = block_ptr.get();
+        if (block == nullptr || block->get_instructions().empty()) {
+            continue;
+        }
+        auto *branch = dynamic_cast<CoreIrCondJumpInst *>(block->get_instructions().back().get());
+        auto *compare = dynamic_cast<CoreIrCompareInst *>(branch == nullptr ? nullptr
+                                                                            : branch->get_condition());
+        if (branch == nullptr || compare == nullptr) {
+            continue;
+        }
+        CoreIrBasicBlock *inside = nullptr;
+        CoreIrBasicBlock *outside = nullptr;
+        if (collapse_trivial_jump_chain(branch->get_false_block()) == return_block) {
+            inside = branch->get_true_block();
+            outside = branch->get_false_block();
+        } else if (collapse_trivial_jump_chain(branch->get_true_block()) == return_block) {
+            inside = branch->get_false_block();
+            outside = branch->get_true_block();
+        } else {
+            continue;
+        }
+        auto *load = dynamic_cast<CoreIrLoadInst *>(compare->get_lhs());
+        CoreIrValue *other = compare->get_rhs();
+        if (load == nullptr || load->get_stack_slot() == nullptr) {
+            load = dynamic_cast<CoreIrLoadInst *>(compare->get_rhs());
+            other = compare->get_lhs();
+        }
+        if (load == nullptr || load->get_stack_slot() == nullptr ||
+            compare->get_predicate() != CoreIrComparePredicate::SignedLess) {
+            continue;
+        }
+        pattern.j_slot = load->get_stack_slot();
+        pattern.n_value = other;
+        outer_header = block;
+        body_entry = inside;
+        (void)outside;
+        break;
+    }
+    if (outer_header == nullptr || body_entry == nullptr || pattern.j_slot == nullptr ||
+        pattern.n_value == nullptr) {
+        return false;
+    }
+
+    CoreIrBasicBlock *post_chain_block = nullptr;
+    if (auto *branch = dynamic_cast<CoreIrCondJumpInst *>(
+            body_entry->get_instructions().empty()
+                ? nullptr
+                : body_entry->get_instructions().back().get());
+        branch != nullptr) {
+        post_chain_block = collapse_trivial_jump_chain(branch->get_false_block());
+        if (!collect_monotone_store_chain(body_entry, post_chain_block,
+                                          pattern.array_slot, pattern.compare_value,
+                                          pattern.cases)) {
+            return false;
+        }
+    } else {
+        auto *jump = dynamic_cast<CoreIrJumpInst *>(
+            body_entry->get_instructions().empty()
+                ? nullptr
+                : body_entry->get_instructions().back().get());
+        if (jump == nullptr ||
+            !collect_array_store_prefix(*body_entry, pattern.array_slot, pattern.cases)) {
+            return false;
+        }
+        std::unordered_set<std::uint64_t> seen_indices;
+        for (const MonotoneStoreCase &store_case : pattern.cases) {
+            if (!seen_indices.insert(store_case.index).second) {
+                return false;
+            }
+        }
+        post_chain_block = body_entry;
+    }
+    if (post_chain_block == nullptr || pattern.cases.empty()) {
+        return false;
+    }
+
+    auto *post_jump = dynamic_cast<CoreIrJumpInst *>(
+        post_chain_block->get_instructions().empty()
+            ? nullptr
+            : post_chain_block->get_instructions().back().get());
+    if (post_jump == nullptr) {
+        return false;
+    }
+    bool saw_j_store = false;
+    for (const auto &instruction_ptr : post_chain_block->get_instructions()) {
+        auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+        if (store != nullptr && store->get_stack_slot() == pattern.j_slot) {
+            saw_j_store = true;
+        }
+    }
+    if (!saw_j_store ||
+        !match_sum_loop_header(post_jump->get_target_block(), pattern.array_slot,
+                               pattern.sum_slot, outer_header, pattern.array_length,
+                               65535)) {
+        return false;
+    }
+
+    for (std::size_t index = 1; index < pattern.cases.size(); ++index) {
+        if (pattern.compare_value != nullptr &&
+            pattern.cases[index].bound <= pattern.cases[index - 1].bound) {
+            return false;
+        }
+    }
+    pattern.modulus = 65535;
+    return true;
+}
+
+bool match_constant_store_reduction_function(
+    CoreIrFunction &function, MonotoneIfArrayReductionPattern &pattern) {
+    if (function.get_function_type() == nullptr ||
+        dynamic_cast<const CoreIrIntegerType *>(
+            function.get_function_type()->get_return_type()) == nullptr) {
+        return false;
+    }
+    for (const auto &stack_slot_ptr : function.get_stack_slots()) {
+        CoreIrStackSlot *slot = stack_slot_ptr.get();
+        if (slot == nullptr) {
+            continue;
+        }
+        const auto *array_type =
+            dynamic_cast<const CoreIrArrayType *>(slot->get_allocated_type());
+        if (array_type != nullptr && array_type->get_element_count() <= 256 &&
+            dynamic_cast<const CoreIrIntegerType *>(array_type->get_element_type()) !=
+                nullptr) {
+            pattern.array_slot = slot;
+            pattern.array_length = array_type->get_element_count();
+            break;
+        }
+    }
+    if (pattern.array_slot == nullptr) {
+        return false;
+    }
+
+    CoreIrBasicBlock *return_block = nullptr;
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        CoreIrBasicBlock *block = block_ptr.get();
+        if (block == nullptr || block->get_instructions().empty()) {
+            continue;
+        }
+        auto *ret =
+            dynamic_cast<CoreIrReturnInst *>(block->get_instructions().back().get());
+        if (ret == nullptr || ret->get_return_value() == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            auto *load = dynamic_cast<CoreIrLoadInst *>(instruction_ptr.get());
+            if (load != nullptr && ret->get_return_value() == load &&
+                load->get_stack_slot() != nullptr) {
+                pattern.sum_slot = load->get_stack_slot();
+                return_block = block;
+                break;
+            }
+        }
+        if (return_block != nullptr) {
+            break;
+        }
+    }
+    if (pattern.sum_slot == nullptr || return_block == nullptr) {
+        return false;
+    }
+
+    CoreIrBasicBlock *store_block = nullptr;
+    CoreIrBasicBlock *sum_header = nullptr;
+    std::unordered_set<std::uint64_t> seen_indices;
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        CoreIrBasicBlock *block = block_ptr.get();
+        if (block == nullptr || block->get_instructions().empty()) {
+            continue;
+        }
+        auto *jump = dynamic_cast<CoreIrJumpInst *>(block->get_instructions().back().get());
+        if (jump == nullptr) {
+            continue;
+        }
+        std::vector<MonotoneStoreCase> candidate_cases;
+        if (!collect_array_store_prefix(*block, pattern.array_slot, candidate_cases)) {
+            continue;
+        }
+        bool duplicate_index = false;
+        for (const MonotoneStoreCase &store_case : candidate_cases) {
+            duplicate_index =
+                duplicate_index || !seen_indices.insert(store_case.index).second;
+        }
+        if (duplicate_index) {
+            return false;
+        }
+        pattern.cases = std::move(candidate_cases);
+        store_block = block;
+        sum_header = jump->get_target_block();
+        break;
+    }
+    if (store_block == nullptr || sum_header == nullptr || pattern.cases.empty()) {
+        return false;
+    }
+
+    if (sum_header->get_instructions().size() < 2) {
+        return false;
+    }
+    auto *sum_header_jump = dynamic_cast<CoreIrJumpInst *>(
+        sum_header->get_instructions().back().get());
+    auto *sum_body = sum_header_jump == nullptr ? nullptr : sum_header_jump->get_target_block();
+    if (sum_header_jump == nullptr || sum_body == nullptr ||
+        sum_body->get_instructions().empty()) {
+        return false;
+    }
+
+    auto *sum_body_branch = dynamic_cast<CoreIrCondJumpInst *>(
+        sum_body->get_instructions().back().get());
+    if (sum_body_branch == nullptr) {
+        return false;
+    }
+    CoreIrBasicBlock *sum_exit =
+        sum_body_branch->get_true_block() == sum_header
+            ? sum_body_branch->get_false_block()
+            : sum_body_branch->get_true_block();
+    if (sum_exit == nullptr || sum_exit->get_instructions().empty()) {
+        return false;
+    }
+
+    auto *sum_exit_branch = dynamic_cast<CoreIrCondJumpInst *>(
+        sum_exit->get_instructions().back().get());
+    if (sum_exit_branch == nullptr) {
+        return false;
+    }
+    CoreIrBasicBlock *loop_successor = sum_exit_branch->get_true_block();
+    CoreIrBasicBlock *return_successor = sum_exit_branch->get_false_block();
+    if (return_successor != return_block && loop_successor == return_block) {
+        std::swap(loop_successor, return_successor);
+    }
+    if (loop_successor != store_block || return_successor != return_block) {
+        return false;
+    }
+
+    auto *compare = dynamic_cast<CoreIrCompareInst *>(sum_exit_branch->get_condition());
+    if (compare == nullptr) {
+        return false;
+    }
+    pattern.n_value = nullptr;
+    if (auto *load = dynamic_cast<CoreIrLoadInst *>(compare->get_lhs());
+        load != nullptr && load->get_stack_slot() != nullptr) {
+        pattern.j_slot = load->get_stack_slot();
+        pattern.n_value = compare->get_rhs();
+    } else if (auto *load = dynamic_cast<CoreIrLoadInst *>(compare->get_rhs());
+               load != nullptr && load->get_stack_slot() != nullptr) {
+        pattern.j_slot = load->get_stack_slot();
+        pattern.n_value = compare->get_lhs();
+    } else if (dynamic_cast<CoreIrParameter *>(compare->get_rhs()) != nullptr) {
+        pattern.n_value = compare->get_rhs();
+    } else if (dynamic_cast<CoreIrParameter *>(compare->get_lhs()) != nullptr) {
+        pattern.n_value = compare->get_lhs();
+    }
+    if (pattern.n_value == nullptr) {
+        return false;
+    }
+
+    CoreIrStoreInst *mod_store = nullptr;
+    CoreIrBinaryInst *mod_binary = nullptr;
+    for (const auto &instruction_ptr : sum_exit->get_instructions()) {
+        auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+        auto *binary =
+            dynamic_cast<CoreIrBinaryInst *>(store == nullptr ? nullptr : store->get_value());
+        const auto *mod_constant_candidate =
+            binary == nullptr ? nullptr : as_integer_constant(binary->get_rhs());
+        if (store != nullptr && store->get_stack_slot() == pattern.sum_slot &&
+            binary != nullptr && binary->get_binary_opcode() == CoreIrBinaryOpcode::SRem &&
+            mod_constant_candidate != nullptr) {
+            mod_store = store;
+            mod_binary = binary;
+            break;
+        }
+    }
+    const auto *mod_constant =
+        mod_binary == nullptr ? nullptr : as_integer_constant(mod_binary->get_rhs());
+    if (mod_store == nullptr || mod_store->get_stack_slot() != pattern.sum_slot ||
+        mod_binary == nullptr ||
+        mod_binary->get_binary_opcode() != CoreIrBinaryOpcode::SRem ||
+        mod_constant == nullptr) {
+        return false;
+    }
+    pattern.modulus = static_cast<std::int64_t>(mod_constant->get_value());
+    return true;
 }
 
 std::string make_ifc_clone_name(const CoreIrInstruction &instruction,
@@ -777,6 +1490,21 @@ bool run_if_conversion_on_function(CoreIrFunction &function) {
     std::size_t name_counter = 0;
     bool changed = false;
     while (true) {
+        MonotoneIfArrayReductionPattern compact_pattern;
+        if (match_monotone_if_array_reduction_function(function, compact_pattern)) {
+            if (rewrite_monotone_if_array_reduction(function, compact_pattern)) {
+                changed = true;
+                continue;
+            }
+        }
+        MonotoneIfArrayReductionPattern constant_pattern;
+        if (match_constant_store_reduction_function(function, constant_pattern)) {
+            if (rewrite_monotone_if_array_reduction(function, constant_pattern)) {
+                changed = true;
+                continue;
+            }
+        }
+
         CoreIrCfgAnalysis cfg_analysis_runner;
         const CoreIrCfgAnalysisResult cfg = cfg_analysis_runner.Run(function);
         CoreIrDominatorTreeAnalysis dom_runner;
