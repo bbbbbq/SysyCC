@@ -44,6 +44,10 @@ bool instruction_is_inline_supported(const CoreIrInstruction &instruction) {
     case CoreIrOpcode::Compare:
     case CoreIrOpcode::Select:
     case CoreIrOpcode::Cast:
+    case CoreIrOpcode::ExtractElement:
+    case CoreIrOpcode::InsertElement:
+    case CoreIrOpcode::ShuffleVector:
+    case CoreIrOpcode::VectorReduceAdd:
     case CoreIrOpcode::AddressOfStackSlot:
     case CoreIrOpcode::AddressOfFunction:
     case CoreIrOpcode::AddressOfGlobal:
@@ -104,6 +108,68 @@ bool callee_has_cfg_backedge(const CoreIrFunction &callee) {
              collect_terminator_successors(terminator)) {
             auto it = block_order.find(successor);
             if (it != block_order.end() && it->second <= index) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool type_is_or_contains_float(const CoreIrType *type) {
+    if (type == nullptr) {
+        return false;
+    }
+    if (type->get_kind() == CoreIrTypeKind::Float) {
+        return true;
+    }
+    const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
+    return vector_type != nullptr &&
+           type_is_or_contains_float(vector_type->get_element_type());
+}
+
+bool callee_has_floating_point_work(const CoreIrFunction &callee) {
+    if (type_is_or_contains_float(
+            callee.get_function_type() == nullptr
+                ? nullptr
+                : callee.get_function_type()->get_return_type())) {
+        return true;
+    }
+    for (const auto &parameter_ptr : callee.get_parameters()) {
+        if (parameter_ptr != nullptr &&
+            type_is_or_contains_float(parameter_ptr->get_type())) {
+            return true;
+        }
+    }
+    for (const auto &block_ptr : callee.get_basic_blocks()) {
+        if (block_ptr == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block_ptr->get_instructions()) {
+            const CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction != nullptr &&
+                type_is_or_contains_float(instruction->get_type())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool callee_has_vector_work(const CoreIrFunction &callee) {
+    for (const auto &block_ptr : callee.get_basic_blocks()) {
+        if (block_ptr == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block_ptr->get_instructions()) {
+            const CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr || instruction->get_type() == nullptr) {
+                continue;
+            }
+            if (instruction->get_type()->get_kind() == CoreIrTypeKind::Vector ||
+                instruction->get_opcode() == CoreIrOpcode::ExtractElement ||
+                instruction->get_opcode() == CoreIrOpcode::InsertElement ||
+                instruction->get_opcode() == CoreIrOpcode::ShuffleVector ||
+                instruction->get_opcode() == CoreIrOpcode::VectorReduceAdd) {
                 return true;
             }
         }
@@ -190,7 +256,14 @@ bool callee_is_inline_candidate(CoreIrFunction &callee,
     }
     if (!callee.get_is_always_inline() && callee_has_pointer_parameter(callee) &&
         callee_has_cfg_backedge(callee) &&
+        !callee_has_vector_work(callee) &&
         inline_cost > kPointerLoopInlineBudget) {
+        return false;
+    }
+    if (!callee.get_is_always_inline() && callee_has_pointer_parameter(callee) &&
+        callee_has_cfg_backedge(callee) &&
+        callee_has_floating_point_work(callee) &&
+        !callee_has_vector_work(callee)) {
         return false;
     }
     if (!callee.get_is_always_inline() && !callee_has_pointer_parameter(callee) &&

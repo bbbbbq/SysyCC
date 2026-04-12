@@ -111,6 +111,30 @@ std::string format_signed_integer_literal(std::uint64_t value,
     return std::to_string(sign_extend_to_i64(value, bit_width));
 }
 
+std::string format_intrinsic_type_suffix(const CoreIrType *type) {
+    if (type == nullptr) {
+        return "";
+    }
+    if (const auto *integer_type = dynamic_cast<const CoreIrIntegerType *>(type);
+        integer_type != nullptr) {
+        return "i" + std::to_string(integer_type->get_bit_width());
+    }
+    if (const auto *float_type = dynamic_cast<const CoreIrFloatType *>(type);
+        float_type != nullptr) {
+        switch (float_type->get_float_kind()) {
+        case CoreIrFloatKind::Float16:
+            return "f16";
+        case CoreIrFloatKind::Float32:
+            return "f32";
+        case CoreIrFloatKind::Float64:
+            return "f64";
+        case CoreIrFloatKind::Float128:
+            return "f128";
+        }
+    }
+    return "";
+}
+
 std::optional<std::string>
 try_format_folded_integer_cast_literal(const CoreIrCastInst &cast_instruction) {
     const auto *operand_constant =
@@ -208,6 +232,19 @@ std::string format_float_binary_opcode(CoreIrBinaryOpcode opcode) {
         return "";
     }
     return "";
+}
+
+bool uses_float_binary_opcode(const CoreIrType *type) {
+    if (type == nullptr) {
+        return false;
+    }
+    if (type->get_kind() == CoreIrTypeKind::Float) {
+        return true;
+    }
+    const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
+    return vector_type != nullptr &&
+           vector_type->get_element_type() != nullptr &&
+           vector_type->get_element_type()->get_kind() == CoreIrTypeKind::Float;
 }
 
 std::string format_compare_predicate(CoreIrComparePredicate predicate) {
@@ -713,13 +750,9 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         const auto &binary_instruction =
             static_cast<const CoreIrBinaryInst &>(instruction);
         text += "  %" + get_emitted_value_name(&binary_instruction) + " = ";
-        text +=
-            binary_instruction.get_type() != nullptr &&
-                    binary_instruction.get_type()->get_kind() ==
-                        CoreIrTypeKind::Float
-                ? format_float_binary_opcode(
-                      binary_instruction.get_binary_opcode())
-                : format_binary_opcode(binary_instruction.get_binary_opcode());
+        text += uses_float_binary_opcode(binary_instruction.get_type())
+                    ? format_float_binary_opcode(binary_instruction.get_binary_opcode())
+                    : format_binary_opcode(binary_instruction.get_binary_opcode());
         text += " ";
         text += format_type(binary_instruction.get_type());
         text += " ";
@@ -938,16 +971,43 @@ bool CoreIrLlvmTargetBackend::append_instruction(
                 instruction.get_source_span());
             return false;
         }
+        const std::string vector_suffix =
+            "v" + std::to_string(vector_type->get_element_count()) +
+            format_intrinsic_type_suffix(vector_type->get_element_type());
+        if (vector_suffix == "v") {
+            diagnostic_engine.add_error(
+                DiagnosticStage::Compiler,
+                "vector_reduce_add expected an intrinsic-lowerable element type",
+                instruction.get_source_span());
+            return false;
+        }
         text += "  %" + get_emitted_value_name(&reduce_instruction) + " = call ";
         text += format_type(reduce_instruction.get_type());
-        text += " @llvm.vector.reduce.add.v";
-        text += std::to_string(vector_type->get_element_count());
-        text += format_type(vector_type->get_element_type());
-        text += "(";
-        text += format_type(reduce_instruction.get_vector_value()->get_type());
-        text += " ";
-        text += format_value_ref(reduce_instruction.get_vector_value());
-        text += ")\n";
+        const auto *float_type =
+            dynamic_cast<const CoreIrFloatType *>(vector_type->get_element_type());
+        if (float_type != nullptr) {
+            text += " @llvm.vector.reduce.fadd.";
+            text += vector_suffix;
+            text += "(";
+            text += format_type(reduce_instruction.get_type());
+            text += " ";
+            text += reduce_instruction.get_start_value() == nullptr
+                        ? "zeroinitializer"
+                        : format_value_ref(reduce_instruction.get_start_value());
+            text += ", ";
+            text += format_type(reduce_instruction.get_vector_value()->get_type());
+            text += " ";
+            text += format_value_ref(reduce_instruction.get_vector_value());
+            text += ")\n";
+        } else {
+            text += " @llvm.vector.reduce.add.";
+            text += vector_suffix;
+            text += "(";
+            text += format_type(reduce_instruction.get_vector_value()->get_type());
+            text += " ";
+            text += format_value_ref(reduce_instruction.get_vector_value());
+            text += ")\n";
+        }
         return true;
     }
     case CoreIrOpcode::Cast: {

@@ -74,6 +74,85 @@ const CoreIrIntegerType *as_i32_type(const CoreIrType *type) {
                : nullptr;
 }
 
+const CoreIrType *as_vector_lane_type(const CoreIrType *type) {
+    if (as_i32_type(type) != nullptr) {
+        return type;
+    }
+    const auto *float_type = dynamic_cast<const CoreIrFloatType *>(type);
+    return float_type != nullptr &&
+                   float_type->get_float_kind() == CoreIrFloatKind::Float32
+               ? type
+               : nullptr;
+}
+
+bool is_zero_integer_constant(const CoreIrValue *value) {
+    const auto *constant = dynamic_cast<const CoreIrConstantInt *>(value);
+    return constant != nullptr && constant->get_value() == 0;
+}
+
+bool can_apply_final_gep_index(CoreIrValue *root_base,
+                               const std::vector<CoreIrValue *> &indices) {
+    if (root_base == nullptr || indices.empty()) {
+        return false;
+    }
+    const auto *pointer_type =
+        dynamic_cast<const CoreIrPointerType *>(root_base->get_type());
+    if (pointer_type == nullptr) {
+        return false;
+    }
+    const CoreIrType *current_type = pointer_type->get_pointee_type();
+    if (current_type == nullptr) {
+        return false;
+    }
+
+    std::size_t start_index = 0;
+    if (indices.size() > 1 && is_zero_integer_constant(indices[0])) {
+        start_index = 1;
+    }
+    for (std::size_t index = start_index; index + 1 < indices.size(); ++index) {
+        if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(current_type);
+            array_type != nullptr) {
+            current_type = array_type->get_element_type();
+            continue;
+        }
+        if (const auto *struct_type =
+                dynamic_cast<const CoreIrStructType *>(current_type);
+            struct_type != nullptr) {
+            const auto *field_index =
+                dynamic_cast<const CoreIrConstantInt *>(indices[index]);
+            if (field_index == nullptr ||
+                field_index->get_value() >= struct_type->get_element_types().size()) {
+                return false;
+            }
+            current_type =
+                struct_type->get_element_types()[field_index->get_value()];
+            continue;
+        }
+        return false;
+    }
+
+    return dynamic_cast<const CoreIrArrayType *>(current_type) != nullptr ||
+           dynamic_cast<const CoreIrStructType *>(current_type) != nullptr;
+}
+
+std::vector<CoreIrValue *>
+materialize_access_indices(CoreIrValue *root_base,
+                           const std::vector<CoreIrValue *> &prefix_indices,
+                           CoreIrValue *final_index) {
+    std::vector<CoreIrValue *> indices = prefix_indices;
+    if (final_index != nullptr) {
+        indices.push_back(final_index);
+    }
+    while (indices.size() >= 2 && !can_apply_final_gep_index(root_base, indices)) {
+        auto penultimate = indices.end() - 2;
+        if (!is_zero_integer_constant(*penultimate)) {
+            break;
+        }
+        indices.erase(penultimate);
+    }
+    return indices;
+}
+
 std::size_t get_vector_alignment_bytes(const CoreIrType *type) {
     const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
     if (vector_type == nullptr) {
@@ -84,6 +163,13 @@ std::size_t get_vector_alignment_bytes(const CoreIrType *type) {
     if (element_type != nullptr && element_type->get_bit_width() == 32 &&
         vector_type->get_element_count() == kVectorWidth) {
         return 16;
+    }
+    const auto *float_type =
+        dynamic_cast<const CoreIrFloatType *>(vector_type->get_element_type());
+    if (float_type != nullptr &&
+        float_type->get_float_kind() == CoreIrFloatKind::Float32 &&
+        vector_type->get_element_count() == kVectorWidth) {
+        return 4;
     }
     return 0;
 }
@@ -509,6 +595,43 @@ bool add_runtime_rotated_exit_incomings(
         if (body_value == pattern.reduction_update || body_value == pattern.reduction_phi) {
             incoming_value = final_reduction;
         } else if (body_value == pattern.iv_next || body_value == pattern.iv) {
+            incoming_value = final_iv;
+        } else if (body_value == nullptr && preheader_value != nullptr) {
+            incoming_value = preheader_value;
+        } else if (body_value == preheader_value) {
+            incoming_value = body_value;
+        } else {
+            return false;
+        }
+        phi->add_incoming(new_pred, incoming_value);
+    }
+    return true;
+}
+
+bool add_runtime_header_incomings(
+    RuntimeMulReductionInterleavePattern &pattern,
+    CoreIrBasicBlock *current_preheader,
+    CoreIrBasicBlock *new_pred,
+    CoreIrValue *final_iv,
+    CoreIrValue *final_reduction) {
+    if (pattern.header == nullptr || pattern.body == nullptr ||
+        current_preheader == nullptr || new_pred == nullptr) {
+        return false;
+    }
+    for (const auto &instruction_ptr : pattern.header->get_instructions()) {
+        auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction_ptr.get());
+        if (phi == nullptr) {
+            break;
+        }
+        CoreIrValue *body_value = get_phi_incoming_from_block(*phi, pattern.body);
+        CoreIrValue *preheader_value =
+            get_phi_incoming_from_block(*phi, current_preheader);
+        CoreIrValue *incoming_value = nullptr;
+        if (phi == pattern.reduction_phi || body_value == pattern.reduction_update ||
+            body_value == pattern.reduction_phi) {
+            incoming_value = final_reduction;
+        } else if (phi == pattern.iv || body_value == pattern.iv_next ||
+                   body_value == pattern.iv) {
             incoming_value = final_iv;
         } else if (body_value == nullptr && preheader_value != nullptr) {
             incoming_value = preheader_value;
@@ -1304,8 +1427,8 @@ CoreIrValue *materialize_vector_load(CoreIrBasicBlock &body, CoreIrInstruction *
                                      CoreIrValue *index_value,
                                      const CoreIrType *vector_type,
                                      const std::string &name) {
-    std::vector<CoreIrValue *> indices = access.prefix_indices;
-    indices.push_back(index_value);
+    std::vector<CoreIrValue *> indices =
+        materialize_access_indices(access.root_base, access.prefix_indices, index_value);
     auto *ptr_type = context.create_type<CoreIrPointerType>(
         static_cast<const CoreIrVectorType *>(vector_type)->get_element_type());
     auto gep = std::make_unique<CoreIrGetElementPtrInst>(ptr_type, name + ".addr",
@@ -1351,6 +1474,38 @@ CoreIrValue *materialize_broadcast_value(CoreIrBasicBlock &body,
         context.create_constant<CoreIrConstantZeroInitializer>(vector_type),
         std::move(mask_values));
     return insert_instruction_before(body, anchor, std::move(shuffle));
+}
+
+CoreIrValue *materialize_ordered_vector_sum(CoreIrBasicBlock &body,
+                                            CoreIrInstruction *anchor,
+                                            CoreIrContext &context,
+                                            CoreIrValue *running_sum,
+                                            CoreIrValue *vector_value,
+                                            const std::string &name) {
+    const auto *vector_type =
+        dynamic_cast<const CoreIrVectorType *>(vector_value == nullptr
+                                                   ? nullptr
+                                                   : vector_value->get_type());
+    if (running_sum == nullptr || vector_type == nullptr) {
+        return nullptr;
+    }
+    const CoreIrType *lane_type = vector_type->get_element_type();
+    auto *i64_type = context.create_type<CoreIrIntegerType>(64);
+    CoreIrValue *sum_value = running_sum;
+    for (std::size_t lane = 0; lane < vector_type->get_element_count(); ++lane) {
+        auto *lane_index = context.create_constant<CoreIrConstantInt>(i64_type, lane);
+        auto *extract = insert_instruction_before(
+            body, anchor,
+            std::make_unique<CoreIrExtractElementInst>(
+                lane_type, name + ".lane." + std::to_string(lane), vector_value,
+                lane_index));
+        sum_value = insert_instruction_before(
+            body, anchor,
+            std::make_unique<CoreIrBinaryInst>(
+                CoreIrBinaryOpcode::Add, lane_type,
+                name + ".sum." + std::to_string(lane), sum_value, extract));
+    }
+    return sum_value;
 }
 
 CoreIrInstruction *materialize_prefixed_gep(CoreIrBasicBlock &block,
@@ -1647,8 +1802,9 @@ bool vectorize_runtime_mm_store_loop(CoreIrFunction &function,
         auto *vec_add = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
             pattern.final_binary->get_binary_opcode(), vec_type,
             "vec.add." + std::to_string(lane_group), acc_vec, vec_mul);
-        std::vector<CoreIrValue *> indices = pattern.store_access.prefix_indices;
-        indices.push_back(lane_index);
+        std::vector<CoreIrValue *> indices = materialize_access_indices(
+            pattern.store_access.root_base, pattern.store_access.prefix_indices,
+            lane_index);
         auto *vec_store_addr =
             vector_body_ptr->create_instruction<CoreIrGetElementPtrInst>(
                 ptr_i32, "vec.store.addr." + std::to_string(lane_group),
@@ -1703,8 +1859,9 @@ bool vectorize_runtime_reduction_loop(CoreIrFunction &function,
         pattern.iv_next == nullptr || pattern.lane_load == nullptr) {
         return false;
     }
-    auto *i32_type = as_i32_type(pattern.reduction_phi->get_type());
-    if (i32_type == nullptr) {
+    auto *index_type = as_i32_type(pattern.iv->get_type());
+    const CoreIrType *lane_type = as_vector_lane_type(pattern.reduction_phi->get_type());
+    if (index_type == nullptr || lane_type == nullptr) {
         return false;
     }
 
@@ -1744,12 +1901,12 @@ bool vectorize_runtime_reduction_loop(CoreIrFunction &function,
 
     auto *void_type = context.create_type<CoreIrVoidType>();
     auto *i1_type = context.create_type<CoreIrIntegerType>(1);
-    auto *zero32 = context.create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *zero32 = context.create_constant<CoreIrConstantInt>(index_type, 0);
     auto *fifteen32 = context.create_constant<CoreIrConstantInt>(
-        i32_type, kVectorWidth * kVectorInterleaveFactor - 1);
+        index_type, kVectorWidth * kVectorInterleaveFactor - 1);
     auto *sixteen32 = context.create_constant<CoreIrConstantInt>(
-        i32_type, kVectorWidth * kVectorInterleaveFactor);
-    auto *four32 = context.create_constant<CoreIrConstantInt>(i32_type, kVectorWidth);
+        index_type, kVectorWidth * kVectorInterleaveFactor);
+    auto *four32 = context.create_constant<CoreIrConstantInt>(index_type, kVectorWidth);
 
     auto *header_branch = dynamic_cast<CoreIrCondJumpInst *>(
         pattern.header->get_instructions().empty()
@@ -1765,13 +1922,13 @@ bool vectorize_runtime_reduction_loop(CoreIrFunction &function,
     CoreIrValue *n_value = header_compare->get_lhs() == pattern.iv
                                ? header_compare->get_rhs()
                                : header_compare->get_lhs();
-    auto rem_inst = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::And, i32_type,
+    auto rem_inst = std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::And, index_type,
                                                        "vec.n.rem", n_value,
                                                        fifteen32);
     CoreIrInstruction *rem_value =
         insert_instruction_before(*guard_block_ptr, nullptr, std::move(rem_inst));
     auto vec_trip_inst = std::make_unique<CoreIrBinaryInst>(
-        CoreIrBinaryOpcode::Sub, i32_type, "vec.n.trip", n_value, rem_value);
+        CoreIrBinaryOpcode::Sub, index_type, "vec.n.trip", n_value, rem_value);
     CoreIrInstruction *vec_trip_value =
         insert_instruction_before(*guard_block_ptr, nullptr,
                                   std::move(vec_trip_inst));
@@ -1784,12 +1941,10 @@ bool vectorize_runtime_reduction_loop(CoreIrFunction &function,
         std::make_unique<CoreIrCondJumpInst>(void_type, can_run_value,
                                              vector_header_ptr, pattern.header));
 
-    auto *vec_type = context.create_type<CoreIrVectorType>(i32_type, kVectorWidth);
-    auto *zero = context.create_constant<CoreIrConstantInt>(i32_type, 0);
-    auto *zero_vec = context.create_constant<CoreIrConstantAggregate>(
-        vec_type, std::vector<const CoreIrConstant *>(kVectorWidth, zero));
+    auto *vec_type = context.create_type<CoreIrVectorType>(lane_type, kVectorWidth);
+    auto *zero_vec = context.create_constant<CoreIrConstantZeroInitializer>(vec_type);
 
-    auto *vec_iv = vector_header_ptr->create_instruction<CoreIrPhiInst>(i32_type, "vec.iv");
+    auto *vec_iv = vector_header_ptr->create_instruction<CoreIrPhiInst>(index_type, "vec.iv");
     std::array<CoreIrPhiInst *, kVectorInterleaveFactor> vec_accs{};
     for (std::size_t index = 0; index < kVectorInterleaveFactor; ++index) {
         vec_accs[index] = vector_header_ptr->create_instruction<CoreIrPhiInst>(
@@ -1815,8 +1970,8 @@ bool vectorize_runtime_reduction_loop(CoreIrFunction &function,
     }
     CoreIrInstruction *guard_terminator =
         guard_block_ptr->get_instructions().empty()
-            ? nullptr
-            : guard_block_ptr->get_instructions().back().get();
+                ? nullptr
+                : guard_block_ptr->get_instructions().back().get();
     auto *zero64 = context.create_constant<CoreIrConstantInt>(
         context.create_type<CoreIrIntegerType>(64), 0);
     auto init_insert = std::make_unique<CoreIrInsertElementInst>(
@@ -1836,9 +1991,9 @@ bool vectorize_runtime_reduction_loop(CoreIrFunction &function,
         CoreIrValue *lane_index = vec_iv;
         if (lane_group != 0) {
             auto *lane_offset = context.create_constant<CoreIrConstantInt>(
-                i32_type, lane_group * kVectorWidth);
+                index_type, lane_group * kVectorWidth);
             lane_index = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
-                CoreIrBinaryOpcode::Add, i32_type,
+                CoreIrBinaryOpcode::Add, index_type,
                 "vec.iv.offset." + std::to_string(lane_group), vec_iv,
                 lane_offset);
         }
@@ -1852,7 +2007,7 @@ bool vectorize_runtime_reduction_loop(CoreIrFunction &function,
             lane_vec);
     }
     auto *vec_next = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
-        CoreIrBinaryOpcode::Add, i32_type, "vec.iv.next", vec_iv, sixteen32);
+        CoreIrBinaryOpcode::Add, index_type, "vec.iv.next", vec_iv, sixteen32);
     vector_body_ptr->create_instruction<CoreIrJumpInst>(void_type, vector_header_ptr);
     vec_iv->add_incoming(vector_body_ptr, vec_next);
     for (std::size_t index = 0; index < kVectorInterleaveFactor; ++index) {
@@ -1868,7 +2023,7 @@ bool vectorize_runtime_reduction_loop(CoreIrFunction &function,
     auto *vec_total = vector_exit_ptr->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, vec_type, "vec.acc.total", vec_pair0, vec_pair1);
     auto *reduce_inst = vector_exit_ptr->create_instruction<CoreIrVectorReduceAddInst>(
-        i32_type, "vec.reduce", vec_total);
+        lane_type, "vec.reduce", vec_total);
     vector_exit_ptr->create_instruction<CoreIrJumpInst>(void_type, pattern.header);
 
     pattern.iv->add_incoming(vector_exit_ptr, vec_iv);
@@ -1889,10 +2044,13 @@ bool vectorize_runtime_mul_reduction_loop(
         pattern.rhs_load == nullptr) {
         return false;
     }
-    auto *i32_type = as_i32_type(pattern.iv->get_type());
-    if (i32_type == nullptr) {
+    auto *index_type = as_i32_type(pattern.iv->get_type());
+    const CoreIrType *lane_type = as_vector_lane_type(pattern.reduction_phi->get_type());
+    if (index_type == nullptr || lane_type == nullptr) {
         return false;
     }
+    const bool ordered_float_reduction =
+        dynamic_cast<const CoreIrFloatType *>(lane_type) != nullptr;
 
     auto guard_block = std::make_unique<CoreIrBasicBlock>(
         make_unique_block_name(function, "vector.guard"));
@@ -1938,11 +2096,12 @@ bool vectorize_runtime_mul_reduction_loop(
     auto *void_type = context.create_type<CoreIrVoidType>();
     auto *i1_type = context.create_type<CoreIrIntegerType>(1);
     auto *i64_type = context.create_type<CoreIrIntegerType>(64);
-    auto *zero32 = context.create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *zero32 = context.create_constant<CoreIrConstantInt>(index_type, 0);
     auto *fifteen32 = context.create_constant<CoreIrConstantInt>(
-        i32_type, kVectorWidth * kVectorInterleaveFactor - 1);
+        index_type, kVectorWidth * kVectorInterleaveFactor - 1);
     auto *sixteen32 = context.create_constant<CoreIrConstantInt>(
-        i32_type, kVectorWidth * kVectorInterleaveFactor);
+        index_type, kVectorWidth * kVectorInterleaveFactor);
+    auto *four32 = context.create_constant<CoreIrConstantInt>(index_type, kVectorWidth);
     auto *zero64 = context.create_constant<CoreIrConstantInt>(i64_type, 0);
 
     auto *loop_can_run = insert_instruction_before(
@@ -1952,22 +2111,22 @@ bool vectorize_runtime_mul_reduction_loop(
                                             start_value, pattern.bound_value));
     auto *active_trip = insert_instruction_before(
         *guard_block_ptr, nullptr,
-        std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Sub, i32_type,
+        std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Sub, index_type,
                                            "vec.active.trip",
                                            pattern.bound_value, start_value));
     auto *rem_value = insert_instruction_before(
         *guard_block_ptr, nullptr,
-        std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::And, i32_type,
+        std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::And, index_type,
                                            "vec.trip.rem", active_trip,
                                            fifteen32));
     auto *vec_trip_value = insert_instruction_before(
         *guard_block_ptr, nullptr,
-        std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Sub, i32_type,
+        std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Sub, index_type,
                                            "vec.trip.count", active_trip,
                                            rem_value));
     auto *vec_end_value = insert_instruction_before(
         *guard_block_ptr, nullptr,
-        std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Add, i32_type,
+        std::make_unique<CoreIrBinaryInst>(CoreIrBinaryOpcode::Add, index_type,
                                            "vec.trip.end", start_value,
                                            vec_trip_value));
     auto *has_vectors = insert_instruction_before(
@@ -1984,12 +2143,73 @@ bool vectorize_runtime_mul_reduction_loop(
         std::make_unique<CoreIrCondJumpInst>(void_type, can_run_value,
                                              vector_header_ptr, pattern.header));
 
-    auto *vec_type = context.create_type<CoreIrVectorType>(i32_type, kVectorWidth);
-    auto *zero = context.create_constant<CoreIrConstantInt>(i32_type, 0);
-    auto *zero_vec = context.create_constant<CoreIrConstantAggregate>(
-        vec_type, std::vector<const CoreIrConstant *>(kVectorWidth, zero));
+    auto *vec_type = context.create_type<CoreIrVectorType>(lane_type, kVectorWidth);
+    auto *zero_vec = context.create_constant<CoreIrConstantZeroInitializer>(vec_type);
 
-    auto *vec_iv = vector_header_ptr->create_instruction<CoreIrPhiInst>(i32_type, "vec.iv");
+    auto *vec_iv = vector_header_ptr->create_instruction<CoreIrPhiInst>(index_type, "vec.iv");
+    if (ordered_float_reduction) {
+        auto *vec_acc = vector_header_ptr->create_instruction<CoreIrPhiInst>(
+            lane_type, "vec.acc");
+        auto *vec_cmp = vector_header_ptr->create_instruction<CoreIrCompareInst>(
+            pattern.compare->get_predicate(), i1_type, "vec.cmp", vec_iv,
+            vec_end_value);
+        vector_header_ptr->create_instruction<CoreIrCondJumpInst>(
+            void_type, vec_cmp, vector_body_ptr, vector_exit_ptr);
+        vec_iv->add_incoming(guard_block_ptr, start_value);
+        vec_acc->add_incoming(guard_block_ptr, initial_scalar);
+
+        CoreIrValue *next_reduction = vec_acc;
+        for (std::size_t lane_group = 0; lane_group < kVectorInterleaveFactor;
+             ++lane_group) {
+            CoreIrValue *lane_index = vec_iv;
+            if (lane_group != 0) {
+                auto *lane_offset = context.create_constant<CoreIrConstantInt>(
+                    index_type, lane_group * kVectorWidth);
+                lane_index = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
+                    CoreIrBinaryOpcode::Add, index_type,
+                    "vec.iv.offset." + std::to_string(lane_group), vec_iv,
+                    lane_offset);
+            }
+            CoreIrValue *lhs_vec = materialize_vector_load(
+                *vector_body_ptr, nullptr, context, pattern.lhs_access, lane_index,
+                vec_type, "vec.lhs." + std::to_string(lane_group));
+            CoreIrValue *rhs_vec = materialize_vector_load(
+                *vector_body_ptr, nullptr, context, pattern.rhs_access, lane_index,
+                vec_type, "vec.rhs." + std::to_string(lane_group));
+            auto *vec_mul = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
+                CoreIrBinaryOpcode::Mul, vec_type,
+                "vec.mul." + std::to_string(lane_group), lhs_vec, rhs_vec);
+            next_reduction = materialize_ordered_vector_sum(
+                *vector_body_ptr, nullptr, context, next_reduction, vec_mul,
+                "vec.ordered." + std::to_string(lane_group));
+            if (next_reduction == nullptr) {
+                return false;
+            }
+        }
+        auto *vec_next = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, index_type, "vec.iv.next", vec_iv, sixteen32);
+        vector_body_ptr->create_instruction<CoreIrJumpInst>(void_type, vector_header_ptr);
+        vec_iv->add_incoming(vector_body_ptr, vec_next);
+        vec_acc->add_incoming(vector_body_ptr, next_reduction);
+
+        if (pattern.rotated_latch_exit) {
+            if (!add_runtime_rotated_exit_incomings(pattern, vector_exit_ptr, vec_iv,
+                                                    vec_acc)) {
+                return false;
+            }
+            auto *remainder_cmp = vector_exit_ptr->create_instruction<CoreIrCompareInst>(
+                pattern.compare->get_predicate(), i1_type, "vec.remainder.cmp", vec_iv,
+                pattern.bound_value);
+            vector_exit_ptr->create_instruction<CoreIrCondJumpInst>(
+                void_type, remainder_cmp, pattern.header, pattern.exit_block);
+        } else {
+            vector_exit_ptr->create_instruction<CoreIrJumpInst>(void_type, pattern.header);
+        }
+
+        pattern.iv->add_incoming(vector_exit_ptr, vec_iv);
+        pattern.reduction_phi->add_incoming(vector_exit_ptr, vec_acc);
+        return true;
+    }
     std::array<CoreIrPhiInst *, kVectorInterleaveFactor> vec_accs{};
     for (std::size_t index = 0; index < kVectorInterleaveFactor; ++index) {
         vec_accs[index] = vector_header_ptr->create_instruction<CoreIrPhiInst>(
@@ -2024,9 +2244,9 @@ bool vectorize_runtime_mul_reduction_loop(
         CoreIrValue *lane_index = vec_iv;
         if (lane_group != 0) {
             auto *lane_offset = context.create_constant<CoreIrConstantInt>(
-                i32_type, lane_group * kVectorWidth);
+                index_type, lane_group * kVectorWidth);
             lane_index = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
-                CoreIrBinaryOpcode::Add, i32_type,
+                CoreIrBinaryOpcode::Add, index_type,
                 "vec.iv.offset." + std::to_string(lane_group), vec_iv,
                 lane_offset);
         }
@@ -2046,7 +2266,7 @@ bool vectorize_runtime_mul_reduction_loop(
                 vec_accs[lane_group], vec_mul);
     }
     auto *vec_next = vector_body_ptr->create_instruction<CoreIrBinaryInst>(
-        CoreIrBinaryOpcode::Add, i32_type, "vec.iv.next", vec_iv, sixteen32);
+        CoreIrBinaryOpcode::Add, index_type, "vec.iv.next", vec_iv, sixteen32);
     vector_body_ptr->create_instruction<CoreIrJumpInst>(void_type, vector_header_ptr);
     vec_iv->add_incoming(vector_body_ptr, vec_next);
     for (std::size_t index = 0; index < kVectorInterleaveFactor; ++index) {
@@ -2062,7 +2282,7 @@ bool vectorize_runtime_mul_reduction_loop(
     auto *vec_total = vector_exit_ptr->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, vec_type, "vec.acc.total", vec_pair0, vec_pair1);
     auto *reduce_inst = vector_exit_ptr->create_instruction<CoreIrVectorReduceAddInst>(
-        i32_type, "vec.reduce", vec_total);
+        lane_type, "vec.reduce", vec_total);
     if (pattern.rotated_latch_exit) {
         if (!add_runtime_rotated_exit_incomings(pattern, vector_exit_ptr, vec_iv,
                                                 reduce_inst)) {
@@ -2077,8 +2297,10 @@ bool vectorize_runtime_mul_reduction_loop(
         vector_exit_ptr->create_instruction<CoreIrJumpInst>(void_type, pattern.header);
     }
 
-    pattern.iv->add_incoming(vector_exit_ptr, vec_iv);
-    pattern.reduction_phi->add_incoming(vector_exit_ptr, reduce_inst);
+    if (!add_runtime_header_incomings(pattern, guard_block_ptr, vector_exit_ptr,
+                                      vec_iv, reduce_inst)) {
+        return false;
+    }
     return true;
 }
 
@@ -2095,6 +2317,9 @@ bool interleave_runtime_mul_reduction_loop(
     }
     auto *i32_type = as_i32_type(pattern.iv->get_type());
     if (i32_type == nullptr) {
+        return false;
+    }
+    if (dynamic_cast<const CoreIrFloatType *>(pattern.reduction_phi->get_type()) != nullptr) {
         return false;
     }
 
@@ -2215,7 +2440,6 @@ bool interleave_runtime_mul_reduction_loop(
     CoreIrValue *first_red_value = first_map.at(pattern.reduction_update);
     auto *pair_iv_plus_one = pair_body_ptr->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type, "pair.iv.plus.one", pair_iv, one32);
-
     std::unordered_map<const CoreIrValue *, CoreIrValue *> second_map;
     second_map.emplace(pattern.iv, pair_iv_plus_one);
     second_map.emplace(pattern.reduction_phi, first_red_value);
@@ -2253,8 +2477,10 @@ bool interleave_runtime_mul_reduction_loop(
     } else {
         pair_loopexit_ptr->create_instruction<CoreIrJumpInst>(void_type, pattern.header);
     }
-    pattern.iv->add_incoming(pair_loopexit_ptr, pair_iv_next);
-    pattern.reduction_phi->add_incoming(pair_loopexit_ptr, second_red_value);
+    if (!add_runtime_header_incomings(pattern, guard_block_ptr, pair_loopexit_ptr,
+                                      pair_iv_next, second_red_value)) {
+        return false;
+    }
     return true;
 }
 
@@ -2280,6 +2506,9 @@ bool vectorize_runtime_mul_reduction_loop_in_function(
             }
             if (!populate_runtime_mul_reduction_vector_accesses(pattern)) {
                 continue;
+            }
+            if (dynamic_cast<const CoreIrFloatType *>(pattern.reduction_phi->get_type()) !=
+                nullptr) {
             }
             if (vectorize_runtime_mul_reduction_loop(function, pattern, context)) {
                 transformed_this_round = true;
@@ -2425,8 +2654,9 @@ bool vectorize_store_loop(CoreIrFunction &function, StoreLoopPattern &pattern,
             insert_instruction_before(*pattern.body, anchor, std::move(vec_binary));
     }
 
-    std::vector<CoreIrValue *> indices = pattern.store_access.prefix_indices;
-    indices.push_back(pattern.iv);
+    std::vector<CoreIrValue *> indices = materialize_access_indices(
+        pattern.store_access.root_base, pattern.store_access.prefix_indices,
+        pattern.iv);
     auto *ptr_type = context.create_type<CoreIrPointerType>(i32_type);
     auto vec_store_addr = std::make_unique<CoreIrGetElementPtrInst>(
         ptr_type, "vec.store.addr", pattern.store_access.root_base, std::move(indices));
@@ -2443,15 +2673,14 @@ bool vectorize_store_loop(CoreIrFunction &function, StoreLoopPattern &pattern,
 
 bool vectorize_reduction_loop(CoreIrFunction &function, ReductionLoopPattern &pattern,
                               CoreIrContext &context) {
-    auto *i32_type = as_i32_type(pattern.reduction_phi->get_type());
-    if (i32_type == nullptr) {
+    auto *index_type = as_i32_type(pattern.iv->get_type());
+    const CoreIrType *lane_type = as_vector_lane_type(pattern.reduction_phi->get_type());
+    if (index_type == nullptr || lane_type == nullptr) {
         return false;
     }
-    auto *vec_type = context.create_type<CoreIrVectorType>(i32_type, kVectorWidth);
-    auto *step = context.create_constant<CoreIrConstantInt>(i32_type, kVectorWidth);
-    auto *zero = context.create_constant<CoreIrConstantInt>(i32_type, 0);
-    auto *zero_vec = context.create_constant<CoreIrConstantAggregate>(
-        vec_type, std::vector<const CoreIrConstant *>(kVectorWidth, zero));
+    auto *vec_type = context.create_type<CoreIrVectorType>(lane_type, kVectorWidth);
+    auto *step = context.create_constant<CoreIrConstantInt>(index_type, kVectorWidth);
+    auto *zero_vec = context.create_constant<CoreIrConstantZeroInitializer>(vec_type);
 
     CoreIrBasicBlock *header = function.get_basic_blocks().front().get();
     (void)header;
@@ -2515,7 +2744,7 @@ bool vectorize_reduction_loop(CoreIrFunction &function, ReductionLoopPattern &pa
     if (ret == nullptr) {
         return false;
     }
-    auto reduce = std::make_unique<CoreIrVectorReduceAddInst>(i32_type, "vec.reduce",
+    auto reduce = std::make_unique<CoreIrVectorReduceAddInst>(lane_type, "vec.reduce",
                                                               vec_acc_phi);
     CoreIrInstruction *reduce_inst =
         insert_instruction_before(*pattern.exit_block, ret, std::move(reduce));

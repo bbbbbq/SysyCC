@@ -1,0 +1,22 @@
+const int N = 1024;
+
+float A[N][N];
+float X[N];
+
+float reduce_runtime_mul_float(int n) {
+    int j = 1;
+    float acc = A[3][3];
+    while (j < n) {
+        acc = acc + A[3][j] * X[j];
+        j = j + 1;
+    }
+    return acc;
+}
+
+int main() {
+    int n = getint();
+    if (reduce_runtime_mul_float(n) > 0.0) {
+        return 1;
+    }
+    return 0;
+}
