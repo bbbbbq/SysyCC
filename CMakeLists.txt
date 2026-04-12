@@ -1,11 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(SysyCC VERSION 0.1.0 LANGUAGES CXX)
+project(SysyCC VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile commands" FORCE)
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
@@ -13,6 +16,12 @@ endif()
 
 find_package(BISON REQUIRED)
 find_package(FLEX REQUIRED)
+
+if(EXISTS "/opt/homebrew/opt/llvm/lib/cmake/llvm/LLVMConfig.cmake")
+    list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/llvm/lib/cmake/llvm")
+endif()
+
+find_package(LLVM CONFIG REQUIRED)
 
 set(LEXER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend/lexer)
 set(PARSER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/frontend/parser)
@@ -39,11 +48,14 @@ flex_target(
 
 add_flex_bison_dependency(SysyLexer SysyParser)
 
-add_executable(${PROJECT_NAME}
-    ${BISON_SysyParser_OUTPUTS}
-    ${FLEX_SysyLexer_OUTPUTS}
-    src/backend/asm_gen/aarch64/aarch64_asm_backend.cpp
-    src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp
+set(SYSYCC_AARCH64_CODEGEN_SOURCES
+    src/backend/asm_gen/aarch64/api/aarch64_codegen_api.cpp
+    src/backend/asm_gen/aarch64/api/aarch64_llvm_bitcode_loader.cpp
+    src/backend/asm_gen/aarch64/api/aarch64_llvm_import_instruction_parse_support.cpp
+    src/backend/asm_gen/aarch64/api/aarch64_llvm_import_constant_support.cpp
+    src/backend/asm_gen/aarch64/api/aarch64_llvm_import_parse_common_support.cpp
+    src/backend/asm_gen/aarch64/api/aarch64_llvm_import_type_support.cpp
+    src/backend/asm_gen/aarch64/api/aarch64_restricted_llvm_ir_parser.cpp
     src/backend/asm_gen/aarch64/model/aarch64_codegen_model.cpp
     src/backend/asm_gen/aarch64/passes/aarch64_emission_pass.cpp
     src/backend/asm_gen/aarch64/passes/aarch64_frame_finalize_pass.cpp
@@ -53,12 +65,14 @@ add_executable(${PROJECT_NAME}
     src/backend/asm_gen/aarch64/passes/aarch64_spill_rewrite_pass.cpp
     src/backend/asm_gen/aarch64/support/aarch64_frame_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_aggregate_abi_move_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_backend_context.cpp
     src/backend/asm_gen/aarch64/support/aarch64_address_materialization_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_address_value_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_call_abi_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_call_return_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_binary_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_cast_lowering_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_codegen_backend_bridge.cpp
     src/backend/asm_gen/aarch64/support/aarch64_compare_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_debug_object_writer_support.cpp
@@ -71,6 +85,7 @@ add_executable(${PROJECT_NAME}
     src/backend/asm_gen/aarch64/support/aarch64_function_planning_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_function_boundary_abi_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_global_data_lowering_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_import_model_core_ir_bridge.cpp
     src/backend/asm_gen/aarch64/support/aarch64_instruction_encoding_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_object_image_builder_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_memory_access_support.cpp
@@ -83,6 +98,67 @@ add_executable(${PROJECT_NAME}
     src/backend/asm_gen/aarch64/support/aarch64_unary_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_value_conversion_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_value_materialization_support.cpp
+    src/common/diagnostic/diagnostic.cpp
+    src/common/diagnostic/diagnostic_engine.cpp
+    src/common/source_span.cpp
+)
+
+add_library(sysycc_aarch64_codegen SHARED
+    ${SYSYCC_AARCH64_CODEGEN_SOURCES}
+)
+
+target_include_directories(sysycc_aarch64_codegen
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
+)
+
+llvm_map_components_to_libnames(SYSYCC_AARCH64_LLVM_LIBS
+    BitReader
+    BitWriter
+    Core
+    IRReader
+    Support
+)
+target_include_directories(sysycc_aarch64_codegen
+    PRIVATE
+        ${LLVM_INCLUDE_DIRS}
+)
+target_compile_definitions(sysycc_aarch64_codegen
+    PRIVATE
+        ${LLVM_DEFINITIONS}
+        SYSYCC_AARCH64_HAVE_LLVM_BITCODE_READER=1
+)
+target_link_libraries(sysycc_aarch64_codegen
+    PRIVATE
+        ${SYSYCC_AARCH64_LLVM_LIBS}
+)
+
+set_target_properties(sysycc_aarch64_codegen
+    PROPERTIES
+        OUTPUT_NAME sysycc_aarch64_codegen
+)
+
+add_executable(sysycc-aarch64c
+    src/tools/sysycc_aarch64c_main.cpp
+)
+
+target_include_directories(sysycc-aarch64c
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(sysycc-aarch64c
+    PRIVATE
+        sysycc_aarch64_codegen
+)
+
+add_executable(${PROJECT_NAME}
+    ${BISON_SysyParser_OUTPUTS}
+    ${FLEX_SysyLexer_OUTPUTS}
+    src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp
     src/backend/ir/analysis/analysis_manager.cpp
     src/backend/ir/analysis/alias_analysis.cpp
     src/backend/ir/analysis/call_graph_analysis.cpp
@@ -102,7 +178,6 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/effect/core_ir_memory_query.cpp
     src/backend/ir/shared/core/core_ir_builder.cpp
     src/backend/ir/lower/lowering/core_ir_target_backend_factory.cpp
-    src/backend/ir/lower/lowering/aarch64/core_ir_aarch64_target_backend.cpp
     src/backend/ir/lower/lowering/llvm/core_ir_llvm_target_backend.cpp
     src/backend/ir/lower/legacy/ir_backend_factory.cpp
     src/backend/ir/build/build_core_ir_pass.cpp
@@ -236,6 +311,11 @@ target_include_directories(${PROJECT_NAME}
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+target_link_libraries(${PROJECT_NAME}
+    PRIVATE
+        sysycc_aarch64_codegen
+)
+
 set_target_properties(${PROJECT_NAME}
     PROPERTIES
         OUTPUT_NAME compiler
@@ -246,4 +326,44 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "$<TARGET_FILE:${PROJECT_NAME}>"
         "${CMAKE_CURRENT_BINARY_DIR}/SysyCC"
     VERBATIM
+)
+
+install(TARGETS sysycc_aarch64_codegen sysycc-aarch64c
+    EXPORT SysyCCAArch64CodegenTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(
+    FILES
+        src/backend/asm_gen/aarch64/api/aarch64_codegen_api.hpp
+    DESTINATION
+        ${CMAKE_INSTALL_INCLUDEDIR}/backend/asm_gen/aarch64/api
+)
+
+install(EXPORT SysyCCAArch64CodegenTargets
+    FILE SysyCCAArch64CodegenTargets.cmake
+    NAMESPACE SysyCC::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SysyCCAArch64Codegen
+)
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SysyCCAArch64CodegenConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/SysyCCAArch64CodegenConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SysyCCAArch64Codegen
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/SysyCCAArch64CodegenConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(
+    FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/SysyCCAArch64CodegenConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/SysyCCAArch64CodegenConfigVersion.cmake
+    DESTINATION
+        ${CMAKE_INSTALL_LIBDIR}/cmake/SysyCCAArch64Codegen
 )
