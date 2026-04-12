@@ -1,0 +1,22 @@
+const int N = 1024;
+
+int A[N][N];
+int X[N];
+
+int reduce_runtime_conditional_mul(int n) {
+    int j = 1;
+    int acc = 0;
+    while (j < n) {
+        int prod = A[3][j] * X[j];
+        if (prod % 2 == 0) {
+            acc = acc + prod;
+        }
+        j = j + 1;
+    }
+    return acc;
+}
+
+int main() {
+    int n = getint();
+    return reduce_runtime_conditional_mul(n);
+}

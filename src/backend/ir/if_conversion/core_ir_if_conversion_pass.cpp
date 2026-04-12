@@ -77,6 +77,35 @@ bool instruction_is_ifconvertible_value(const CoreIrInstruction &instruction) {
     return false;
 }
 
+bool address_is_speculatable_load_base(CoreIrValue *address) {
+    if (address == nullptr) {
+        return false;
+    }
+    if (dynamic_cast<CoreIrAddressOfStackSlotInst *>(address) != nullptr ||
+        dynamic_cast<CoreIrAddressOfGlobalInst *>(address) != nullptr) {
+        return true;
+    }
+    auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(address);
+    if (gep == nullptr) {
+        return false;
+    }
+    return address_is_speculatable_load_base(gep->get_base());
+}
+
+bool load_is_ifconvertible_value(const CoreIrLoadInst &load) {
+    return load.get_stack_slot() != nullptr ||
+           address_is_speculatable_load_base(load.get_address());
+}
+
+bool instruction_is_ifconvertible_store_triangle_prefix(
+    const CoreIrInstruction &instruction) {
+    if (instruction_is_ifconvertible_value(instruction)) {
+        return true;
+    }
+    auto *load = dynamic_cast<const CoreIrLoadInst *>(&instruction);
+    return load != nullptr && load_is_ifconvertible_value(*load);
+}
+
 CoreIrBasicBlock *get_unique_jump_target(CoreIrBasicBlock *block) {
     if (block == nullptr || block->get_instructions().empty()) {
         return nullptr;
@@ -151,6 +180,46 @@ bool collect_store_diamond_arm(CoreIrBasicBlock &block,
     for (CoreIrInstruction *instruction : instructions) {
         if (instruction == nullptr ||
             !instruction_is_ifconvertible_value(*instruction) ||
+            !loop_contains_block(loop, instruction->get_parent()) ||
+            !instruction_uses_stay_within_arm_or_merge(*instruction, block,
+                                                       *merge_block)) {
+            return false;
+        }
+    }
+
+    arm_info.prefix_instructions = std::move(instructions);
+    arm_info.store = store;
+    return true;
+}
+
+bool collect_store_triangle_side_arm(CoreIrBasicBlock &block,
+                                     CoreIrBasicBlock *merge_block,
+                                     const CoreIrCfgAnalysisResult &cfg,
+                                     const CoreIrLoopInfo &loop,
+                                     StoreDiamondArmInfo &arm_info) {
+    if (merge_block == nullptr || block_has_phi(block) ||
+        cfg.get_predecessor_count(&block) != 1 ||
+        get_unique_jump_target(&block) != merge_block) {
+        return false;
+    }
+
+    std::vector<CoreIrInstruction *> instructions =
+        collect_arm_instructions(block);
+    if (instructions.empty() ||
+        instructions.size() > kMaxConvertedArmInstructions) {
+        return false;
+    }
+
+    auto *store = dynamic_cast<CoreIrStoreInst *>(instructions.back());
+    if (store == nullptr || store->get_value() == nullptr ||
+        store->get_stack_slot() == nullptr) {
+        return false;
+    }
+
+    instructions.pop_back();
+    for (CoreIrInstruction *instruction : instructions) {
+        if (instruction == nullptr ||
+            !instruction_is_ifconvertible_store_triangle_prefix(*instruction) ||
             !loop_contains_block(loop, instruction->get_parent()) ||
             !instruction_uses_stay_within_arm_or_merge(*instruction, block,
                                                        *merge_block)) {
@@ -1172,6 +1241,106 @@ bool if_convert_same_store_diamond(const CoreIrCfgAnalysisResult &cfg,
     return true;
 }
 
+bool if_convert_same_store_triangle(const CoreIrCfgAnalysisResult &cfg,
+                                    const CoreIrLoopInfo &loop,
+                                    CoreIrBasicBlock &branch_block,
+                                    std::size_t &name_counter) {
+    auto *branch = dynamic_cast<CoreIrCondJumpInst *>(
+        branch_block.get_instructions().empty()
+            ? nullptr
+            : branch_block.get_instructions().back().get());
+    if (branch == nullptr) {
+        return false;
+    }
+
+    CoreIrBasicBlock *true_block = branch->get_true_block();
+    CoreIrBasicBlock *false_block = branch->get_false_block();
+    if (true_block == nullptr || false_block == nullptr ||
+        true_block == false_block || !loop_contains_block(loop, true_block) ||
+        !loop_contains_block(loop, false_block)) {
+        return false;
+    }
+
+    CoreIrBasicBlock *merge_block = nullptr;
+    CoreIrBasicBlock *side_block = nullptr;
+    bool condition_true_is_direct = false;
+    if (get_unique_jump_target(false_block) == true_block &&
+        cfg.get_predecessor_count(true_block) == 2 &&
+        cfg.get_predecessor_count(false_block) == 1) {
+        merge_block = true_block;
+        side_block = false_block;
+        condition_true_is_direct = true;
+    } else if (get_unique_jump_target(true_block) == false_block &&
+               cfg.get_predecessor_count(false_block) == 2 &&
+               cfg.get_predecessor_count(true_block) == 1) {
+        merge_block = false_block;
+        side_block = true_block;
+    } else {
+        return false;
+    }
+
+    if (merge_block == nullptr || side_block == nullptr ||
+        block_has_phi(*merge_block) || !loop_contains_block(loop, merge_block) ||
+        !loop_contains_block(loop, side_block)) {
+        return false;
+    }
+
+    StoreDiamondArmInfo side_arm;
+    if (!collect_store_triangle_side_arm(*side_block, merge_block, cfg, loop,
+                                         side_arm) ||
+        side_arm.store == nullptr || side_arm.store->get_stack_slot() == nullptr) {
+        return false;
+    }
+
+    std::unordered_map<const CoreIrValue *, CoreIrValue *> side_map;
+    if (!clone_arm_prefix_into_branch(branch_block, branch,
+                                      side_arm.prefix_instructions,
+                                      ".ifc.tri.store.side", side_map,
+                                      name_counter)) {
+        return false;
+    }
+
+    auto direct_load = std::make_unique<CoreIrLoadInst>(
+        side_arm.store->get_value()->get_type(),
+        "ifc.tri.store.direct." + std::to_string(name_counter++),
+        side_arm.store->get_stack_slot(), side_arm.store->get_alignment());
+    direct_load->set_source_span(side_arm.store->get_source_span());
+    CoreIrValue *direct_value =
+        insert_instruction_before(branch_block, branch, std::move(direct_load));
+    CoreIrValue *side_value =
+        remap_arm_value(side_arm.store->get_value(), side_map);
+    if (direct_value == nullptr || side_value == nullptr) {
+        return false;
+    }
+
+    CoreIrValue *true_value =
+        condition_true_is_direct ? direct_value : side_value;
+    CoreIrValue *false_value =
+        condition_true_is_direct ? side_value : direct_value;
+    CoreIrValue *selected_value = true_value;
+    if (true_value != false_value) {
+        auto select = std::make_unique<CoreIrSelectInst>(
+            side_arm.store->get_value()->get_type(),
+            "ifc.tri.store.sel." + std::to_string(name_counter++),
+            branch->get_condition(), true_value, false_value);
+        select->set_source_span(branch->get_source_span());
+        selected_value =
+            insert_instruction_before(branch_block, branch, std::move(select));
+    }
+
+    auto merged_store = std::make_unique<CoreIrStoreInst>(
+        branch->get_type(), selected_value, side_arm.store->get_stack_slot(),
+        side_arm.store->get_alignment());
+    merged_store->set_source_span(side_arm.store->get_source_span());
+    insert_instruction_before(branch_block, branch, std::move(merged_store));
+
+    auto replacement =
+        std::make_unique<CoreIrJumpInst>(branch->get_type(), merge_block);
+    replacement->set_source_span(branch->get_source_span());
+    replace_instruction(branch_block, branch, std::move(replacement));
+    return true;
+}
+
 bool if_convert_short_circuit_bool(const CoreIrCfgAnalysisResult &cfg,
                                    const CoreIrLoopInfo &loop,
                                    CoreIrBasicBlock &branch_block,
@@ -1534,6 +1703,8 @@ bool run_if_conversion_on_function(CoreIrFunction &function) {
                 if (block != nullptr &&
                     (if_convert_short_circuit_bool(cfg, *loop, *block,
                                                    name_counter) ||
+                     if_convert_same_store_triangle(cfg, *loop, *block,
+                                                    name_counter) ||
                      if_convert_triangle(cfg, *loop, *block, name_counter) ||
                      if_convert_diamond(cfg, *loop, *block, name_counter) ||
                      if_convert_same_store_diamond(cfg, *loop, *block,

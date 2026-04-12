@@ -87,10 +87,9 @@ void append_llvm_post_ssa_fixed_point_pipeline(PassManager &pass_manager) {
     post_ssa_fixed_point_passes.push_back(
         std::make_unique<CoreIrIfConversionPass>());
     post_ssa_fixed_point_passes.push_back(
-        std::make_unique<CoreIrSimplifyCfgPass>());
+        std::make_unique<CoreIrMem2RegPass>());
     post_ssa_fixed_point_passes.push_back(
-        std::make_unique<CoreIrLoopSimplifyPass>());
-    post_ssa_fixed_point_passes.push_back(std::make_unique<CoreIrLcssaPass>());
+        std::make_unique<CoreIrSimplifyCfgPass>());
     post_ssa_fixed_point_passes.push_back(
         std::make_unique<CoreIrSimpleLoopUnswitchPass>());
     post_ssa_fixed_point_passes.push_back(
