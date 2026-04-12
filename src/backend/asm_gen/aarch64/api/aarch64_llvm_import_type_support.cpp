@@ -18,9 +18,24 @@ parse_llvm_import_type_impl(const std::string &text) {
         type.kind = AArch64LlvmImportTypeKind::Void;
         return type;
     }
-    if (normalized == "ptr") {
+    if (llvm_import_starts_with(normalized, "ptr")) {
+        const std::string remainder =
+            llvm_import_trim_copy(normalized.substr(3));
         type.kind = AArch64LlvmImportTypeKind::Pointer;
-        return type;
+        if (remainder.empty()) {
+            return type;
+        }
+        if (!llvm_import_starts_with(remainder, "addrspace(") ||
+            remainder.back() != ')') {
+            return std::nullopt;
+        }
+        try {
+            type.pointer_address_space = static_cast<std::size_t>(
+                std::stoull(remainder.substr(10, remainder.size() - 11)));
+            return type;
+        } catch (...) {
+            return std::nullopt;
+        }
     }
     if (normalized == "half") {
         type.kind = AArch64LlvmImportTypeKind::Float16;

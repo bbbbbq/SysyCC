@@ -27,6 +27,7 @@ enum class AArch64LlvmImportTypeKind : unsigned char {
 struct AArch64LlvmImportType {
     AArch64LlvmImportTypeKind kind = AArch64LlvmImportTypeKind::Unknown;
     std::size_t integer_bit_width = 0;
+    std::size_t pointer_address_space = 0;
     std::size_t array_element_count = 0;
     bool array_uses_vector_syntax = false;
     std::string named_type_name;
@@ -44,7 +45,17 @@ enum class AArch64LlvmImportConstantKind : unsigned char {
     NullPointer,
     ZeroInitializer,
     SymbolReference,
+    SignExtend,
+    ZeroExtend,
+    Truncate,
+    SignedIntToFloat,
+    UnsignedIntToFloat,
+    FloatToSignedInt,
+    FloatToUnsignedInt,
+    FloatExtend,
+    FloatTruncate,
     Bitcast,
+    AddrSpaceCast,
     IntToPtr,
     PtrToInt,
     GetElementPtr,

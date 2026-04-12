@@ -173,6 +173,142 @@ std::optional<std::string> canonicalize_float_literal_text(
     return format_float_literal(parsed);
 }
 
+bool is_integer_import_type(const AArch64LlvmImportType &type) {
+    return type.kind == AArch64LlvmImportTypeKind::Integer;
+}
+
+bool is_float_import_type(const AArch64LlvmImportType &type) {
+    return type.kind == AArch64LlvmImportTypeKind::Float16 ||
+           type.kind == AArch64LlvmImportTypeKind::Float32 ||
+           type.kind == AArch64LlvmImportTypeKind::Float64 ||
+           type.kind == AArch64LlvmImportTypeKind::Float128;
+}
+
+std::optional<std::size_t>
+import_type_storage_bit_width(const AArch64LlvmImportType &type) {
+    switch (type.kind) {
+    case AArch64LlvmImportTypeKind::Integer:
+        return type.integer_bit_width;
+    case AArch64LlvmImportTypeKind::Float16:
+        return 16;
+    case AArch64LlvmImportTypeKind::Float32:
+        return 32;
+    case AArch64LlvmImportTypeKind::Float64:
+        return 64;
+    case AArch64LlvmImportTypeKind::Float128:
+        return 128;
+    case AArch64LlvmImportTypeKind::Pointer:
+        return 64;
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<CoreIrFloatKind>
+import_type_to_core_float_kind(const AArch64LlvmImportType &type) {
+    switch (type.kind) {
+    case AArch64LlvmImportTypeKind::Float16:
+        return CoreIrFloatKind::Float16;
+    case AArch64LlvmImportTypeKind::Float32:
+        return CoreIrFloatKind::Float32;
+    case AArch64LlvmImportTypeKind::Float64:
+        return CoreIrFloatKind::Float64;
+    case AArch64LlvmImportTypeKind::Float128:
+        return CoreIrFloatKind::Float128;
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<std::size_t> integer_type_bit_width(const CoreIrType *type) {
+    const auto *integer_type = dynamic_cast<const CoreIrIntegerType *>(type);
+    if (integer_type == nullptr) {
+        return std::nullopt;
+    }
+    return integer_type->get_bit_width();
+}
+
+std::uint64_t truncate_integer_to_width(std::uint64_t value, std::size_t bit_width) {
+    if (bit_width == 0) {
+        return 0;
+    }
+    if (bit_width >= 64) {
+        return value;
+    }
+    return value & ((1ULL << bit_width) - 1ULL);
+}
+
+std::uint64_t sign_extend_integer_to_u64(std::uint64_t value,
+                                         std::size_t source_bit_width) {
+    value = truncate_integer_to_width(value, source_bit_width);
+    if (source_bit_width == 0 || source_bit_width >= 64) {
+        return value;
+    }
+    const std::uint64_t sign_bit = 1ULL << (source_bit_width - 1U);
+    const std::uint64_t mask = (1ULL << source_bit_width) - 1ULL;
+    return (value & sign_bit) != 0 ? (value | ~mask) : value;
+}
+
+std::optional<long double> parse_core_float_literal(const CoreIrConstantFloat &constant) {
+    char *end = nullptr;
+    const long double parsed =
+        std::strtold(constant.get_literal_text().c_str(), &end);
+    if (end == nullptr || *end != '\0') {
+        return std::nullopt;
+    }
+    return parsed;
+}
+
+std::optional<std::string> format_float_literal_for_kind(CoreIrFloatKind kind,
+                                                         long double value) {
+    switch (kind) {
+    case CoreIrFloatKind::Float16:
+        return format_float_literal(value);
+    case CoreIrFloatKind::Float32:
+        return format_float_literal(static_cast<long double>(static_cast<float>(value)));
+    case CoreIrFloatKind::Float64:
+        return format_float_literal(static_cast<long double>(static_cast<double>(value)));
+    case CoreIrFloatKind::Float128:
+        return format_float_literal(value);
+    default:
+        return std::nullopt;
+    }
+}
+
+std::string format_hex_bits(std::uint64_t bits) {
+    std::ostringstream stream;
+    stream << "0x" << std::hex << std::nouppercase << bits;
+    return stream.str();
+}
+
+std::optional<std::uint64_t> encode_float_literal_bits(const CoreIrConstantFloat &constant,
+                                                       CoreIrFloatKind kind) {
+    const auto parsed = parse_core_float_literal(constant);
+    if (!parsed.has_value()) {
+        return std::nullopt;
+    }
+    switch (kind) {
+    case CoreIrFloatKind::Float32: {
+        const float narrowed = static_cast<float>(*parsed);
+        std::uint32_t bits = 0;
+        std::memcpy(&bits, &narrowed, sizeof(bits));
+        return bits;
+    }
+    case CoreIrFloatKind::Float64:
+    {
+        const double narrowed = static_cast<double>(*parsed);
+        std::uint64_t bits = 0;
+        std::memcpy(&bits, &narrowed, sizeof(bits));
+        return bits;
+    }
+    case CoreIrFloatKind::Float128:
+        return std::nullopt;
+    case CoreIrFloatKind::Float16:
+    default:
+        return std::nullopt;
+    }
+}
+
 class RestrictedLlvmIrImporter {
   private:
     struct ParameterSpec {
@@ -516,6 +652,144 @@ class RestrictedLlvmIrImporter {
         return nullptr;
     }
 
+    const CoreIrConstant *fold_scalar_constant_cast(
+        const CoreIrType *type, const AArch64LlvmImportConstant &constant,
+        const CoreIrConstant *operand) {
+        if (type == nullptr || operand == nullptr) {
+            return nullptr;
+        }
+
+        switch (constant.kind) {
+        case AArch64LlvmImportConstantKind::SignExtend:
+        case AArch64LlvmImportConstantKind::ZeroExtend:
+        case AArch64LlvmImportConstantKind::Truncate: {
+            const auto *int_operand = dynamic_cast<const CoreIrConstantInt *>(operand);
+            const auto target_width = integer_type_bit_width(type);
+            if (int_operand == nullptr || !target_width.has_value()) {
+                return nullptr;
+            }
+            const std::uint64_t source_value = truncate_integer_to_width(
+                int_operand->get_value(), constant.cast_source_type.integer_bit_width);
+            std::uint64_t folded = source_value;
+            if (constant.kind == AArch64LlvmImportConstantKind::SignExtend) {
+                folded = sign_extend_integer_to_u64(
+                    source_value, constant.cast_source_type.integer_bit_width);
+            } else if (constant.kind ==
+                       AArch64LlvmImportConstantKind::Truncate) {
+                folded = truncate_integer_to_width(source_value, *target_width);
+            }
+            folded = truncate_integer_to_width(folded, *target_width);
+            return context_->create_constant<CoreIrConstantInt>(type, folded);
+        }
+        case AArch64LlvmImportConstantKind::SignedIntToFloat:
+        case AArch64LlvmImportConstantKind::UnsignedIntToFloat: {
+            const auto *int_operand = dynamic_cast<const CoreIrConstantInt *>(operand);
+            const auto *float_type = dynamic_cast<const CoreIrFloatType *>(type);
+            if (int_operand == nullptr || float_type == nullptr) {
+                return nullptr;
+            }
+            const std::uint64_t source_value = truncate_integer_to_width(
+                int_operand->get_value(), constant.cast_source_type.integer_bit_width);
+            const long double numeric_value =
+                constant.kind == AArch64LlvmImportConstantKind::SignedIntToFloat
+                    ? static_cast<long double>(static_cast<std::int64_t>(
+                          sign_extend_integer_to_u64(
+                              source_value,
+                              constant.cast_source_type.integer_bit_width)))
+                    : static_cast<long double>(source_value);
+            const auto literal = format_float_literal_for_kind(
+                float_type->get_float_kind(), numeric_value);
+            return literal.has_value()
+                       ? context_->create_constant<CoreIrConstantFloat>(type, *literal)
+                       : nullptr;
+        }
+        case AArch64LlvmImportConstantKind::FloatToSignedInt:
+        case AArch64LlvmImportConstantKind::FloatToUnsignedInt: {
+            const auto *float_operand = dynamic_cast<const CoreIrConstantFloat *>(operand);
+            const auto target_width = integer_type_bit_width(type);
+            const auto parsed = float_operand == nullptr
+                                    ? std::optional<long double>{}
+                                    : parse_core_float_literal(*float_operand);
+            if (!target_width.has_value() || !parsed.has_value()) {
+                return nullptr;
+            }
+            std::uint64_t folded = 0;
+            if (constant.kind == AArch64LlvmImportConstantKind::FloatToSignedInt) {
+                folded = static_cast<std::uint64_t>(
+                    static_cast<std::int64_t>(*parsed));
+            } else {
+                if (*parsed < 0.0L) {
+                    return nullptr;
+                }
+                folded = static_cast<std::uint64_t>(*parsed);
+            }
+            folded = truncate_integer_to_width(folded, *target_width);
+            return context_->create_constant<CoreIrConstantInt>(type, folded);
+        }
+        case AArch64LlvmImportConstantKind::FloatExtend:
+        case AArch64LlvmImportConstantKind::FloatTruncate: {
+            const auto *float_operand = dynamic_cast<const CoreIrConstantFloat *>(operand);
+            const auto *float_type = dynamic_cast<const CoreIrFloatType *>(type);
+            const auto parsed = float_operand == nullptr
+                                    ? std::optional<long double>{}
+                                    : parse_core_float_literal(*float_operand);
+            if (float_type == nullptr || !parsed.has_value()) {
+                return nullptr;
+            }
+            const auto literal = format_float_literal_for_kind(
+                float_type->get_float_kind(), *parsed);
+            return literal.has_value()
+                       ? context_->create_constant<CoreIrConstantFloat>(type, *literal)
+                       : nullptr;
+        }
+        case AArch64LlvmImportConstantKind::Bitcast: {
+            if (type->get_kind() == CoreIrTypeKind::Pointer) {
+                return operand;
+            }
+            if (const auto *int_operand =
+                    dynamic_cast<const CoreIrConstantInt *>(operand);
+                int_operand != nullptr) {
+                const auto *float_type = dynamic_cast<const CoreIrFloatType *>(type);
+                const auto source_bits =
+                    import_type_storage_bit_width(constant.cast_source_type);
+                if (float_type == nullptr || !source_bits.has_value() ||
+                    *source_bits > 64) {
+                    return nullptr;
+                }
+                const std::string bit_pattern = format_hex_bits(
+                    truncate_integer_to_width(int_operand->get_value(), *source_bits));
+                const auto literal = canonicalize_float_literal_text(
+                    float_type->get_float_kind(), bit_pattern);
+                return literal.has_value()
+                           ? context_->create_constant<CoreIrConstantFloat>(type, *literal)
+                           : nullptr;
+            }
+            if (const auto *float_operand =
+                    dynamic_cast<const CoreIrConstantFloat *>(operand);
+                float_operand != nullptr) {
+                const auto target_width = integer_type_bit_width(type);
+                const auto source_kind =
+                    import_type_to_core_float_kind(constant.cast_source_type);
+                if (!target_width.has_value() || !source_kind.has_value()) {
+                    return nullptr;
+                }
+                const auto encoded_bits =
+                    encode_float_literal_bits(*float_operand, *source_kind);
+                if (!encoded_bits.has_value()) {
+                    return nullptr;
+                }
+                return context_->create_constant<CoreIrConstantInt>(
+                    type, truncate_integer_to_width(*encoded_bits, *target_width));
+            }
+            return nullptr;
+        }
+        case AArch64LlvmImportConstantKind::AddrSpaceCast:
+            return type->get_kind() == CoreIrTypeKind::Pointer ? operand : nullptr;
+        default:
+            return nullptr;
+        }
+    }
+
     const CoreIrConstant *lower_import_constant(
         const CoreIrType *type, const AArch64LlvmImportConstant &constant) {
         if (type == nullptr || !constant.is_valid()) {
@@ -551,12 +825,17 @@ class RestrictedLlvmIrImporter {
                     function_it->second);
             }
             return nullptr;
+        case AArch64LlvmImportConstantKind::SignExtend:
+        case AArch64LlvmImportConstantKind::ZeroExtend:
+        case AArch64LlvmImportConstantKind::Truncate:
+        case AArch64LlvmImportConstantKind::SignedIntToFloat:
+        case AArch64LlvmImportConstantKind::UnsignedIntToFloat:
+        case AArch64LlvmImportConstantKind::FloatToSignedInt:
+        case AArch64LlvmImportConstantKind::FloatToUnsignedInt:
+        case AArch64LlvmImportConstantKind::FloatExtend:
+        case AArch64LlvmImportConstantKind::FloatTruncate:
         case AArch64LlvmImportConstantKind::Bitcast:
-            if (type->get_kind() != CoreIrTypeKind::Pointer ||
-                constant.cast_operand == nullptr) {
-                return nullptr;
-            }
-            return lower_import_constant(type, *constant.cast_operand);
+        case AArch64LlvmImportConstantKind::AddrSpaceCast:
         case AArch64LlvmImportConstantKind::IntToPtr:
         case AArch64LlvmImportConstantKind::PtrToInt: {
             const CoreIrType *source_type =
@@ -568,6 +847,10 @@ class RestrictedLlvmIrImporter {
                 lower_import_constant(source_type, *constant.cast_operand);
             if (operand == nullptr) {
                 return nullptr;
+            }
+            if (constant.kind != AArch64LlvmImportConstantKind::IntToPtr &&
+                constant.kind != AArch64LlvmImportConstantKind::PtrToInt) {
+                return fold_scalar_constant_cast(type, constant, operand);
             }
             return context_->create_constant<CoreIrConstantCast>(
                 type,
@@ -791,11 +1074,81 @@ class RestrictedLlvmIrImporter {
             return "zeroinitializer";
         case AArch64LlvmImportConstantKind::SymbolReference:
             return "@" + constant.symbol_name;
+        case AArch64LlvmImportConstantKind::SignExtend:
+            if (constant.cast_operand == nullptr) {
+                return "sext(<null-operand>)";
+            }
+            return "sext (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::ZeroExtend:
+            if (constant.cast_operand == nullptr) {
+                return "zext(<null-operand>)";
+            }
+            return "zext (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::Truncate:
+            if (constant.cast_operand == nullptr) {
+                return "trunc(<null-operand>)";
+            }
+            return "trunc (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::SignedIntToFloat:
+            if (constant.cast_operand == nullptr) {
+                return "sitofp(<null-operand>)";
+            }
+            return "sitofp (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::UnsignedIntToFloat:
+            if (constant.cast_operand == nullptr) {
+                return "uitofp(<null-operand>)";
+            }
+            return "uitofp (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::FloatToSignedInt:
+            if (constant.cast_operand == nullptr) {
+                return "fptosi(<null-operand>)";
+            }
+            return "fptosi (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::FloatToUnsignedInt:
+            if (constant.cast_operand == nullptr) {
+                return "fptoui(<null-operand>)";
+            }
+            return "fptoui (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::FloatExtend:
+            if (constant.cast_operand == nullptr) {
+                return "fpext(<null-operand>)";
+            }
+            return "fpext (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::FloatTruncate:
+            if (constant.cast_operand == nullptr) {
+                return "fptrunc(<null-operand>)";
+            }
+            return "fptrunc (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
         case AArch64LlvmImportConstantKind::Bitcast:
             if (constant.cast_operand == nullptr) {
                 return "bitcast(<null-operand>)";
             }
             return "bitcast (" + constant.cast_source_type_text + " " +
+                   describe_import_constant(*constant.cast_operand) + " to " +
+                   constant.cast_target_type_text + ")";
+        case AArch64LlvmImportConstantKind::AddrSpaceCast:
+            if (constant.cast_operand == nullptr) {
+                return "addrspacecast(<null-operand>)";
+            }
+            return "addrspacecast (" + constant.cast_source_type_text + " " +
                    describe_import_constant(*constant.cast_operand) + " to " +
                    constant.cast_target_type_text + ")";
         case AArch64LlvmImportConstantKind::IntToPtr:
@@ -1407,6 +1760,29 @@ class RestrictedLlvmIrImporter {
                 bindings);
         };
 
+        auto lower_identity_cast =
+            [&](const AArch64LlvmImportCastSpec &spec) -> bool {
+            const CoreIrType *source_type = lower_import_type(spec.source_type);
+            const CoreIrType *target_type = lower_import_type(spec.target_type);
+            CoreIrValue *operand = resolve_typed_value_operand(
+                source_type, spec.source_value, block, bindings,
+                synthetic_index, line_number);
+            if (operand == nullptr || source_type == nullptr || target_type == nullptr) {
+                add_error("unsupported LLVM cast target type", line_number, 1);
+                return false;
+            }
+            const bool same_type = source_type == target_type;
+            const bool pointer_identity =
+                source_type->get_kind() == CoreIrTypeKind::Pointer &&
+                target_type->get_kind() == CoreIrTypeKind::Pointer;
+            if (!same_type && !pointer_identity) {
+                add_error("unsupported LLVM identity-style cast: " + line,
+                          line_number, 1);
+                return false;
+            }
+            return bind_instruction_result(result_name, operand, bindings);
+        };
+
         if (instruction_kind == AArch64LlvmImportInstructionKind::Binary) {
             const std::optional<AArch64LlvmImportBinarySpec> binary_spec =
                 parse_llvm_import_binary_spec(instruction);
@@ -1492,6 +1868,12 @@ class RestrictedLlvmIrImporter {
             }
             if (opcode_text == "fptrunc") {
                 return lower_cast(CoreIrCastKind::FloatTruncate, *cast_spec);
+            }
+            if (opcode_text == "bitcast") {
+                return lower_identity_cast(*cast_spec);
+            }
+            if (opcode_text == "addrspacecast") {
+                return lower_identity_cast(*cast_spec);
             }
             if (opcode_text == "inttoptr") {
                 return lower_cast(CoreIrCastKind::IntToPtr, *cast_spec);

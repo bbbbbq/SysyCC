@@ -175,6 +175,25 @@ llvm_import_consume_type_token(const std::string &text, std::size_t &position) {
     }
     if (llvm_import_starts_with(std::string_view(text).substr(position), "ptr")) {
         position += 3;
+        const std::size_t after_ptr = position;
+        while (position < text.size() &&
+               std::isspace(static_cast<unsigned char>(text[position])) != 0) {
+            ++position;
+        }
+        if (llvm_import_starts_with(std::string_view(text).substr(position),
+                                    "addrspace(")) {
+            position += 10;
+            while (position < text.size() &&
+                   std::isdigit(static_cast<unsigned char>(text[position])) != 0) {
+                ++position;
+            }
+            if (position >= text.size() || text[position] != ')') {
+                return std::nullopt;
+            }
+            ++position;
+            return text.substr(start, position - start);
+        }
+        position = after_ptr;
         return text.substr(start, position - start);
     }
     if (llvm_import_starts_with(std::string_view(text).substr(position), "half")) {

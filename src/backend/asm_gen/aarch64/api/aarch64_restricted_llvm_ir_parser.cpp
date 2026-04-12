@@ -130,6 +130,8 @@ AArch64LlvmImportInstructionKind classify_instruction_kind(
         starts_with(normalized, "fptoui ") ||
         starts_with(normalized, "fpext ") ||
         starts_with(normalized, "fptrunc ") ||
+        starts_with(normalized, "bitcast ") ||
+        starts_with(normalized, "addrspacecast ") ||
         starts_with(normalized, "inttoptr ") ||
         starts_with(normalized, "ptrtoint ")) {
         return AArch64LlvmImportInstructionKind::Cast;

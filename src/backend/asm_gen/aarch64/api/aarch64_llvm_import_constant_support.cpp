@@ -174,6 +174,7 @@ bool import_types_equal(const AArch64LlvmImportType &lhs,
         return false;
     }
     if (lhs.integer_bit_width != rhs.integer_bit_width ||
+        lhs.pointer_address_space != rhs.pointer_address_space ||
         lhs.array_element_count != rhs.array_element_count ||
         lhs.array_uses_vector_syntax != rhs.array_uses_vector_syntax ||
         lhs.named_type_name != rhs.named_type_name ||
@@ -207,6 +208,87 @@ parse_typed_constant(const std::string &text) {
         return std::nullopt;
     }
     return ParsedTypedConstant{*type_text, *type, std::move(*constant)};
+}
+
+bool is_integer_import_type(const AArch64LlvmImportType &type) {
+    return type.kind == AArch64LlvmImportTypeKind::Integer;
+}
+
+bool is_float_import_type(const AArch64LlvmImportType &type) {
+    return type.kind == AArch64LlvmImportTypeKind::Float16 ||
+           type.kind == AArch64LlvmImportTypeKind::Float32 ||
+           type.kind == AArch64LlvmImportTypeKind::Float64 ||
+           type.kind == AArch64LlvmImportTypeKind::Float128;
+}
+
+std::optional<std::size_t>
+get_import_type_storage_bit_width(const AArch64LlvmImportType &type) {
+    switch (type.kind) {
+    case AArch64LlvmImportTypeKind::Integer:
+        return type.integer_bit_width;
+    case AArch64LlvmImportTypeKind::Float16:
+        return 16;
+    case AArch64LlvmImportTypeKind::Float32:
+        return 32;
+    case AArch64LlvmImportTypeKind::Float64:
+        return 64;
+    case AArch64LlvmImportTypeKind::Float128:
+        return 128;
+    case AArch64LlvmImportTypeKind::Pointer:
+        return 64;
+    default:
+        return std::nullopt;
+    }
+}
+
+bool supports_integer_cast(const AArch64LlvmImportType &source_type,
+                           const AArch64LlvmImportType &target_type) {
+    return is_integer_import_type(source_type) && is_integer_import_type(target_type);
+}
+
+bool supports_int_to_float_cast(const AArch64LlvmImportType &source_type,
+                                const AArch64LlvmImportType &target_type) {
+    return is_integer_import_type(source_type) && is_float_import_type(target_type);
+}
+
+bool supports_float_to_int_cast(const AArch64LlvmImportType &source_type,
+                                const AArch64LlvmImportType &target_type) {
+    return is_float_import_type(source_type) && is_integer_import_type(target_type);
+}
+
+bool supports_float_cast(const AArch64LlvmImportType &source_type,
+                         const AArch64LlvmImportType &target_type) {
+    return is_float_import_type(source_type) && is_float_import_type(target_type);
+}
+
+bool supports_pointer_bitcast(const AArch64LlvmImportType &source_type,
+                              const AArch64LlvmImportType &target_type) {
+    return source_type.kind == AArch64LlvmImportTypeKind::Pointer &&
+           target_type.kind == AArch64LlvmImportTypeKind::Pointer;
+}
+
+bool supports_scalar_bitcast(const AArch64LlvmImportType &source_type,
+                             const AArch64LlvmImportType &target_type) {
+    const auto source_bits = get_import_type_storage_bit_width(source_type);
+    const auto target_bits = get_import_type_storage_bit_width(target_type);
+    if (!source_bits.has_value() || !target_bits.has_value() ||
+        *source_bits != *target_bits) {
+        return false;
+    }
+    return (is_integer_import_type(source_type) && is_float_import_type(target_type)) ||
+           (is_float_import_type(source_type) && is_integer_import_type(target_type));
+}
+
+bool supports_bitcast(const AArch64LlvmImportType &source_type,
+                      const AArch64LlvmImportType &target_type) {
+    return supports_pointer_bitcast(source_type, target_type) ||
+           supports_scalar_bitcast(source_type, target_type);
+}
+
+bool supports_addrspace_cast(const AArch64LlvmImportType &source_type,
+                             const AArch64LlvmImportType &target_type) {
+    return source_type.kind == AArch64LlvmImportTypeKind::Pointer &&
+           target_type.kind == AArch64LlvmImportTypeKind::Pointer;
 }
 
 std::optional<AArch64LlvmImportConstant> parse_gep_constant(
@@ -270,7 +352,8 @@ std::optional<AArch64LlvmImportConstant> parse_gep_constant(
 std::optional<AArch64LlvmImportConstant> parse_cast_constant(
     const AArch64LlvmImportType &target_type, const std::string &text,
     const char *opcode_prefix, AArch64LlvmImportConstantKind kind,
-    AArch64LlvmImportTypeKind required_source_kind) {
+    bool (*supports_cast)(const AArch64LlvmImportType &,
+                          const AArch64LlvmImportType &)) {
     std::string payload = llvm_import_trim_copy(text);
     if (!llvm_import_starts_with(payload, opcode_prefix)) {
         return std::nullopt;
@@ -297,7 +380,8 @@ std::optional<AArch64LlvmImportConstant> parse_cast_constant(
     }
 
     const auto source = parse_typed_constant(source_text);
-    if (!source.has_value() || source->type.kind != required_source_kind) {
+    if (!source.has_value() || supports_cast == nullptr ||
+        !supports_cast(source->type, target_type)) {
         return std::nullopt;
     }
 
@@ -313,12 +397,19 @@ std::optional<AArch64LlvmImportConstant> parse_cast_constant(
 
 std::optional<AArch64LlvmImportConstant> parse_bitcast_constant(
     const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "bitcast ",
+                               AArch64LlvmImportConstantKind::Bitcast,
+                               supports_bitcast);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_addrspacecast_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
     if (type.kind != AArch64LlvmImportTypeKind::Pointer) {
         return std::nullopt;
     }
-    return parse_cast_constant(type, text, "bitcast ",
-                               AArch64LlvmImportConstantKind::Bitcast,
-                               AArch64LlvmImportTypeKind::Pointer);
+    return parse_cast_constant(type, text, "addrspacecast ",
+                               AArch64LlvmImportConstantKind::AddrSpaceCast,
+                               supports_addrspace_cast);
 }
 
 std::optional<AArch64LlvmImportConstant> parse_inttoptr_constant(
@@ -328,7 +419,13 @@ std::optional<AArch64LlvmImportConstant> parse_inttoptr_constant(
     }
     return parse_cast_constant(type, text, "inttoptr ",
                                AArch64LlvmImportConstantKind::IntToPtr,
-                               AArch64LlvmImportTypeKind::Integer);
+                               [](const AArch64LlvmImportType &source_type,
+                                  const AArch64LlvmImportType &target_type) {
+                                   return source_type.kind ==
+                                              AArch64LlvmImportTypeKind::Integer &&
+                                          target_type.kind ==
+                                              AArch64LlvmImportTypeKind::Pointer;
+                               });
 }
 
 std::optional<AArch64LlvmImportConstant> parse_ptrtoint_constant(
@@ -338,7 +435,76 @@ std::optional<AArch64LlvmImportConstant> parse_ptrtoint_constant(
     }
     return parse_cast_constant(type, text, "ptrtoint ",
                                AArch64LlvmImportConstantKind::PtrToInt,
-                               AArch64LlvmImportTypeKind::Pointer);
+                               [](const AArch64LlvmImportType &source_type,
+                                  const AArch64LlvmImportType &target_type) {
+                                   return source_type.kind ==
+                                              AArch64LlvmImportTypeKind::Pointer &&
+                                          target_type.kind ==
+                                              AArch64LlvmImportTypeKind::Integer;
+                               });
+}
+
+std::optional<AArch64LlvmImportConstant> parse_sext_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "sext ",
+                               AArch64LlvmImportConstantKind::SignExtend,
+                               supports_integer_cast);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_zext_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "zext ",
+                               AArch64LlvmImportConstantKind::ZeroExtend,
+                               supports_integer_cast);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_trunc_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "trunc ",
+                               AArch64LlvmImportConstantKind::Truncate,
+                               supports_integer_cast);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_sitofp_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "sitofp ",
+                               AArch64LlvmImportConstantKind::SignedIntToFloat,
+                               supports_int_to_float_cast);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_uitofp_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "uitofp ",
+                               AArch64LlvmImportConstantKind::UnsignedIntToFloat,
+                               supports_int_to_float_cast);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_fptosi_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "fptosi ",
+                               AArch64LlvmImportConstantKind::FloatToSignedInt,
+                               supports_float_to_int_cast);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_fptoui_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "fptoui ",
+                               AArch64LlvmImportConstantKind::FloatToUnsignedInt,
+                               supports_float_to_int_cast);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_fpext_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "fpext ",
+                               AArch64LlvmImportConstantKind::FloatExtend,
+                               supports_float_cast);
+}
+
+std::optional<AArch64LlvmImportConstant> parse_fptrunc_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    return parse_cast_constant(type, text, "fptrunc ",
+                               AArch64LlvmImportConstantKind::FloatTruncate,
+                               supports_float_cast);
 }
 
 std::optional<AArch64LlvmImportConstant> parse_constant_impl(
@@ -352,6 +518,24 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
 
     switch (type.kind) {
     case AArch64LlvmImportTypeKind::Integer: {
+        if (llvm_import_starts_with(trimmed, "bitcast ")) {
+            return parse_bitcast_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "trunc ")) {
+            return parse_trunc_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "zext ")) {
+            return parse_zext_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "sext ")) {
+            return parse_sext_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "fptosi ")) {
+            return parse_fptosi_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "fptoui ")) {
+            return parse_fptoui_constant(type, trimmed);
+        }
         if (llvm_import_starts_with(trimmed, "ptrtoint ")) {
             return parse_ptrtoint_constant(type, trimmed);
         }
@@ -368,6 +552,24 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     case AArch64LlvmImportTypeKind::Float32:
     case AArch64LlvmImportTypeKind::Float64:
     case AArch64LlvmImportTypeKind::Float128: {
+        if (llvm_import_starts_with(trimmed, "trunc ")) {
+            return parse_trunc_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "sitofp ")) {
+            return parse_sitofp_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "uitofp ")) {
+            return parse_uitofp_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "fpext ")) {
+            return parse_fpext_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "fptrunc ")) {
+            return parse_fptrunc_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "bitcast ")) {
+            return parse_bitcast_constant(type, trimmed);
+        }
         const auto value = canonicalize_float_literal_text(type, trimmed);
         if (!value.has_value()) {
             return std::nullopt;
@@ -380,6 +582,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     case AArch64LlvmImportTypeKind::Pointer: {
         if (llvm_import_starts_with(trimmed, "inttoptr ")) {
             return parse_inttoptr_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "addrspacecast ")) {
+            return parse_addrspacecast_constant(type, trimmed);
         }
         if (llvm_import_starts_with(trimmed, "bitcast ")) {
             return parse_bitcast_constant(type, trimmed);
