@@ -30,7 +30,7 @@ int main() {
     module->create_global<CoreIrGlobal>("g_pair", mixed_type, init, false, false);
 
     const std::string asm_text = test::emit_aarch64_native_asm(*module);
-    test::assert_contains(asm_text, "g_pair:\n  .word 1\n  .zero 4");
+    test::assert_contains(asm_text, "g_pair:\n  .word 0x00000001\n  .zero 4");
     test::assert_contains(asm_text, "\n  .xword 0x4000000000000000");
     test::assert_contains(asm_text, "\n  .word 0x40400000\n  .zero 4");
     return 0;

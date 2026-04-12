@@ -13,9 +13,10 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 mkdir -p "${CASE_BUILD_DIR}"
+SYSYCC_BIN="$(get_real_sysycc_binary_path "${BUILD_DIR}")"
 
-PATH="/usr/bin:/bin" \
-    "${BUILD_DIR}/SysyCC" \
+PATH="" \
+    "${SYSYCC_BIN}" \
     -c \
     --backend=aarch64-native \
     --target=aarch64-unknown-linux-gnu \
@@ -27,4 +28,4 @@ READELF_TOOL="$(find_aarch64_readelf)"
 "${READELF_TOOL}" -S "${OBJ_FILE}" | grep -q '\.text'
 "${READELF_TOOL}" -S "${OBJ_FILE}" | grep -q '\.data'
 
-echo "verified: native AArch64 direct object emission no longer depends on an external assembler in PATH"
+echo "verified: native AArch64 direct object emission no longer depends on external assembler or LLVM tools in PATH"

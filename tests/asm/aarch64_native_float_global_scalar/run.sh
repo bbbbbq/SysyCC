@@ -23,11 +23,14 @@ assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 OBJECT_FILES=()
 while IFS= read -r -d '' object_file; do
     OBJECT_FILES+=("${object_file}")
-done < <(find "${BUILD_DIR}/CMakeFiles/SysyCC.dir" -name '*.o' ! -name 'main.cpp.o' -print0)
+done < <(find_host_compiler_object_files "${BUILD_DIR}")
 
 clang++ -std=c++17 -I"${PROJECT_ROOT}" -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
     "${OBJECT_FILES[@]}" \
+    -L"${BUILD_DIR}" \
+    -lsysycc_aarch64_codegen \
+    -Wl,-rpath,"${BUILD_DIR}" \
     -o "${TEST_BINARY}"
 
 "${TEST_BINARY}"

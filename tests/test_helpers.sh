@@ -832,6 +832,35 @@ assert_file_nonempty() {
     fi
 }
 
+get_real_sysycc_binary_path() {
+    local build_dir="$1"
+    local wrapper_real="${build_dir}/.sysycc_test_wrappers/SysyCC.real"
+
+    if [[ -x "${wrapper_real}" ]]; then
+        printf '%s\n' "${wrapper_real}"
+        return 0
+    fi
+
+    printf '%s\n' "${build_dir}/SysyCC"
+}
+
+find_host_compiler_object_files() {
+    local build_dir="$1"
+
+    while IFS= read -r -d '' object_file; do
+        if [[ "${object_file}" == *"/src/backend/asm_gen/aarch64/"* ]] &&
+           [[ "${object_file}" != *"/src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp.o" ]]; then
+            continue
+        fi
+        printf '%s\0' "${object_file}"
+    done < <(
+        find "${build_dir}/CMakeFiles/SysyCC.dir" \
+            -name '*.o' \
+            ! -name 'main.cpp.o' \
+            -print0
+    )
+}
+
 assert_no_illegal_aarch64_index_forms() {
     local asm_file="$1"
 
