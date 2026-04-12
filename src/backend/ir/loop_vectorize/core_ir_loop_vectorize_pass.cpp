@@ -401,7 +401,7 @@ struct RuntimeMulReductionInterleavePattern {
     CoreIrPhiInst *iv = nullptr;
     CoreIrPhiInst *reduction_phi = nullptr;
     CoreIrInstruction *iv_next = nullptr;
-    CoreIrBinaryInst *reduction_update = nullptr;
+    CoreIrInstruction *reduction_update = nullptr;
     CoreIrBinaryInst *mul = nullptr;
     CoreIrLoadInst *lhs_load = nullptr;
     CoreIrLoadInst *rhs_load = nullptr;
@@ -684,6 +684,51 @@ bool instruction_is_runtime_reduction_update(CoreIrInstruction *instruction,
 CoreIrValue *get_runtime_reduction_step_value(CoreIrBinaryInst &update,
                                               CoreIrPhiInst &phi) {
     return update.get_lhs() == &phi ? update.get_rhs() : update.get_lhs();
+}
+
+bool match_runtime_mul_reduction_update(CoreIrValue *body_incoming,
+                                        CoreIrPhiInst *phi,
+                                        CoreIrInstruction *&update_instruction,
+                                        CoreIrBinaryInst *&mul_instruction) {
+    auto match_add_update = [phi](CoreIrValue *candidate,
+                                  CoreIrInstruction *&candidate_instruction,
+                                  CoreIrBinaryInst *&candidate_mul) {
+        auto *binary = dynamic_cast<CoreIrBinaryInst *>(candidate);
+        if (!instruction_is_runtime_reduction_update(binary, phi)) {
+            return false;
+        }
+        CoreIrValue *step = get_runtime_reduction_step_value(*binary, *phi);
+        auto *mul = dynamic_cast<CoreIrBinaryInst *>(step);
+        if (mul == nullptr || mul->get_binary_opcode() != CoreIrBinaryOpcode::Mul) {
+            return false;
+        }
+        candidate_instruction = binary;
+        candidate_mul = mul;
+        return true;
+    };
+
+    if (match_add_update(body_incoming, update_instruction, mul_instruction)) {
+        return true;
+    }
+
+    auto *select = dynamic_cast<CoreIrSelectInst *>(body_incoming);
+    if (select == nullptr) {
+        return false;
+    }
+
+    if (select->get_true_value() == phi &&
+        match_add_update(select->get_false_value(), update_instruction,
+                         mul_instruction)) {
+        update_instruction = select;
+        return true;
+    }
+    if (select->get_false_value() == phi &&
+        match_add_update(select->get_true_value(), update_instruction,
+                         mul_instruction)) {
+        update_instruction = select;
+        return true;
+    }
+    return false;
 }
 
 bool instruction_is_runtime_interleave_supported(
@@ -1378,23 +1423,21 @@ bool match_runtime_mul_reduction_interleave_pattern(
                 break;
             }
         }
-        auto *update = dynamic_cast<CoreIrBinaryInst *>(body_incoming);
-        if (instruction_is_runtime_reduction_update(update, phi)) {
+        CoreIrInstruction *update = nullptr;
+        CoreIrBinaryInst *mul = nullptr;
+        if (match_runtime_mul_reduction_update(body_incoming, phi, update, mul)) {
             pattern.reduction_phi = phi;
             pattern.reduction_update = update;
+            pattern.mul = mul;
             break;
         }
     }
-    if (pattern.reduction_phi == nullptr || pattern.reduction_update == nullptr) {
+    if (pattern.reduction_phi == nullptr || pattern.reduction_update == nullptr ||
+        pattern.mul == nullptr) {
         return false;
     }
-
-    CoreIrValue *reduction_step =
-        get_runtime_reduction_step_value(*pattern.reduction_update,
-                                         *pattern.reduction_phi);
-    pattern.mul = dynamic_cast<CoreIrBinaryInst *>(reduction_step);
-    if (pattern.mul == nullptr ||
-        pattern.mul->get_binary_opcode() != CoreIrBinaryOpcode::Mul) {
+    if (shape.rotated_latch_exit &&
+        dynamic_cast<CoreIrSelectInst *>(pattern.reduction_update) != nullptr) {
         return false;
     }
 
@@ -2051,6 +2094,11 @@ bool vectorize_runtime_mul_reduction_loop(
     }
     const bool ordered_float_reduction =
         dynamic_cast<const CoreIrFloatType *>(lane_type) != nullptr;
+    auto *reduction_update_binary =
+        dynamic_cast<CoreIrBinaryInst *>(pattern.reduction_update);
+    if (!ordered_float_reduction && reduction_update_binary == nullptr) {
+        return false;
+    }
 
     auto guard_block = std::make_unique<CoreIrBasicBlock>(
         make_unique_block_name(function, "vector.guard"));
@@ -2261,7 +2309,7 @@ bool vectorize_runtime_mul_reduction_loop(
             "vec.mul." + std::to_string(lane_group), lhs_vec, rhs_vec);
         next_acc_values[lane_group] =
             vector_body_ptr->create_instruction<CoreIrBinaryInst>(
-                pattern.reduction_update->get_binary_opcode(), vec_type,
+                reduction_update_binary->get_binary_opcode(), vec_type,
                 "vec.acc.next." + std::to_string(lane_group),
                 vec_accs[lane_group], vec_mul);
     }
@@ -2320,6 +2368,11 @@ bool interleave_runtime_mul_reduction_loop(
         return false;
     }
     if (dynamic_cast<const CoreIrFloatType *>(pattern.reduction_phi->get_type()) != nullptr) {
+        return false;
+    }
+    if (pattern.reduction_update->get_parent() != pattern.body ||
+        std::find(pattern.body_instructions.begin(), pattern.body_instructions.end(),
+                  pattern.reduction_update) == pattern.body_instructions.end()) {
         return false;
     }
 
@@ -2437,7 +2490,11 @@ bool interleave_runtime_mul_reduction_loop(
             pair_body_ptr->append_instruction(std::move(clone));
         first_map.emplace(instruction, inserted);
     }
-    CoreIrValue *first_red_value = first_map.at(pattern.reduction_update);
+    auto first_red_it = first_map.find(pattern.reduction_update);
+    if (first_red_it == first_map.end()) {
+        return false;
+    }
+    CoreIrValue *first_red_value = first_red_it->second;
     auto *pair_iv_plus_one = pair_body_ptr->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type, "pair.iv.plus.one", pair_iv, one32);
     std::unordered_map<const CoreIrValue *, CoreIrValue *> second_map;
@@ -2453,7 +2510,11 @@ bool interleave_runtime_mul_reduction_loop(
             pair_body_ptr->append_instruction(std::move(clone));
         second_map.emplace(instruction, inserted);
     }
-    CoreIrValue *second_red_value = second_map.at(pattern.reduction_update);
+    auto second_red_it = second_map.find(pattern.reduction_update);
+    if (second_red_it == second_map.end()) {
+        return false;
+    }
+    CoreIrValue *second_red_value = second_red_it->second;
     auto *pair_iv_next = pair_body_ptr->create_instruction<CoreIrBinaryInst>(
         CoreIrBinaryOpcode::Add, i32_type, "pair.iv.next", pair_iv, two32);
     auto *pair_cmp = pair_body_ptr->create_instruction<CoreIrCompareInst>(
