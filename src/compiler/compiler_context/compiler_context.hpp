@@ -467,6 +467,8 @@ class CompilerContext {
     std::string ast_dump_file_path_;
     std::string core_ir_dump_file_path_;
     std::string ir_dump_file_path_;
+    std::string llvm_ir_text_artifact_file_path_;
+    std::string llvm_ir_bitcode_artifact_file_path_;
     std::string asm_dump_file_path_;
     std::string object_dump_file_path_;
     std::unique_ptr<ParseTreeNode> parse_tree_root_;
@@ -685,6 +687,26 @@ class CompilerContext {
 
     void set_ir_dump_file_path(std::string ir_dump_file_path) {
         ir_dump_file_path_ = std::move(ir_dump_file_path);
+    }
+
+    const std::string &get_llvm_ir_text_artifact_file_path() const noexcept {
+        return llvm_ir_text_artifact_file_path_;
+    }
+
+    void set_llvm_ir_text_artifact_file_path(
+        std::string llvm_ir_text_artifact_file_path) {
+        llvm_ir_text_artifact_file_path_ =
+            std::move(llvm_ir_text_artifact_file_path);
+    }
+
+    const std::string &get_llvm_ir_bitcode_artifact_file_path() const noexcept {
+        return llvm_ir_bitcode_artifact_file_path_;
+    }
+
+    void set_llvm_ir_bitcode_artifact_file_path(
+        std::string llvm_ir_bitcode_artifact_file_path) {
+        llvm_ir_bitcode_artifact_file_path_ =
+            std::move(llvm_ir_bitcode_artifact_file_path);
     }
 
     const std::string &get_asm_dump_file_path() const noexcept {

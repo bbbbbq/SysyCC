@@ -136,7 +136,7 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
 
   public:
     AArch64LoweringSession(AArch64CodegenContext &codegen_context)
-        : module_(*codegen_context.module),
+        : module_(codegen_context.input->core_ir_module()),
           backend_options_(*codegen_context.backend_options),
           diagnostic_engine_(*codegen_context.diagnostic_engine),
           codegen_context_(codegen_context) {}

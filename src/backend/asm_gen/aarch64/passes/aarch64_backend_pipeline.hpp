@@ -27,14 +27,14 @@ class AArch64BackendPipeline {
     AArch64EmissionPass emission_pass_;
 
   public:
-    bool build_and_finalize_module(const CoreIrModule &module,
+    bool build_and_finalize_module(const AArch64CodegenInput &input,
                                    const BackendOptions &backend_options,
                                    DiagnosticEngine &diagnostic_engine,
                                    AArch64AsmModule &asm_module,
                                    AArch64MachineModule &machine_module,
                                    AArch64ObjectModule &object_module) const {
         AArch64CodegenContext codegen_context{
-            &module,
+            &input,
             &backend_options,
             &diagnostic_engine,
             AArch64AsmModule{},
@@ -47,6 +47,18 @@ class AArch64BackendPipeline {
         machine_module = std::move(codegen_context.machine_module);
         object_module = std::move(codegen_context.object_module);
         return true;
+    }
+
+    bool build_and_finalize_module(const CoreIrModule &module,
+                                   const BackendOptions &backend_options,
+                                   DiagnosticEngine &diagnostic_engine,
+                                   AArch64AsmModule &asm_module,
+                                   AArch64MachineModule &machine_module,
+                                   AArch64ObjectModule &object_module) const {
+        const AArch64CoreIrCodegenInputAdapter input(module);
+        return build_and_finalize_module(input, backend_options,
+                                         diagnostic_engine, asm_module,
+                                         machine_module, object_module);
     }
 
     bool build_module(AArch64CodegenContext &codegen_context) const {

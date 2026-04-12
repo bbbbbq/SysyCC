@@ -108,6 +108,9 @@ std::string print_module_with_options(const AArch64AsmModule &asm_module,
                                       const AsmPrintOptions &options) {
     std::ostringstream output;
     output << arch_directive(asm_module.get_arch_profile()) << "\n";
+    for (const std::string &module_asm_line : asm_module.get_module_asm_lines()) {
+        output << module_asm_line << "\n";
+    }
     for (const AArch64DebugFileEntry &entry : object_module.get_debug_file_entries()) {
         output << ".file " << entry.index << " " << quote_asm_string(entry.path)
                << "\n";

@@ -1964,7 +1964,6 @@ Defined in:
 - [core_ir_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering/core_ir_target_backend.hpp)
 - [core_ir_target_backend_factory.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering/core_ir_target_backend_factory.hpp)
 - [core_ir_llvm_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering/llvm/core_ir_llvm_target_backend.hpp)
-- [core_ir_aarch64_target_backend.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/lower/lowering/aarch64/core_ir_aarch64_target_backend.hpp)
 - [ir_context.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_context.hpp)
 - [ir_module.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_module.hpp)
 - [ir_function.hpp](/Users/caojunze424/code/SysyCC/src/backend/ir/shared/core/ir_function.hpp)
@@ -1997,8 +1996,6 @@ Role:
   Core IR into an `IRResult`
 - `CoreIrLlvmTargetBackend`: lower the current Core IR subset into LLVM IR
   text
-- `CoreIrAArch64TargetBackend`: expose the future ARM backend contract and
-  currently fail with an explicit diagnostic placeholder
 - `CoreIrContext`: own long-lived Core IR types, constants, and modules
 - `CoreIrModule`: own one module's globals and functions
 - `CoreIrFunction`: own parameters, stack slots, and basic blocks
@@ -2074,11 +2071,6 @@ classDiagram
         +Lower(module, diagnostic_engine)
     }
 
-    class CoreIrAArch64TargetBackend {
-        +get_kind()
-        +Lower(module, diagnostic_engine)
-    }
-
     class CoreIrContext {
         -owned_types_
         -owned_constants_
@@ -2149,7 +2141,6 @@ classDiagram
     LowerIrPass --> CoreIrBuildResult
     LowerIrPass --> CoreIrTargetBackend
     CoreIrTargetBackend <|-- CoreIrLlvmTargetBackend
-    CoreIrTargetBackend <|-- CoreIrAArch64TargetBackend
     CoreIrBuildResult --> CoreIrContext
     CoreIrBuildResult --> CoreIrModule
     CoreIrContext --> CoreIrType

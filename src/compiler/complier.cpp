@@ -130,13 +130,6 @@ PassResult Complier::validate_backend_configuration() {
     const std::string &target_triple = backend_options.get_target_triple();
 
     if (backend_kind == BackendKind::AArch64Native) {
-        if (context_.get_dump_ir()) {
-            const std::string message =
-                "--dump-ir is incompatible with --backend=aarch64-native";
-            context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
-                                                       message);
-            return PassResult::Failure(message);
-        }
         if (!context_.get_emit_asm()) {
             if (!context_.get_emit_object()) {
                 const std::string message =
@@ -235,6 +228,8 @@ PassResult Complier::Run() {
     context_.clear_object_result();
     context_.set_core_ir_dump_file_path("");
     context_.set_ir_dump_file_path("");
+    context_.set_llvm_ir_text_artifact_file_path("");
+    context_.set_llvm_ir_bitcode_artifact_file_path("");
     context_.set_asm_dump_file_path("");
     context_.set_object_dump_file_path("");
     sync_context_from_option();

@@ -74,9 +74,6 @@ src/backend/ir/
 │       ├── core_ir_target_backend.hpp
 │       ├── core_ir_target_backend_factory.hpp
 │       ├── core_ir_target_backend_factory.cpp
-│       ├── aarch64/
-│       │   ├── core_ir_aarch64_target_backend.hpp
-│       │   └── core_ir_aarch64_target_backend.cpp
 │       └── llvm/
 │           ├── core_ir_llvm_target_backend.hpp
 │           └── core_ir_llvm_target_backend.cpp
@@ -413,12 +410,13 @@ LLVM IR lowering path:
   linkage on staged function definitions and declarations, and explicit
   direct-call function signatures for variadic callees such as `printf`
 - the native `AArch64AsmGenPass` path now lowers one growing Linux AArch64
-  subset directly from `CoreIrModule`, including integer/pointer codegen,
-  floating-point scalar call/return lowering, `_Float16` arithmetic through
-  float32 legalization, `long double` / fp128 helper-call lowering for common
-  constants, casts, arithmetic, and compares, variadic call signatures that do
-  not read `va_list`, and aggregate by-value ABI cases through direct-register,
-  HFA, and indirect/sret conventions where supported
+  subset through staged LLVM IR artifacts plus the decoupled AArch64 codegen
+  library, including integer/pointer codegen, floating-point scalar
+  call/return lowering, `_Float16` arithmetic through float32 legalization,
+  `long double` / fp128 helper-call lowering for common constants, casts,
+  arithmetic, and compares, variadic call signatures that do not read
+  `va_list`, and aggregate by-value ABI cases through direct-register, HFA,
+  and indirect/sret conventions where supported
 - `CoreIrBuilder` currently lowers a deliberately small staged subset:
   - `TranslationUnit`
   - top-level scalar `VarDecl` with constant initializer or zero-initialized
@@ -715,8 +713,8 @@ LLVM IR lowering path:
 - `--dump-ir` writes `build/intermediate_results/*.ll`
 - `--dump-core-ir` writes `build/intermediate_results/*.core-ir.txt`
 - `-S --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now emits a
-  native `.s` file directly from optimized `CoreIrModule` without round-tripping
-  through LLVM IR text
+  native `.s` file from lowered LLVM IR artifacts through the decoupled
+  AArch64 codegen library
 - `-c --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now also
   emits an ELF relocatable object from the native backend’s structured
   asm/machine/object module state, keeping the produced bytes in compiler state
@@ -796,10 +794,11 @@ LLVM IR lowering path:
 - `BuildCoreIrPass` and later backend stages depend on semantic output and
   therefore belong after
   [SemanticPass](/Users/caojunze424/code/SysyCC/src/frontend/semantic/semantic_pass.hpp).
-- The staged `CoreIrAArch64TargetBackend` placeholder still exists for the old
-  lower-to-IR interface, but the active native asm implementation is the
-  separate `AArch64AsmGenPass` pipeline that consumes `CoreIrModule`
-  directly.
+- The old `CoreIrAArch64TargetBackend` placeholder and the public
+  `CoreIrModule -> AArch64` façade have been removed.
+- The active native compiler path now lowers staged Core IR into LLVM IR
+  artifacts first, then invokes the decoupled AArch64 codegen library through
+  its `.ll/.bc` API boundary.
 - That native AArch64 path now also has an internal backend pipeline shape:
   `machine lowering -> regalloc/spill -> frame finalize -> emission`, even
   though only one external compiler pass is exposed today.
@@ -810,9 +809,8 @@ LLVM IR lowering path:
   backend-local pipeline under the single public `AArch64AsmGenPass`.
 - `AArch64BackendPipeline` now owns the whole native backend flow, including the
   initial `AArch64MachineLoweringPass` and the backend-local
-  `AArch64CodegenContext` assembly. `AArch64AsmBackend` now remains only as a
-  thin adapter that forwards the public backend entry to that internal
-  pipeline.
+  `AArch64CodegenContext` assembly. The old public `AArch64AsmBackend`
+  adapter layer has been removed.
 - `AArch64MachineLoweringPass` now only builds machine IR/module state; it no
   longer runs register allocation or frame finalization on the side. Those
   stages are driven only by the internal backend pipeline.
