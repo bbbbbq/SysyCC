@@ -29,4 +29,4 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
 
 "${TEST_BINARY}" "${INPUT_FILE}"
 
-echo "verified: source-built nested loops with continue promote hot-loop local slots to SSA and lower without allocas"
+echo "verified: source-built nested loops with continue promote hot-loop local slots to SSA, inline mm into main, and lower without allocas"

@@ -35,11 +35,18 @@ void mm(int n, int A[][N], int B[][N], int C[][N]) {
     }
 }
 
+int dead_shadow(int n, int *A, int *B, int *C) {
+    int *X = A;
+    int y = n;
+    return y;
+}
+
 int A[N][N];
 int B[N][N];
 int C[N][N];
 
 int main() {
     mm(4, A, B, C);
+    dead_shadow(4, &A[0][0], &B[0][0], &C[0][0]);
     return C[0][0];
 }
