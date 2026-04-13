@@ -10,6 +10,8 @@
 
 namespace sysycc {
 
+struct AArch64LlvmImportTypedConstant;
+
 enum class AArch64LlvmImportTypeKind : unsigned char {
     Unknown,
     Void,
@@ -59,6 +61,9 @@ enum class AArch64LlvmImportConstantKind : unsigned char {
     IntToPtr,
     PtrToInt,
     GetElementPtr,
+    ExtractElement,
+    InsertElement,
+    ShuffleVector,
     Aggregate,
 };
 
@@ -79,10 +84,28 @@ struct AArch64LlvmImportConstant {
     std::vector<std::string> gep_index_type_texts;
     std::vector<AArch64LlvmImportType> gep_index_types;
     std::vector<AArch64LlvmImportConstant> gep_indices;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> extract_vector_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> extract_index_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> insert_vector_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> insert_element_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> insert_index_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> shuffle_lhs_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> shuffle_rhs_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> shuffle_mask_operand;
     std::vector<AArch64LlvmImportConstant> elements;
 
     bool is_valid() const {
         return kind != AArch64LlvmImportConstantKind::Invalid;
+    }
+};
+
+struct AArch64LlvmImportTypedConstant {
+    std::string type_text;
+    AArch64LlvmImportType type;
+    AArch64LlvmImportConstant constant;
+
+    bool is_valid() const {
+        return type.is_valid() && constant.is_valid();
     }
 };
 

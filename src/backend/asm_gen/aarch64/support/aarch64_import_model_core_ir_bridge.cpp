@@ -790,6 +790,159 @@ class RestrictedLlvmIrImporter {
         }
     }
 
+    const CoreIrConstant *lower_typed_import_constant(
+        const std::shared_ptr<AArch64LlvmImportTypedConstant> &typed_constant) {
+        if (typed_constant == nullptr || !typed_constant->is_valid()) {
+            return nullptr;
+        }
+        const CoreIrType *type = lower_import_type(typed_constant->type);
+        if (type == nullptr) {
+            return nullptr;
+        }
+        return lower_import_constant(type, typed_constant->constant);
+    }
+
+    bool expand_vector_constant_lanes(const CoreIrType *vector_type,
+                                      const CoreIrConstant *constant,
+                                      std::vector<const CoreIrConstant *> &lanes) {
+        const auto *array_type = dynamic_cast<const CoreIrArrayType *>(vector_type);
+        if (array_type == nullptr || constant == nullptr) {
+            return false;
+        }
+        lanes.clear();
+        lanes.reserve(array_type->get_element_count());
+        if (const auto *aggregate =
+                dynamic_cast<const CoreIrConstantAggregate *>(constant);
+            aggregate != nullptr) {
+            for (const CoreIrConstant *element : aggregate->get_elements()) {
+                lanes.push_back(element);
+            }
+            while (lanes.size() < array_type->get_element_count()) {
+                lanes.push_back(make_zero_constant(array_type->get_element_type()));
+            }
+            return lanes.size() == array_type->get_element_count();
+        }
+        if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) != nullptr) {
+            for (std::size_t index = 0; index < array_type->get_element_count(); ++index) {
+                lanes.push_back(make_zero_constant(array_type->get_element_type()));
+            }
+            return true;
+        }
+        return false;
+    }
+
+    std::optional<std::size_t> lower_vector_index_operand(
+        const std::shared_ptr<AArch64LlvmImportTypedConstant> &typed_index) {
+        const auto *index_constant =
+            dynamic_cast<const CoreIrConstantInt *>(lower_typed_import_constant(
+                typed_index));
+        if (index_constant == nullptr) {
+            return std::nullopt;
+        }
+        return static_cast<std::size_t>(index_constant->get_value());
+    }
+
+    const CoreIrConstant *fold_vector_constant_expr(
+        const CoreIrType *type, const AArch64LlvmImportConstant &constant) {
+        switch (constant.kind) {
+        case AArch64LlvmImportConstantKind::ExtractElement: {
+            if (constant.extract_vector_operand == nullptr ||
+                constant.extract_index_operand == nullptr) {
+                return nullptr;
+            }
+            const CoreIrType *vector_type =
+                lower_import_type(constant.extract_vector_operand->type);
+            const CoreIrConstant *vector_constant =
+                lower_typed_import_constant(constant.extract_vector_operand);
+            const auto index = lower_vector_index_operand(
+                constant.extract_index_operand);
+            std::vector<const CoreIrConstant *> lanes;
+            if (vector_type == nullptr || !index.has_value() ||
+                !expand_vector_constant_lanes(vector_type, vector_constant, lanes) ||
+                *index >= lanes.size()) {
+                return nullptr;
+            }
+            return lanes[*index];
+        }
+        case AArch64LlvmImportConstantKind::InsertElement: {
+            if (constant.insert_vector_operand == nullptr ||
+                constant.insert_element_operand == nullptr ||
+                constant.insert_index_operand == nullptr) {
+                return nullptr;
+            }
+            const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
+            const CoreIrType *vector_type =
+                lower_import_type(constant.insert_vector_operand->type);
+            const CoreIrConstant *vector_constant =
+                lower_typed_import_constant(constant.insert_vector_operand);
+            const CoreIrConstant *element_constant =
+                lower_typed_import_constant(constant.insert_element_operand);
+            const auto index = lower_vector_index_operand(
+                constant.insert_index_operand);
+            std::vector<const CoreIrConstant *> lanes;
+            if (array_type == nullptr || vector_type == nullptr ||
+                element_constant == nullptr || !index.has_value() ||
+                !expand_vector_constant_lanes(vector_type, vector_constant, lanes) ||
+                *index >= lanes.size()) {
+                return nullptr;
+            }
+            lanes[*index] = element_constant;
+            return context_->create_constant<CoreIrConstantAggregate>(type, lanes);
+        }
+        case AArch64LlvmImportConstantKind::ShuffleVector: {
+            if (constant.shuffle_lhs_operand == nullptr ||
+                constant.shuffle_rhs_operand == nullptr ||
+                constant.shuffle_mask_operand == nullptr) {
+                return nullptr;
+            }
+            const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
+            const CoreIrType *lhs_type =
+                lower_import_type(constant.shuffle_lhs_operand->type);
+            const CoreIrType *rhs_type =
+                lower_import_type(constant.shuffle_rhs_operand->type);
+            const CoreIrType *mask_type =
+                lower_import_type(constant.shuffle_mask_operand->type);
+            const CoreIrConstant *lhs_constant =
+                lower_typed_import_constant(constant.shuffle_lhs_operand);
+            const CoreIrConstant *rhs_constant =
+                lower_typed_import_constant(constant.shuffle_rhs_operand);
+            const CoreIrConstant *mask_constant =
+                lower_typed_import_constant(constant.shuffle_mask_operand);
+            std::vector<const CoreIrConstant *> lhs_lanes;
+            std::vector<const CoreIrConstant *> rhs_lanes;
+            std::vector<const CoreIrConstant *> mask_lanes;
+            if (array_type == nullptr || lhs_type == nullptr || rhs_type == nullptr ||
+                mask_type == nullptr ||
+                !expand_vector_constant_lanes(lhs_type, lhs_constant, lhs_lanes) ||
+                !expand_vector_constant_lanes(rhs_type, rhs_constant, rhs_lanes) ||
+                !expand_vector_constant_lanes(mask_type, mask_constant, mask_lanes) ||
+                mask_lanes.size() != array_type->get_element_count()) {
+                return nullptr;
+            }
+            std::vector<const CoreIrConstant *> combined;
+            combined.reserve(lhs_lanes.size() + rhs_lanes.size());
+            combined.insert(combined.end(), lhs_lanes.begin(), lhs_lanes.end());
+            combined.insert(combined.end(), rhs_lanes.begin(), rhs_lanes.end());
+
+            std::vector<const CoreIrConstant *> lanes;
+            lanes.reserve(mask_lanes.size());
+            for (const CoreIrConstant *mask_lane : mask_lanes) {
+                const auto *mask_index =
+                    dynamic_cast<const CoreIrConstantInt *>(mask_lane);
+                if (mask_index == nullptr ||
+                    mask_index->get_value() >= combined.size()) {
+                    return nullptr;
+                }
+                lanes.push_back(combined[static_cast<std::size_t>(
+                    mask_index->get_value())]);
+            }
+            return context_->create_constant<CoreIrConstantAggregate>(type, lanes);
+        }
+        default:
+            return nullptr;
+        }
+    }
+
     const CoreIrConstant *lower_import_constant(
         const CoreIrType *type, const AArch64LlvmImportConstant &constant) {
         if (type == nullptr || !constant.is_valid()) {
@@ -894,6 +1047,10 @@ class RestrictedLlvmIrImporter {
             return context_->create_constant<CoreIrConstantGetElementPtr>(
                 type, base, indices);
         }
+        case AArch64LlvmImportConstantKind::ExtractElement:
+        case AArch64LlvmImportConstantKind::InsertElement:
+        case AArch64LlvmImportConstantKind::ShuffleVector:
+            return fold_vector_constant_expr(type, constant);
         case AArch64LlvmImportConstantKind::Aggregate: {
             std::vector<const CoreIrConstant *> elements;
             if (type->get_kind() == CoreIrTypeKind::Array) {
@@ -1182,6 +1339,45 @@ class RestrictedLlvmIrImporter {
             text += ")";
             return text;
         }
+        case AArch64LlvmImportConstantKind::ExtractElement:
+            if (constant.extract_vector_operand == nullptr ||
+                constant.extract_index_operand == nullptr) {
+                return "extractelement(<missing-operands>)";
+            }
+            return "extractelement (" + constant.extract_vector_operand->type_text +
+                   " " +
+                   describe_import_constant(constant.extract_vector_operand->constant) +
+                   ", " + constant.extract_index_operand->type_text + " " +
+                   describe_import_constant(constant.extract_index_operand->constant) +
+                   ")";
+        case AArch64LlvmImportConstantKind::InsertElement:
+            if (constant.insert_vector_operand == nullptr ||
+                constant.insert_element_operand == nullptr ||
+                constant.insert_index_operand == nullptr) {
+                return "insertelement(<missing-operands>)";
+            }
+            return "insertelement (" + constant.insert_vector_operand->type_text +
+                   " " +
+                   describe_import_constant(constant.insert_vector_operand->constant) +
+                   ", " + constant.insert_element_operand->type_text + " " +
+                   describe_import_constant(constant.insert_element_operand->constant) +
+                   ", " + constant.insert_index_operand->type_text + " " +
+                   describe_import_constant(constant.insert_index_operand->constant) +
+                   ")";
+        case AArch64LlvmImportConstantKind::ShuffleVector:
+            if (constant.shuffle_lhs_operand == nullptr ||
+                constant.shuffle_rhs_operand == nullptr ||
+                constant.shuffle_mask_operand == nullptr) {
+                return "shufflevector(<missing-operands>)";
+            }
+            return "shufflevector (" + constant.shuffle_lhs_operand->type_text +
+                   " " +
+                   describe_import_constant(constant.shuffle_lhs_operand->constant) +
+                   ", " + constant.shuffle_rhs_operand->type_text + " " +
+                   describe_import_constant(constant.shuffle_rhs_operand->constant) +
+                   ", " + constant.shuffle_mask_operand->type_text + " " +
+                   describe_import_constant(constant.shuffle_mask_operand->constant) +
+                   ")";
         case AArch64LlvmImportConstantKind::Aggregate: {
             std::string text = "{ ";
             for (std::size_t index = 0; index < constant.elements.size(); ++index) {

@@ -110,12 +110,6 @@ std::optional<std::string> canonicalize_float_literal_text(
     return format_float_literal(parsed);
 }
 
-struct ParsedTypedConstant {
-    std::string type_text;
-    AArch64LlvmImportType type;
-    AArch64LlvmImportConstant constant;
-};
-
 std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     const AArch64LlvmImportType &type, const std::string &text);
 
@@ -189,7 +183,7 @@ bool import_types_equal(const AArch64LlvmImportType &lhs,
     return true;
 }
 
-std::optional<ParsedTypedConstant>
+std::optional<AArch64LlvmImportTypedConstant>
 parse_typed_constant(const std::string &text) {
     const std::string normalized = llvm_import_trim_copy(text);
     std::size_t position = 0;
@@ -207,7 +201,7 @@ parse_typed_constant(const std::string &text) {
     if (!constant.has_value()) {
         return std::nullopt;
     }
-    return ParsedTypedConstant{*type_text, *type, std::move(*constant)};
+    return AArch64LlvmImportTypedConstant{*type_text, *type, std::move(*constant)};
 }
 
 bool is_integer_import_type(const AArch64LlvmImportType &type) {
@@ -346,6 +340,126 @@ std::optional<AArch64LlvmImportConstant> parse_gep_constant(
         constant.gep_indices.push_back(std::move(typed_index->constant));
     }
 
+    return constant;
+}
+
+std::optional<std::vector<std::string>> parse_parenthesized_operands(
+    const std::string &text, const char *opcode_prefix) {
+    std::string payload = llvm_import_trim_copy(text);
+    if (!llvm_import_starts_with(payload, opcode_prefix)) {
+        return std::nullopt;
+    }
+    payload = llvm_import_trim_copy(payload.substr(std::strlen(opcode_prefix)));
+    if (payload.size() < 2 || payload.front() != '(' || payload.back() != ')') {
+        return std::nullopt;
+    }
+    return llvm_import_split_top_level(
+        llvm_import_trim_copy(payload.substr(1, payload.size() - 2)), ',');
+}
+
+bool is_vector_import_type(const AArch64LlvmImportType &type) {
+    return type.kind == AArch64LlvmImportTypeKind::Array &&
+           type.array_uses_vector_syntax && type.element_types.size() == 1;
+}
+
+std::optional<AArch64LlvmImportConstant> parse_extractelement_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    const auto operands =
+        parse_parenthesized_operands(text, "extractelement ");
+    if (!operands.has_value() || operands->size() != 2) {
+        return std::nullopt;
+    }
+    const auto vector_operand = parse_typed_constant((*operands)[0]);
+    const auto index_operand = parse_typed_constant((*operands)[1]);
+    if (!vector_operand.has_value() || !index_operand.has_value() ||
+        !is_vector_import_type(vector_operand->type) ||
+        index_operand->type.kind != AArch64LlvmImportTypeKind::Integer ||
+        vector_operand->type.element_types.front().kind != type.kind) {
+        return std::nullopt;
+    }
+    if (!import_types_equal(vector_operand->type.element_types.front(), type)) {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportConstant constant;
+    constant.kind = AArch64LlvmImportConstantKind::ExtractElement;
+    constant.extract_vector_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*vector_operand);
+    constant.extract_index_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*index_operand);
+    return constant;
+}
+
+std::optional<AArch64LlvmImportConstant> parse_insertelement_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    if (!is_vector_import_type(type)) {
+        return std::nullopt;
+    }
+    const auto operands =
+        parse_parenthesized_operands(text, "insertelement ");
+    if (!operands.has_value() || operands->size() != 3) {
+        return std::nullopt;
+    }
+    const auto vector_operand = parse_typed_constant((*operands)[0]);
+    const auto element_operand = parse_typed_constant((*operands)[1]);
+    const auto index_operand = parse_typed_constant((*operands)[2]);
+    if (!vector_operand.has_value() || !element_operand.has_value() ||
+        !index_operand.has_value() || !is_vector_import_type(vector_operand->type) ||
+        index_operand->type.kind != AArch64LlvmImportTypeKind::Integer) {
+        return std::nullopt;
+    }
+    if (!import_types_equal(vector_operand->type, type) ||
+        !import_types_equal(element_operand->type, type.element_types.front())) {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportConstant constant;
+    constant.kind = AArch64LlvmImportConstantKind::InsertElement;
+    constant.insert_vector_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*vector_operand);
+    constant.insert_element_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*element_operand);
+    constant.insert_index_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*index_operand);
+    return constant;
+}
+
+std::optional<AArch64LlvmImportConstant> parse_shufflevector_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    if (!is_vector_import_type(type)) {
+        return std::nullopt;
+    }
+    const auto operands =
+        parse_parenthesized_operands(text, "shufflevector ");
+    if (!operands.has_value() || operands->size() != 3) {
+        return std::nullopt;
+    }
+    const auto lhs_operand = parse_typed_constant((*operands)[0]);
+    const auto rhs_operand = parse_typed_constant((*operands)[1]);
+    const auto mask_operand = parse_typed_constant((*operands)[2]);
+    if (!lhs_operand.has_value() || !rhs_operand.has_value() ||
+        !mask_operand.has_value() || !is_vector_import_type(lhs_operand->type) ||
+        !is_vector_import_type(rhs_operand->type) ||
+        !is_vector_import_type(mask_operand->type)) {
+        return std::nullopt;
+    }
+    if (!import_types_equal(lhs_operand->type, rhs_operand->type) ||
+        !import_types_equal(lhs_operand->type.element_types.front(),
+                            type.element_types.front()) ||
+        mask_operand->type.element_types.front().kind !=
+            AArch64LlvmImportTypeKind::Integer ||
+        mask_operand->type.array_element_count != type.array_element_count) {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportConstant constant;
+    constant.kind = AArch64LlvmImportConstantKind::ShuffleVector;
+    constant.shuffle_lhs_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*lhs_operand);
+    constant.shuffle_rhs_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*rhs_operand);
+    constant.shuffle_mask_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*mask_operand);
     return constant;
 }
 
@@ -518,6 +632,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
 
     switch (type.kind) {
     case AArch64LlvmImportTypeKind::Integer: {
+        if (llvm_import_starts_with(trimmed, "extractelement ")) {
+            return parse_extractelement_constant(type, trimmed);
+        }
         if (llvm_import_starts_with(trimmed, "bitcast ")) {
             return parse_bitcast_constant(type, trimmed);
         }
@@ -552,6 +669,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     case AArch64LlvmImportTypeKind::Float32:
     case AArch64LlvmImportTypeKind::Float64:
     case AArch64LlvmImportTypeKind::Float128: {
+        if (llvm_import_starts_with(trimmed, "extractelement ")) {
+            return parse_extractelement_constant(type, trimmed);
+        }
         if (llvm_import_starts_with(trimmed, "trunc ")) {
             return parse_trunc_constant(type, trimmed);
         }
@@ -580,6 +700,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         return constant;
     }
     case AArch64LlvmImportTypeKind::Pointer: {
+        if (llvm_import_starts_with(trimmed, "extractelement ")) {
+            return parse_extractelement_constant(type, trimmed);
+        }
         if (llvm_import_starts_with(trimmed, "inttoptr ")) {
             return parse_inttoptr_constant(type, trimmed);
         }
@@ -606,6 +729,14 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         return std::nullopt;
     }
     case AArch64LlvmImportTypeKind::Array: {
+        if (type.array_uses_vector_syntax) {
+            if (llvm_import_starts_with(trimmed, "insertelement ")) {
+                return parse_insertelement_constant(type, trimmed);
+            }
+            if (llvm_import_starts_with(trimmed, "shufflevector ")) {
+                return parse_shufflevector_constant(type, trimmed);
+            }
+        }
         const bool square_bracketed =
             trimmed.size() >= 2 && trimmed.front() == '[' &&
             trimmed.back() == ']';
