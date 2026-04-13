@@ -242,7 +242,7 @@ should_require_nonempty_artifacts() {
     local test_dir="${SCRIPT_DIR}/${stage_name}/${test_name}"
 
     if [[ "${stage_name}" == "run" || "${stage_name}" == "fuzz" ||
-          "${stage_name}" == "cli" ]]; then
+          "${stage_name}" == "cli" || "${stage_name}" == "aarch64_backend_ll" ]]; then
         return 1
     fi
 

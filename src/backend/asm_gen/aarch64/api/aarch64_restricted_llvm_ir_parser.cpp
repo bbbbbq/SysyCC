@@ -205,10 +205,10 @@ std::vector<AArch64LlvmImportBasicBlock> split_basic_blocks(
             continue;
         }
         if (current_block == nullptr) {
-            add_error(module,
-                      "LLVM function body must start with a labeled basic block",
-                      line_number, 1);
-            return {};
+            AArch64LlvmImportBasicBlock block;
+            block.label = "0";
+            blocks.push_back(std::move(block));
+            current_block = &blocks.back();
         }
 
         std::string result_name;
@@ -295,6 +295,14 @@ bool parse_global_definition(AArch64LlvmImportModule &module,
         if (starts_with(remainder, "private ")) {
             is_internal_linkage = true;
             remainder = trim_copy(remainder.substr(8));
+            continue;
+        }
+        if (starts_with(remainder, "unnamed_addr ")) {
+            remainder = trim_copy(remainder.substr(13));
+            continue;
+        }
+        if (starts_with(remainder, "local_unnamed_addr ")) {
+            remainder = trim_copy(remainder.substr(19));
             continue;
         }
         break;
