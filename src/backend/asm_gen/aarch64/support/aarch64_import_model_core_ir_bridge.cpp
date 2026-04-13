@@ -617,8 +617,14 @@ class RestrictedLlvmIrImporter {
                 CoreIrFloatKind::Float128);
             break;
         case AArch64LlvmImportTypeKind::Integer:
-            lowered = context_->create_type<CoreIrIntegerType>(
-                type.integer_bit_width);
+            if (type.integer_bit_width == 128) {
+                const CoreIrType *i64_type =
+                    context_->create_type<CoreIrIntegerType>(64);
+                lowered = context_->create_type<CoreIrArrayType>(i64_type, 2);
+            } else {
+                lowered = context_->create_type<CoreIrIntegerType>(
+                    type.integer_bit_width);
+            }
             break;
         case AArch64LlvmImportTypeKind::Array: {
             if (type.element_types.size() != 1) {
@@ -633,6 +639,12 @@ class RestrictedLlvmIrImporter {
             break;
         }
         case AArch64LlvmImportTypeKind::Struct: {
+            if (type.element_types.size() == 1 &&
+                type.element_types.front().kind == AArch64LlvmImportTypeKind::Integer &&
+                type.element_types.front().integer_bit_width == 128) {
+                lowered = lower_import_type(type.element_types.front());
+                break;
+            }
             std::vector<const CoreIrType *> element_types;
             for (const AArch64LlvmImportType &element : type.element_types) {
                 const CoreIrType *element_type = lower_import_type(element);

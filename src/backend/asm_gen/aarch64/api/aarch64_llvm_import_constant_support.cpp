@@ -171,6 +171,61 @@ std::optional<std::string> canonicalize_float_literal_text(
 std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     const AArch64LlvmImportType &type, const std::string &text);
 
+std::optional<std::pair<std::uint64_t, std::uint64_t>>
+parse_integer_literal_words_128(const std::string &text) {
+    const std::string trimmed = llvm_import_trim_copy(text);
+    if (trimmed.empty()) {
+        return std::nullopt;
+    }
+
+    bool negative = false;
+    std::size_t position = 0;
+    if (trimmed[position] == '+' || trimmed[position] == '-') {
+        negative = trimmed[position] == '-';
+        ++position;
+    }
+    if (position >= trimmed.size()) {
+        return std::nullopt;
+    }
+
+    unsigned base = 10;
+    if (position + 1 < trimmed.size() && trimmed[position] == '0' &&
+        (trimmed[position + 1] == 'x' || trimmed[position + 1] == 'X')) {
+        base = 16;
+        position += 2;
+    }
+    if (position >= trimmed.size()) {
+        return std::nullopt;
+    }
+
+    unsigned __int128 magnitude = 0;
+    for (; position < trimmed.size(); ++position) {
+        const unsigned char ch = static_cast<unsigned char>(trimmed[position]);
+        unsigned digit = 0;
+        if (ch >= '0' && ch <= '9') {
+            digit = static_cast<unsigned>(ch - '0');
+        } else if (base == 16 && ch >= 'a' && ch <= 'f') {
+            digit = 10U + static_cast<unsigned>(ch - 'a');
+        } else if (base == 16 && ch >= 'A' && ch <= 'F') {
+            digit = 10U + static_cast<unsigned>(ch - 'A');
+        } else {
+            return std::nullopt;
+        }
+        if (digit >= base) {
+            return std::nullopt;
+        }
+        magnitude = magnitude * base + digit;
+    }
+
+    unsigned __int128 value = magnitude;
+    if (negative) {
+        value = (~magnitude) + 1;
+    }
+    return std::pair<std::uint64_t, std::uint64_t>{
+        static_cast<std::uint64_t>(value),
+        static_cast<std::uint64_t>(value >> 64U)};
+}
+
 std::optional<std::size_t> find_top_level_separator(const std::string &text,
                                                     const std::string &needle) {
     if (needle.empty() || text.size() < needle.size()) {
@@ -919,6 +974,23 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         }
         if (llvm_import_starts_with(trimmed, "ptrtoint ")) {
             return parse_ptrtoint_constant(type, trimmed);
+        }
+        if (type.integer_bit_width == 128) {
+            const auto words = parse_integer_literal_words_128(trimmed);
+            if (!words.has_value()) {
+                return std::nullopt;
+            }
+            AArch64LlvmImportConstant constant;
+            constant.kind = AArch64LlvmImportConstantKind::Aggregate;
+            AArch64LlvmImportConstant low;
+            low.kind = AArch64LlvmImportConstantKind::Integer;
+            low.integer_value = words->first;
+            constant.elements.push_back(low);
+            AArch64LlvmImportConstant high;
+            high.kind = AArch64LlvmImportConstantKind::Integer;
+            high.integer_value = words->second;
+            constant.elements.push_back(high);
+            return constant;
         }
         const auto value = llvm_import_parse_integer_literal(trimmed);
         if (!value.has_value()) {

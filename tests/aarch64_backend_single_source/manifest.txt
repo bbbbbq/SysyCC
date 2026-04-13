@@ -36,6 +36,7 @@ PASS|gnu11|SingleSource/Regression/C/2004-02-03-AggregateCopy.c|-|-
 PASS|gnu11|SingleSource/Regression/C/2008-01-07-LongDouble.c|-|-
 PASS|gnu11|SingleSource/Regression/C/2003-05-22-VarSizeArray.c|-|-
 PASS|gnu11|SingleSource/Regression/C/PR491.c|-|-
+PASS|gnu11|SingleSource/Regression/C/PR1386.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Stanford/Quicksort.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Stanford/Treesort.c|-|-
 PASS|gnu89|SingleSource/Regression/C/DuffsDevice.c|-|-
