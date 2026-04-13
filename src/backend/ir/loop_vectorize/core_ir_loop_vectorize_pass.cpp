@@ -2879,9 +2879,12 @@ bool interleave_runtime_mul_reduction_loop(
         pattern.reduction_phi->get_type(), "pair.red");
     pair_iv->add_incoming(pair_body_preheader_ptr, start_value);
     pair_red->add_incoming(pair_body_preheader_ptr, initial_scalar);
+    auto *pair_iv_plus_one = pair_body_ptr->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "pair.iv.plus.one", pair_iv, one32);
 
     std::unordered_map<const CoreIrValue *, CoreIrValue *> first_map;
     first_map.emplace(pattern.iv, pair_iv);
+    first_map.emplace(pattern.iv_next, pair_iv_plus_one);
     first_map.emplace(pattern.reduction_phi, pair_red);
     for (CoreIrInstruction *instruction : pattern.body_instructions) {
         std::unique_ptr<CoreIrInstruction> clone =
@@ -2898,10 +2901,11 @@ bool interleave_runtime_mul_reduction_loop(
         return false;
     }
     CoreIrValue *first_red_value = first_red_it->second;
-    auto *pair_iv_plus_one = pair_body_ptr->create_instruction<CoreIrBinaryInst>(
-        CoreIrBinaryOpcode::Add, i32_type, "pair.iv.plus.one", pair_iv, one32);
+    auto *pair_iv_next = pair_body_ptr->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "pair.iv.next", pair_iv, two32);
     std::unordered_map<const CoreIrValue *, CoreIrValue *> second_map;
     second_map.emplace(pattern.iv, pair_iv_plus_one);
+    second_map.emplace(pattern.iv_next, pair_iv_next);
     second_map.emplace(pattern.reduction_phi, first_red_value);
     for (CoreIrInstruction *instruction : pattern.body_instructions) {
         std::unique_ptr<CoreIrInstruction> clone =
@@ -2918,8 +2922,6 @@ bool interleave_runtime_mul_reduction_loop(
         return false;
     }
     CoreIrValue *second_red_value = second_red_it->second;
-    auto *pair_iv_next = pair_body_ptr->create_instruction<CoreIrBinaryInst>(
-        CoreIrBinaryOpcode::Add, i32_type, "pair.iv.next", pair_iv, two32);
     auto *pair_cmp = pair_body_ptr->create_instruction<CoreIrCompareInst>(
         pattern.compare->get_predicate(), i1_type, "pair.cmp", pair_iv_next,
         pair_end_value);

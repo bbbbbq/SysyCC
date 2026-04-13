@@ -26,6 +26,14 @@ namespace sysycc {
 
 namespace {
 
+bool parameter_can_emit_readonly_attr(const CoreIrType *type) {
+    const auto *pointer_type = dynamic_cast<const CoreIrPointerType *>(type);
+    if (pointer_type == nullptr || pointer_type->get_pointee_type() == nullptr) {
+        return false;
+    }
+    return pointer_type->get_pointee_type()->get_kind() != CoreIrTypeKind::Function;
+}
+
 std::string get_default_target_triple() {
 #if defined(__APPLE__) && defined(__aarch64__)
     return "arm64-apple-macosx15.0.0";
@@ -1249,6 +1257,7 @@ bool CoreIrLlvmTargetBackend::append_function(
         const auto &parameter_types =
             function.get_function_type()->get_parameter_types();
         const auto &parameter_nocapture = function.get_parameter_nocapture();
+        const auto &parameter_readonly = function.get_parameter_readonly();
         for (std::size_t index = 0; index < parameter_types.size(); ++index) {
             if (index > 0) {
                 text += ", ";
@@ -1256,6 +1265,10 @@ bool CoreIrLlvmTargetBackend::append_function(
             text += format_type(parameter_types[index]);
             if (index < parameter_nocapture.size() && parameter_nocapture[index]) {
                 text += " nocapture";
+            }
+            if (index < parameter_readonly.size() && parameter_readonly[index] &&
+                parameter_can_emit_readonly_attr(parameter_types[index])) {
+                text += " readonly";
             }
         }
         if (function.get_is_variadic()) {
@@ -1278,6 +1291,7 @@ bool CoreIrLlvmTargetBackend::append_function(
     text += "(";
     const auto &parameters = function.get_parameters();
     const auto &parameter_nocapture = function.get_parameter_nocapture();
+    const auto &parameter_readonly = function.get_parameter_readonly();
     for (std::size_t index = 0; index < parameters.size(); ++index) {
         if (index > 0) {
             text += ", ";
@@ -1286,7 +1300,8 @@ bool CoreIrLlvmTargetBackend::append_function(
         if (index < parameter_nocapture.size() && parameter_nocapture[index]) {
             text += " nocapture";
         }
-        if (index < 2 && function.get_is_readonly()) {
+        if (index < parameter_readonly.size() && parameter_readonly[index] &&
+            parameter_can_emit_readonly_attr(parameters[index]->get_type())) {
             text += " readonly";
         }
         text += " %";
