@@ -310,6 +310,82 @@ void test_if_converts_same_address_store_diamond() {
     assert(saw_select);
 }
 
+void test_if_converts_same_store_triangle() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>(
+        "ir_core_if_conversion_store_triangle");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *slot = function->create_stack_slot<CoreIrStackSlot>("slot", i32_type, 4);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *side = function->create_basic_block<CoreIrBasicBlock>("side");
+    auto *merge = function->create_basic_block<CoreIrBasicBlock>("merge");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *two = context->create_constant<CoreIrConstantInt>(i32_type, 2);
+    auto *three = context->create_constant<CoreIrConstantInt>(i32_type, 3);
+
+    entry->create_instruction<CoreIrStoreInst>(void_type, zero, slot);
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *iv = header->create_instruction<CoreIrPhiInst>(i32_type, "iv");
+    auto *header_cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "header.cmp", iv, three);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, header_cmp, body,
+                                                   exit);
+    auto *body_cmp = body->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "body.cmp", iv, two);
+    body->create_instruction<CoreIrCondJumpInst>(void_type, body_cmp, merge,
+                                                 side);
+    auto *acc_load =
+        side->create_instruction<CoreIrLoadInst>(i32_type, "acc.load", slot);
+    auto *step = side->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "step", iv, one);
+    auto *updated = side->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "updated", acc_load, step);
+    side->create_instruction<CoreIrStoreInst>(void_type, updated, slot);
+    side->create_instruction<CoreIrJumpInst>(void_type, merge);
+    auto *next = merge->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "next", iv, one);
+    merge->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *exit_load =
+        exit->create_instruction<CoreIrLoadInst>(i32_type, "exit.load", slot);
+    exit->create_instruction<CoreIrReturnInst>(void_type, exit_load);
+
+    iv->add_incoming(entry, zero);
+    iv->add_incoming(merge, next);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrIfConversionPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    auto *body_jump =
+        dynamic_cast<CoreIrJumpInst *>(body->get_instructions().back().get());
+    assert(body_jump != nullptr);
+    assert(body_jump->get_target_block() == merge);
+
+    std::size_t store_count = 0;
+    bool saw_select = false;
+    for (const auto &instruction_ptr : body->get_instructions()) {
+        if (dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get()) != nullptr) {
+            ++store_count;
+        }
+        if (dynamic_cast<CoreIrSelectInst *>(instruction_ptr.get()) != nullptr) {
+            saw_select = true;
+        }
+    }
+    assert(store_count == 1);
+    assert(saw_select);
+}
+
 void test_if_converts_short_circuit_bool() {
     auto context = std::make_unique<CoreIrContext>();
     auto *void_type = context->create_type<CoreIrVoidType>();
@@ -387,6 +463,7 @@ int main() {
     test_if_converts_triangle_merge();
     test_rejects_effectful_diamond();
     test_if_converts_same_address_store_diamond();
+    test_if_converts_same_store_triangle();
     test_if_converts_short_circuit_bool();
     return 0;
 }

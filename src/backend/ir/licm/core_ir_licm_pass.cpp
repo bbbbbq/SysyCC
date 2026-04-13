@@ -101,6 +101,18 @@ bool instruction_operands_are_loop_invariant(
     return true;
 }
 
+bool instruction_operands_available_before_loop(
+    const CoreIrInstruction &instruction, const CoreIrLoopInfo &loop) {
+    for (CoreIrValue *operand : instruction.get_operands()) {
+        auto *operand_instruction = dynamic_cast<CoreIrInstruction *>(operand);
+        if (operand_instruction != nullptr &&
+            loop_contains_block(loop, operand_instruction->get_parent())) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool block_is_must_execute_in_loop(
     const CoreIrBasicBlock *block, const CoreIrLoopInfo &loop,
     const CoreIrDominatorTreeAnalysisResult &dominator_tree) {
@@ -578,7 +590,8 @@ bool is_safe_to_hoist(const CoreIrInstruction &instruction,
         return false;
     }
     return instruction_operands_are_loop_invariant(instruction, loop, module,
-                                                   analysis_manager);
+                                                   analysis_manager) &&
+           instruction_operands_available_before_loop(instruction, loop);
 }
 
 bool instruction_is_hoistable(
@@ -609,6 +622,7 @@ bool instruction_can_hoist_to_non_dedicated_predecessor(
     }
     return instruction_is_speculatively_safe_address_materialization(
                instruction) &&
+           instruction_operands_available_before_loop(instruction, loop) &&
            instruction_operands_are_loop_invariant(instruction, loop, module,
                                                    analysis_manager);
 }

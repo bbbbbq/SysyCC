@@ -223,6 +223,25 @@ bool loop_has_external_value_use(const CoreIrLoopInfo &loop) {
     return false;
 }
 
+bool function_has_small_integer_array_stackslot(const CoreIrFunction &function) {
+    for (const auto &stack_slot_ptr : function.get_stack_slots()) {
+        const CoreIrStackSlot *stack_slot = stack_slot_ptr.get();
+        if (stack_slot == nullptr) {
+            continue;
+        }
+        const auto *array_type =
+            dynamic_cast<const CoreIrArrayType *>(stack_slot->get_allocated_type());
+        if (array_type == nullptr || array_type->get_element_count() > 256) {
+            continue;
+        }
+        if (dynamic_cast<const CoreIrIntegerType *>(array_type->get_element_type()) !=
+            nullptr) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool is_safe_address_user(CoreIrInstruction &user, std::size_t operand_index) {
     if (auto *load = dynamic_cast<CoreIrLoadInst *>(&user); load != nullptr) {
         return operand_index == 0 && load->get_address() != nullptr;
@@ -989,6 +1008,10 @@ PassResult CoreIrSimpleLoopUnswitchPass::Run(CompilerContext &context) {
     CoreIrPassEffects effects;
     std::size_t preheader_counter = 0;
     for (const auto &function : module->get_functions()) {
+        if (function == nullptr ||
+            function_has_small_integer_array_stackslot(*function)) {
+            continue;
+        }
         const CoreIrCfgAnalysisResult &cfg =
             analysis_manager->get_or_compute<CoreIrCfgAnalysis>(*function);
         const CoreIrLoopInfoAnalysisResult &loop_info =

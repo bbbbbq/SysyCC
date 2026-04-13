@@ -112,7 +112,8 @@ std::unique_ptr<CoreIrInstruction> clone_instruction_remapped(
         const auto &reduce =
             static_cast<const CoreIrVectorReduceAddInst &>(instruction);
         auto clone = std::make_unique<CoreIrVectorReduceAddInst>(
-            reduce.get_type(), reduce.get_name(), remap(reduce.get_vector_value()));
+            reduce.get_type(), reduce.get_name(), remap(reduce.get_vector_value()),
+            remap(reduce.get_start_value()));
         clone->set_source_span(reduce.get_source_span());
         return clone;
     }

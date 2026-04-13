@@ -25,12 +25,15 @@ class CoreIrLlvmTargetBackend final : public CoreIrTargetBackend {
     std::size_t helper_id_ = 0;
     std::size_t next_value_id_ = 0;
     std::unordered_map<const CoreIrValue *, std::string> emitted_value_names_;
+    std::unordered_map<const CoreIrBasicBlock *, std::string> emitted_block_names_;
     std::unordered_map<const CoreIrStackSlot *, std::string> emitted_stack_slot_names_;
+    std::unordered_set<std::string> used_block_names_;
     std::unordered_set<std::string> used_stack_slot_names_;
 
     std::string next_helper_name(const std::string &prefix);
     std::string next_value_name();
     std::string get_emitted_value_name(const CoreIrValue *value);
+    std::string get_emitted_block_name(const CoreIrBasicBlock *block);
     std::string get_emitted_stack_slot_name(const CoreIrStackSlot *stack_slot);
     std::string format_type(const CoreIrType *type) const;
     std::string format_constant(const CoreIrConstant *constant) const;

@@ -87,6 +87,7 @@ int main() {
     {
         auto context = std::make_unique<CoreIrContext>();
         auto *void_type = context->create_type<CoreIrVoidType>();
+        auto *i1_type = context->create_type<CoreIrIntegerType>(1);
         auto *i32_type = context->create_type<CoreIrIntegerType>(32);
         auto *noarg_i32 = context->create_type<CoreIrFunctionType>(
             i32_type, std::vector<const CoreIrType *>{}, false);
@@ -102,11 +103,22 @@ int main() {
         inline_entry->create_instruction<CoreIrReturnInst>(void_type, inline_sum);
 
         auto *skip_fn =
-            module->create_function<CoreIrFunction>("skip_me", noarg_i32, true);
+            module->create_function<CoreIrFunction>("skip_me", noarg_i32, false);
         auto *skip_entry = skip_fn->create_basic_block<CoreIrBasicBlock>("entry");
-        auto *skip_exit = skip_fn->create_basic_block<CoreIrBasicBlock>("exit");
-        skip_entry->create_instruction<CoreIrJumpInst>(void_type, skip_exit);
-        skip_exit->create_instruction<CoreIrReturnInst>(void_type, one);
+        auto *skip_then = skip_fn->create_basic_block<CoreIrBasicBlock>("then");
+        auto *skip_else = skip_fn->create_basic_block<CoreIrBasicBlock>("else");
+        auto *skip_merge = skip_fn->create_basic_block<CoreIrBasicBlock>("merge");
+        auto *skip_cond = skip_entry->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::Equal, i1_type, "skip.cond", one, two);
+        skip_entry->create_instruction<CoreIrCondJumpInst>(void_type, skip_cond, skip_then,
+                                                           skip_else);
+        skip_then->create_instruction<CoreIrJumpInst>(void_type, skip_merge);
+        skip_else->create_instruction<CoreIrJumpInst>(void_type, skip_merge);
+        auto *skip_value =
+            skip_merge->create_instruction<CoreIrPhiInst>(i32_type, "skip.value");
+        skip_value->add_incoming(skip_then, one);
+        skip_value->add_incoming(skip_else, two);
+        skip_merge->create_instruction<CoreIrReturnInst>(void_type, skip_value);
 
         auto *main_fn = module->create_function<CoreIrFunction>("main", noarg_i32, false);
         auto *main_entry = main_fn->create_basic_block<CoreIrBasicBlock>("entry");
@@ -125,8 +137,11 @@ int main() {
         CoreIrRawPrinter printer;
         const std::string text = printer.print_module(*module);
         assert(text.find("call i32 @inline_me") == std::string::npos);
-        assert(text.find("call i32 @skip_me") != std::string::npos);
+        assert(text.find("call i32 @skip_me") == std::string::npos);
         assert(text.find("%inline.sum = add i32 1, 2") != std::string::npos);
+        assert(text.find("skip_me.inline.") != std::string::npos);
+        assert(text.find("phi i32") != std::string::npos);
+        assert(text.find("func @skip_me() -> i32 {") != std::string::npos);
     }
 
     {
@@ -166,19 +181,34 @@ int main() {
     {
         auto context = std::make_unique<CoreIrContext>();
         auto *void_type = context->create_type<CoreIrVoidType>();
+        auto *i1_type = context->create_type<CoreIrIntegerType>(1);
         auto *i32_type = context->create_type<CoreIrIntegerType>(32);
         auto *i32_ptr_type = context->create_type<CoreIrPointerType>(i32_type);
         auto *callee_type = context->create_type<CoreIrFunctionType>(
-            i32_type, std::vector<const CoreIrType *>{i32_ptr_type}, false);
+            i32_type, std::vector<const CoreIrType *>{i32_ptr_type, i1_type}, false);
         auto *module = context->create_module<CoreIrModule>("argprom");
 
         auto *callee =
             module->create_function<CoreIrFunction>("id_load", callee_type, true);
         auto *param = callee->create_parameter<CoreIrParameter>(i32_ptr_type, "p");
+        auto *cond = callee->create_parameter<CoreIrParameter>(i1_type, "cond");
         auto *callee_entry = callee->create_basic_block<CoreIrBasicBlock>("entry");
-        auto *loaded =
-            callee_entry->create_instruction<CoreIrLoadInst>(i32_type, "loaded", param);
-        callee_entry->create_instruction<CoreIrReturnInst>(void_type, loaded);
+        auto *callee_then = callee->create_basic_block<CoreIrBasicBlock>("then");
+        auto *callee_else = callee->create_basic_block<CoreIrBasicBlock>("else");
+        auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+        auto *two = context->create_constant<CoreIrConstantInt>(i32_type, 2);
+        callee_entry->create_instruction<CoreIrCondJumpInst>(void_type, cond, callee_then,
+                                                             callee_else);
+        auto *then_loaded =
+            callee_then->create_instruction<CoreIrLoadInst>(i32_type, "then.loaded", param);
+        auto *then_sum = callee_then->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type, "then.sum", then_loaded, one);
+        callee_then->create_instruction<CoreIrReturnInst>(void_type, then_sum);
+        auto *else_loaded =
+            callee_else->create_instruction<CoreIrLoadInst>(i32_type, "else.loaded", param);
+        auto *else_sum = callee_else->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type, "else.sum", else_loaded, two);
+        callee_else->create_instruction<CoreIrReturnInst>(void_type, else_sum);
 
         auto *main_type = context->create_type<CoreIrFunctionType>(
             i32_type, std::vector<const CoreIrType *>{}, false);
@@ -189,16 +219,19 @@ int main() {
         main_entry->create_instruction<CoreIrStoreInst>(void_type, seven, slot);
         auto *addr = main_entry->create_instruction<CoreIrAddressOfStackSlotInst>(
             i32_ptr_type, "value.addr", slot);
+        auto *true_value = context->create_constant<CoreIrConstantInt>(i1_type, 1);
         auto *call = main_entry->create_instruction<CoreIrCallInst>(
-            i32_type, "call", "id_load", callee_type, std::vector<CoreIrValue *>{addr});
+            i32_type, "call", "id_load", callee_type,
+            std::vector<CoreIrValue *>{addr, true_value});
         main_entry->create_instruction<CoreIrReturnInst>(void_type, call);
 
         CompilerContext compiler_context = make_context(std::move(context), module);
         CoreIrArgumentPromotionPass pass;
         assert(pass.Run(compiler_context).ok);
 
-        assert(callee->get_parameters().size() == 1);
+        assert(callee->get_parameters().size() == 2);
         assert(callee->get_parameters()[0]->get_type() == i32_ptr_type);
+        assert(callee->get_parameters()[1]->get_type() == i1_type);
 
         CoreIrFunction *promoted = nullptr;
         for (const auto &function_ptr : module->get_functions()) {
@@ -209,8 +242,9 @@ int main() {
             }
         }
         assert(promoted != nullptr);
-        assert(promoted->get_parameters().size() == 1);
+        assert(promoted->get_parameters().size() == 2);
         assert(promoted->get_parameters()[0]->get_type() == i32_type);
+        assert(promoted->get_parameters()[1]->get_type() == i1_type);
 
         bool saw_promoted_load = false;
         bool saw_promoted_call = false;
@@ -226,18 +260,24 @@ int main() {
                 call_inst != nullptr &&
                 call_inst->get_callee_name() == promoted->get_name()) {
                 saw_promoted_call = true;
-                assert(call_inst->get_argument_count() == 1);
+                assert(call_inst->get_argument_count() == 2);
                 assert(call_inst->get_argument(0) != nullptr);
                 assert(call_inst->get_argument(0)->get_type() == i32_type);
+                assert(call_inst->get_argument(1) == true_value);
             }
         }
         assert(saw_promoted_load);
         assert(saw_promoted_call);
 
-        for (const auto &instruction_ptr : promoted->get_basic_blocks().front()->get_instructions()) {
-            auto *load = dynamic_cast<CoreIrLoadInst *>(instruction_ptr.get());
-            assert(load == nullptr ||
-                   load->get_address() != promoted->get_parameters()[0].get());
+        for (const auto &block_ptr : promoted->get_basic_blocks()) {
+            if (block_ptr == nullptr) {
+                continue;
+            }
+            for (const auto &instruction_ptr : block_ptr->get_instructions()) {
+                auto *load = dynamic_cast<CoreIrLoadInst *>(instruction_ptr.get());
+                assert(load == nullptr ||
+                       load->get_address() != promoted->get_parameters()[0].get());
+            }
         }
     }
 

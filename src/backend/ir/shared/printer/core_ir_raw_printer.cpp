@@ -396,9 +396,15 @@ std::string CoreIrRawPrinter::format_instruction(
     case CoreIrOpcode::VectorReduceAdd: {
         const auto &reduce_instruction =
             static_cast<const CoreIrVectorReduceAddInst &>(instruction);
-        return format_value(&reduce_instruction) + " = vector_reduce_add " +
-               format_type(reduce_instruction.get_vector_value()->get_type()) +
-               " " + format_value(reduce_instruction.get_vector_value());
+        std::string text =
+            format_value(&reduce_instruction) + " = vector_reduce_add ";
+        if (reduce_instruction.get_start_value() != nullptr) {
+            text += format_type(reduce_instruction.get_start_value()->get_type()) + " " +
+                    format_value(reduce_instruction.get_start_value()) + ", ";
+        }
+        text += format_type(reduce_instruction.get_vector_value()->get_type()) + " " +
+                format_value(reduce_instruction.get_vector_value());
+        return text;
     }
     case CoreIrOpcode::Cast: {
         const auto &cast_instruction =

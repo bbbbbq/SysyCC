@@ -454,14 +454,22 @@ class CoreIrShuffleVectorInst final : public CoreIrInstruction {
 class CoreIrVectorReduceAddInst final : public CoreIrInstruction {
   public:
     CoreIrVectorReduceAddInst(const CoreIrType *type, std::string name,
-                              CoreIrValue *vector_value)
+                              CoreIrValue *vector_value,
+                              CoreIrValue *start_value = nullptr)
         : CoreIrInstruction(CoreIrOpcode::VectorReduceAdd, type,
                             std::move(name)) {
         append_operand(vector_value);
+        if (start_value != nullptr) {
+            append_operand(start_value);
+        }
     }
 
     CoreIrValue *get_vector_value() const noexcept {
         return get_operands().empty() ? nullptr : get_operands()[0];
+    }
+
+    CoreIrValue *get_start_value() const noexcept {
+        return get_operands().size() > 1 ? get_operands()[1] : nullptr;
     }
 
     bool get_has_side_effect() const noexcept override { return false; }

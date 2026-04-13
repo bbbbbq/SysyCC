@@ -322,6 +322,39 @@ bool unit_is_definitely_defined_on_all_paths(
         }
     }
 
+    std::unordered_map<const CoreIrBasicBlock *, bool> live_in;
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
+            continue;
+        }
+        live_in.emplace(block.get(), block_summaries[block.get()].has_use_before_def);
+    }
+
+    changed = true;
+    while (changed) {
+        changed = false;
+        for (const auto &block : function.get_basic_blocks()) {
+            if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
+                continue;
+            }
+            const BlockSummary &summary = block_summaries[block.get()];
+            bool next_live_in = summary.has_use_before_def;
+            if (!next_live_in && !summary.has_def) {
+                for (CoreIrBasicBlock *successor :
+                     cfg_analysis.get_successors(block.get())) {
+                    if (successor != nullptr && live_in[successor]) {
+                        next_live_in = true;
+                        break;
+                    }
+                }
+            }
+            if (live_in[block.get()] != next_live_in) {
+                live_in[block.get()] = next_live_in;
+                changed = true;
+            }
+        }
+    }
+
     CoreIrDominatorTreeAnalysis dominator_tree_runner;
     const CoreIrDominatorTreeAnalysisResult dominator_tree =
         dominator_tree_runner.Run(function, cfg_analysis);
@@ -341,7 +374,7 @@ bool unit_is_definitely_defined_on_all_paths(
         }
         for (CoreIrBasicBlock *frontier_block :
              dominance_frontier.get_frontier(block)) {
-            if (frontier_block == nullptr) {
+            if (frontier_block == nullptr || !live_in[frontier_block]) {
                 continue;
             }
             for (CoreIrBasicBlock *predecessor :

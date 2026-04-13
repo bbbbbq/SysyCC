@@ -53,6 +53,13 @@ int main() {
                                                          true, false);
     auto *global_y = module->create_global<CoreIrGlobal>("y", i32_type, nullptr,
                                                          true, false);
+    auto *global_z = module->create_global<CoreIrGlobal>("z", i32_type, nullptr,
+                                                         true, false);
+    auto *global_matrix = module->create_global<CoreIrGlobal>(
+        "matrix",
+        context->create_type<CoreIrArrayType>(
+            context->create_type<CoreIrArrayType>(i32_type, 8), 8),
+        nullptr, true, false);
 
     auto *reuse_function = module->create_function<CoreIrFunction>(
         "reuse_live_on_entry", function_type_with_ptr, false);
@@ -128,6 +135,70 @@ int main() {
     loop_iv->add_incoming(loop_entry, zero);
     loop_iv->add_incoming(loop_body, loop_next);
 
+    auto *addr_function = module->create_function<CoreIrFunction>(
+        "reuse_global_address_across_domination", function_type, false);
+    auto *addr_entry =
+        addr_function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *addr_child =
+        addr_function->create_basic_block<CoreIrBasicBlock>("child");
+    auto *global_z_addr0 =
+        addr_entry->create_instruction<CoreIrAddressOfGlobalInst>(
+            ptr_i32_type, "z.addr.0", global_z);
+    addr_entry->create_instruction<CoreIrJumpInst>(void_type, addr_child);
+    auto *global_z_addr1 =
+        addr_child->create_instruction<CoreIrAddressOfGlobalInst>(
+            ptr_i32_type, "z.addr.1", global_z);
+    auto *z_load = addr_child->create_instruction<CoreIrLoadInst>(
+        i32_type, "z.load", global_z_addr1);
+    addr_child->create_instruction<CoreIrReturnInst>(void_type, z_load);
+
+    auto *gep_function = module->create_function<CoreIrFunction>(
+        "reuse_structural_gep_load_after_noalias_store", function_type, false);
+    auto *gep_entry = gep_function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *ptr_matrix_type =
+        context->create_type<CoreIrPointerType>(global_matrix->get_type());
+    auto *ptr_row_type = context->create_type<CoreIrPointerType>(
+        static_cast<const CoreIrArrayType *>(global_matrix->get_type())->get_element_type());
+    auto *row_slot = gep_function->create_stack_slot<CoreIrStackSlot>(
+        "row", i32_type, 4);
+    auto *col_slot = gep_function->create_stack_slot<CoreIrStackSlot>(
+        "col", i32_type, 4);
+    auto *three = context->create_constant<CoreIrConstantInt>(i32_type, 3);
+    auto *five = context->create_constant<CoreIrConstantInt>(i32_type, 5);
+    auto *seven_matrix =
+        context->create_constant<CoreIrConstantInt>(i32_type, 7);
+    gep_entry->create_instruction<CoreIrStoreInst>(void_type, three, row_slot);
+    gep_entry->create_instruction<CoreIrStoreInst>(void_type, five, col_slot);
+    auto *row_idx = gep_entry->create_instruction<CoreIrLoadInst>(
+        i32_type, "row.idx", row_slot);
+    auto *col_idx = gep_entry->create_instruction<CoreIrLoadInst>(
+        i32_type, "col.idx", col_slot);
+    auto *matrix_addr0 = gep_entry->create_instruction<CoreIrAddressOfGlobalInst>(
+        ptr_matrix_type, "matrix.addr.0", global_matrix);
+    auto *first_gep = gep_entry->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_row_type, "row.ptr.0", matrix_addr0,
+        std::vector<CoreIrValue *>{zero, row_idx});
+    auto *first_cell = gep_entry->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_i32_type, "cell.ptr.0", first_gep,
+        std::vector<CoreIrValue *>{zero, col_idx});
+    auto *first_matrix_load = gep_entry->create_instruction<CoreIrLoadInst>(
+        i32_type, "matrix.load.0", first_cell);
+    auto *scratch_slot = gep_function->create_stack_slot<CoreIrStackSlot>(
+        "scratch", i32_type, 4);
+    gep_entry->create_instruction<CoreIrStoreInst>(void_type, seven_matrix,
+                                                   scratch_slot);
+    auto *matrix_addr1 = gep_entry->create_instruction<CoreIrAddressOfGlobalInst>(
+        ptr_matrix_type, "matrix.addr.1", global_matrix);
+    auto *second_gep = gep_entry->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_i32_type, "cell.ptr.1", matrix_addr1,
+        std::vector<CoreIrValue *>{zero, row_idx, col_idx});
+    auto *second_matrix_load = gep_entry->create_instruction<CoreIrLoadInst>(
+        i32_type, "matrix.load.1", second_gep);
+    auto *matrix_sum = gep_entry->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "matrix.sum", first_matrix_load,
+        second_matrix_load);
+    gep_entry->create_instruction<CoreIrReturnInst>(void_type, matrix_sum);
+
     CompilerContext compiler_context;
     compiler_context.set_core_ir_build_result(
         std::make_unique<CoreIrBuildResult>(std::move(context), module));
@@ -141,14 +212,23 @@ int main() {
     const std::size_t forward_offset = text.find("func @forward_from_store");
     const std::size_t loop_offset =
         text.find("func @reuse_across_noalias_loop_phi");
+    const std::size_t addr_offset =
+        text.find("func @reuse_global_address_across_domination");
+    const std::size_t structural_offset =
+        text.find("func @reuse_structural_gep_load_after_noalias_store");
     assert(reuse_offset != std::string::npos);
     assert(forward_offset != std::string::npos);
     assert(loop_offset != std::string::npos);
+    assert(addr_offset != std::string::npos);
+    assert(structural_offset != std::string::npos);
     const std::string reuse_text =
         text.substr(reuse_offset, forward_offset - reuse_offset);
     const std::string forward_text =
         text.substr(forward_offset, loop_offset - forward_offset);
-    const std::string loop_text = text.substr(loop_offset);
+    const std::string loop_text = text.substr(loop_offset, addr_offset - loop_offset);
+    const std::string addr_text =
+        text.substr(addr_offset, structural_offset - addr_offset);
+    const std::string structural_text = text.substr(structural_offset);
 
     assert(reuse_text.find("%live1 = load i32") == std::string::npos);
     assert(count_occurrences(reuse_text, "load i32") == 1);
@@ -161,6 +241,14 @@ int main() {
     assert(loop_text.find("%exit.load = load i32") == std::string::npos);
     assert(count_occurrences(loop_text, "load i32, %x.addr") == 1);
     assert(loop_text.find("%loop.sum = add i32 %head.load, %head.load") !=
+           std::string::npos);
+
+    assert(addr_text.find("%z.addr.1 = addr_of_global") == std::string::npos);
+    assert(addr_text.find("load i32, %z.addr.0") != std::string::npos);
+
+    assert(structural_text.find("%matrix.load.1 = load i32") == std::string::npos);
+    assert(structural_text.find("store i32 7, %scratch") != std::string::npos);
+    assert(structural_text.find("%matrix.sum = add i32 %matrix.load.0, %matrix.load.0") !=
            std::string::npos);
     return 0;
 }

@@ -27,6 +27,7 @@ using sysycc::detail::clone_instruction_remapped;
 constexpr std::size_t kInlineBudget = 160;
 constexpr std::size_t kAlwaysInlineBudget = 192;
 constexpr std::size_t kPointerLoopInlineBudget = 16;
+constexpr std::size_t kHotPointerLoopInlineBudget = 160;
 constexpr std::size_t kLoopifiedScalarHotLoopInlineBudget = 32;
 
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
@@ -44,6 +45,10 @@ bool instruction_is_inline_supported(const CoreIrInstruction &instruction) {
     case CoreIrOpcode::Compare:
     case CoreIrOpcode::Select:
     case CoreIrOpcode::Cast:
+    case CoreIrOpcode::ExtractElement:
+    case CoreIrOpcode::InsertElement:
+    case CoreIrOpcode::ShuffleVector:
+    case CoreIrOpcode::VectorReduceAdd:
     case CoreIrOpcode::AddressOfStackSlot:
     case CoreIrOpcode::AddressOfFunction:
     case CoreIrOpcode::AddressOfGlobal:
@@ -104,6 +109,68 @@ bool callee_has_cfg_backedge(const CoreIrFunction &callee) {
              collect_terminator_successors(terminator)) {
             auto it = block_order.find(successor);
             if (it != block_order.end() && it->second <= index) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool type_is_or_contains_float(const CoreIrType *type) {
+    if (type == nullptr) {
+        return false;
+    }
+    if (type->get_kind() == CoreIrTypeKind::Float) {
+        return true;
+    }
+    const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
+    return vector_type != nullptr &&
+           type_is_or_contains_float(vector_type->get_element_type());
+}
+
+bool callee_has_floating_point_work(const CoreIrFunction &callee) {
+    if (type_is_or_contains_float(
+            callee.get_function_type() == nullptr
+                ? nullptr
+                : callee.get_function_type()->get_return_type())) {
+        return true;
+    }
+    for (const auto &parameter_ptr : callee.get_parameters()) {
+        if (parameter_ptr != nullptr &&
+            type_is_or_contains_float(parameter_ptr->get_type())) {
+            return true;
+        }
+    }
+    for (const auto &block_ptr : callee.get_basic_blocks()) {
+        if (block_ptr == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block_ptr->get_instructions()) {
+            const CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction != nullptr &&
+                type_is_or_contains_float(instruction->get_type())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool callee_has_vector_work(const CoreIrFunction &callee) {
+    for (const auto &block_ptr : callee.get_basic_blocks()) {
+        if (block_ptr == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block_ptr->get_instructions()) {
+            const CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr || instruction->get_type() == nullptr) {
+                continue;
+            }
+            if (instruction->get_type()->get_kind() == CoreIrTypeKind::Vector ||
+                instruction->get_opcode() == CoreIrOpcode::ExtractElement ||
+                instruction->get_opcode() == CoreIrOpcode::InsertElement ||
+                instruction->get_opcode() == CoreIrOpcode::ShuffleVector ||
+                instruction->get_opcode() == CoreIrOpcode::VectorReduceAdd) {
                 return true;
             }
         }
@@ -174,6 +241,28 @@ bool rewrite_phi_predecessor(CoreIrBasicBlock *successor,
     return true;
 }
 
+std::string make_unique_block_name(const CoreIrFunction &function,
+                                   const std::string &base_name) {
+    auto is_used = [&function](const std::string &name) {
+        for (const auto &block_ptr : function.get_basic_blocks()) {
+            if (block_ptr != nullptr && block_ptr->get_name() == name) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (!is_used(base_name)) {
+        return base_name;
+    }
+    for (std::size_t suffix = 1;; ++suffix) {
+        std::string candidate = base_name + "." + std::to_string(suffix);
+        if (!is_used(candidate)) {
+            return candidate;
+        }
+    }
+}
+
 bool callee_is_inline_candidate(CoreIrFunction &callee,
                                 const CoreIrCallGraphAnalysisResult &call_graph,
                                 bool callsite_in_loop) {
@@ -190,7 +279,16 @@ bool callee_is_inline_candidate(CoreIrFunction &callee,
     }
     if (!callee.get_is_always_inline() && callee_has_pointer_parameter(callee) &&
         callee_has_cfg_backedge(callee) &&
-        inline_cost > kPointerLoopInlineBudget) {
+        !callee_has_vector_work(callee) &&
+        inline_cost >
+            (callsite_in_loop ? kHotPointerLoopInlineBudget
+                              : kPointerLoopInlineBudget)) {
+        return false;
+    }
+    if (!callee.get_is_always_inline() && callee_has_pointer_parameter(callee) &&
+        callee_has_cfg_backedge(callee) &&
+        callee_has_floating_point_work(callee) &&
+        !callee_has_vector_work(callee)) {
         return false;
     }
     if (!callee.get_is_always_inline() && !callee_has_pointer_parameter(callee) &&
@@ -260,10 +358,13 @@ bool inline_direct_call(CoreIrCallInst &call, CoreIrFunction &callee,
         return false;
     }
 
-    auto continuation = std::make_unique<CoreIrBasicBlock>(
+    const std::string continuation_name = make_unique_block_name(
+        *caller_function,
         call.get_name().empty() ? callee.get_name() + ".inline.cont." +
                                       std::to_string(inline_site_id)
                                 : call.get_name() + ".inline.cont");
+    auto continuation =
+        std::make_unique<CoreIrBasicBlock>(continuation_name);
     CoreIrBasicBlock *continuation_block =
         caller_function->append_basic_block(std::move(continuation));
     if (continuation_block == nullptr) {
@@ -329,9 +430,10 @@ bool inline_direct_call(CoreIrCallInst &call, CoreIrFunction &callee,
         if (original_block == nullptr) {
             continue;
         }
-        std::string block_name = callee.get_name() + ".inline." +
-                                 std::to_string(inline_site_id) + "." +
-                                 original_block->get_name();
+        std::string block_name = make_unique_block_name(
+            *caller_function, callee.get_name() + ".inline." +
+                                  std::to_string(inline_site_id) + "." +
+                                  original_block->get_name());
         CoreIrBasicBlock *cloned_block = caller_function->append_basic_block(
             std::make_unique<CoreIrBasicBlock>(std::move(block_name)));
         if (cloned_block == nullptr) {

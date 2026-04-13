@@ -125,10 +125,47 @@ void test_eliminates_structurally_equivalent_nested_geps() {
     assert(text.find("store i32 7, %nested.elem") != std::string::npos);
 }
 
+void test_eliminates_duplicate_global_addresses_in_block() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *ptr_i32_type = context->create_type<CoreIrPointerType>(i32_type);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>(
+        "ir_core_local_cse_global_addr");
+    auto *global =
+        module->create_global<CoreIrGlobal>("g", i32_type, nullptr, true, false);
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+
+    auto *addr0 = entry->create_instruction<CoreIrAddressOfGlobalInst>(
+        ptr_i32_type, "addr0", global);
+    auto *addr1 = entry->create_instruction<CoreIrAddressOfGlobalInst>(
+        ptr_i32_type, "addr1", global);
+    entry->create_instruction<CoreIrStoreInst>(void_type, zero, addr1);
+    entry->create_instruction<CoreIrReturnInst>(void_type, zero);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+
+    CoreIrLocalCsePass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    CoreIrRawPrinter printer;
+    const std::string text = printer.print_module(*module);
+    assert(text.find("%addr1 = addr_of_global") == std::string::npos);
+    assert(text.find("store i32 0, %addr0") != std::string::npos);
+    assert(addr0->get_uses().size() >= 1);
+}
+
 } // namespace
 
 int main() {
     test_eliminates_duplicate_binary_and_gep_in_block();
     test_eliminates_structurally_equivalent_nested_geps();
+    test_eliminates_duplicate_global_addresses_in_block();
     return 0;
 }

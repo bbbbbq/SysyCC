@@ -79,6 +79,27 @@ CoreIrBasicBlock *insert_new_block_before(CoreIrFunction &function,
     return block_ptr;
 }
 
+CoreIrBasicBlock *insert_new_block_after(CoreIrFunction &function,
+                                         CoreIrBasicBlock *anchor,
+                                         std::unique_ptr<CoreIrBasicBlock> block) {
+    if (anchor == nullptr || block == nullptr) {
+        return nullptr;
+    }
+    block->set_parent(&function);
+    CoreIrBasicBlock *block_ptr = block.get();
+    auto &blocks = function.get_basic_blocks();
+    auto it = std::find_if(blocks.begin(), blocks.end(),
+                           [anchor](const std::unique_ptr<CoreIrBasicBlock> &candidate) {
+                               return candidate.get() == anchor;
+                           });
+    if (it == blocks.end()) {
+        blocks.push_back(std::move(block));
+    } else {
+        blocks.insert(it + 1, std::move(block));
+    }
+    return block_ptr;
+}
+
 bool rewrite_phi_predecessor(CoreIrBasicBlock *successor,
                              CoreIrBasicBlock *old_predecessor,
                              CoreIrBasicBlock *new_predecessor) {
@@ -236,12 +257,12 @@ bool expand_large_signed_srem(CoreIrContext &context, CoreIrFunction &function,
     auto slow_block = std::make_unique<CoreIrBasicBlock>(
         make_unique_block_name(function, block.get_name() + ".srem.slow"));
 
-    CoreIrBasicBlock *continuation_ptr =
-        insert_new_block_before(function, &block, std::move(continuation));
     CoreIrBasicBlock *fast_block_ptr =
-        insert_new_block_before(function, continuation_ptr, std::move(fast_block));
+        insert_new_block_after(function, &block, std::move(fast_block));
     CoreIrBasicBlock *slow_block_ptr =
-        insert_new_block_before(function, continuation_ptr, std::move(slow_block));
+        insert_new_block_after(function, fast_block_ptr, std::move(slow_block));
+    CoreIrBasicBlock *continuation_ptr =
+        insert_new_block_after(function, slow_block_ptr, std::move(continuation));
     if (continuation_ptr == nullptr || fast_block_ptr == nullptr ||
         slow_block_ptr == nullptr) {
         return false;

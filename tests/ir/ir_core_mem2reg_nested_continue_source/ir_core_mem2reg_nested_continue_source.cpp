@@ -91,6 +91,13 @@ std::size_t count_loop_phi_blocks(const CoreIrFunction &function) {
     return count;
 }
 
+void assert_function_lacks_stack_slots(const CoreIrFunction &function,
+                                       const std::vector<std::string> &slot_names) {
+    for (const std::string &slot_name : slot_names) {
+        assert(!function_has_stack_slot(function, slot_name));
+    }
+}
+
 std::string extract_llvm_function(std::string_view text, std::string_view header) {
     const std::size_t begin = text.find(header);
     assert(begin != std::string::npos);
@@ -131,6 +138,8 @@ int main(int argc, char **argv) {
     assert(module != nullptr);
     CoreIrFunction *mm_function = find_function(*module, "mm");
     assert(mm_function != nullptr);
+    CoreIrFunction *dead_shadow_function = find_function(*module, "dead_shadow");
+    assert(dead_shadow_function != nullptr);
 
     CoreIrAnalysisManager *analysis_manager = build_result->get_analysis_manager();
     assert(analysis_manager != nullptr);
@@ -153,14 +162,20 @@ int main(int argc, char **argv) {
 
     mm_function = find_function(*module, "mm");
     assert(mm_function != nullptr);
-    for (const std::string &slot_name : expected_promoted_slots) {
-        assert(!function_has_stack_slot(*mm_function, slot_name));
-    }
+    dead_shadow_function = find_function(*module, "dead_shadow");
+    assert(dead_shadow_function != nullptr);
+    assert_function_lacks_stack_slots(*mm_function, expected_promoted_slots);
+    const std::vector<std::string> dead_shadow_slots = {
+        "n.addr", "A.addr", "B.addr", "C.addr", "X.addr", "y.addr"};
+    assert_function_lacks_stack_slots(*dead_shadow_function, dead_shadow_slots);
     assert(count_loop_phi_blocks(*mm_function) >= 3);
 
     CoreIrRawPrinter printer;
     const std::string core_ir_text = printer.print_module(*module);
     for (const std::string &slot_name : expected_promoted_slots) {
+        assert(core_ir_text.find("stackslot %" + slot_name) == std::string::npos);
+    }
+    for (const std::string &slot_name : dead_shadow_slots) {
         assert(core_ir_text.find("stackslot %" + slot_name) == std::string::npos);
     }
     assert(core_ir_text.find("phi i32") != std::string::npos);

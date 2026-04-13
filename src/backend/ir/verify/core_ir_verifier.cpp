@@ -1,6 +1,8 @@
 #include "backend/ir/verify/core_ir_verifier.hpp"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <unordered_set>
 
@@ -13,6 +15,7 @@
 #include "backend/ir/shared/core/ir_module.hpp"
 #include "backend/ir/shared/core/ir_stack_slot.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
+#include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "compiler/compiler_context/compiler_context.hpp"
 
 namespace sysycc {
@@ -424,10 +427,39 @@ bool emit_core_ir_verify_result(CompilerContext &context,
         return true;
     }
 
+    if (CoreIrBuildResult *build_result = context.get_core_ir_build_result();
+        build_result != nullptr && build_result->get_module() != nullptr) {
+        std::filesystem::create_directories("build/intermediate_results");
+        const std::filesystem::path input_path(context.get_input_file());
+        const std::filesystem::path output_file =
+            std::filesystem::path("build/intermediate_results") /
+            (input_path.stem().string() + ".verify-fail.core-ir.txt");
+        std::ofstream ofs(output_file);
+        if (ofs.is_open()) {
+            CoreIrRawPrinter printer;
+            ofs << printer.print_module(*build_result->get_module());
+        }
+    }
+
     for (const CoreIrVerifyIssue &issue : verify_result.issues) {
+        std::string detail;
+        if (issue.function != nullptr) {
+            detail += " function=" + issue.function->get_name();
+        }
+        if (issue.block != nullptr) {
+            detail += " block=" + issue.block->get_name();
+        }
+        if (issue.instruction != nullptr) {
+            if (!issue.instruction->get_name().empty()) {
+                detail += " inst=" + issue.instruction->get_name();
+            } else {
+                detail += " inst=<unnamed>";
+            }
+        }
         context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                   std::string(pass_name) +
-                                                      ": " + issue.message);
+                                                      ": " + issue.message +
+                                                      detail);
     }
     return false;
 }

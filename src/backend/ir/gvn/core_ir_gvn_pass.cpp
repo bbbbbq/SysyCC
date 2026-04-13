@@ -71,6 +71,62 @@ void append_memory_location_key(std::string &key,
     key.push_back(';');
 }
 
+void append_structural_root_key(std::string &key, const CoreIrValue *root) {
+    if (root == nullptr) {
+        key += "null;";
+        return;
+    }
+    if (const auto *address =
+            dynamic_cast<const CoreIrAddressOfGlobalInst *>(root);
+        address != nullptr) {
+        key += "global:";
+        append_pointer_key(key, address->get_global());
+        return;
+    }
+    if (const auto *address =
+            dynamic_cast<const CoreIrAddressOfStackSlotInst *>(root);
+        address != nullptr) {
+        key += "stack:";
+        append_pointer_key(key, address->get_stack_slot());
+        return;
+    }
+    if (const auto *address =
+            dynamic_cast<const CoreIrAddressOfFunctionInst *>(root);
+        address != nullptr) {
+        key += "function:";
+        append_pointer_key(key, address->get_function());
+        return;
+    }
+    append_value_key(key, root);
+}
+
+void append_structural_address_key(std::string &key, const CoreIrValue *address) {
+    if (address == nullptr) {
+        key += "null;";
+        return;
+    }
+
+    if (const auto *gep = dynamic_cast<const CoreIrGetElementPtrInst *>(address);
+        gep != nullptr) {
+        CoreIrValue *root_base = nullptr;
+        std::vector<CoreIrValue *> indices;
+        if (collect_structural_gep_chain(*gep, root_base, indices)) {
+            key += "sg:";
+            append_structural_root_key(key, root_base);
+            key += std::to_string(indices.size());
+            key.push_back(':');
+            for (CoreIrValue *index : indices) {
+                append_value_key(key, index);
+            }
+            return;
+        }
+        address = unwrap_trivial_zero_index_geps(const_cast<CoreIrValue *>(address));
+    }
+
+    key += "addr:";
+    append_structural_root_key(key, address);
+}
+
 bool is_commutative_binary(CoreIrBinaryOpcode opcode) {
     switch (opcode) {
     case CoreIrBinaryOpcode::Add:
@@ -146,6 +202,30 @@ std::string build_gvn_key(const CoreIrInstruction &instruction) {
         return key;
     }
 
+    if (const auto *address =
+            dynamic_cast<const CoreIrAddressOfGlobalInst *>(&instruction);
+        address != nullptr) {
+        key += "global:";
+        append_pointer_key(key, address->get_global());
+        return key;
+    }
+
+    if (const auto *address =
+            dynamic_cast<const CoreIrAddressOfStackSlotInst *>(&instruction);
+        address != nullptr) {
+        key += "stack:";
+        append_pointer_key(key, address->get_stack_slot());
+        return key;
+    }
+
+    if (const auto *address =
+            dynamic_cast<const CoreIrAddressOfFunctionInst *>(&instruction);
+        address != nullptr) {
+        key += "function:";
+        append_pointer_key(key, address->get_function());
+        return key;
+    }
+
     const auto *gep =
         dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction);
     if (gep != nullptr) {
@@ -176,6 +256,9 @@ bool is_gvn_candidate(const CoreIrInstruction &instruction) {
            dynamic_cast<const CoreIrUnaryInst *>(&instruction) != nullptr ||
            dynamic_cast<const CoreIrCompareInst *>(&instruction) != nullptr ||
            dynamic_cast<const CoreIrCastInst *>(&instruction) != nullptr ||
+           dynamic_cast<const CoreIrAddressOfGlobalInst *>(&instruction) != nullptr ||
+           dynamic_cast<const CoreIrAddressOfStackSlotInst *>(&instruction) != nullptr ||
+           dynamic_cast<const CoreIrAddressOfFunctionInst *>(&instruction) != nullptr ||
            dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction) !=
                nullptr;
 }
@@ -199,7 +282,7 @@ build_load_gvn_key(const CoreIrLoadInst &load,
     } else if (load.get_stack_slot() != nullptr) {
         append_pointer_key(key, load.get_stack_slot());
     } else if (load.get_address() != nullptr) {
-        append_value_key(key, load.get_address());
+        append_structural_address_key(key, load.get_address());
     } else {
         return std::nullopt;
     }
