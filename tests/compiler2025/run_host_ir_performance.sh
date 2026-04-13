@@ -18,6 +18,8 @@ CLANG_BASELINE_OPT_LEVEL="${SYSYCC_COMPILER2025_HOST_BASELINE_OPT_LEVEL:--O3}"
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 source "${SCRIPT_DIR}/compiler2025_arm_common.sh"
 
+export SYSYCC_LLVM_IR_REOPT_O3="${SYSYCC_LLVM_IR_REOPT_O3:-1}"
+
 require_positive_integer() {
     local value="$1"
     local option_name="$2"

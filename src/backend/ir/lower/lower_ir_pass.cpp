@@ -3,7 +3,12 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
+#include <sstream>
 #include <string>
+#include <string_view>
+#include <vector>
+#include <cstdlib>
 
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
@@ -49,6 +54,115 @@ PassResult maybe_dump_core_ir(CompilerContext &context, const CoreIrModule &modu
     return PassResult::Success();
 }
 
+std::string shell_quote(const std::string &text) {
+    std::string quoted = "'";
+    for (char ch : text) {
+        if (ch == '\'') {
+            quoted += "'\\''";
+        } else {
+            quoted.push_back(ch);
+        }
+    }
+    quoted.push_back('\'');
+    return quoted;
+}
+
+std::optional<std::filesystem::path> find_executable_in_path(const std::string &name) {
+    const char *path_env = std::getenv("PATH");
+    if (path_env == nullptr) {
+        return std::nullopt;
+    }
+    std::stringstream stream(path_env);
+    std::string path_entry;
+    while (std::getline(stream, path_entry, ':')) {
+        if (path_entry.empty()) {
+            continue;
+        }
+        const std::filesystem::path candidate =
+            std::filesystem::path(path_entry) / name;
+        if (std::filesystem::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return std::nullopt;
+}
+
+bool read_text_file(const std::filesystem::path &file_path, std::string &text) {
+    std::ifstream ifs(file_path);
+    if (!ifs.is_open()) {
+        return false;
+    }
+    text.assign(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>());
+    return true;
+}
+
+bool maybe_reoptimize_llvm_ir(CompilerContext &context, IRResult &ir_result) {
+    const char *reopt_env = std::getenv("SYSYCC_LLVM_IR_REOPT_O3");
+    if (reopt_env == nullptr || std::string_view(reopt_env) != "1") {
+        return true;
+    }
+    std::optional<std::filesystem::path> clang =
+        find_executable_in_path("clang");
+    if (!clang.has_value()) {
+        context.get_diagnostic_engine().add_warning(
+            DiagnosticStage::Compiler,
+            "skipping llvm ir reopt: clang not found in PATH");
+        return true;
+    }
+
+    const std::filesystem::path output_dir = sysycc::get_intermediate_results_dir();
+    std::filesystem::create_directories(output_dir);
+    const std::filesystem::path input_path(context.get_input_file());
+    const std::string stem =
+        input_path.stem().empty() ? std::string("sysycc") : input_path.stem().string();
+    const std::string nonce =
+        std::to_string(static_cast<unsigned long long>(std::rand()));
+    const std::filesystem::path temp_input =
+        output_dir / ("." + stem + ".reopt." + nonce + ".input.ll");
+    const std::filesystem::path temp_output =
+        output_dir / ("." + stem + ".reopt." + nonce + ".output.ll");
+
+    {
+        std::ofstream ofs(temp_input);
+        if (!ofs.is_open()) {
+            context.get_diagnostic_engine().add_warning(
+                DiagnosticStage::Compiler,
+                "skipping llvm ir reopt: failed to create temporary input file");
+            return true;
+        }
+        ofs << ir_result.get_text();
+    }
+
+    const std::string command =
+        shell_quote(clang->string()) +
+        " -O3 -S -emit-llvm -x ir " + shell_quote(temp_input.string()) +
+        " -o " + shell_quote(temp_output.string());
+    const int exit_code = std::system(command.c_str());
+    if (exit_code != 0) {
+        context.get_diagnostic_engine().add_warning(
+            DiagnosticStage::Compiler,
+            "skipping llvm ir reopt: clang -O3 failed on temporary llvm ir");
+        std::filesystem::remove(temp_input);
+        std::filesystem::remove(temp_output);
+        return true;
+    }
+
+    std::string optimized_text;
+    if (!read_text_file(temp_output, optimized_text) || optimized_text.empty()) {
+        context.get_diagnostic_engine().add_warning(
+            DiagnosticStage::Compiler,
+            "skipping llvm ir reopt: failed to read optimized llvm ir");
+        std::filesystem::remove(temp_input);
+        std::filesystem::remove(temp_output);
+        return true;
+    }
+
+    ir_result = IRResult(ir_result.get_kind(), std::move(optimized_text));
+    std::filesystem::remove(temp_input);
+    std::filesystem::remove(temp_output);
+    return true;
+}
+
 } // namespace
 
 PassKind LowerIrPass::Kind() const { return PassKind::LowerIr; }
@@ -91,6 +205,9 @@ PassResult LowerIrPass::Run(CompilerContext &context) {
                               context.get_diagnostic_engine());
     if (ir_result == nullptr) {
         return PassResult::Failure("failed to lower ir result");
+    }
+    if (!maybe_reoptimize_llvm_ir(context, *ir_result)) {
+        return PassResult::Failure("failed to reoptimize llvm ir result");
     }
 
     context.set_ir_result(std::move(ir_result));
