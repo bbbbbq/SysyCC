@@ -14,11 +14,10 @@ RUNTIME_BUILTIN_STUB="${PROJECT_ROOT}/tests/run/support/runtime_builtin_stub.ll"
 RUNTIME_COMPAT_SOURCE="${SCRIPT_DIR}/runtime_builtin_compat.c"
 RUN_STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 CLANG_BASELINE_OPT_LEVEL="${SYSYCC_COMPILER2025_HOST_BASELINE_OPT_LEVEL:--O3}"
+SYSYCC_LLVM_OPT_LEVEL="${SYSYCC_COMPILER2025_HOST_SYSYCC_LLVM_OPT_LEVEL:-${CLANG_BASELINE_OPT_LEVEL}}"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 source "${SCRIPT_DIR}/compiler2025_arm_common.sh"
-
-export SYSYCC_LLVM_IR_REOPT_O3="${SYSYCC_LLVM_IR_REOPT_O3:-1}"
 
 require_positive_integer() {
     local value="$1"
@@ -162,6 +161,7 @@ PYTHON_ARGS=(
     "${COMPILE_TIMEOUT_SECONDS}"
     "${RUN_TIMEOUT_SECONDS}"
     "${CLANG_BASELINE_OPT_LEVEL}"
+    "${SYSYCC_LLVM_OPT_LEVEL}"
     "${RUN_STARTED_AT}"
 )
 if [[ ${#SELECTED_CASES[@]} -gt 0 ]]; then
@@ -195,8 +195,9 @@ warmup = int(sys.argv[8])
 compile_timeout = int(sys.argv[9])
 run_timeout = int(sys.argv[10])
 clang_opt_level = sys.argv[11]
-run_started_at = sys.argv[12]
-selected_cases = set(sys.argv[13:])
+sysycc_llvm_opt_level = sys.argv[12]
+run_started_at = sys.argv[13]
+selected_cases = set(sys.argv[14:])
 
 clang = shutil.which("clang")  # type: ignore[name-defined]
 if clang is None:
@@ -404,6 +405,7 @@ def write_report(results: list[dict]) -> dict:
         "iterations": iterations,
         "warmup": warmup,
         "clang_baseline_opt_level": clang_opt_level,
+        "sysycc_llvm_opt_level": sysycc_llvm_opt_level,
         "status_counts": status_counts,
     }
     if lingering_rows:
@@ -564,8 +566,29 @@ for index, source in enumerate(case_sources, 1):
         print(f"[{index}/{len(case_sources)}] {name}: {result['status']}", flush=True)
         continue
 
+    sysycc_link_argv = [
+        clang,
+        sysycc_llvm_opt_level,
+        str(ir_file),
+        str(runtime_sylib_o),
+        str(runtime_compat_o),
+        str(runtime_stub_o),
+        "-fno-builtin",
+        "-o",
+        str(sysycc_binary),
+    ]
     sysycc_link = run_with_limits(
-        [
+        sysycc_link_argv,
+        wall_timeout_s=float(compile_timeout),
+        cwd=project_root,
+        cpu_limit_s=cpu_limit(compile_timeout),
+    )
+    if (
+        sysycc_llvm_opt_level
+        and sysycc_link["status"] == "ok"
+        and sysycc_link["returncode"] != 0
+    ):
+        fallback_argv = [
             clang,
             str(ir_file),
             str(runtime_sylib_o),
@@ -574,11 +597,15 @@ for index, source in enumerate(case_sources, 1):
             "-fno-builtin",
             "-o",
             str(sysycc_binary),
-        ],
-        wall_timeout_s=float(compile_timeout),
-        cwd=project_root,
-        cpu_limit_s=cpu_limit(compile_timeout),
-    )
+        ]
+        fallback_link = run_with_limits(
+            fallback_argv,
+            wall_timeout_s=float(compile_timeout),
+            cwd=project_root,
+            cpu_limit_s=cpu_limit(compile_timeout),
+        )
+        if fallback_link["status"] == "ok" and fallback_link["returncode"] == 0:
+            sysycc_link = fallback_link
     if sysycc_link["status"] != "ok" or sysycc_link["returncode"] != 0:
         result["status"] = (
             "SYSYCC_LINK_FAIL" if sysycc_link["status"] == "ok" else "SYSYCC_LINK_TIMEOUT"
