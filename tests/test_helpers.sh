@@ -703,7 +703,7 @@ run_aarch64_binary_via_docker_runtime() {
     : "${sysroot}"
 
     docker_cmd=(
-        docker run --rm -i
+        docker run --rm
         --platform linux/arm64
         -v "${binary_dir}:/work:ro"
         -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}"
@@ -713,7 +713,11 @@ run_aarch64_binary_via_docker_runtime() {
     )
 
     if [[ -n "${stdin_payload}" ]]; then
-        printf '%s' "${stdin_payload}" | "${docker_cmd[@]}"
+        printf '%s' "${stdin_payload}" | docker run --rm -i \
+            --platform linux/arm64 \
+            -v "${binary_dir}:/work:ro" \
+            -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}" \
+            "${image}" /bin/sh -lc 'exec "${SYSYCC_AARCH64_BINARY}"'
         return
     fi
     "${docker_cmd[@]}"

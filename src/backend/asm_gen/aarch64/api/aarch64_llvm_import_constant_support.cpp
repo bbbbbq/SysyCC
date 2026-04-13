@@ -3,6 +3,7 @@
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_parse_common_support.hpp"
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_type_support.hpp"
 
+#include <cctype>
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
@@ -360,6 +361,46 @@ std::optional<std::vector<std::string>> parse_parenthesized_operands(
 bool is_vector_import_type(const AArch64LlvmImportType &type) {
     return type.kind == AArch64LlvmImportTypeKind::Array &&
            type.array_uses_vector_syntax && type.element_types.size() == 1;
+}
+
+std::optional<std::vector<std::uint8_t>>
+parse_llvm_c_string_literal_bytes(const std::string &text) {
+    const std::string trimmed = llvm_import_trim_copy(text);
+    if (trimmed.size() < 3 || trimmed.front() != 'c' || trimmed[1] != '"' ||
+        trimmed.back() != '"') {
+        return std::nullopt;
+    }
+
+    auto hex_value = [](char ch) -> int {
+        if (ch >= '0' && ch <= '9') {
+            return ch - '0';
+        }
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        if (ch >= 'a' && ch <= 'f') {
+            return 10 + (ch - 'a');
+        }
+        return -1;
+    };
+
+    std::vector<std::uint8_t> bytes;
+    for (std::size_t index = 2; index + 1 < trimmed.size(); ++index) {
+        const unsigned char ch = static_cast<unsigned char>(trimmed[index]);
+        if (ch != '\\') {
+            bytes.push_back(static_cast<std::uint8_t>(ch));
+            continue;
+        }
+        if (index + 2 >= trimmed.size() - 1) {
+            return std::nullopt;
+        }
+        const int hi = hex_value(trimmed[index + 1]);
+        const int lo = hex_value(trimmed[index + 2]);
+        if (hi < 0 || lo < 0) {
+            return std::nullopt;
+        }
+        bytes.push_back(static_cast<std::uint8_t>((hi << 4) | lo));
+        index += 2;
+    }
+    return bytes;
 }
 
 std::optional<AArch64LlvmImportConstant> parse_blockaddress_constant(
@@ -918,6 +959,25 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
             }
             if (llvm_import_starts_with(trimmed, "shufflevector ")) {
                 return parse_shufflevector_constant(type, trimmed);
+            }
+        }
+        if (type.element_types.size() == 1 &&
+            type.element_types.front().kind == AArch64LlvmImportTypeKind::Integer &&
+            type.element_types.front().integer_bit_width == 8) {
+            const auto string_bytes = parse_llvm_c_string_literal_bytes(trimmed);
+            if (string_bytes.has_value()) {
+                if (string_bytes->size() != type.array_element_count) {
+                    return std::nullopt;
+                }
+                AArch64LlvmImportConstant constant;
+                constant.kind = AArch64LlvmImportConstantKind::Aggregate;
+                for (std::uint8_t byte : *string_bytes) {
+                    AArch64LlvmImportConstant element;
+                    element.kind = AArch64LlvmImportConstantKind::Integer;
+                    element.integer_value = byte;
+                    constant.elements.push_back(std::move(element));
+                }
+                return constant;
             }
         }
         const bool square_bracketed =

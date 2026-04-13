@@ -1,0 +1,4 @@
+Repository: https://github.com/llvm/llvm-test-suite
+Snapshot-commit: 5f01d97f1444873fda15d910a8078957c516288c
+Snapshot-scope: Selected files from SingleSource
+License-note: Upstream llvm-test-suite sources are distributed under Apache-2.0 WITH LLVM-exception

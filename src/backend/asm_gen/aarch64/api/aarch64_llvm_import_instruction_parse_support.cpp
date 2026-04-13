@@ -3,6 +3,8 @@
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_parse_common_support.hpp"
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_type_support.hpp"
 
+#include <cctype>
+
 namespace sysycc {
 
 namespace {
@@ -425,7 +427,32 @@ parse_llvm_import_call_spec(const AArch64LlvmImportInstruction &instruction) {
         return std::nullopt;
     }
 
-    const std::size_t open_paren_pos = payload.find('(', return_type_position);
+    std::size_t callee_position = return_type_position;
+    while (callee_position < payload.size() &&
+           std::isspace(static_cast<unsigned char>(payload[callee_position])) != 0) {
+        ++callee_position;
+    }
+    if (callee_position < payload.size() && payload[callee_position] == '(') {
+        int depth = 0;
+        do {
+            if (payload[callee_position] == '(') {
+                ++depth;
+            } else if (payload[callee_position] == ')') {
+                --depth;
+            }
+            ++callee_position;
+        } while (callee_position < payload.size() && depth > 0);
+        if (depth != 0) {
+            return std::nullopt;
+        }
+        while (callee_position < payload.size() &&
+               (std::isspace(static_cast<unsigned char>(payload[callee_position])) != 0 ||
+                payload[callee_position] == '*')) {
+            ++callee_position;
+        }
+    }
+
+    const std::size_t open_paren_pos = payload.find('(', callee_position);
     const std::size_t close_paren_pos = payload.rfind(')');
     if (open_paren_pos == std::string::npos || close_paren_pos == std::string::npos ||
         close_paren_pos < open_paren_pos) {
@@ -440,7 +467,7 @@ parse_llvm_import_call_spec(const AArch64LlvmImportInstruction &instruction) {
     }
     spec.return_type = *return_type;
     auto callee = parse_reference_value(
-        payload.substr(return_type_position, open_paren_pos - return_type_position));
+        payload.substr(callee_position, open_paren_pos - callee_position));
     if (!callee.has_value()) {
         return std::nullopt;
     }

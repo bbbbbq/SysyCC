@@ -30,6 +30,7 @@ run_aarch64_backend_ll_case() {
     local host_clang=""
     local aarch64_cc=""
     local sysroot=""
+    local -a clang_emit_args=()
 
     host_clang="${SYSYCC_HOST_CLANG:-$(command -v clang 2>/dev/null || true)}"
     if [[ -z "${host_clang}" ]]; then
@@ -42,7 +43,14 @@ run_aarch64_backend_ll_case() {
 
     mkdir -p "${case_build_dir}"
 
-    "${host_clang}" \
+    if [[ -n "${sysroot}" ]]; then
+        clang_emit_args+=("--sysroot=${sysroot}")
+    elif grep -Eq '^[[:space:]]*#include <' "${source_file}"; then
+        echo "skipped runtime parity for ${case_name}: missing AArch64 sysroot for target libc headers"
+        return 0
+    fi
+
+    clang_emit_args+=(
         --target=aarch64-unknown-linux-gnu \
         -std=gnu11 \
         -S -emit-llvm -O0 \
@@ -53,6 +61,9 @@ run_aarch64_backend_ll_case() {
         -fno-builtin \
         "${source_file}" \
         -o "${ll_file}"
+    )
+
+    "${host_clang}" "${clang_emit_args[@]}"
     assert_file_nonempty "${ll_file}"
 
     "${build_dir}/sysycc-aarch64c" -S "${ll_file}" -o "${sysycc_asm_file}"
