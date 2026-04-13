@@ -61,6 +61,7 @@ enum class AArch64LlvmImportConstantKind : unsigned char {
     IntToPtr,
     PtrToInt,
     GetElementPtr,
+    Select,
     ExtractElement,
     InsertElement,
     ShuffleVector,
@@ -84,6 +85,9 @@ struct AArch64LlvmImportConstant {
     std::vector<std::string> gep_index_type_texts;
     std::vector<AArch64LlvmImportType> gep_index_types;
     std::vector<AArch64LlvmImportConstant> gep_indices;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> select_condition_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> select_true_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> select_false_operand;
     std::shared_ptr<AArch64LlvmImportTypedConstant> extract_vector_operand;
     std::shared_ptr<AArch64LlvmImportTypedConstant> extract_index_operand;
     std::shared_ptr<AArch64LlvmImportTypedConstant> insert_vector_operand;

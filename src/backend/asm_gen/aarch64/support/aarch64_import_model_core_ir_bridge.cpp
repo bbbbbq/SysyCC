@@ -831,6 +831,17 @@ class RestrictedLlvmIrImporter {
         return false;
     }
 
+    std::optional<bool> lower_scalar_bool_constant(
+        const std::shared_ptr<AArch64LlvmImportTypedConstant> &typed_condition) {
+        const auto *condition_constant =
+            dynamic_cast<const CoreIrConstantInt *>(
+                lower_typed_import_constant(typed_condition));
+        if (condition_constant == nullptr) {
+            return std::nullopt;
+        }
+        return condition_constant->get_value() != 0;
+    }
+
     std::optional<std::size_t> lower_vector_index_operand(
         const std::shared_ptr<AArch64LlvmImportTypedConstant> &typed_index) {
         const auto *index_constant =
@@ -845,6 +856,55 @@ class RestrictedLlvmIrImporter {
     const CoreIrConstant *fold_vector_constant_expr(
         const CoreIrType *type, const AArch64LlvmImportConstant &constant) {
         switch (constant.kind) {
+        case AArch64LlvmImportConstantKind::Select: {
+            if (constant.select_condition_operand == nullptr ||
+                constant.select_true_operand == nullptr ||
+                constant.select_false_operand == nullptr) {
+                return nullptr;
+            }
+            const auto scalar_condition =
+                lower_scalar_bool_constant(constant.select_condition_operand);
+            if (scalar_condition.has_value()) {
+                return *scalar_condition
+                           ? lower_typed_import_constant(constant.select_true_operand)
+                           : lower_typed_import_constant(constant.select_false_operand);
+            }
+
+            const CoreIrType *condition_type =
+                lower_import_type(constant.select_condition_operand->type);
+            const CoreIrConstant *condition_constant =
+                lower_typed_import_constant(constant.select_condition_operand);
+            const CoreIrConstant *true_constant =
+                lower_typed_import_constant(constant.select_true_operand);
+            const CoreIrConstant *false_constant =
+                lower_typed_import_constant(constant.select_false_operand);
+            std::vector<const CoreIrConstant *> condition_lanes;
+            std::vector<const CoreIrConstant *> true_lanes;
+            std::vector<const CoreIrConstant *> false_lanes;
+            if (condition_type == nullptr || condition_constant == nullptr ||
+                true_constant == nullptr || false_constant == nullptr ||
+                !expand_vector_constant_lanes(condition_type, condition_constant,
+                                              condition_lanes) ||
+                !expand_vector_constant_lanes(type, true_constant, true_lanes) ||
+                !expand_vector_constant_lanes(type, false_constant, false_lanes) ||
+                condition_lanes.size() != true_lanes.size() ||
+                condition_lanes.size() != false_lanes.size()) {
+                return nullptr;
+            }
+
+            std::vector<const CoreIrConstant *> lanes;
+            lanes.reserve(true_lanes.size());
+            for (std::size_t index = 0; index < condition_lanes.size(); ++index) {
+                const auto *lane_condition =
+                    dynamic_cast<const CoreIrConstantInt *>(condition_lanes[index]);
+                if (lane_condition == nullptr) {
+                    return nullptr;
+                }
+                lanes.push_back(lane_condition->get_value() != 0 ? true_lanes[index]
+                                                                 : false_lanes[index]);
+            }
+            return context_->create_constant<CoreIrConstantAggregate>(type, lanes);
+        }
         case AArch64LlvmImportConstantKind::ExtractElement: {
             if (constant.extract_vector_operand == nullptr ||
                 constant.extract_index_operand == nullptr) {
@@ -1047,6 +1107,7 @@ class RestrictedLlvmIrImporter {
             return context_->create_constant<CoreIrConstantGetElementPtr>(
                 type, base, indices);
         }
+        case AArch64LlvmImportConstantKind::Select:
         case AArch64LlvmImportConstantKind::ExtractElement:
         case AArch64LlvmImportConstantKind::InsertElement:
         case AArch64LlvmImportConstantKind::ShuffleVector:
@@ -1339,6 +1400,19 @@ class RestrictedLlvmIrImporter {
             text += ")";
             return text;
         }
+        case AArch64LlvmImportConstantKind::Select:
+            if (constant.select_condition_operand == nullptr ||
+                constant.select_true_operand == nullptr ||
+                constant.select_false_operand == nullptr) {
+                return "select(<missing-operands>)";
+            }
+            return "select (" + constant.select_condition_operand->type_text + " " +
+                   describe_import_constant(constant.select_condition_operand->constant) +
+                   ", " + constant.select_true_operand->type_text + " " +
+                   describe_import_constant(constant.select_true_operand->constant) +
+                   ", " + constant.select_false_operand->type_text + " " +
+                   describe_import_constant(constant.select_false_operand->constant) +
+                   ")";
         case AArch64LlvmImportConstantKind::ExtractElement:
             if (constant.extract_vector_operand == nullptr ||
                 constant.extract_index_operand == nullptr) {

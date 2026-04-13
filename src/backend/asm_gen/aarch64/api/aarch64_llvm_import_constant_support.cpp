@@ -362,6 +362,51 @@ bool is_vector_import_type(const AArch64LlvmImportType &type) {
            type.array_uses_vector_syntax && type.element_types.size() == 1;
 }
 
+bool is_i1_import_type(const AArch64LlvmImportType &type) {
+    return type.kind == AArch64LlvmImportTypeKind::Integer &&
+           type.integer_bit_width == 1;
+}
+
+std::optional<AArch64LlvmImportConstant> parse_select_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    const auto operands = parse_parenthesized_operands(text, "select ");
+    if (!operands.has_value() || operands->size() != 3) {
+        return std::nullopt;
+    }
+    const auto condition_operand = parse_typed_constant((*operands)[0]);
+    const auto true_operand = parse_typed_constant((*operands)[1]);
+    const auto false_operand = parse_typed_constant((*operands)[2]);
+    if (!condition_operand.has_value() || !true_operand.has_value() ||
+        !false_operand.has_value()) {
+        return std::nullopt;
+    }
+    if (!import_types_equal(true_operand->type, type) ||
+        !import_types_equal(false_operand->type, type)) {
+        return std::nullopt;
+    }
+
+    const bool scalar_condition = is_i1_import_type(condition_operand->type);
+    const bool vector_condition =
+        is_vector_import_type(condition_operand->type) &&
+        condition_operand->type.array_element_count == type.array_element_count &&
+        condition_operand->type.element_types.size() == 1 &&
+        is_i1_import_type(condition_operand->type.element_types.front()) &&
+        is_vector_import_type(type);
+    if (!scalar_condition && !vector_condition) {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportConstant constant;
+    constant.kind = AArch64LlvmImportConstantKind::Select;
+    constant.select_condition_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*condition_operand);
+    constant.select_true_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*true_operand);
+    constant.select_false_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*false_operand);
+    return constant;
+}
+
 std::optional<AArch64LlvmImportConstant> parse_extractelement_constant(
     const AArch64LlvmImportType &type, const std::string &text) {
     const auto operands =
@@ -632,6 +677,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
 
     switch (type.kind) {
     case AArch64LlvmImportTypeKind::Integer: {
+        if (llvm_import_starts_with(trimmed, "select ")) {
+            return parse_select_constant(type, trimmed);
+        }
         if (llvm_import_starts_with(trimmed, "extractelement ")) {
             return parse_extractelement_constant(type, trimmed);
         }
@@ -669,6 +717,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     case AArch64LlvmImportTypeKind::Float32:
     case AArch64LlvmImportTypeKind::Float64:
     case AArch64LlvmImportTypeKind::Float128: {
+        if (llvm_import_starts_with(trimmed, "select ")) {
+            return parse_select_constant(type, trimmed);
+        }
         if (llvm_import_starts_with(trimmed, "extractelement ")) {
             return parse_extractelement_constant(type, trimmed);
         }
@@ -700,6 +751,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         return constant;
     }
     case AArch64LlvmImportTypeKind::Pointer: {
+        if (llvm_import_starts_with(trimmed, "select ")) {
+            return parse_select_constant(type, trimmed);
+        }
         if (llvm_import_starts_with(trimmed, "extractelement ")) {
             return parse_extractelement_constant(type, trimmed);
         }
@@ -729,6 +783,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         return std::nullopt;
     }
     case AArch64LlvmImportTypeKind::Array: {
+        if (llvm_import_starts_with(trimmed, "select ")) {
+            return parse_select_constant(type, trimmed);
+        }
         if (type.array_uses_vector_syntax) {
             if (llvm_import_starts_with(trimmed, "insertelement ")) {
                 return parse_insertelement_constant(type, trimmed);
