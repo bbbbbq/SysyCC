@@ -113,7 +113,9 @@ AArch64LlvmImportInstructionKind classify_instruction_kind(
         starts_with(normalized, "urem ") || starts_with(normalized, "and ") ||
         starts_with(normalized, "or ") || starts_with(normalized, "xor ") ||
         starts_with(normalized, "shl ") || starts_with(normalized, "lshr ") ||
-        starts_with(normalized, "ashr ")) {
+        starts_with(normalized, "ashr ") || starts_with(normalized, "fadd ") ||
+        starts_with(normalized, "fsub ") || starts_with(normalized, "fmul ") ||
+        starts_with(normalized, "fdiv ")) {
         return AArch64LlvmImportInstructionKind::Binary;
     }
     if (starts_with(normalized, "fneg ")) {

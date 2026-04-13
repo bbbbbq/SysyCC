@@ -681,10 +681,12 @@ have_aarch64_docker_runtime() {
     find_aarch64_docker_runtime_image >/dev/null 2>&1
 }
 
-run_aarch64_binary_via_docker_runtime() {
+run_aarch64_binary_via_docker_runtime_args() {
     local input_binary="$1"
     local sysroot="$2"
     local stdin_payload="${3:-}"
+    shift 3
+    local runtime_args=("$@")
 
     local image=""
     local binary_abs=""
@@ -702,49 +704,101 @@ run_aarch64_binary_via_docker_runtime() {
     binary_name="$(basename "${binary_abs}")"
     : "${sysroot}"
 
-    docker_cmd=(
-        docker run --rm
-        --platform linux/arm64
-        -v "${binary_dir}:/work:ro"
-        -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}"
-        "${image}"
-        /bin/sh -lc
-        'exec "${SYSYCC_AARCH64_BINARY}"'
-    )
+    if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+        docker_cmd=(
+            docker run --rm
+            --platform linux/arm64
+            -v "${binary_dir}:/work:ro"
+            -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}"
+            "${image}"
+            /bin/sh -lc
+            'exec "${SYSYCC_AARCH64_BINARY}"'
+        )
+    else
+        docker_cmd=(
+            docker run --rm
+            --platform linux/arm64
+            -v "${binary_dir}:/work:ro"
+            -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}"
+            "${image}"
+            /bin/sh -lc
+            'exec "${SYSYCC_AARCH64_BINARY}" "$@"'
+            sysycc-aarch64-runtime
+            "${runtime_args[@]}"
+        )
+    fi
 
     if [[ -n "${stdin_payload}" ]]; then
-        printf '%s' "${stdin_payload}" | docker run --rm -i \
-            --platform linux/arm64 \
-            -v "${binary_dir}:/work:ro" \
-            -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}" \
-            "${image}" /bin/sh -lc 'exec "${SYSYCC_AARCH64_BINARY}"'
+        if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+            printf '%s' "${stdin_payload}" | docker run --rm -i \
+                --platform linux/arm64 \
+                -v "${binary_dir}:/work:ro" \
+                -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}" \
+                "${image}" /bin/sh -lc 'exec "${SYSYCC_AARCH64_BINARY}"'
+        else
+            printf '%s' "${stdin_payload}" | docker run --rm -i \
+                --platform linux/arm64 \
+                -v "${binary_dir}:/work:ro" \
+                -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}" \
+                "${image}" /bin/sh -lc 'exec "${SYSYCC_AARCH64_BINARY}" "$@"' \
+                sysycc-aarch64-runtime "${runtime_args[@]}"
+        fi
         return
     fi
     "${docker_cmd[@]}"
+}
+
+run_aarch64_binary_via_docker_runtime() {
+    run_aarch64_binary_via_docker_runtime_args "$1" "$2" "${3:-}"
 }
 
 have_aarch64_binary_runtime() {
     find_qemu_aarch64 >/dev/null 2>&1 || have_aarch64_docker_runtime
 }
 
-run_aarch64_binary_with_available_runtime() {
+run_aarch64_binary_with_available_runtime_args() {
     local input_binary="$1"
     local sysroot="$2"
     local stdin_payload="${3:-}"
+    shift 3
+    local runtime_args=("$@")
     local qemu=""
 
     qemu="$(find_qemu_aarch64 2>/dev/null || true)"
     if [[ -n "${qemu}" ]]; then
         if [[ -n "${stdin_payload}" ]]; then
-            printf '%s' "${stdin_payload}" | \
-                QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${input_binary}"
+            if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+                printf '%s' "${stdin_payload}" | \
+                    QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" \
+                        "${input_binary}"
+            else
+                printf '%s' "${stdin_payload}" | \
+                    QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" \
+                        "${input_binary}" "${runtime_args[@]}"
+            fi
             return
         fi
-        QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${input_binary}"
+        if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+            QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" \
+                "${input_binary}"
+        else
+            QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" \
+                "${input_binary}" "${runtime_args[@]}"
+        fi
         return
     fi
 
-    run_aarch64_binary_via_docker_runtime "${input_binary}" "${sysroot}" "${stdin_payload}"
+    if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+        run_aarch64_binary_via_docker_runtime_args "${input_binary}" "${sysroot}" \
+            "${stdin_payload}"
+    else
+        run_aarch64_binary_via_docker_runtime_args "${input_binary}" "${sysroot}" \
+            "${stdin_payload}" "${runtime_args[@]}"
+    fi
+}
+
+run_aarch64_binary_with_available_runtime() {
+    run_aarch64_binary_with_available_runtime_args "$1" "$2" "${3:-}"
 }
 
 run_aarch64_cc() {

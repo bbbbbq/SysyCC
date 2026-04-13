@@ -2367,10 +2367,19 @@ class RestrictedLlvmIrImporter {
             if (opcode_text == "add") {
                 return lower_binary(CoreIrBinaryOpcode::Add, *binary_spec);
             }
+            if (opcode_text == "fadd") {
+                return lower_binary(CoreIrBinaryOpcode::Add, *binary_spec);
+            }
             if (opcode_text == "sub") {
                 return lower_binary(CoreIrBinaryOpcode::Sub, *binary_spec);
             }
+            if (opcode_text == "fsub") {
+                return lower_binary(CoreIrBinaryOpcode::Sub, *binary_spec);
+            }
             if (opcode_text == "mul") {
+                return lower_binary(CoreIrBinaryOpcode::Mul, *binary_spec);
+            }
+            if (opcode_text == "fmul") {
                 return lower_binary(CoreIrBinaryOpcode::Mul, *binary_spec);
             }
             if (opcode_text == "sdiv") {
@@ -2378,6 +2387,9 @@ class RestrictedLlvmIrImporter {
             }
             if (opcode_text == "udiv") {
                 return lower_binary(CoreIrBinaryOpcode::UDiv, *binary_spec);
+            }
+            if (opcode_text == "fdiv") {
+                return lower_binary(CoreIrBinaryOpcode::SDiv, *binary_spec);
             }
             if (opcode_text == "srem") {
                 return lower_binary(CoreIrBinaryOpcode::SRem, *binary_spec);

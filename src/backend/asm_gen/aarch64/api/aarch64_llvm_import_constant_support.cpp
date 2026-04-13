@@ -56,10 +56,21 @@ std::optional<std::string> canonicalize_float_literal_text(
         }
 
         try {
+            std::string hex_bits_text = trimmed;
+            if (llvm_import_starts_with(hex_bits_text, "0xH") ||
+                llvm_import_starts_with(hex_bits_text, "0XH")) {
+                hex_bits_text = "0x" + hex_bits_text.substr(3);
+            } else if (llvm_import_starts_with(hex_bits_text, "-0xH") ||
+                       llvm_import_starts_with(hex_bits_text, "-0XH")) {
+                hex_bits_text = "-0x" + hex_bits_text.substr(4);
+            } else if (llvm_import_starts_with(hex_bits_text, "+0xH") ||
+                       llvm_import_starts_with(hex_bits_text, "+0XH")) {
+                hex_bits_text = "+0x" + hex_bits_text.substr(4);
+            }
             std::size_t consumed = 0;
-            const std::uint64_t bits =
-                static_cast<std::uint64_t>(std::stoull(trimmed, &consumed, 16));
-            if (consumed != trimmed.size()) {
+            const std::uint64_t bits = static_cast<std::uint64_t>(
+                std::stoull(hex_bits_text, &consumed, 16));
+            if (consumed != hex_bits_text.size()) {
                 return std::nullopt;
             }
             if (type.kind == AArch64LlvmImportTypeKind::Float16) {

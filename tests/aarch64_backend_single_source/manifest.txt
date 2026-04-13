@@ -1,23 +1,23 @@
-# expectation|c_std|source_rel|xfail_substring
-PASS|gnu11|SingleSource/Benchmarks/Shootout/hello.c|-
-PASS|gnu11|SingleSource/Benchmarks/Shootout/nestedloop.c|-
-PASS|gnu11|SingleSource/Benchmarks/Shootout/ary3.c|-
-PASS|gnu11|SingleSource/Benchmarks/Shootout/sieve.c|-
-PASS|gnu11|SingleSource/Benchmarks/Shootout/matrix.c|-
-PASS|gnu11|SingleSource/Benchmarks/Shootout/hash.c|-
-PASS|gnu11|SingleSource/Benchmarks/Stanford/Perm.c|-
-PASS|gnu11|SingleSource/Regression/C/2004-03-15-IndirectGoto.c|-
-PASS|gnu11|SingleSource/Regression/C/compare.c|-
-PASS|gnu11|SingleSource/Regression/C/casts.c|-
-PASS|gnu11|SingleSource/Regression/C/callargs.c|-
-PASS|gnu11|SingleSource/Regression/C/2005-05-06-LongLongSignedShift.c|-
-PASS|gnu11|SingleSource/Regression/C/2003-05-21-UnionTest.c|-
-PASS|gnu11|SingleSource/Regression/C/2003-05-22-LocalTypeTest.c|-
-XFAIL|gnu11|SingleSource/Benchmarks/Shootout/random.c|unsupported LLVM instruction in restricted importer: fmul double
-XFAIL|gnu11|SingleSource/Regression/C/2004-02-03-AggregateCopy.c|unsupported LLVM call instruction: call void @llvm.memcpy
-XFAIL|gnu11|SingleSource/Regression/C/2008-01-07-LongDouble.c|unsupported LLVM store instruction: store fp128
-XFAIL|gnu11|SingleSource/Regression/C/float16-smoke.c|failed to parse LLVM global initializer: 0xH3C00
-XFAIL|gnu11|SingleSource/Regression/C/2003-05-22-VarSizeArray.c|llvm.stacksave.p0
-XFAIL|gnu11|SingleSource/Benchmarks/Stanford/Quicksort.c|unsupported LLVM address operand: getelementptr inbounds ([5001 x i32], ptr @sortlist
-XFAIL|gnu11|SingleSource/Benchmarks/Stanford/Treesort.c|unsupported LLVM address operand: getelementptr inbounds ([5001 x i32], ptr @sortlist
-XFAIL|gnu89|SingleSource/Regression/C/DuffsDevice.c|unsupported LLVM instruction in restricted importer: switch
+# expectation|c_std|source_rel|argv_text|xfail_substring
+PASS|gnu11|SingleSource/Benchmarks/Shootout/hello.c|-|-
+PASS|gnu11|SingleSource/Benchmarks/Shootout/nestedloop.c|-|-
+PASS|gnu11|SingleSource/Benchmarks/Shootout/ary3.c|-|-
+PASS|gnu11|SingleSource/Benchmarks/Shootout/sieve.c|-|-
+PASS|gnu11|SingleSource/Benchmarks/Shootout/matrix.c|-|-
+XFAIL|gnu11|SingleSource/Benchmarks/Shootout/hash.c|-|unsupported LLVM instruction in restricted importer: unreachable
+PASS|gnu11|SingleSource/Benchmarks/Shootout/random.c|10000|-
+PASS|gnu11|SingleSource/Benchmarks/Stanford/Perm.c|-|-
+PASS|gnu11|SingleSource/Regression/C/2004-03-15-IndirectGoto.c|-|-
+PASS|gnu11|SingleSource/Regression/C/compare.c|-|-
+PASS|gnu11|SingleSource/Regression/C/casts.c|-|-
+PASS|gnu11|SingleSource/Regression/C/callargs.c|-|-
+PASS|gnu11|SingleSource/Regression/C/2005-05-06-LongLongSignedShift.c|-|-
+PASS|gnu11|SingleSource/Regression/C/2003-05-21-UnionTest.c|-|-
+PASS|gnu11|SingleSource/Regression/C/2003-05-22-LocalTypeTest.c|-|-
+PASS|gnu11|SingleSource/Regression/C/float16-smoke.c|-|-
+XFAIL|gnu11|SingleSource/Regression/C/2004-02-03-AggregateCopy.c|-|unsupported LLVM call instruction: call void @llvm.memcpy
+XFAIL|gnu11|SingleSource/Regression/C/2008-01-07-LongDouble.c|-|unsupported LLVM store instruction: store fp128
+XFAIL|gnu11|SingleSource/Regression/C/2003-05-22-VarSizeArray.c|-|llvm.stacksave.p0
+XFAIL|gnu11|SingleSource/Benchmarks/Stanford/Quicksort.c|-|unsupported LLVM address operand: getelementptr inbounds ([5001 x i32], ptr @sortlist
+XFAIL|gnu11|SingleSource/Benchmarks/Stanford/Treesort.c|-|unsupported LLVM address operand: getelementptr inbounds ([5001 x i32], ptr @sortlist
+XFAIL|gnu89|SingleSource/Regression/C/DuffsDevice.c|-|unsupported LLVM instruction in restricted importer: switch

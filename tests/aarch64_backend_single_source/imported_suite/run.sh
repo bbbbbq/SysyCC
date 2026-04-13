@@ -40,7 +40,7 @@ fail_count=0
 xpass_count=0
 case_count=0
 
-while IFS='|' read -r expectation c_std source_rel xfail_substring; do
+while IFS='|' read -r expectation c_std source_rel argv_text xfail_substring; do
     if [[ -z "${expectation}" || "${expectation}" == \#* ]]; then
         continue
     fi
@@ -55,7 +55,8 @@ while IFS='|' read -r expectation c_std source_rel xfail_substring; do
     fi
 
     if run_single_source_snapshot_case "${STAGE_ROOT}" "${PROJECT_ROOT}" "${BUILD_DIR}" \
-        "${sysroot}" "${aarch64_cc}" "${host_clang}" "${source_rel}" "${c_std}"; then
+        "${sysroot}" "${aarch64_cc}" "${host_clang}" "${source_rel}" "${c_std}" \
+        "${argv_text}"; then
         if [[ "${expectation}" == "XFAIL" ]]; then
             echo "[XPASS] ${source_rel}"
             xpass_count=$((xpass_count + 1))

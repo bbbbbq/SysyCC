@@ -19,11 +19,12 @@ tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
 
 declare -a sparse_paths=()
-while IFS='|' read -r expectation c_std source_rel xfail_substring; do
+while IFS='|' read -r expectation c_std source_rel argv_text xfail_substring; do
     if [[ -z "${expectation}" || "${expectation}" == \#* ]]; then
         continue
     fi
     sparse_paths+=("${source_rel}")
+    sparse_paths+=("$(dirname "${source_rel}")/*.h")
 done <"${MANIFEST_FILE}"
 
 git clone --filter=blob:none --no-checkout --sparse "${UPSTREAM_URL}" "${tmpdir}/llvm-test-suite" >/dev/null 2>&1
@@ -33,12 +34,19 @@ git fetch --depth 1 origin "${UPSTREAM_REF}" >/dev/null 2>&1
 git checkout FETCH_HEAD >/dev/null 2>&1
 
 mkdir -p "${UPSTREAM_DIR}"
-while IFS='|' read -r expectation c_std source_rel xfail_substring; do
+while IFS='|' read -r expectation c_std source_rel argv_text xfail_substring; do
     if [[ -z "${expectation}" || "${expectation}" == \#* ]]; then
         continue
     fi
     mkdir -p "${UPSTREAM_DIR}/$(dirname "${source_rel}")"
     cp "${source_rel}" "${UPSTREAM_DIR}/${source_rel}"
+    source_dir="$(dirname "${source_rel}")"
+    for header_file in "${source_dir}"/*.h; do
+        if [[ -f "${header_file}" ]]; then
+            mkdir -p "${UPSTREAM_DIR}/${source_dir}"
+            cp "${header_file}" "${UPSTREAM_DIR}/${header_file}"
+        fi
+    done
 done <"${MANIFEST_FILE}"
 
 echo "synced llvm-test-suite SingleSource snapshot ${UPSTREAM_REF}"

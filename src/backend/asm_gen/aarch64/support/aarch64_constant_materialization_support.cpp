@@ -202,7 +202,7 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
             machine_block.append_instruction(AArch64MachineInstr(
                 "fmov", {def_vreg_operand(temp_float), use_vreg_operand(temp_bits)}));
             machine_block.append_instruction(AArch64MachineInstr(
-                "fcvtn", {def_vreg_operand(target_reg),
+                "fcvt", {def_vreg_operand(target_reg),
                           use_vreg_operand(temp_float)}));
             return true;
         }

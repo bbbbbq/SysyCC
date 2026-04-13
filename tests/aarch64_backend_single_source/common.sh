@@ -24,6 +24,7 @@ run_single_source_snapshot_case() {
     local host_clang="$6"
     local source_rel="$7"
     local c_std="$8"
+    local argv_text="${9:-}"
 
     local case_id=""
     local source_file=""
@@ -41,6 +42,7 @@ run_single_source_snapshot_case() {
     local clang_stdout=""
     local clang_stderr=""
     local clang_status=""
+    local -a runtime_args=()
 
     case_id="$(single_source_case_id "${source_rel}")"
     source_file="${stage_root}/upstream/${source_rel}"
@@ -60,6 +62,9 @@ run_single_source_snapshot_case() {
     clang_status="${case_build_dir}/${case_id}.clang.status"
 
     mkdir -p "${case_build_dir}" "$(dirname "${log_file}")"
+    if [[ -n "${argv_text}" && "${argv_text}" != "-" ]]; then
+        read -r -a runtime_args <<<"${argv_text}"
+    fi
 
     (
         echo "==> Running ${source_rel}"
@@ -97,12 +102,24 @@ run_single_source_snapshot_case() {
         assert_file_nonempty "${sysycc_bin}"
 
         set +e
-        run_aarch64_binary_with_available_runtime "${clang_bin}" "${sysroot}" \
-            >"${clang_stdout}" 2>"${clang_stderr}"
+        if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+            run_aarch64_binary_with_available_runtime_args "${clang_bin}" "${sysroot}" "" \
+                >"${clang_stdout}" 2>"${clang_stderr}"
+        else
+            run_aarch64_binary_with_available_runtime_args "${clang_bin}" "${sysroot}" "" \
+                "${runtime_args[@]}" \
+                >"${clang_stdout}" 2>"${clang_stderr}"
+        fi
         echo "$?" >"${clang_status}"
 
-        run_aarch64_binary_with_available_runtime "${sysycc_bin}" "${sysroot}" \
-            >"${sysycc_stdout}" 2>"${sysycc_stderr}"
+        if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+            run_aarch64_binary_with_available_runtime_args "${sysycc_bin}" "${sysroot}" "" \
+                >"${sysycc_stdout}" 2>"${sysycc_stderr}"
+        else
+            run_aarch64_binary_with_available_runtime_args "${sysycc_bin}" "${sysroot}" "" \
+                "${runtime_args[@]}" \
+                >"${sysycc_stdout}" 2>"${sysycc_stderr}"
+        fi
         echo "$?" >"${sysycc_status}"
         set -e
 
