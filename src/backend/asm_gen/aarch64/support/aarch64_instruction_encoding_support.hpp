@@ -13,6 +13,13 @@ namespace sysycc {
 
 class DiagnosticEngine;
 
+struct EncodedGeneralReg {
+    unsigned code = 0;
+    bool use_64bit = false;
+    bool is_stack_pointer = false;
+    bool is_zero_register = false;
+};
+
 struct SourceLocationNote {
     std::size_t pc_offset = 0;
     unsigned file_id = 0;

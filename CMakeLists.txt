@@ -90,6 +90,7 @@ set(SYSYCC_AARCH64_CODEGEN_SOURCES
     src/backend/asm_gen/aarch64/support/aarch64_instruction_encoding_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_object_image_builder_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_memory_access_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_memory_instruction_encoding_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_memory_instruction_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_memory_value_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_phi_lowering_support.cpp
