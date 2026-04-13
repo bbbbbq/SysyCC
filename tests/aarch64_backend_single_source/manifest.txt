@@ -15,6 +15,7 @@ PASS|gnu11|SingleSource/Benchmarks/Shootout/random.c|10000|-
 PASS|gnu11|SingleSource/Benchmarks/Shootout/strcat.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/BenchmarkGame/recursive.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/BenchmarkGame/nsieve-bits.c|-|-
+PASS|gnu11|SingleSource/Benchmarks/BenchmarkGame/fannkuch.c|7|-
 PASS|gnu11|SingleSource/Benchmarks/Stanford/Bubblesort.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Stanford/Perm.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Stanford/Queens.c|-|-
