@@ -9,6 +9,7 @@ CASE_BUILD_DIR="${SCRIPT_DIR}/build"
 SOURCE_FILE="${SCRIPT_DIR}/aarch64_codegen_api_blockaddress_boundary.cpp"
 LL_FILE="${SCRIPT_DIR}/aarch64_codegen_api_blockaddress_boundary.ll"
 TEST_BIN="${CASE_BUILD_DIR}/aarch64_codegen_api_blockaddress_boundary"
+OBJECT_FILE="${CASE_BUILD_DIR}/aarch64_codegen_api_blockaddress_boundary.o"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
@@ -25,6 +26,14 @@ mkdir -p "${CASE_BUILD_DIR}"
     -o "${TEST_BIN}"
 
 assert_file_nonempty "${TEST_BIN}"
-"${TEST_BIN}" "${LL_FILE}"
+"${TEST_BIN}" "${LL_FILE}" "${OBJECT_FILE}"
+assert_file_nonempty "${OBJECT_FILE}"
+READELF_TOOL="$(find_aarch64_readelf)"
+"${READELF_TOOL}" -s "${OBJECT_FILE}" | grep -q ' jump_target$'
+"${READELF_TOOL}" -s "${OBJECT_FILE}" | grep -q ' jump_target_i64$'
+"${READELF_TOOL}" -s "${OBJECT_FILE}" | grep -q ' get_target_i64$'
+"${READELF_TOOL}" -s "${OBJECT_FILE}" | grep -q ' foo$'
+"${READELF_TOOL}" -s "${OBJECT_FILE}" | grep -F -q '.Lfoo_target'
+"${READELF_TOOL}" -r "${OBJECT_FILE}" | grep -F -q '.Lfoo_target'
 
-echo "verified: importer recognizes blockaddress constants and reports a precise unsupported-boundary diagnostic"
+echo "verified: importer lowers blockaddress constants through native AArch64 asm/object local text-label symbols"

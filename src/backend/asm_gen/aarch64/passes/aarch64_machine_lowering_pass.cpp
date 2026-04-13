@@ -485,6 +485,11 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
                                     AArch64FunctionLoweringFacade &facade) {
         block_labels_ =
             build_aarch64_function_block_labels(function, function.get_name());
+        for (const auto &[block, label] : block_labels_) {
+            (void)block;
+            record_symbol_definition(label, AArch64SymbolKind::Label,
+                                     AArch64SectionKind::Text, false);
+        }
         state.control_state.phi_edge_labels.clear();
         state.control_state.phi_edge_plans.clear();
         if (!sysycc::build_phi_edge_plans(function, facade,

@@ -2,6 +2,7 @@
 
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_instruction_parse_support.hpp"
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_parse_common_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 
 #include <cctype>
 #include <cstdint>
@@ -652,106 +653,6 @@ class RestrictedLlvmIrImporter {
         return nullptr;
     }
 
-    const AArch64LlvmImportConstant *find_blockaddress_constant(
-        const AArch64LlvmImportConstant &constant) const {
-        if (constant.kind == AArch64LlvmImportConstantKind::BlockAddress) {
-            return &constant;
-        }
-        if (constant.cast_operand != nullptr) {
-            if (const auto *nested = find_blockaddress_constant(*constant.cast_operand);
-                nested != nullptr) {
-                return nested;
-            }
-        }
-        if (constant.gep_base != nullptr) {
-            if (const auto *nested = find_blockaddress_constant(*constant.gep_base);
-                nested != nullptr) {
-                return nested;
-            }
-        }
-        for (const auto &index : constant.gep_indices) {
-            if (const auto *nested = find_blockaddress_constant(index);
-                nested != nullptr) {
-                return nested;
-            }
-        }
-        auto visit_typed = [&](const std::shared_ptr<AArch64LlvmImportTypedConstant> &typed)
-            -> const AArch64LlvmImportConstant * {
-            return typed == nullptr ? nullptr
-                                    : find_blockaddress_constant(typed->constant);
-        };
-        if (const auto *nested = visit_typed(constant.compare_lhs_operand); nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.compare_rhs_operand); nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.select_condition_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.select_true_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.select_false_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.extract_vector_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.extract_index_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.insert_vector_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.insert_element_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.insert_index_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.shuffle_lhs_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.shuffle_rhs_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        if (const auto *nested = visit_typed(constant.shuffle_mask_operand);
-            nested != nullptr) {
-            return nested;
-        }
-        for (const auto &element : constant.elements) {
-            if (const auto *nested = find_blockaddress_constant(element);
-                nested != nullptr) {
-                return nested;
-            }
-        }
-        return nullptr;
-    }
-
-    bool report_blockaddress_unsupported(const AArch64LlvmImportConstant &constant,
-                                         int line_number) {
-        const auto *blockaddress = find_blockaddress_constant(constant);
-        if (blockaddress == nullptr) {
-            return false;
-        }
-        add_error("LLVM blockaddress constants are not yet representable in the restricted Core IR AArch64 bridge: @" +
-                      blockaddress->blockaddress_function_name + ", %" +
-                      blockaddress->blockaddress_label_name,
-                  line_number, 1);
-        return true;
-    }
-
     const CoreIrConstant *fold_scalar_constant_cast(
         const CoreIrType *type, const AArch64LlvmImportConstant &constant,
         const CoreIrConstant *operand) {
@@ -1390,7 +1291,9 @@ class RestrictedLlvmIrImporter {
         case AArch64LlvmImportConstantKind::PoisonValue:
             return make_zero_constant(type);
         case AArch64LlvmImportConstantKind::BlockAddress:
-            return nullptr;
+            return context_->create_constant<CoreIrConstantBlockAddress>(
+                type, constant.blockaddress_function_name,
+                constant.blockaddress_label_name);
         case AArch64LlvmImportConstantKind::Integer:
             return context_->create_constant<CoreIrConstantInt>(
                 type, constant.integer_value);
@@ -1572,9 +1475,6 @@ class RestrictedLlvmIrImporter {
         const CoreIrConstant *initializer =
             lower_import_constant(type, global.initializer);
         if (initializer == nullptr) {
-            if (report_blockaddress_unsupported(global.initializer, global.line)) {
-                return false;
-            }
             add_error("unsupported LLVM global initializer: " +
                           global.initializer_text,
                       global.line, 1);
@@ -1601,9 +1501,6 @@ class RestrictedLlvmIrImporter {
         }
         const CoreIrConstant *target =
             lower_import_constant(target_type, alias.target);
-        if (target == nullptr && report_blockaddress_unsupported(alias.target, alias.line)) {
-            return false;
-        }
         const auto *global_address =
             unwrap_alias_target_global_address(target);
         if (global_address == nullptr) {
@@ -1939,9 +1836,6 @@ class RestrictedLlvmIrImporter {
             return {};
         }
         if (operand.kind == AArch64LlvmImportValueKind::Constant) {
-            if (report_blockaddress_unsupported(operand.constant, line_number)) {
-                return {};
-            }
             add_error("unsupported LLVM address operand: " +
                           describe_typed_operand(operand),
                       line_number, 1);
@@ -1958,10 +1852,6 @@ class RestrictedLlvmIrImporter {
         if (operand.kind == AArch64LlvmImportValueKind::Constant) {
             const CoreIrConstant *constant =
                 lower_import_constant(type, operand.constant);
-            if (constant == nullptr &&
-                report_blockaddress_unsupported(operand.constant, line_number)) {
-                return nullptr;
-            }
             return constant == nullptr ? nullptr
                                        : const_cast<CoreIrConstant *>(constant);
         }

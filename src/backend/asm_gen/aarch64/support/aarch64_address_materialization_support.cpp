@@ -312,13 +312,20 @@ bool materialize_global_address(AArch64MachineBlock &machine_block,
                                 AArch64SymbolKind symbol_kind) {
     context.record_symbol_reference(symbol_name, symbol_kind);
     const bool is_nonpreemptible =
-        symbol_kind == AArch64SymbolKind::Function
+        symbol_kind == AArch64SymbolKind::Label
+            ? true
+            : symbol_kind == AArch64SymbolKind::Function
             ? context.is_nonpreemptible_function_symbol(symbol_name)
             : context.is_nonpreemptible_global_symbol(symbol_name);
-    const AArch64SymbolReference symbol_reference = context.make_symbol_reference(
-        symbol_name, symbol_kind,
-        is_nonpreemptible ? AArch64SymbolBinding::Local
-                          : AArch64SymbolBinding::Global);
+    const AArch64SymbolReference symbol_reference =
+        symbol_kind == AArch64SymbolKind::Label
+            ? context.make_symbol_reference(
+                  symbol_name, symbol_kind, AArch64SymbolBinding::Local,
+                  AArch64SectionKind::Text, 0, true)
+            : context.make_symbol_reference(
+                  symbol_name, symbol_kind,
+                  is_nonpreemptible ? AArch64SymbolBinding::Local
+                                    : AArch64SymbolBinding::Global);
     if (context.is_position_independent() && !is_nonpreemptible) {
         machine_block.append_instruction(AArch64MachineInstr(
             "adrp", {def_vreg_operand(target_reg),

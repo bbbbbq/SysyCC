@@ -219,9 +219,14 @@ std::string make_aarch64_function_epilogue_label(const std::string &function_nam
 }
 
 std::string make_aarch64_function_block_label(const std::string &function_name,
-                                              const CoreIrBasicBlock &block) {
+                                              const std::string &block_name) {
     return ".L" + sanitize_aarch64_label_fragment(function_name) + "_" +
-           sanitize_aarch64_label_fragment(block.get_name());
+           sanitize_aarch64_label_fragment(block_name);
+}
+
+std::string make_aarch64_function_block_label(const std::string &function_name,
+                                              const CoreIrBasicBlock &block) {
+    return make_aarch64_function_block_label(function_name, block.get_name());
 }
 
 std::unordered_map<const CoreIrBasicBlock *, std::string>

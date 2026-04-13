@@ -138,4 +138,20 @@ class CoreIrConstantCast final : public CoreIrConstant {
     const CoreIrConstant *get_operand() const noexcept { return operand_; }
 };
 
+class CoreIrConstantBlockAddress final : public CoreIrConstant {
+  private:
+    std::string function_name_;
+    std::string block_name_;
+
+  public:
+    CoreIrConstantBlockAddress(const CoreIrType *type, std::string function_name,
+                               std::string block_name)
+        : CoreIrConstant(type),
+          function_name_(std::move(function_name)),
+          block_name_(std::move(block_name)) {}
+
+    const std::string &get_function_name() const noexcept { return function_name_; }
+    const std::string &get_block_name() const noexcept { return block_name_; }
+};
+
 } // namespace sysycc

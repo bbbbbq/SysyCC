@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_global.hpp"
@@ -69,6 +70,15 @@ std::optional<long long> get_signed_integer_constant(const CoreIrConstant *const
     return static_cast<long long>(masked | ~mask);
 }
 
+struct ConstantAddressParts {
+    std::string symbol_name;
+    long long offset = 0;
+    AArch64SymbolKind symbol_kind = AArch64SymbolKind::Object;
+    AArch64SymbolBinding binding = AArch64SymbolBinding::Unknown;
+    std::optional<AArch64SectionKind> section_kind = std::nullopt;
+    bool is_defined = false;
+};
+
 std::optional<long long>
 compute_constant_gep_offset(const CoreIrType *base_type,
                             const std::vector<const CoreIrConstant *> &indices) {
@@ -127,27 +137,41 @@ compute_constant_gep_offset(const CoreIrType *base_type,
     return offset;
 }
 
-bool split_constant_address(const CoreIrConstant *constant, std::string &symbol_name,
-                            long long &offset) {
+bool split_constant_address(const CoreIrConstant *constant,
+                            ConstantAddressParts &address) {
     if (const auto *global_address =
             dynamic_cast<const CoreIrConstantGlobalAddress *>(constant);
         global_address != nullptr) {
         if (global_address->get_global() != nullptr) {
-            symbol_name = global_address->get_global()->get_name();
-            offset = 0;
+            address.symbol_name = global_address->get_global()->get_name();
+            address.offset = 0;
+            address.symbol_kind = AArch64SymbolKind::Object;
             return true;
         }
         if (global_address->get_function() != nullptr) {
-            symbol_name = global_address->get_function()->get_name();
-            offset = 0;
+            address.symbol_name = global_address->get_function()->get_name();
+            address.offset = 0;
+            address.symbol_kind = AArch64SymbolKind::Function;
             return true;
         }
         return false;
     }
+    if (const auto *block_address =
+            dynamic_cast<const CoreIrConstantBlockAddress *>(constant);
+        block_address != nullptr) {
+        address.symbol_name = make_aarch64_function_block_label(
+            block_address->get_function_name(), block_address->get_block_name());
+        address.offset = 0;
+        address.symbol_kind = AArch64SymbolKind::Label;
+        address.binding = AArch64SymbolBinding::Local;
+        address.section_kind = AArch64SectionKind::Text;
+        address.is_defined = true;
+        return true;
+    }
     if (const auto *gep_constant =
             dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
         gep_constant != nullptr) {
-        if (!split_constant_address(gep_constant->get_base(), symbol_name, offset)) {
+        if (!split_constant_address(gep_constant->get_base(), address)) {
             return false;
         }
         const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
@@ -161,22 +185,20 @@ bool split_constant_address(const CoreIrConstant *constant, std::string &symbol_
         if (!gep_offset.has_value()) {
             return false;
         }
-        offset += *gep_offset;
+        address.offset += *gep_offset;
         return true;
     }
     if (const auto *cast_constant = dynamic_cast<const CoreIrConstantCast *>(constant);
         cast_constant != nullptr) {
         if (cast_constant->get_cast_kind() == CoreIrCastKind::PtrToInt) {
-            return split_constant_address(cast_constant->get_operand(), symbol_name,
-                                          offset);
+            return split_constant_address(cast_constant->get_operand(), address);
         }
         if (cast_constant->get_cast_kind() == CoreIrCastKind::IntToPtr) {
             const auto *nested_cast =
                 dynamic_cast<const CoreIrConstantCast *>(cast_constant->get_operand());
             if (nested_cast != nullptr &&
                 nested_cast->get_cast_kind() == CoreIrCastKind::PtrToInt) {
-                return split_constant_address(nested_cast->get_operand(), symbol_name,
-                                              offset);
+                return split_constant_address(nested_cast->get_operand(), address);
             }
         }
     }
@@ -361,18 +383,18 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
         }
         return true;
     }
-    std::string symbol_name;
-    long long offset = 0;
-    if (split_constant_address(constant, symbol_name, offset)) {
-        context.record_symbol_reference(symbol_name, AArch64SymbolKind::Object);
+    ConstantAddressParts address;
+    if (split_constant_address(constant, address)) {
+        context.record_symbol_reference(address.symbol_name, address.symbol_kind);
         append_scalar_fragment(
             data_object, scalar_size(type), 0,
             {AArch64RelocationRecord{
                 get_storage_size(type) <= 4 ? AArch64RelocationKind::Absolute32
                                             : AArch64RelocationKind::Absolute64,
                 context.make_symbol_reference(
-                    symbol_name, AArch64SymbolKind::Object,
-                    AArch64SymbolBinding::Unknown, std::nullopt, offset),
+                    address.symbol_name, address.symbol_kind,
+                    address.binding, address.section_kind, address.offset,
+                    address.is_defined),
                 0,
             }});
         return true;

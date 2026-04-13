@@ -578,6 +578,12 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
                format_constant(cast_constant->get_operand()) + " to " +
                format_type(cast_constant->get_type()) + ")";
     }
+    if (const auto *block_address =
+            dynamic_cast<const CoreIrConstantBlockAddress *>(constant);
+        block_address != nullptr) {
+        return "blockaddress(@" + block_address->get_function_name() + ", %" +
+               block_address->get_block_name() + ")";
+    }
     return "<constant>";
 }
 

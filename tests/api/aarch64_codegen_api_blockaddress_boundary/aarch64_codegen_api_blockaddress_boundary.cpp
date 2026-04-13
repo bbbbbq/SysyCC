@@ -1,27 +1,13 @@
 #include "backend/asm_gen/aarch64/api/aarch64_codegen_api.hpp"
 
+#include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <string>
 
-namespace {
-
-bool has_blockaddress_diagnostic(
-    const std::vector<sysycc::AArch64CodegenDiagnostic> &diagnostics) {
-    for (const auto &diagnostic : diagnostics) {
-        if (diagnostic.message.find("blockaddress constants are not yet representable") !=
-                std::string::npos &&
-            diagnostic.message.find("@foo, %target") != std::string::npos) {
-            return true;
-        }
-    }
-    return false;
-}
-
-} // namespace
-
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::cerr << "usage: aarch64_codegen_api_blockaddress_boundary <input.ll>\n";
+    if (argc != 3) {
+        std::cerr << "usage: aarch64_codegen_api_blockaddress_boundary <input.ll> <output.o>\n";
         return 1;
     }
 
@@ -31,17 +17,43 @@ int main(int argc, char **argv) {
 
     const sysycc::AArch64AsmCompileResult asm_result =
         sysycc::compile_ll_file_to_asm(request);
-    if (asm_result.status == sysycc::AArch64CodegenStatus::Success ||
-        !has_blockaddress_diagnostic(asm_result.diagnostics)) {
-        std::cerr << "expected asm compile to fail with a precise blockaddress diagnostic\n";
+    if (asm_result.status != sysycc::AArch64CodegenStatus::Success) {
+        for (const auto &diagnostic : asm_result.diagnostics) {
+            std::cerr << diagnostic.stage_name << ": " << diagnostic.message
+                      << "\n";
+        }
+        return 1;
+    }
+    if (asm_result.asm_text.find("jump_target:") == std::string::npos ||
+        asm_result.asm_text.find("jump_target_i64:") == std::string::npos ||
+        asm_result.asm_text.find(".Lfoo_target") == std::string::npos ||
+        asm_result.asm_text.find(".globl foo") == std::string::npos ||
+        asm_result.asm_text.find(".globl get_target_i64") == std::string::npos) {
+        std::cerr << "unexpected asm output\n";
         return 1;
     }
 
     const sysycc::AArch64ObjectCompileResult object_result =
         sysycc::compile_ll_file_to_object(request);
-    if (object_result.status == sysycc::AArch64CodegenStatus::Success ||
-        !has_blockaddress_diagnostic(object_result.diagnostics)) {
-        std::cerr << "expected object compile to fail with a precise blockaddress diagnostic\n";
+    if (object_result.status != sysycc::AArch64CodegenStatus::Success ||
+        object_result.object_bytes.size() < 4 ||
+        object_result.object_bytes[0] != 0x7f ||
+        object_result.object_bytes[1] != static_cast<std::uint8_t>('E') ||
+        object_result.object_bytes[2] != static_cast<std::uint8_t>('L') ||
+        object_result.object_bytes[3] != static_cast<std::uint8_t>('F')) {
+        std::cerr << "unexpected object output\n";
+        return 1;
+    }
+
+    std::ofstream ofs(argv[2], std::ios::binary);
+    if (!ofs.is_open()) {
+        std::cerr << "failed to open object output path\n";
+        return 1;
+    }
+    ofs.write(reinterpret_cast<const char *>(object_result.object_bytes.data()),
+              static_cast<std::streamsize>(object_result.object_bytes.size()));
+    if (!ofs.good()) {
+        std::cerr << "failed to write object bytes\n";
         return 1;
     }
 

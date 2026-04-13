@@ -253,6 +253,17 @@ void append_value_key(std::string &key, const CoreIrValue *value) {
         key.push_back(';');
         return;
     }
+    if (const auto *block_address =
+            dynamic_cast<const CoreIrConstantBlockAddress *>(value);
+        block_address != nullptr) {
+        key += "cblockaddr:";
+        append_type_key(key, block_address->get_type());
+        key += block_address->get_function_name();
+        key.push_back(':');
+        key += block_address->get_block_name();
+        key.push_back(';');
+        return;
+    }
 
     key += "v:";
     key += std::to_string(reinterpret_cast<std::uintptr_t>(value));

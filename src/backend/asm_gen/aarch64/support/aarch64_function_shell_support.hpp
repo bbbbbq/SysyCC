@@ -35,6 +35,8 @@ struct AArch64StandardFrameShellCfiBundle {
 std::string sanitize_aarch64_label_fragment(const std::string &text);
 std::string make_aarch64_function_epilogue_label(const std::string &function_name);
 std::string make_aarch64_function_block_label(const std::string &function_name,
+                                              const std::string &block_name);
+std::string make_aarch64_function_block_label(const std::string &function_name,
                                               const CoreIrBasicBlock &block);
 std::unordered_map<const CoreIrBasicBlock *, std::string>
 build_aarch64_function_block_labels(const CoreIrFunction &function,

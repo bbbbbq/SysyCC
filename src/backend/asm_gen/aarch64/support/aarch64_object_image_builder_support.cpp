@@ -42,6 +42,8 @@ std::uint8_t elf_symbol_type(AArch64SymbolKind kind) {
     case AArch64SymbolKind::Function:
     case AArch64SymbolKind::Helper:
         return kElfSymbolTypeFunction;
+    case AArch64SymbolKind::Label:
+        return 0;
     case AArch64SymbolKind::Object:
     default:
         return kElfSymbolTypeObject;

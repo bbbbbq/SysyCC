@@ -2,6 +2,7 @@
 
 #include "backend/asm_gen/aarch64/support/aarch64_address_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -35,6 +36,15 @@ bool materialize_constant_address(AArch64MachineBlock &machine_block,
                                               AArch64SymbolKind::Function);
         }
         return false;
+    }
+    if (const auto *block_address =
+            dynamic_cast<const CoreIrConstantBlockAddress *>(constant);
+        block_address != nullptr) {
+        return materialize_global_address(
+            machine_block, context,
+            make_aarch64_function_block_label(block_address->get_function_name(),
+                                              block_address->get_block_name()),
+            target_reg, AArch64SymbolKind::Label);
     }
     if (const auto *gep_constant =
             dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);

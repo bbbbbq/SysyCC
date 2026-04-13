@@ -42,6 +42,10 @@ bool build_text_section_image(
         defined_symbols[function.get_name()] =
             DefinedSymbol{AArch64SectionKind::Text, function_offset,
                           scan_info.code_size};
+        for (const auto &[label, offset] : scan_info.label_offsets) {
+            defined_symbols[label] = DefinedSymbol{AArch64SectionKind::Text,
+                                                   function_offset + offset, 0};
+        }
 
         std::size_t local_pc = 0;
         for (const AArch64MachineBlock &block : function.get_blocks()) {
