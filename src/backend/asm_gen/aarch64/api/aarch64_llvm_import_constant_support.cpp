@@ -367,6 +367,80 @@ bool is_i1_import_type(const AArch64LlvmImportType &type) {
            type.integer_bit_width == 1;
 }
 
+bool is_vector_bool_import_type(const AArch64LlvmImportType &type) {
+    return is_vector_import_type(type) &&
+           is_i1_import_type(type.element_types.front());
+}
+
+bool is_integer_or_pointer_import_type(const AArch64LlvmImportType &type) {
+    return is_integer_import_type(type) ||
+           type.kind == AArch64LlvmImportTypeKind::Pointer;
+}
+
+bool is_compare_operand_type(const AArch64LlvmImportType &type, bool is_float_compare) {
+    if (is_float_compare) {
+        if (is_float_import_type(type)) {
+            return true;
+        }
+        return is_vector_import_type(type) &&
+               is_float_import_type(type.element_types.front());
+    }
+    if (is_integer_or_pointer_import_type(type)) {
+        return true;
+    }
+    return is_vector_import_type(type) &&
+           is_integer_or_pointer_import_type(type.element_types.front());
+}
+
+std::optional<AArch64LlvmImportConstant> parse_compare_constant(
+    const AArch64LlvmImportType &result_type, const std::string &text,
+    bool is_float_compare) {
+    const char *opcode_prefix = is_float_compare ? "fcmp " : "icmp ";
+    std::string payload = llvm_import_trim_copy(text);
+    if (!llvm_import_starts_with(payload, opcode_prefix)) {
+        return std::nullopt;
+    }
+    payload = llvm_import_trim_copy(payload.substr(std::strlen(opcode_prefix)));
+    const std::size_t predicate_end = payload.find(' ');
+    if (predicate_end == std::string::npos) {
+        return std::nullopt;
+    }
+    const std::string predicate_text = payload.substr(0, predicate_end);
+    const auto operands = parse_parenthesized_operands(
+        llvm_import_trim_copy(payload.substr(predicate_end + 1)), "");
+    if (!operands.has_value() || operands->size() != 2) {
+        return std::nullopt;
+    }
+
+    const auto lhs_operand = parse_typed_constant((*operands)[0]);
+    const auto rhs_operand = parse_typed_constant((*operands)[1]);
+    if (!lhs_operand.has_value() || !rhs_operand.has_value() ||
+        !import_types_equal(lhs_operand->type, rhs_operand->type) ||
+        !is_compare_operand_type(lhs_operand->type, is_float_compare)) {
+        return std::nullopt;
+    }
+
+    const bool scalar_result = is_i1_import_type(result_type);
+    const bool vector_result =
+        is_vector_bool_import_type(result_type) &&
+        is_vector_import_type(lhs_operand->type) &&
+        lhs_operand->type.array_element_count == result_type.array_element_count;
+    if ((!scalar_result || is_vector_import_type(lhs_operand->type)) &&
+        !vector_result) {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportConstant constant;
+    constant.kind = AArch64LlvmImportConstantKind::Compare;
+    constant.compare_is_float = is_float_compare;
+    constant.compare_predicate_text = predicate_text;
+    constant.compare_lhs_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*lhs_operand);
+    constant.compare_rhs_operand =
+        std::make_shared<AArch64LlvmImportTypedConstant>(*rhs_operand);
+    return constant;
+}
+
 std::optional<AArch64LlvmImportConstant> parse_select_constant(
     const AArch64LlvmImportType &type, const std::string &text) {
     const auto operands = parse_parenthesized_operands(text, "select ");
@@ -677,6 +751,11 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
 
     switch (type.kind) {
     case AArch64LlvmImportTypeKind::Integer: {
+        if (llvm_import_starts_with(trimmed, "icmp ") ||
+            llvm_import_starts_with(trimmed, "fcmp ")) {
+            return parse_compare_constant(
+                type, trimmed, llvm_import_starts_with(trimmed, "fcmp "));
+        }
         if (llvm_import_starts_with(trimmed, "select ")) {
             return parse_select_constant(type, trimmed);
         }
@@ -783,6 +862,11 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         return std::nullopt;
     }
     case AArch64LlvmImportTypeKind::Array: {
+        if (llvm_import_starts_with(trimmed, "icmp ") ||
+            llvm_import_starts_with(trimmed, "fcmp ")) {
+            return parse_compare_constant(
+                type, trimmed, llvm_import_starts_with(trimmed, "fcmp "));
+        }
         if (llvm_import_starts_with(trimmed, "select ")) {
             return parse_select_constant(type, trimmed);
         }

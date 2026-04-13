@@ -842,6 +842,175 @@ class RestrictedLlvmIrImporter {
         return condition_constant->get_value() != 0;
     }
 
+    bool constants_equivalent(const CoreIrConstant *lhs,
+                              const CoreIrConstant *rhs) const {
+        if (lhs == rhs) {
+            return true;
+        }
+        if (lhs == nullptr || rhs == nullptr) {
+            return false;
+        }
+        if (const auto *lhs_int = dynamic_cast<const CoreIrConstantInt *>(lhs);
+            lhs_int != nullptr) {
+            const auto *rhs_int = dynamic_cast<const CoreIrConstantInt *>(rhs);
+            return rhs_int != nullptr &&
+                   lhs_int->get_value() == rhs_int->get_value();
+        }
+        if (const auto *lhs_float = dynamic_cast<const CoreIrConstantFloat *>(lhs);
+            lhs_float != nullptr) {
+            const auto *rhs_float = dynamic_cast<const CoreIrConstantFloat *>(rhs);
+            return rhs_float != nullptr &&
+                   lhs_float->get_literal_text() == rhs_float->get_literal_text();
+        }
+        if (dynamic_cast<const CoreIrConstantNull *>(lhs) != nullptr ||
+            dynamic_cast<const CoreIrConstantZeroInitializer *>(lhs) != nullptr) {
+            return dynamic_cast<const CoreIrConstantNull *>(rhs) != nullptr ||
+                   dynamic_cast<const CoreIrConstantZeroInitializer *>(rhs) != nullptr;
+        }
+        if (const auto *lhs_global =
+                dynamic_cast<const CoreIrConstantGlobalAddress *>(lhs);
+            lhs_global != nullptr) {
+            const auto *rhs_global =
+                dynamic_cast<const CoreIrConstantGlobalAddress *>(rhs);
+            return rhs_global != nullptr &&
+                   lhs_global->get_global() == rhs_global->get_global() &&
+                   lhs_global->get_function() == rhs_global->get_function();
+        }
+        if (const auto *lhs_gep =
+                dynamic_cast<const CoreIrConstantGetElementPtr *>(lhs);
+            lhs_gep != nullptr) {
+            const auto *rhs_gep =
+                dynamic_cast<const CoreIrConstantGetElementPtr *>(rhs);
+            if (rhs_gep == nullptr ||
+                !constants_equivalent(lhs_gep->get_base(), rhs_gep->get_base()) ||
+                lhs_gep->get_indices().size() != rhs_gep->get_indices().size()) {
+                return false;
+            }
+            for (std::size_t index = 0; index < lhs_gep->get_indices().size(); ++index) {
+                if (!constants_equivalent(lhs_gep->get_indices()[index],
+                                          rhs_gep->get_indices()[index])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (const auto *lhs_cast = dynamic_cast<const CoreIrConstantCast *>(lhs);
+            lhs_cast != nullptr) {
+            const auto *rhs_cast = dynamic_cast<const CoreIrConstantCast *>(rhs);
+            return rhs_cast != nullptr &&
+                   lhs_cast->get_cast_kind() == rhs_cast->get_cast_kind() &&
+                   constants_equivalent(lhs_cast->get_operand(),
+                                        rhs_cast->get_operand());
+        }
+        if (const auto *lhs_agg =
+                dynamic_cast<const CoreIrConstantAggregate *>(lhs);
+            lhs_agg != nullptr) {
+            const auto *rhs_agg =
+                dynamic_cast<const CoreIrConstantAggregate *>(rhs);
+            if (rhs_agg == nullptr ||
+                lhs_agg->get_elements().size() != rhs_agg->get_elements().size()) {
+                return false;
+            }
+            for (std::size_t index = 0; index < lhs_agg->get_elements().size(); ++index) {
+                if (!constants_equivalent(lhs_agg->get_elements()[index],
+                                          rhs_agg->get_elements()[index])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    bool evaluate_integer_compare(CoreIrComparePredicate predicate,
+                                  std::uint64_t lhs, std::uint64_t rhs,
+                                  std::size_t bit_width) const {
+        lhs = truncate_integer_to_width(lhs, bit_width);
+        rhs = truncate_integer_to_width(rhs, bit_width);
+        const std::int64_t signed_lhs =
+            static_cast<std::int64_t>(sign_extend_integer_to_u64(lhs, bit_width));
+        const std::int64_t signed_rhs =
+            static_cast<std::int64_t>(sign_extend_integer_to_u64(rhs, bit_width));
+        switch (predicate) {
+        case CoreIrComparePredicate::Equal:
+            return lhs == rhs;
+        case CoreIrComparePredicate::NotEqual:
+            return lhs != rhs;
+        case CoreIrComparePredicate::SignedLess:
+            return signed_lhs < signed_rhs;
+        case CoreIrComparePredicate::SignedLessEqual:
+            return signed_lhs <= signed_rhs;
+        case CoreIrComparePredicate::SignedGreater:
+            return signed_lhs > signed_rhs;
+        case CoreIrComparePredicate::SignedGreaterEqual:
+            return signed_lhs >= signed_rhs;
+        case CoreIrComparePredicate::UnsignedLess:
+            return lhs < rhs;
+        case CoreIrComparePredicate::UnsignedLessEqual:
+            return lhs <= rhs;
+        case CoreIrComparePredicate::UnsignedGreater:
+            return lhs > rhs;
+        case CoreIrComparePredicate::UnsignedGreaterEqual:
+            return lhs >= rhs;
+        }
+        return false;
+    }
+
+    std::optional<bool> evaluate_float_compare(
+        const std::string &predicate_text, long double lhs,
+        long double rhs) const {
+        const bool unordered = std::isnan(lhs) || std::isnan(rhs);
+        if (predicate_text == "false") {
+            return false;
+        }
+        if (predicate_text == "true") {
+            return true;
+        }
+        if (predicate_text == "ord") {
+            return !unordered;
+        }
+        if (predicate_text == "uno") {
+            return unordered;
+        }
+        if (predicate_text == "oeq") {
+            return !unordered && lhs == rhs;
+        }
+        if (predicate_text == "one") {
+            return !unordered && lhs != rhs;
+        }
+        if (predicate_text == "olt") {
+            return !unordered && lhs < rhs;
+        }
+        if (predicate_text == "ole") {
+            return !unordered && lhs <= rhs;
+        }
+        if (predicate_text == "ogt") {
+            return !unordered && lhs > rhs;
+        }
+        if (predicate_text == "oge") {
+            return !unordered && lhs >= rhs;
+        }
+        if (predicate_text == "ueq") {
+            return unordered || lhs == rhs;
+        }
+        if (predicate_text == "une") {
+            return unordered || lhs != rhs;
+        }
+        if (predicate_text == "ult") {
+            return unordered || lhs < rhs;
+        }
+        if (predicate_text == "ule") {
+            return unordered || lhs <= rhs;
+        }
+        if (predicate_text == "ugt") {
+            return unordered || lhs > rhs;
+        }
+        if (predicate_text == "uge") {
+            return unordered || lhs >= rhs;
+        }
+        return std::nullopt;
+    }
+
     std::optional<std::size_t> lower_vector_index_operand(
         const std::shared_ptr<AArch64LlvmImportTypedConstant> &typed_index) {
         const auto *index_constant =
@@ -856,6 +1025,111 @@ class RestrictedLlvmIrImporter {
     const CoreIrConstant *fold_vector_constant_expr(
         const CoreIrType *type, const AArch64LlvmImportConstant &constant) {
         switch (constant.kind) {
+        case AArch64LlvmImportConstantKind::Compare: {
+            if (constant.compare_lhs_operand == nullptr ||
+                constant.compare_rhs_operand == nullptr) {
+                return nullptr;
+            }
+            const auto fold_scalar_lane =
+                [&](const AArch64LlvmImportType &operand_type,
+                    const CoreIrConstant *lhs_constant,
+                    const CoreIrConstant *rhs_constant) -> std::optional<bool> {
+                if (lhs_constant == nullptr || rhs_constant == nullptr) {
+                    return std::nullopt;
+                }
+                if (constant.compare_is_float) {
+                    const auto *lhs_float =
+                        dynamic_cast<const CoreIrConstantFloat *>(lhs_constant);
+                    const auto *rhs_float =
+                        dynamic_cast<const CoreIrConstantFloat *>(rhs_constant);
+                    const auto lhs_value =
+                        lhs_float == nullptr ? std::optional<long double>{}
+                                             : parse_core_float_literal(*lhs_float);
+                    const auto rhs_value =
+                        rhs_float == nullptr ? std::optional<long double>{}
+                                             : parse_core_float_literal(*rhs_float);
+                    if (!lhs_value.has_value() || !rhs_value.has_value()) {
+                        return std::nullopt;
+                    }
+                    return evaluate_float_compare(constant.compare_predicate_text,
+                                                  *lhs_value, *rhs_value);
+                }
+
+                const auto predicate = parse_compare_predicate(
+                    constant.compare_predicate_text, false);
+                if (!predicate.has_value()) {
+                    return std::nullopt;
+                }
+                if (const auto *lhs_int =
+                        dynamic_cast<const CoreIrConstantInt *>(lhs_constant);
+                    lhs_int != nullptr) {
+                    const auto *rhs_int =
+                        dynamic_cast<const CoreIrConstantInt *>(rhs_constant);
+                    if (rhs_int == nullptr) {
+                        return std::nullopt;
+                    }
+                    const std::size_t bit_width =
+                        operand_type.kind == AArch64LlvmImportTypeKind::Integer
+                            ? operand_type.integer_bit_width
+                            : 64;
+                    return evaluate_integer_compare(*predicate, lhs_int->get_value(),
+                                                    rhs_int->get_value(),
+                                                    bit_width);
+                }
+                if (operand_type.kind == AArch64LlvmImportTypeKind::Pointer &&
+                    (*predicate == CoreIrComparePredicate::Equal ||
+                     *predicate == CoreIrComparePredicate::NotEqual)) {
+                    const bool equivalent =
+                        constants_equivalent(lhs_constant, rhs_constant);
+                    return *predicate == CoreIrComparePredicate::Equal
+                               ? equivalent
+                               : !equivalent;
+                }
+                return std::nullopt;
+            };
+
+            const CoreIrConstant *lhs_constant =
+                lower_typed_import_constant(constant.compare_lhs_operand);
+            const CoreIrConstant *rhs_constant =
+                lower_typed_import_constant(constant.compare_rhs_operand);
+            if (lhs_constant == nullptr || rhs_constant == nullptr) {
+                return nullptr;
+            }
+            if (type->get_kind() == CoreIrTypeKind::Integer) {
+                const auto folded = fold_scalar_lane(
+                    constant.compare_lhs_operand->type, lhs_constant, rhs_constant);
+                return folded.has_value()
+                           ? context_->create_constant<CoreIrConstantInt>(
+                                 type, *folded ? 1 : 0)
+                           : nullptr;
+            }
+            const CoreIrType *operand_type =
+                lower_import_type(constant.compare_lhs_operand->type);
+            std::vector<const CoreIrConstant *> lhs_lanes;
+            std::vector<const CoreIrConstant *> rhs_lanes;
+            if (operand_type == nullptr ||
+                !expand_vector_constant_lanes(operand_type, lhs_constant, lhs_lanes) ||
+                !expand_vector_constant_lanes(operand_type, rhs_constant, rhs_lanes) ||
+                lhs_lanes.size() != rhs_lanes.size()) {
+                return nullptr;
+            }
+            std::vector<const CoreIrConstant *> result_lanes;
+            result_lanes.reserve(lhs_lanes.size());
+            const CoreIrType *i1_type = parse_type_text("i1");
+            for (std::size_t index = 0; index < lhs_lanes.size(); ++index) {
+                const auto lane = fold_scalar_lane(
+                    constant.compare_lhs_operand->type.element_types.front(),
+                    lhs_lanes[index], rhs_lanes[index]);
+                if (!lane.has_value() || i1_type == nullptr) {
+                    return nullptr;
+                }
+                result_lanes.push_back(
+                    context_->create_constant<CoreIrConstantInt>(i1_type,
+                                                                 *lane ? 1 : 0));
+            }
+            return context_->create_constant<CoreIrConstantAggregate>(type,
+                                                                      result_lanes);
+        }
         case AArch64LlvmImportConstantKind::Select: {
             if (constant.select_condition_operand == nullptr ||
                 constant.select_true_operand == nullptr ||
@@ -1107,6 +1381,7 @@ class RestrictedLlvmIrImporter {
             return context_->create_constant<CoreIrConstantGetElementPtr>(
                 type, base, indices);
         }
+        case AArch64LlvmImportConstantKind::Compare:
         case AArch64LlvmImportConstantKind::Select:
         case AArch64LlvmImportConstantKind::ExtractElement:
         case AArch64LlvmImportConstantKind::InsertElement:
@@ -1400,6 +1675,19 @@ class RestrictedLlvmIrImporter {
             text += ")";
             return text;
         }
+        case AArch64LlvmImportConstantKind::Compare:
+            if (constant.compare_lhs_operand == nullptr ||
+                constant.compare_rhs_operand == nullptr) {
+                return (constant.compare_is_float ? "fcmp" : "icmp") +
+                       std::string("(<missing-operands>)");
+            }
+            return std::string(constant.compare_is_float ? "fcmp " : "icmp ") +
+                   constant.compare_predicate_text + " (" +
+                   constant.compare_lhs_operand->type_text + " " +
+                   describe_import_constant(constant.compare_lhs_operand->constant) +
+                   ", " + constant.compare_rhs_operand->type_text + " " +
+                   describe_import_constant(constant.compare_rhs_operand->constant) +
+                   ")";
         case AArch64LlvmImportConstantKind::Select:
             if (constant.select_condition_operand == nullptr ||
                 constant.select_true_operand == nullptr ||
