@@ -62,6 +62,7 @@ enum class AArch64LlvmImportConstantKind : unsigned char {
     AddrSpaceCast,
     IntToPtr,
     PtrToInt,
+    BlockAddress,
     GetElementPtr,
     Compare,
     Select,
@@ -77,6 +78,8 @@ struct AArch64LlvmImportConstant {
     std::uint64_t integer_value = 0;
     std::string float_text;
     std::string symbol_name;
+    std::string blockaddress_function_name;
+    std::string blockaddress_label_name;
     std::string cast_source_type_text;
     AArch64LlvmImportType cast_source_type;
     std::string cast_target_type_text;

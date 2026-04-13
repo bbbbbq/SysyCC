@@ -362,6 +362,35 @@ bool is_vector_import_type(const AArch64LlvmImportType &type) {
            type.array_uses_vector_syntax && type.element_types.size() == 1;
 }
 
+std::optional<AArch64LlvmImportConstant> parse_blockaddress_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    if (type.kind != AArch64LlvmImportTypeKind::Pointer) {
+        return std::nullopt;
+    }
+    const auto operands = parse_parenthesized_operands(text, "blockaddress");
+    if (!operands.has_value() || operands->size() != 2) {
+        return std::nullopt;
+    }
+
+    std::string function_name = llvm_import_trim_copy((*operands)[0]);
+    std::string label_name = llvm_import_trim_copy((*operands)[1]);
+    if (function_name.empty() || label_name.empty() || function_name.front() != '@' ||
+        label_name.front() != '%') {
+        return std::nullopt;
+    }
+    function_name.erase(function_name.begin());
+    label_name.erase(label_name.begin());
+    if (function_name.empty() || label_name.empty()) {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportConstant constant;
+    constant.kind = AArch64LlvmImportConstantKind::BlockAddress;
+    constant.blockaddress_function_name = std::move(function_name);
+    constant.blockaddress_label_name = std::move(label_name);
+    return constant;
+}
+
 bool is_i1_import_type(const AArch64LlvmImportType &type) {
     return type.kind == AArch64LlvmImportTypeKind::Integer &&
            type.integer_bit_width == 1;
@@ -845,6 +874,9 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         }
         if (llvm_import_starts_with(trimmed, "extractelement ")) {
             return parse_extractelement_constant(type, trimmed);
+        }
+        if (llvm_import_starts_with(trimmed, "blockaddress")) {
+            return parse_blockaddress_constant(type, trimmed);
         }
         if (llvm_import_starts_with(trimmed, "inttoptr ")) {
             return parse_inttoptr_constant(type, trimmed);
