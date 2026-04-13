@@ -1,6 +1,7 @@
 # expectation|c_std|source_rel|argv_text|xfail_substring
 PASS|gnu11|SingleSource/Benchmarks/Shootout/hello.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Shootout/nestedloop.c|-|-
+PASS|gnu11|SingleSource/Benchmarks/Shootout/ackermann.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Shootout/ary3.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Shootout/fib2.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Shootout/sieve.c|-|-
@@ -11,6 +12,7 @@ PASS|gnu11|SingleSource/Benchmarks/Shootout/lists.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Shootout/methcall.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Shootout/objinst.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Shootout/random.c|10000|-
+PASS|gnu11|SingleSource/Benchmarks/Shootout/strcat.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Stanford/Bubblesort.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Stanford/Perm.c|-|-
 PASS|gnu11|SingleSource/Benchmarks/Stanford/Queens.c|-|-
