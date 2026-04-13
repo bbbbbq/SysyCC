@@ -2356,6 +2356,19 @@ class RestrictedLlvmIrImporter {
             return bind_instruction_result(result_name, operand, bindings);
         };
 
+        auto get_or_create_imported_declaration =
+            [&](const std::string &callee_name, const CoreIrFunctionType *callee_type)
+            -> CoreIrFunction * {
+            if (auto it = functions_.find(callee_name); it != functions_.end()) {
+                return it->second;
+            }
+            CoreIrFunction *callee =
+                module_->create_function<CoreIrFunction>(callee_name, callee_type,
+                                                         false, false);
+            functions_[callee_name] = callee;
+            return callee;
+        };
+
         if (instruction_kind == AArch64LlvmImportInstructionKind::Binary) {
             const std::optional<AArch64LlvmImportBinarySpec> binary_spec =
                 parse_llvm_import_binary_spec(instruction);
@@ -3067,6 +3080,60 @@ class RestrictedLlvmIrImporter {
                                                           argument_types, false);
             if (call_spec->callee.kind == AArch64LlvmImportValueKind::Global) {
                 const std::string &callee_name = call_spec->callee.global_name;
+                if (callee_name == "llvm.stacksave.p0") {
+                    if (return_type->get_kind() != CoreIrTypeKind::Pointer) {
+                        add_error("unsupported llvm.stacksave return type: " + line,
+                                  line_number, 1);
+                        return false;
+                    }
+                    return bind_instruction_result(
+                        result_name,
+                        context_->create_constant<CoreIrConstantNull>(return_type),
+                        bindings);
+                }
+                if (callee_name == "llvm.stackrestore.p0") {
+                    return true;
+                }
+                auto lower_memory_intrinsic_call =
+                    [&](const std::string &runtime_name,
+                        std::size_t expected_minimum_arguments,
+                        std::size_t used_argument_count) -> bool {
+                    if (arguments.size() < expected_minimum_arguments ||
+                        argument_types.size() < expected_minimum_arguments) {
+                        add_error("unsupported LLVM intrinsic call shape: " + line,
+                                  line_number, 1);
+                        return false;
+                    }
+                    std::vector<CoreIrValue *> runtime_arguments(
+                        arguments.begin(), arguments.begin() + used_argument_count);
+                    std::vector<const CoreIrType *> runtime_argument_types(
+                        argument_types.begin(),
+                        argument_types.begin() + used_argument_count);
+                    const CoreIrFunctionType *runtime_callee_type =
+                        context_->create_type<CoreIrFunctionType>(
+                            return_type, runtime_argument_types, false);
+                    CoreIrFunction *callee = get_or_create_imported_declaration(
+                        runtime_name, runtime_callee_type);
+                    CoreIrValue *call_value = block.create_instruction<CoreIrCallInst>(
+                        return_type, result_name, callee->get_name(),
+                        runtime_callee_type, runtime_arguments);
+                    return result_name.empty()
+                               ? true
+                               : bind_instruction_result(result_name, call_value,
+                                                         bindings);
+                };
+                if (callee_name.rfind("llvm.memcpy.", 0) == 0) {
+                    return lower_memory_intrinsic_call("memcpy", 4, 3);
+                }
+                if (callee_name.rfind("llvm.memmove.", 0) == 0) {
+                    return lower_memory_intrinsic_call("memmove", 4, 3);
+                }
+                if (callee_name.rfind("llvm.memset.", 0) == 0) {
+                    return lower_memory_intrinsic_call("memset", 4, 3);
+                }
+            }
+            if (call_spec->callee.kind == AArch64LlvmImportValueKind::Global) {
+                const std::string &callee_name = call_spec->callee.global_name;
                 CoreIrFunction *callee = nullptr;
                 if (auto callee_it = functions_.find(callee_name);
                     callee_it != functions_.end()) {
@@ -3219,6 +3286,24 @@ class RestrictedLlvmIrImporter {
             }
             block.create_instruction<CoreIrIndirectJumpInst>(void_type(), address,
                                                              std::move(targets));
+            return true;
+        }
+        if (instruction_kind == AArch64LlvmImportInstructionKind::Unreachable) {
+            const CoreIrType *function_return_type =
+                function.get_function_type()->get_return_type();
+            if (function_return_type == void_type()) {
+                block.create_instruction<CoreIrReturnInst>(void_type());
+                return true;
+            }
+            const CoreIrConstant *fallback_return =
+                make_zero_constant(function_return_type);
+            if (fallback_return == nullptr) {
+                add_error("unsupported LLVM unreachable terminator fallback: " + line,
+                          line_number, 1);
+                return false;
+            }
+            block.create_instruction<CoreIrReturnInst>(
+                void_type(), const_cast<CoreIrConstant *>(fallback_return));
             return true;
         }
         if (instruction_kind == AArch64LlvmImportInstructionKind::Return) {

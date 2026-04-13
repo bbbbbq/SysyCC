@@ -181,6 +181,9 @@ AArch64LlvmImportInstructionKind classify_instruction_kind(
     if (starts_with(normalized, "br ")) {
         return AArch64LlvmImportInstructionKind::CondBranch;
     }
+    if (starts_with(normalized, "unreachable")) {
+        return AArch64LlvmImportInstructionKind::Unreachable;
+    }
     if (starts_with(normalized, "ret ")) {
         return AArch64LlvmImportInstructionKind::Return;
     }

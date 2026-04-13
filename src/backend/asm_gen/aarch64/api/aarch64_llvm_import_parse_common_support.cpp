@@ -1,5 +1,6 @@
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_parse_common_support.hpp"
 
+#include <algorithm>
 #include <cctype>
 
 namespace sysycc {
@@ -316,6 +317,19 @@ std::string llvm_import_strip_leading_modifiers(const std::string &text) {
             break;
         }
         current = llvm_import_trim_copy(current.substr(token_end));
+        if (token == "align") {
+            std::size_t align_value_end = 0;
+            while (align_value_end < current.size() &&
+                   std::isspace(static_cast<unsigned char>(current[align_value_end])) == 0) {
+                ++align_value_end;
+            }
+            const std::string align_value = current.substr(0, align_value_end);
+            if (!align_value.empty() &&
+                std::all_of(align_value.begin(), align_value.end(),
+                            [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
+                current = llvm_import_trim_copy(current.substr(align_value_end));
+            }
+        }
     }
     return current;
 }

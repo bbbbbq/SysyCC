@@ -173,6 +173,7 @@ enum class AArch64LlvmImportInstructionKind : unsigned char {
     Branch,
     CondBranch,
     IndirectBranch,
+    Unreachable,
     Return,
     ExtractElement,
     InsertElement,
