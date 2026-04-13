@@ -13,6 +13,28 @@
 
 namespace sysycc {
 
+std::optional<std::uint64_t> parse_raw_hex_float_bits(const std::string &literal_text,
+                                                      unsigned bit_width) {
+    if ((bit_width != 32U && bit_width != 64U) || literal_text.size() < 3 ||
+        literal_text[0] != '0' ||
+        (literal_text[1] != 'x' && literal_text[1] != 'X') ||
+        literal_text.find('p') != std::string::npos ||
+        literal_text.find('P') != std::string::npos) {
+        return std::nullopt;
+    }
+    try {
+        std::size_t consumed = 0;
+        const std::uint64_t bits =
+            static_cast<std::uint64_t>(std::stoull(literal_text, &consumed, 16));
+        if (consumed != literal_text.size()) {
+            return std::nullopt;
+        }
+        return bit_width == 32U ? (bits & 0xffffffffU) : bits;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 std::string strip_floating_literal_suffix(std::string value_text) {
     while (!value_text.empty()) {
         const char last = value_text.back();
@@ -208,9 +230,14 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
         }
         case CoreIrFloatKind::Float32: {
             static CoreIrIntegerType i32_type(32);
-            const float parsed = std::stof(literal_text);
             std::uint32_t bits = 0;
-            std::memcpy(&bits, &parsed, sizeof(bits));
+            if (const auto raw_bits = parse_raw_hex_float_bits(literal_text, 32U);
+                raw_bits.has_value()) {
+                bits = static_cast<std::uint32_t>(*raw_bits);
+            } else {
+                const float parsed = std::stof(literal_text);
+                std::memcpy(&bits, &parsed, sizeof(bits));
+            }
             const AArch64VirtualReg temp =
                 function.create_virtual_reg(AArch64VirtualRegKind::General32);
             if (!materialize_integer_constant(machine_block, context, &i32_type, bits,
@@ -223,9 +250,14 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
         }
         case CoreIrFloatKind::Float64: {
             static CoreIrIntegerType i64_type(64);
-            const double parsed = std::stod(literal_text);
             std::uint64_t bits = 0;
-            std::memcpy(&bits, &parsed, sizeof(bits));
+            if (const auto raw_bits = parse_raw_hex_float_bits(literal_text, 64U);
+                raw_bits.has_value()) {
+                bits = *raw_bits;
+            } else {
+                const double parsed = std::stod(literal_text);
+                std::memcpy(&bits, &parsed, sizeof(bits));
+            }
             const AArch64VirtualReg temp =
                 function.create_virtual_reg(AArch64VirtualRegKind::General64);
             if (!materialize_integer_constant(machine_block, context, &i64_type, bits,

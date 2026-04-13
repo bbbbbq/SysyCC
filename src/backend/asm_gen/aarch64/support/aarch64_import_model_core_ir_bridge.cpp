@@ -1974,6 +1974,61 @@ class RestrictedLlvmIrImporter {
         return current;
     }
 
+    std::optional<long long> compute_constant_gep_byte_offset(
+        const CoreIrType *source_type, const std::vector<CoreIrValue *> &indices) {
+        if (source_type == nullptr) {
+            return std::nullopt;
+        }
+
+        const CoreIrType *current = source_type;
+        long long offset = 0;
+        for (std::size_t index_position = 0; index_position < indices.size();
+             ++index_position) {
+            const auto *integer_constant =
+                dynamic_cast<const CoreIrConstantInt *>(indices[index_position]);
+            if (integer_constant == nullptr) {
+                return std::nullopt;
+            }
+            const std::uint64_t index_value = integer_constant->get_value();
+
+            if (index_position == 0) {
+                offset += static_cast<long long>(index_value) *
+                          static_cast<long long>(get_type_size(current));
+                continue;
+            }
+            if (const auto *array_type = as_array_type(current); array_type != nullptr) {
+                offset += static_cast<long long>(index_value) *
+                          static_cast<long long>(
+                              get_type_size(array_type->get_element_type()));
+                current = array_type->get_element_type();
+                continue;
+            }
+            if (const auto *struct_type =
+                    dynamic_cast<const CoreIrStructType *>(current);
+                struct_type != nullptr) {
+                if (index_value >= struct_type->get_element_types().size()) {
+                    return std::nullopt;
+                }
+                offset += static_cast<long long>(
+                    get_struct_member_offset(struct_type,
+                                             static_cast<std::size_t>(index_value)));
+                current = struct_type->get_element_types()[index_value];
+                continue;
+            }
+            if (const auto *pointer_type =
+                    dynamic_cast<const CoreIrPointerType *>(current);
+                pointer_type != nullptr) {
+                offset += static_cast<long long>(index_value) *
+                          static_cast<long long>(
+                              get_type_size(pointer_type->get_pointee_type()));
+                current = pointer_type->get_pointee_type();
+                continue;
+            }
+            return std::nullopt;
+        }
+        return offset;
+    }
+
     const CoreIrArrayType *as_array_type(const CoreIrType *type) const {
         return dynamic_cast<const CoreIrArrayType *>(type);
     }
@@ -3065,7 +3120,6 @@ class RestrictedLlvmIrImporter {
             if (base == nullptr) {
                 return false;
             }
-            retype_opaque_pointer_value(base, source_type);
             std::vector<CoreIrValue *> indices;
             for (const AArch64LlvmImportTypedValue &index_operand :
                  gep_spec->indices) {
@@ -3086,9 +3140,42 @@ class RestrictedLlvmIrImporter {
                           line_number, 1);
                 return false;
             }
-            std::vector<CoreIrValue *> gep_operands;
-            gep_operands.push_back(base);
-            gep_operands.insert(gep_operands.end(), indices.begin(), indices.end());
+            const auto *base_pointer_type =
+                dynamic_cast<const CoreIrPointerType *>(base->get_type());
+            const bool needs_explicit_source_type =
+                base_pointer_type != nullptr &&
+                base_pointer_type->get_pointee_type() != void_type() &&
+                base_pointer_type->get_pointee_type() != source_type;
+            if (needs_explicit_source_type) {
+                const auto byte_offset =
+                    compute_constant_gep_byte_offset(source_type, indices);
+                if (!byte_offset.has_value()) {
+                    add_error("unsupported LLVM getelementptr source/base type mismatch: " +
+                                  line,
+                              line_number, 1);
+                    return false;
+                }
+                const CoreIrType *i64_type = parse_type_text("i64");
+                CoreIrValue *base_int = block.create_instruction<CoreIrCastInst>(
+                    CoreIrCastKind::PtrToInt, i64_type,
+                    "ll.gep.ptrtoint." + std::to_string(synthetic_index++), base);
+                CoreIrValue *address_int = base_int;
+                if (*byte_offset != 0) {
+                    const CoreIrConstant *offset_constant =
+                        context_->create_constant<CoreIrConstantInt>(
+                            i64_type, static_cast<std::uint64_t>(*byte_offset));
+                    address_int = block.create_instruction<CoreIrBinaryInst>(
+                        CoreIrBinaryOpcode::Add, i64_type,
+                        "ll.gep.add." + std::to_string(synthetic_index++), base_int,
+                        const_cast<CoreIrConstant *>(offset_constant));
+                }
+                CoreIrValue *typed_address =
+                    block.create_instruction<CoreIrCastInst>(
+                        CoreIrCastKind::IntToPtr, pointer_to(result_pointee),
+                        result_name, address_int);
+                return bind_instruction_result(result_name, typed_address, bindings);
+            }
+            retype_opaque_pointer_value(base, source_type);
             return bind_instruction_result(
                 result_name,
                 block.create_instruction<CoreIrGetElementPtrInst>(

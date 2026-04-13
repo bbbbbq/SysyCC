@@ -17,6 +17,28 @@ namespace sysycc {
 
 namespace {
 
+std::optional<std::uint64_t> parse_raw_hex_float_bits(const std::string &literal_text,
+                                                      unsigned bit_width) {
+    if ((bit_width != 32U && bit_width != 64U) || literal_text.size() < 3 ||
+        literal_text[0] != '0' ||
+        (literal_text[1] != 'x' && literal_text[1] != 'X') ||
+        literal_text.find('p') != std::string::npos ||
+        literal_text.find('P') != std::string::npos) {
+        return std::nullopt;
+    }
+    try {
+        std::size_t consumed = 0;
+        const std::uint64_t bits =
+            static_cast<std::uint64_t>(std::stoull(literal_text, &consumed, 16));
+        if (consumed != literal_text.size()) {
+            return std::nullopt;
+        }
+        return bit_width == 32U ? (bits & 0xffffffffU) : bits;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 bool is_byte_string_global(const CoreIrGlobal &global) {
     const auto *array_type =
         dynamic_cast<const CoreIrArrayType *>(global.get_type());
@@ -289,16 +311,26 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
                 return true;
             }
             case CoreIrFloatKind::Float32: {
-                const float parsed = std::stof(literal_text);
                 std::uint32_t bits = 0;
-                std::memcpy(&bits, &parsed, sizeof(bits));
+                if (const auto raw_bits = parse_raw_hex_float_bits(literal_text, 32U);
+                    raw_bits.has_value()) {
+                    bits = static_cast<std::uint32_t>(*raw_bits);
+                } else {
+                    const float parsed = std::stof(literal_text);
+                    std::memcpy(&bits, &parsed, sizeof(bits));
+                }
                 append_scalar_fragment(data_object, 4, bits);
                 return true;
             }
             case CoreIrFloatKind::Float64: {
-                const double parsed = std::stod(literal_text);
                 std::uint64_t bits = 0;
-                std::memcpy(&bits, &parsed, sizeof(bits));
+                if (const auto raw_bits = parse_raw_hex_float_bits(literal_text, 64U);
+                    raw_bits.has_value()) {
+                    bits = *raw_bits;
+                } else {
+                    const double parsed = std::stod(literal_text);
+                    std::memcpy(&bits, &parsed, sizeof(bits));
+                }
                 append_scalar_fragment(data_object, 8, bits);
                 return true;
             }
