@@ -1,6 +1,7 @@
 #include "backend/ir/dce/core_ir_dce_pass.hpp"
 
 #include <algorithm>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <unordered_set>
@@ -187,6 +188,76 @@ bool simplify_trivial_phis(CoreIrFunction &function) {
     return changed;
 }
 
+bool remove_dead_phi_cycles(CoreIrFunction &function) {
+    std::unordered_set<CoreIrPhiInst *> live_phis;
+    std::deque<CoreIrPhiInst *> worklist;
+
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction_ptr.get());
+            if (phi == nullptr) {
+                break;
+            }
+            bool has_non_phi_user = false;
+            for (const CoreIrUse &use : phi->get_uses()) {
+                auto *user = dynamic_cast<CoreIrPhiInst *>(use.get_user());
+                if (user == nullptr) {
+                    has_non_phi_user = true;
+                    break;
+                }
+            }
+            if (has_non_phi_user && live_phis.insert(phi).second) {
+                worklist.push_back(phi);
+            }
+        }
+    }
+
+    while (!worklist.empty()) {
+        CoreIrPhiInst *phi = worklist.front();
+        worklist.pop_front();
+        if (phi == nullptr) {
+            continue;
+        }
+        for (std::size_t incoming = 0; incoming < phi->get_incoming_count();
+             ++incoming) {
+            auto *incoming_phi =
+                dynamic_cast<CoreIrPhiInst *>(phi->get_incoming_value(incoming));
+            if (incoming_phi == nullptr) {
+                continue;
+            }
+            if (live_phis.insert(incoming_phi).second) {
+                worklist.push_back(incoming_phi);
+            }
+        }
+    }
+
+    bool changed = false;
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        auto &instructions = block->get_instructions();
+        for (std::size_t index = 0; index < instructions.size();) {
+            auto *phi = dynamic_cast<CoreIrPhiInst *>(instructions[index].get());
+            if (phi == nullptr) {
+                break;
+            }
+            if (live_phis.find(phi) != live_phis.end()) {
+                ++index;
+                continue;
+            }
+            phi->detach_operands();
+            instructions.erase(instructions.begin() +
+                               static_cast<std::ptrdiff_t>(index));
+            changed = true;
+        }
+    }
+    return changed;
+}
+
 bool remove_dead_instructions(CoreIrFunction &function) {
     bool changed = false;
     for (const auto &block : function.get_basic_blocks()) {
@@ -230,6 +301,7 @@ PassResult CoreIrDcePass::Run(CompilerContext &context) {
         for (const auto &function : build_result->get_module()->get_functions()) {
             bool function_changed = false;
             function_changed = simplify_trivial_phis(*function) || function_changed;
+            function_changed = remove_dead_phi_cycles(*function) || function_changed;
             function_changed = remove_unreachable_blocks(*function) || function_changed;
             function_changed = remove_dead_instructions(*function) || function_changed;
             if (function_changed) {
