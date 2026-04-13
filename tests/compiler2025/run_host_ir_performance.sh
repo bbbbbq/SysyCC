@@ -199,7 +199,19 @@ sysycc_llvm_opt_level = sys.argv[12]
 run_started_at = sys.argv[13]
 selected_cases = set(sys.argv[14:])
 
-clang = shutil.which("clang")  # type: ignore[name-defined]
+configured_clang = os.environ.get("SYSYCC_COMPILER2025_HOST_CLANG")
+clang_candidates = []
+if configured_clang:
+    clang_candidates.append(configured_clang)
+clang_candidates.extend([
+    "/opt/homebrew/opt/llvm/bin/clang",
+    shutil.which("clang"),
+])
+clang = None
+for candidate in clang_candidates:
+    if candidate and Path(candidate).exists():
+        clang = candidate
+        break
 if clang is None:
     raise SystemExit("missing clang in PATH")
 
@@ -406,6 +418,7 @@ def write_report(results: list[dict]) -> dict:
         "warmup": warmup,
         "clang_baseline_opt_level": clang_opt_level,
         "sysycc_llvm_opt_level": sysycc_llvm_opt_level,
+        "clang_binary": clang,
         "status_counts": status_counts,
     }
     if lingering_rows:
