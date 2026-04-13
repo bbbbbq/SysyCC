@@ -3171,6 +3171,44 @@ class RestrictedLlvmIrImporter {
                 void_type(), condition, true_it->second, false_it->second);
             return true;
         }
+        if (instruction_kind == AArch64LlvmImportInstructionKind::IndirectBranch) {
+            const auto indirect_spec =
+                parse_llvm_import_indirect_branch_spec(instruction);
+            if (!indirect_spec.has_value()) {
+                add_error("unsupported LLVM indirectbr instruction: " + line,
+                          line_number, 1);
+                return false;
+            }
+            const CoreIrType *address_type =
+                lower_import_type(indirect_spec->address.type);
+            if (address_type == nullptr ||
+                address_type->get_kind() != CoreIrTypeKind::Pointer) {
+                add_error("unsupported LLVM indirectbr address type: " +
+                              indirect_spec->address.type_text,
+                          line_number, 1);
+                return false;
+            }
+            CoreIrValue *address = resolve_typed_value_operand(
+                address_type, indirect_spec->address, block, bindings,
+                synthetic_index, line_number);
+            if (address == nullptr) {
+                return false;
+            }
+            std::vector<CoreIrBasicBlock *> targets;
+            targets.reserve(indirect_spec->target_labels.size());
+            for (const std::string &target_label : indirect_spec->target_labels) {
+                const auto block_it = block_map.find(target_label);
+                if (block_it == block_map.end()) {
+                    add_error("unknown LLVM indirectbr target: " + target_label,
+                              line_number, 1);
+                    return false;
+                }
+                targets.push_back(block_it->second);
+            }
+            block.create_instruction<CoreIrIndirectJumpInst>(void_type(), address,
+                                                             std::move(targets));
+            return true;
+        }
         if (instruction_kind == AArch64LlvmImportInstructionKind::Return) {
             const std::optional<AArch64LlvmImportReturnSpec> return_spec =
                 parse_llvm_import_return_spec(instruction);

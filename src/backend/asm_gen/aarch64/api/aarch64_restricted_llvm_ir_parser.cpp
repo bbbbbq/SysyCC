@@ -173,6 +173,9 @@ AArch64LlvmImportInstructionKind classify_instruction_kind(
     if (starts_with(normalized, "br label ")) {
         return AArch64LlvmImportInstructionKind::Branch;
     }
+    if (starts_with(normalized, "indirectbr ")) {
+        return AArch64LlvmImportInstructionKind::IndirectBranch;
+    }
     if (starts_with(normalized, "br ")) {
         return AArch64LlvmImportInstructionKind::CondBranch;
     }

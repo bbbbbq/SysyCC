@@ -76,6 +76,21 @@ bool dispatch_aarch64_lowered_instruction(
         return context.emit_cond_jump(
             machine_block, static_cast<const CoreIrCondJumpInst &>(instruction),
             state, current_block);
+    case CoreIrOpcode::IndirectJump: {
+        context.emit_debug_location(machine_block,
+                                    instruction.get_source_span(), state);
+        AArch64VirtualReg target_reg;
+        if (!context.ensure_value_in_vreg(
+                machine_block,
+                static_cast<const CoreIrIndirectJumpInst &>(instruction).get_address(),
+                target_reg)) {
+            return false;
+        }
+        machine_block.append_instruction(
+            AArch64MachineInstr("br",
+                                {AArch64MachineOperand::use_virtual_reg(target_reg)}));
+        return true;
+    }
     case CoreIrOpcode::Return:
         context.emit_debug_location(machine_block,
                                     instruction.get_source_span(), state);

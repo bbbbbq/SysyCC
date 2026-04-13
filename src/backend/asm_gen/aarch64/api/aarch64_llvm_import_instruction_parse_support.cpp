@@ -652,6 +652,42 @@ parse_llvm_import_branch_spec(const AArch64LlvmImportInstruction &instruction) {
     return spec;
 }
 
+std::optional<AArch64LlvmImportIndirectBranchSpec>
+parse_llvm_import_indirect_branch_spec(
+    const AArch64LlvmImportInstruction &instruction) {
+    if (instruction.opcode_text != "indirectbr") {
+        return std::nullopt;
+    }
+    const std::vector<std::string> operands =
+        split_top_level(payload_after_opcode(instruction), ',');
+    if (operands.size() < 2) {
+        return std::nullopt;
+    }
+    auto address = parse_typed_value(operands[0]);
+    if (!address.has_value()) {
+        return std::nullopt;
+    }
+
+    const std::string target_list_text = trim_copy(operands[1]);
+    if (target_list_text.size() < 2 || target_list_text.front() != '[' ||
+        target_list_text.back() != ']') {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportIndirectBranchSpec spec;
+    spec.address = std::move(*address);
+    for (const std::string &entry : split_top_level(
+             trim_copy(target_list_text.substr(1, target_list_text.size() - 2)),
+             ',')) {
+        auto target = parse_branch_target(entry);
+        if (!target.has_value()) {
+            return std::nullopt;
+        }
+        spec.target_labels.push_back(std::move(*target));
+    }
+    return spec.target_labels.empty() ? std::nullopt : std::optional(std::move(spec));
+}
+
 std::optional<AArch64LlvmImportReturnSpec>
 parse_llvm_import_return_spec(const AArch64LlvmImportInstruction &instruction) {
     if (instruction.opcode_text != "ret") {

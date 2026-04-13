@@ -538,16 +538,23 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         return encoded;
     }
 
-    if (opcode == AArch64MachineOpcode::BranchLinkRegister) {
+    if (opcode == AArch64MachineOpcode::BranchRegister ||
+        opcode == AArch64MachineOpcode::BranchLinkRegister) {
         if (operands.size() != 1) {
-            return unsupported("indirect branch-link operand shape");
+            return unsupported(opcode == AArch64MachineOpcode::BranchRegister
+                                   ? "indirect branch operand shape"
+                                   : "indirect branch-link operand shape");
         }
         const auto rn = resolve_general_reg_operand(
-            operands[0], function, false, false, diagnostic_engine, "blr");
+            operands[0], function, false, false, diagnostic_engine,
+            opcode == AArch64MachineOpcode::BranchRegister ? "br" : "blr");
         if (!rn.has_value()) {
             return std::nullopt;
         }
-        encoded.word = 0xD63F0000U | ((rn->code & 0x1fU) << 5);
+        encoded.word =
+            (opcode == AArch64MachineOpcode::BranchRegister ? 0xD61F0000U
+                                                            : 0xD63F0000U) |
+            ((rn->code & 0x1fU) << 5);
         return encoded;
     }
 

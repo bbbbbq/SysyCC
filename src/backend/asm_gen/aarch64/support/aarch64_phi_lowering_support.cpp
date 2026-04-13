@@ -80,6 +80,17 @@ bool collect_block_predecessors(
             }
             break;
         }
+        case CoreIrOpcode::IndirectJump: {
+            const auto *indirect_jump =
+                static_cast<const CoreIrIndirectJumpInst *>(terminator);
+            for (const CoreIrBasicBlock *target : indirect_jump->get_target_blocks()) {
+                if (!append_predecessor_once(predecessors, target,
+                                             basic_block.get(), context)) {
+                    return false;
+                }
+            }
+            break;
+        }
         case CoreIrOpcode::Return:
             break;
         default:

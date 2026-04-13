@@ -24,6 +24,7 @@ enum class AArch64MachineOpcode : unsigned char {
     Return,
     Branch,
     BranchLink,
+    BranchRegister,
     BranchLinkRegister,
     BranchConditional,
     CompareBranchZero,

@@ -1175,6 +1175,25 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         text += "\n";
         return true;
     }
+    case CoreIrOpcode::IndirectJump: {
+        const auto &jump_instruction =
+            static_cast<const CoreIrIndirectJumpInst &>(instruction);
+        text += "  indirectbr ";
+        text += format_type(jump_instruction.get_address()->get_type());
+        text += " ";
+        text += format_value_ref(jump_instruction.get_address());
+        text += ", [";
+        const auto &targets = jump_instruction.get_target_blocks();
+        for (std::size_t index = 0; index < targets.size(); ++index) {
+            if (index > 0) {
+                text += ", ";
+            }
+            text += "label %";
+            text += targets[index]->get_name();
+        }
+        text += "]\n";
+        return true;
+    }
     case CoreIrOpcode::Return: {
         const auto &return_instruction =
             static_cast<const CoreIrReturnInst &>(instruction);

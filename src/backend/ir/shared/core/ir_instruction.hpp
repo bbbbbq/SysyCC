@@ -32,6 +32,7 @@ enum class CoreIrOpcode : unsigned char {
     Call,
     Jump,
     CondJump,
+    IndirectJump,
     Return,
 };
 
@@ -792,6 +793,35 @@ class CoreIrCondJumpInst final : public CoreIrInstruction {
 
     void set_false_block(CoreIrBasicBlock *false_block) noexcept {
         false_block_ = false_block;
+    }
+
+    bool get_has_side_effect() const noexcept override { return true; }
+
+    bool get_is_terminator() const noexcept override { return true; }
+};
+
+class CoreIrIndirectJumpInst final : public CoreIrInstruction {
+  private:
+    std::vector<CoreIrBasicBlock *> target_blocks_;
+
+  public:
+    CoreIrIndirectJumpInst(const CoreIrType *void_type, CoreIrValue *address,
+                           std::vector<CoreIrBasicBlock *> target_blocks)
+        : CoreIrInstruction(CoreIrOpcode::IndirectJump, void_type),
+          target_blocks_(std::move(target_blocks)) {
+        append_operand(address);
+    }
+
+    CoreIrValue *get_address() const noexcept {
+        return get_operands().empty() ? nullptr : get_operands()[0];
+    }
+
+    const std::vector<CoreIrBasicBlock *> &get_target_blocks() const noexcept {
+        return target_blocks_;
+    }
+
+    void set_target_blocks(std::vector<CoreIrBasicBlock *> target_blocks) {
+        target_blocks_ = std::move(target_blocks);
     }
 
     bool get_has_side_effect() const noexcept override { return true; }

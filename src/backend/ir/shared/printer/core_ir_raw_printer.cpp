@@ -549,6 +549,23 @@ std::string CoreIrRawPrinter::format_instruction(
                ", label %" +
                cond_jump_instruction.get_false_block()->get_name();
     }
+    case CoreIrOpcode::IndirectJump: {
+        const auto &jump_instruction =
+            static_cast<const CoreIrIndirectJumpInst &>(instruction);
+        std::string result = "indirectbr " +
+                             format_type(jump_instruction.get_address()->get_type()) +
+                             " " + format_value(jump_instruction.get_address()) +
+                             ", [";
+        const auto &targets = jump_instruction.get_target_blocks();
+        for (std::size_t index = 0; index < targets.size(); ++index) {
+            if (index > 0) {
+                result += ", ";
+            }
+            result += "label %" + targets[index]->get_name();
+        }
+        result += "]";
+        return result;
+    }
     case CoreIrOpcode::Return: {
         const auto &return_instruction =
             static_cast<const CoreIrReturnInst &>(instruction);

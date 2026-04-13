@@ -138,6 +138,11 @@ struct AArch64LlvmImportBranchSpec {
     std::string false_target_label;
 };
 
+struct AArch64LlvmImportIndirectBranchSpec {
+    AArch64LlvmImportTypedValue address;
+    std::vector<std::string> target_labels;
+};
+
 struct AArch64LlvmImportReturnSpec {
     bool is_void = false;
     AArch64LlvmImportTypedValue value;
@@ -194,6 +199,10 @@ parse_llvm_import_phi_spec(const AArch64LlvmImportInstruction &instruction);
 
 std::optional<AArch64LlvmImportBranchSpec>
 parse_llvm_import_branch_spec(const AArch64LlvmImportInstruction &instruction);
+
+std::optional<AArch64LlvmImportIndirectBranchSpec>
+parse_llvm_import_indirect_branch_spec(
+    const AArch64LlvmImportInstruction &instruction);
 
 std::optional<AArch64LlvmImportReturnSpec>
 parse_llvm_import_return_spec(const AArch64LlvmImportInstruction &instruction);
