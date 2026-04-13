@@ -217,6 +217,34 @@ runtime_stub_o = out_root / "runtime_builtin_stub.o"
 def run_with_limits(argv: list[str], *, input_path: Path | None = None,
                     wall_timeout_s: float, capture_stdout: bool = False,
                     cwd: Path | None = None, cpu_limit_s: int | None = None):
+    def get_process_snapshot(pid: int) -> dict[str, object]:
+        snapshot: dict[str, object] = {"pid": pid}
+        try:
+            state_result = subprocess.run(
+                ["ps", "-o", "state=", "-p", str(pid)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            state = state_result.stdout.decode("utf-8", "replace").strip()
+            if state:
+                snapshot["state"] = state
+        except Exception:
+            pass
+        try:
+            command_result = subprocess.run(
+                ["ps", "-o", "command=", "-p", str(pid)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            command = command_result.stdout.decode("utf-8", "replace").strip()
+            if command:
+                snapshot["command"] = command
+        except Exception:
+            pass
+        return snapshot
+
     def run_supervisor(result_path: Path, stdout_path: Path, stderr_path: Path) -> None:
         stdin = None
         stdout_stream = None
@@ -225,7 +253,8 @@ def run_with_limits(argv: list[str], *, input_path: Path | None = None,
         start = time.perf_counter()
 
         def write_result(status: str, elapsed: float, returncode: int | None,
-                         error_message: str | None = None) -> None:
+                         error_message: str | None = None,
+                         lingering_process: dict[str, object] | None = None) -> None:
             payload = {
                 "status": status,
                 "elapsed": elapsed,
@@ -233,6 +262,8 @@ def run_with_limits(argv: list[str], *, input_path: Path | None = None,
             }
             if error_message is not None:
                 payload["error"] = error_message
+            if lingering_process is not None:
+                payload["lingering_process"] = lingering_process
             result_path.write_text(json.dumps(payload))
 
         def preexec() -> None:
@@ -267,7 +298,14 @@ def run_with_limits(argv: list[str], *, input_path: Path | None = None,
                         os.killpg(proc.pid, signal.SIGKILL)
                     except ProcessLookupError:
                         pass
-                    write_result("timeout", elapsed, None)
+                    lingering_process = None
+                    for _ in range(5):
+                        if proc.poll() is not None:
+                            break
+                        time.sleep(0.05)
+                    if proc.poll() is None:
+                        lingering_process = get_process_snapshot(proc.pid)
+                    write_result("timeout", elapsed, None, lingering_process=lingering_process)
                     return
                 time.sleep(0.05)
         except Exception as exc:
@@ -319,6 +357,7 @@ def run_with_limits(argv: list[str], *, input_path: Path | None = None,
             "returncode": payload.get("returncode"),
             "stdout": stdout,
             "stderr": stderr,
+            "lingering_process": payload.get("lingering_process"),
         }
 
 
@@ -326,8 +365,28 @@ def normalize_text(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
 
 
+def format_timeout_detail(run_result: dict[str, object]) -> str:
+    detail = f"{float(run_result['elapsed']):.2f}s"
+    lingering = run_result.get("lingering_process")
+    if isinstance(lingering, dict) and lingering.get("pid") is not None:
+        detail += f"; lingering pid={lingering['pid']}"
+        if lingering.get("state"):
+            detail += f" state={lingering['state']}"
+    return detail
+
+
+def attach_lingering_process(result: dict[str, object], run_result: dict[str, object]) -> None:
+    lingering = run_result.get("lingering_process")
+    if isinstance(lingering, dict) and lingering:
+        result["lingering_process"] = lingering
+
+
 def write_report(results: list[dict]) -> dict:
     pass_rows = [row for row in results if row["status"] == "PASS"]
+    lingering_rows = [
+        row for row in results
+        if isinstance(row.get("lingering_process"), dict) and row["lingering_process"]
+    ]
     status_counts: dict[str, int] = {}
     for row in results:
         status_counts[row["status"]] = status_counts.get(row["status"], 0) + 1
@@ -345,6 +404,16 @@ def write_report(results: list[dict]) -> dict:
         "clang_baseline_opt_level": clang_opt_level,
         "status_counts": status_counts,
     }
+    if lingering_rows:
+        summary["lingering_process_count"] = len(lingering_rows)
+        summary["lingering_processes"] = [
+            {
+                "case": row["case"],
+                "status": row["status"],
+                **row["lingering_process"],
+            }
+            for row in lingering_rows
+        ]
 
     if pass_rows:
         perf_ratios = [row["perf_percent"] / 100.0 for row in pass_rows]
@@ -380,9 +449,17 @@ def write_report(results: list[dict]) -> dict:
             )
         handle.write("\n## Summary\n\n")
         for key, value in summary.items():
-            if key in ("top10", "bottom10"):
+            if key in ("top10", "bottom10", "lingering_processes"):
                 continue
             handle.write(f"- {key}: {value}\n")
+        if lingering_rows:
+            handle.write("\n### Lingering Timed-out Processes\n\n")
+            for row in lingering_rows:
+                lingering = row["lingering_process"]
+                handle.write(
+                    f"- {row['case']}: pid={lingering.get('pid')} "
+                    f"state={lingering.get('state', 'unknown')}\n"
+                )
         if pass_rows:
             handle.write("\n### Bottom 10\n\n")
             for row in summary["bottom10"]:  # type: ignore[index]
@@ -552,7 +629,8 @@ for index, source in enumerate(case_sources, 1):
     )
     if sysycc_correctness["status"] != "ok":
         result["status"] = "SYSYCC_TIMEOUT"
-        result["detail"] = f"{sysycc_correctness['elapsed']:.2f}s"
+        result["detail"] = format_timeout_detail(sysycc_correctness)
+        attach_lingering_process(result, sysycc_correctness)
         results.append(result)
         write_report(results)
         print(f"[{index}/{len(case_sources)}] {name}: {result['status']}", flush=True)
@@ -578,7 +656,8 @@ for index, source in enumerate(case_sources, 1):
     )
     if clang_correctness["status"] != "ok":
         result["status"] = "CLANG_TIMEOUT"
-        result["detail"] = f"{clang_correctness['elapsed']:.2f}s"
+        result["detail"] = format_timeout_detail(clang_correctness)
+        attach_lingering_process(result, clang_correctness)
         results.append(result)
         write_report(results)
         print(f"[{index}/{len(case_sources)}] {name}: {result['status']}", flush=True)
@@ -604,7 +683,8 @@ for index, source in enumerate(case_sources, 1):
         )
         if sysycc_warmup["status"] != "ok":
             result["status"] = "SYSYCC_BENCH_TIMEOUT"
-            result["detail"] = f"{sysycc_warmup['elapsed']:.2f}s"
+            result["detail"] = format_timeout_detail(sysycc_warmup)
+            attach_lingering_process(result, sysycc_warmup)
             results.append(result)
             write_report(results)
             print(f"[{index}/{len(case_sources)}] {name}: {result['status']}", flush=True)
@@ -618,7 +698,8 @@ for index, source in enumerate(case_sources, 1):
         )
         if clang_warmup["status"] != "ok":
             result["status"] = "CLANG_BENCH_TIMEOUT"
-            result["detail"] = f"{clang_warmup['elapsed']:.2f}s"
+            result["detail"] = format_timeout_detail(clang_warmup)
+            attach_lingering_process(result, clang_warmup)
             results.append(result)
             write_report(results)
             print(f"[{index}/{len(case_sources)}] {name}: {result['status']}", flush=True)
@@ -639,7 +720,8 @@ for index, source in enumerate(case_sources, 1):
         )
         if sysycc_timed["status"] != "ok":
             result["status"] = "SYSYCC_BENCH_TIMEOUT"
-            result["detail"] = f"{sysycc_timed['elapsed']:.2f}s"
+            result["detail"] = format_timeout_detail(sysycc_timed)
+            attach_lingering_process(result, sysycc_timed)
             timed_failed = True
             break
         clang_timed = run_with_limits(
@@ -651,7 +733,8 @@ for index, source in enumerate(case_sources, 1):
         )
         if clang_timed["status"] != "ok":
             result["status"] = "CLANG_BENCH_TIMEOUT"
-            result["detail"] = f"{clang_timed['elapsed']:.2f}s"
+            result["detail"] = format_timeout_detail(clang_timed)
+            attach_lingering_process(result, clang_timed)
             timed_failed = True
             break
         sysycc_samples.append(sysycc_timed["elapsed"])
