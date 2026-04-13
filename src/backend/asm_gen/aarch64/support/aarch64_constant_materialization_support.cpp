@@ -35,7 +35,24 @@ std::optional<std::uint64_t> parse_raw_hex_float_bits(const std::string &literal
     }
 }
 
+bool is_named_nonfinite_literal(std::string_view value_text) {
+    std::string normalized(value_text);
+    for (char &ch : normalized) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    if (normalized == "inf" || normalized == "+inf" || normalized == "-inf") {
+        return true;
+    }
+    if (normalized == "nan" || normalized == "+nan" || normalized == "-nan") {
+        return true;
+    }
+    return false;
+}
+
 std::string strip_floating_literal_suffix(std::string value_text) {
+    if (is_named_nonfinite_literal(value_text)) {
+        return value_text;
+    }
     while (!value_text.empty()) {
         const char last = value_text.back();
         if (last == 'f' || last == 'F' || last == 'l' || last == 'L') {
@@ -304,8 +321,9 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
             "failed to materialize floating constant in the AArch64 native backend");
         return false;
     } catch (...) {
-        context.report_error(
-            "failed to parse floating literal for the AArch64 native backend");
+        context.report_error("failed to parse floating literal for the AArch64 native "
+                             "backend: " +
+                             literal_text);
         return false;
     }
 }
