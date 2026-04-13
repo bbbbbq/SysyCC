@@ -3245,7 +3245,10 @@ class RestrictedLlvmIrImporter {
                 CoreIrValue *incoming_value = resolve_typed_value_operand(
                     type, incoming.value, block, bindings, synthetic_index,
                     line_number);
-                const auto block_it = block_map.find(incoming.block_label);
+                auto block_it = block_map.find(incoming.block_label);
+                if (block_it == block_map.end() && incoming.block_label == "1") {
+                    block_it = block_map.find("0");
+                }
                 if (incoming_value == nullptr || block_it == block_map.end()) {
                     add_error("unsupported LLVM phi incoming block: " +
                                   incoming.block_label,
@@ -3472,9 +3475,20 @@ class RestrictedLlvmIrImporter {
         }
 
         std::unordered_map<std::string, CoreIrBasicBlock *> block_map;
-        for (const AArch64LlvmImportBasicBlock &record : pending.basic_blocks) {
-            block_map[record.label] =
+        for (std::size_t index = 0; index < pending.basic_blocks.size(); ++index) {
+            const AArch64LlvmImportBasicBlock &record = pending.basic_blocks[index];
+            CoreIrBasicBlock *block =
                 function.create_basic_block<CoreIrBasicBlock>(record.label);
+            block_map[record.label] = block;
+            if (index == 0 && record.label == "0" && !record.instructions.empty()) {
+                block_map["1"] = block;
+                const std::string &first_result = record.instructions.front().result_name;
+                if (!first_result.empty() &&
+                    std::all_of(first_result.begin(), first_result.end(),
+                                [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
+                    block_map[first_result] = block;
+                }
+            }
         }
 
         std::unordered_map<std::string, ValueBinding> bindings;
