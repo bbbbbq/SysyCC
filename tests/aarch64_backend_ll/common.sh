@@ -30,7 +30,6 @@ run_aarch64_backend_ll_case() {
     local host_clang=""
     local aarch64_cc=""
     local sysroot=""
-    local qemu=""
 
     host_clang="${SYSYCC_HOST_CLANG:-$(command -v clang 2>/dev/null || true)}"
     if [[ -z "${host_clang}" ]]; then
@@ -39,7 +38,6 @@ run_aarch64_backend_ll_case() {
     fi
 
     sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
-    qemu="$(find_qemu_aarch64 2>/dev/null || true)"
     aarch64_cc="$(find_aarch64_cc 2>/dev/null || true)"
 
     mkdir -p "${case_build_dir}"
@@ -86,17 +84,17 @@ run_aarch64_backend_ll_case() {
         -o "${sysycc_bin}"
     assert_file_nonempty "${sysycc_bin}"
 
-    if [[ -z "${qemu}" ]]; then
-        echo "skipped runtime parity for ${case_name}: missing qemu-aarch64"
+    if ! have_aarch64_binary_runtime; then
+        echo "skipped runtime parity for ${case_name}: missing AArch64 runtime runner"
         return 0
     fi
 
     set +e
-    QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${clang_bin}" \
+    run_aarch64_binary_with_available_runtime "${clang_bin}" "${sysroot}" \
         >"${clang_stdout}" 2>"${clang_stderr}"
     echo "$?" >"${clang_status}"
 
-    QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${sysycc_bin}" \
+    run_aarch64_binary_with_available_runtime "${sysycc_bin}" "${sysroot}" \
         >"${sysycc_stdout}" 2>"${sysycc_stderr}"
     echo "$?" >"${sysycc_status}"
     set -e
