@@ -633,6 +633,7 @@ for index, source in enumerate(case_sources, 1):
         [
             clang,
             clang_opt_level,
+            "-fwrapv",
             "-Wno-error=incompatible-pointer-types",
             "-std=gnu99",
             "-x",
