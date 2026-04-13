@@ -73,6 +73,7 @@ bool instruction_is_zero_fill_rematerializable(const CoreIrInstruction &instruct
     case CoreIrOpcode::Call:
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
     case CoreIrOpcode::Return:
         return false;
     }
@@ -220,7 +221,8 @@ bool instruction_is_allowed_loop_idiom_instruction(
     }
     if (instruction.get_opcode() == CoreIrOpcode::Phi ||
         instruction.get_opcode() == CoreIrOpcode::Jump ||
-        instruction.get_opcode() == CoreIrOpcode::CondJump) {
+        instruction.get_opcode() == CoreIrOpcode::CondJump ||
+        instruction.get_opcode() == CoreIrOpcode::IndirectJump) {
         return true;
     }
     return false;
@@ -236,7 +238,8 @@ bool instruction_is_allowed_loop_idiom_instruction(
     }
     if (instruction.get_opcode() == CoreIrOpcode::Phi ||
         instruction.get_opcode() == CoreIrOpcode::Jump ||
-        instruction.get_opcode() == CoreIrOpcode::CondJump) {
+        instruction.get_opcode() == CoreIrOpcode::CondJump ||
+        instruction.get_opcode() == CoreIrOpcode::IndirectJump) {
         return true;
     }
     return false;

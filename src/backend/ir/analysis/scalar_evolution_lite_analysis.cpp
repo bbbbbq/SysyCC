@@ -232,6 +232,7 @@ bool CoreIrScalarEvolutionLiteAnalysisResult::compute_loop_invariant(
         case CoreIrOpcode::Call:
         case CoreIrOpcode::Jump:
         case CoreIrOpcode::CondJump:
+        case CoreIrOpcode::IndirectJump:
         case CoreIrOpcode::Return:
             invariant = false;
             break;
@@ -362,6 +363,7 @@ CoreIrScevExpr CoreIrScalarEvolutionLiteAnalysisResult::compute_expr(
     case CoreIrOpcode::Call:
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
     case CoreIrOpcode::Return:
     case CoreIrOpcode::Phi:
         break;

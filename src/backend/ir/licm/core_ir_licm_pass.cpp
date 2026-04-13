@@ -164,6 +164,7 @@ bool instruction_is_pure_licm_candidate(
     case CoreIrOpcode::Call:
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
     case CoreIrOpcode::Return:
         return false;
     }
@@ -190,6 +191,7 @@ bool instruction_is_speculatively_safe_address_materialization(
     case CoreIrOpcode::Call:
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
     case CoreIrOpcode::Return:
         return false;
     }
