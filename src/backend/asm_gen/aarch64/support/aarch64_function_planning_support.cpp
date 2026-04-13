@@ -109,30 +109,6 @@ bool validate_function_lowering_readiness(
             return false;
         }
     }
-    for (const auto &basic_block : function.get_basic_blocks()) {
-        if (basic_block == nullptr || basic_block->get_instructions().empty()) {
-            continue;
-        }
-        const CoreIrInstruction *terminator =
-            basic_block->get_instructions().back().get();
-        if (terminator == nullptr ||
-            terminator->get_opcode() != CoreIrOpcode::IndirectJump) {
-            continue;
-        }
-        const auto *indirect_jump =
-            static_cast<const CoreIrIndirectJumpInst *>(terminator);
-        for (const CoreIrBasicBlock *target : indirect_jump->get_target_blocks()) {
-            if (target == nullptr || target->get_instructions().empty()) {
-                continue;
-            }
-            if (target->get_instructions().front()->get_opcode() == CoreIrOpcode::Phi) {
-                context.report_error(
-                    "indirect branch targets with phi nodes are not yet supported in the AArch64 native backend for function '" +
-                    function.get_name() + "'");
-                return false;
-            }
-        }
-    }
     return true;
 }
 

@@ -9,6 +9,7 @@
 
 #include "backend/asm_gen/aarch64/model/aarch64_target_constraints.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_address_value_lowering_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_address_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_call_return_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_float_helper_lowering_support.hpp"
@@ -589,6 +590,61 @@ bool AArch64FunctionLoweringFacade::emit_cond_jump(
         "b",
         {AArch64MachineOperand::label(resolve_branch_target_label(
             state_, current_block, cond_jump.get_false_block()))}));
+    return true;
+}
+
+bool AArch64FunctionLoweringFacade::emit_indirect_jump(
+    AArch64MachineBlock &machine_block, const CoreIrIndirectJumpInst &indirect_jump,
+    const FunctionState &state, const CoreIrBasicBlock *current_block) {
+    (void)state;
+    AArch64VirtualReg address_reg;
+    if (!ensure_value_in_vreg(machine_block, indirect_jump.get_address(),
+                              address_reg)) {
+        return false;
+    }
+
+    bool needs_dispatch_chain = false;
+    for (const CoreIrBasicBlock *target : indirect_jump.get_target_blocks()) {
+        if (target == nullptr) {
+            report_error("encountered null indirect branch target in the AArch64 native backend");
+            return false;
+        }
+        if (resolve_branch_target_label(state_, current_block, target) !=
+            block_label(target)) {
+            needs_dispatch_chain = true;
+            break;
+        }
+    }
+
+    if (!needs_dispatch_chain) {
+        machine_block.append_instruction(
+            AArch64MachineInstr("br",
+                                {AArch64MachineOperand::use_virtual_reg(address_reg)}));
+        return true;
+    }
+
+    for (const CoreIrBasicBlock *target : indirect_jump.get_target_blocks()) {
+        const std::string original_label = block_label(target);
+        const std::string lowered_label =
+            resolve_branch_target_label(state_, current_block, target);
+        const AArch64VirtualReg target_reg =
+            create_pointer_virtual_reg(*state_.machine_function);
+        if (!materialize_global_address(machine_block, *this, original_label, target_reg,
+                                        AArch64SymbolKind::Label)) {
+            return false;
+        }
+        machine_block.append_instruction(
+            AArch64MachineInstr("cmp", {AArch64MachineOperand::use_virtual_reg(address_reg),
+                                         AArch64MachineOperand::use_virtual_reg(target_reg)}));
+        machine_block.append_instruction(
+            AArch64MachineInstr("b.eq",
+                                {AArch64MachineOperand::label(lowered_label)}));
+    }
+
+    // LLVM indirectbr is undefined if the address does not match any listed target.
+    machine_block.append_instruction(
+        AArch64MachineInstr("br",
+                            {AArch64MachineOperand::use_virtual_reg(address_reg)}));
     return true;
 }
 

@@ -26,6 +26,7 @@ class CoreIrCastInst;
 class CoreIrCompareInst;
 class CoreIrCondJumpInst;
 class CoreIrConstantFloat;
+class CoreIrIndirectJumpInst;
 class CoreIrLoadInst;
 class CoreIrReturnInst;
 class CoreIrStoreInst;
@@ -364,6 +365,10 @@ class AArch64FunctionLoweringFacade final
                         const CoreIrCondJumpInst &cond_jump,
                         const FunctionState &state,
                         const CoreIrBasicBlock *current_block);
+    bool emit_indirect_jump(AArch64MachineBlock &machine_block,
+                            const CoreIrIndirectJumpInst &indirect_jump,
+                            const FunctionState &state,
+                            const CoreIrBasicBlock *current_block);
     bool emit_return(AArch64MachineFunction &machine_function,
                      AArch64MachineBlock &machine_block,
                      const CoreIrReturnInst &return_inst,
