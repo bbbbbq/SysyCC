@@ -748,6 +748,16 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         constant.kind = AArch64LlvmImportConstantKind::ZeroInitializer;
         return constant;
     }
+    if (trimmed == "undef") {
+        AArch64LlvmImportConstant constant;
+        constant.kind = AArch64LlvmImportConstantKind::UndefValue;
+        return constant;
+    }
+    if (trimmed == "poison") {
+        AArch64LlvmImportConstant constant;
+        constant.kind = AArch64LlvmImportConstantKind::PoisonValue;
+        return constant;
+    }
 
     switch (type.kind) {
     case AArch64LlvmImportTypeKind::Integer: {

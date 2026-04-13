@@ -1286,6 +1286,9 @@ class RestrictedLlvmIrImporter {
         switch (constant.kind) {
         case AArch64LlvmImportConstantKind::ZeroInitializer:
             return context_->create_constant<CoreIrConstantZeroInitializer>(type);
+        case AArch64LlvmImportConstantKind::UndefValue:
+        case AArch64LlvmImportConstantKind::PoisonValue:
+            return make_zero_constant(type);
         case AArch64LlvmImportConstantKind::Integer:
             return context_->create_constant<CoreIrConstantInt>(
                 type, constant.integer_value);
@@ -1565,6 +1568,10 @@ class RestrictedLlvmIrImporter {
             return "null";
         case AArch64LlvmImportConstantKind::ZeroInitializer:
             return "zeroinitializer";
+        case AArch64LlvmImportConstantKind::UndefValue:
+            return "undef";
+        case AArch64LlvmImportConstantKind::PoisonValue:
+            return "poison";
         case AArch64LlvmImportConstantKind::SymbolReference:
             return "@" + constant.symbol_name;
         case AArch64LlvmImportConstantKind::SignExtend:

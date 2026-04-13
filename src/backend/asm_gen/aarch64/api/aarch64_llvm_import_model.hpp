@@ -46,6 +46,8 @@ enum class AArch64LlvmImportConstantKind : unsigned char {
     Float,
     NullPointer,
     ZeroInitializer,
+    UndefValue,
+    PoisonValue,
     SymbolReference,
     SignExtend,
     ZeroExtend,
