@@ -32,6 +32,46 @@ std::string format_float_literal(long double value) {
     return stream.str();
 }
 
+std::optional<std::string> canonicalize_float128_hex_literal_text(
+    const std::string &trimmed) {
+    if (!llvm_import_starts_with(trimmed, "0xL") &&
+        !llvm_import_starts_with(trimmed, "0XL")) {
+        return std::nullopt;
+    }
+    const std::string payload = trimmed.substr(3);
+    if (payload.size() != 32) {
+        return std::nullopt;
+    }
+
+    try {
+        const std::uint64_t low =
+            static_cast<std::uint64_t>(std::stoull(payload.substr(0, 16), nullptr, 16));
+        const std::uint64_t high =
+            static_cast<std::uint64_t>(std::stoull(payload.substr(16, 16), nullptr, 16));
+        const bool negative = (high >> 63U) != 0;
+        const std::uint16_t exponent =
+            static_cast<std::uint16_t>((high >> 48U) & 0x7fffU);
+        const std::uint64_t fraction_high = high & 0x0000FFFFFFFFFFFFULL;
+        if (low == 0 && fraction_high == 0) {
+            if (exponent == 0) {
+                return negative ? std::optional<std::string>("-0.0")
+                                : std::optional<std::string>("0.0");
+            }
+            if (exponent == 0x7fffU) {
+                return negative ? std::optional<std::string>("-inf")
+                                : std::optional<std::string>("inf");
+            }
+            const int unbiased_exponent = static_cast<int>(exponent) - 16383;
+            return format_float_literal(
+                negative ? -std::ldexp(1.0L, unbiased_exponent)
+                         : std::ldexp(1.0L, unbiased_exponent));
+        }
+    } catch (...) {
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string> canonicalize_float_literal_text(
     const AArch64LlvmImportType &type, const std::string &literal_text) {
     const std::string trimmed = llvm_import_trim_copy(literal_text);
@@ -45,6 +85,12 @@ std::optional<std::string> canonicalize_float_literal_text(
         llvm_import_starts_with(trimmed, "0X") ||
         llvm_import_starts_with(trimmed, "-0X") ||
         llvm_import_starts_with(trimmed, "+0X")) {
+        if (type.kind == AArch64LlvmImportTypeKind::Float128) {
+            if (const auto normalized = canonicalize_float128_hex_literal_text(trimmed);
+                normalized.has_value()) {
+                return normalized;
+            }
+        }
         if (trimmed.find('p') != std::string::npos ||
             trimmed.find('P') != std::string::npos) {
             char *end = nullptr;

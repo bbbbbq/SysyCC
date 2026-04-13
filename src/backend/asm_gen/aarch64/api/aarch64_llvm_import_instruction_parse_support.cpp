@@ -4,6 +4,7 @@
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_type_support.hpp"
 
 #include <cctype>
+#include <sstream>
 
 namespace sysycc {
 
@@ -713,6 +714,63 @@ parse_llvm_import_indirect_branch_spec(
         spec.target_labels.push_back(std::move(*target));
     }
     return spec.target_labels.empty() ? std::nullopt : std::optional(std::move(spec));
+}
+
+std::optional<AArch64LlvmImportSwitchSpec>
+parse_llvm_import_switch_spec(const AArch64LlvmImportInstruction &instruction) {
+    if (instruction.kind != AArch64LlvmImportInstructionKind::Switch) {
+        return std::nullopt;
+    }
+    const std::string payload = payload_after_opcode(instruction);
+    const std::size_t default_separator = payload.find(", label ");
+    const std::size_t case_list_begin = payload.find('[', default_separator);
+    const std::size_t case_list_end = payload.rfind(']');
+    if (default_separator == std::string::npos ||
+        case_list_begin == std::string::npos ||
+        case_list_end == std::string::npos ||
+        case_list_end < case_list_begin) {
+        return std::nullopt;
+    }
+
+    auto selector = parse_typed_value(payload.substr(0, default_separator));
+    if (!selector.has_value()) {
+        return std::nullopt;
+    }
+    auto default_target = parse_branch_target(
+        payload.substr(default_separator + 2,
+                       case_list_begin - (default_separator + 2)));
+    if (!default_target.has_value()) {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportSwitchSpec spec;
+    spec.selector = std::move(*selector);
+    spec.default_target_label = std::move(*default_target);
+
+    std::stringstream entries_stream(
+        payload.substr(case_list_begin + 1,
+                       case_list_end - case_list_begin - 1));
+    std::string entry_line;
+    while (std::getline(entries_stream, entry_line)) {
+        const std::string trimmed = trim_copy(entry_line);
+        if (trimmed.empty()) {
+            continue;
+        }
+        const std::vector<std::string> parts = split_top_level(trimmed, ',');
+        if (parts.size() != 2) {
+            return std::nullopt;
+        }
+        auto case_value = parse_typed_value(parts[0]);
+        auto target_label = parse_branch_target(parts[1]);
+        if (!case_value.has_value() || !target_label.has_value() ||
+            case_value->kind != AArch64LlvmImportValueKind::Constant ||
+            case_value->constant.kind != AArch64LlvmImportConstantKind::Integer) {
+            return std::nullopt;
+        }
+        spec.cases.push_back(AArch64LlvmImportSwitchCase{
+            case_value->constant.integer_value, std::move(*target_label)});
+    }
+    return spec;
 }
 
 std::optional<AArch64LlvmImportReturnSpec>

@@ -98,6 +98,45 @@ std::string format_float_literal(long double value) {
     return stream.str();
 }
 
+std::optional<std::string> canonicalize_float128_hex_literal_text(
+    const std::string &trimmed) {
+    if (!starts_with(trimmed, "0xL") && !starts_with(trimmed, "0XL")) {
+        return std::nullopt;
+    }
+    const std::string payload = trimmed.substr(3);
+    if (payload.size() != 32) {
+        return std::nullopt;
+    }
+
+    try {
+        const std::uint64_t low =
+            static_cast<std::uint64_t>(std::stoull(payload.substr(0, 16), nullptr, 16));
+        const std::uint64_t high =
+            static_cast<std::uint64_t>(std::stoull(payload.substr(16, 16), nullptr, 16));
+        const bool negative = (high >> 63U) != 0;
+        const std::uint16_t exponent =
+            static_cast<std::uint16_t>((high >> 48U) & 0x7fffU);
+        const std::uint64_t fraction_high = high & 0x0000FFFFFFFFFFFFULL;
+        if (low == 0 && fraction_high == 0) {
+            if (exponent == 0) {
+                return negative ? std::optional<std::string>("-0.0")
+                                : std::optional<std::string>("0.0");
+            }
+            if (exponent == 0x7fffU) {
+                return negative ? std::optional<std::string>("-inf")
+                                : std::optional<std::string>("inf");
+            }
+            const int unbiased_exponent = static_cast<int>(exponent) - 16383;
+            return format_float_literal(
+                negative ? -std::ldexp(1.0L, unbiased_exponent)
+                         : std::ldexp(1.0L, unbiased_exponent));
+        }
+    } catch (...) {
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string> canonicalize_float_literal_text(
     CoreIrFloatKind kind, const std::string &literal_text) {
     const std::string trimmed = trim_copy(literal_text);
@@ -108,6 +147,12 @@ std::optional<std::string> canonicalize_float_literal_text(
     if (starts_with(trimmed, "0x") || starts_with(trimmed, "-0x") ||
         starts_with(trimmed, "+0x") || starts_with(trimmed, "0X") ||
         starts_with(trimmed, "-0X") || starts_with(trimmed, "+0X")) {
+        if (kind == CoreIrFloatKind::Float128) {
+            if (const auto normalized = canonicalize_float128_hex_literal_text(trimmed);
+                normalized.has_value()) {
+                return normalized;
+            }
+        }
         if (trimmed.find('p') != std::string::npos ||
             trimmed.find('P') != std::string::npos) {
             char *end = nullptr;
@@ -1836,10 +1881,18 @@ class RestrictedLlvmIrImporter {
             return {};
         }
         if (operand.kind == AArch64LlvmImportValueKind::Constant) {
-            add_error("unsupported LLVM address operand: " +
-                          describe_typed_operand(operand),
-                      line_number, 1);
-            return {};
+            const CoreIrType *address_type = lower_import_type(operand.type);
+            const CoreIrConstant *constant_address =
+                lower_import_constant(address_type, operand.constant);
+            if (constant_address == nullptr) {
+                add_error("unsupported LLVM address operand: " +
+                              describe_typed_operand(operand),
+                          line_number, 1);
+                return {};
+            }
+            ResolvedAddress resolved;
+            resolved.address_value = const_cast<CoreIrConstant *>(constant_address);
+            return resolved;
         }
         add_error("missing typed LLVM address operand", line_number, 1);
         return {};
@@ -3248,6 +3301,71 @@ class RestrictedLlvmIrImporter {
             }
             block.create_instruction<CoreIrCondJumpInst>(
                 void_type(), condition, true_it->second, false_it->second);
+            return true;
+        }
+        if (instruction_kind == AArch64LlvmImportInstructionKind::Switch) {
+            const std::optional<AArch64LlvmImportSwitchSpec> switch_spec =
+                parse_llvm_import_switch_spec(instruction);
+            if (!switch_spec.has_value()) {
+                add_error("unsupported LLVM switch instruction: " + line,
+                          line_number, 1);
+                return false;
+            }
+            const CoreIrType *selector_type =
+                lower_import_type(switch_spec->selector.type);
+            const auto *selector_integer =
+                dynamic_cast<const CoreIrIntegerType *>(selector_type);
+            const CoreIrType *i1_type = parse_type_text("i1");
+            CoreIrValue *selector = resolve_typed_value_operand(
+                selector_type, switch_spec->selector, block, bindings,
+                synthetic_index, line_number);
+            const auto default_it =
+                block_map.find(switch_spec->default_target_label);
+            if (selector_integer == nullptr || i1_type == nullptr ||
+                selector == nullptr || default_it == block_map.end()) {
+                add_error("unsupported LLVM switch selector or targets: " + line,
+                          line_number, 1);
+                return false;
+            }
+            if (switch_spec->cases.empty()) {
+                block.create_instruction<CoreIrJumpInst>(void_type(),
+                                                         default_it->second);
+                return true;
+            }
+
+            CoreIrBasicBlock *test_block = current_block;
+            for (std::size_t case_index = 0; case_index < switch_spec->cases.size();
+                 ++case_index) {
+                const AArch64LlvmImportSwitchCase &case_entry =
+                    switch_spec->cases[case_index];
+                const auto target_it = block_map.find(case_entry.target_label);
+                if (target_it == block_map.end()) {
+                    add_error("unknown LLVM switch target: " +
+                                  case_entry.target_label,
+                              line_number, 1);
+                    return false;
+                }
+                CoreIrBasicBlock *false_target = nullptr;
+                if (case_index + 1 == switch_spec->cases.size()) {
+                    false_target = default_it->second;
+                } else {
+                    false_target = function.create_basic_block<CoreIrBasicBlock>(
+                        current_block->get_name() + ".llswitch." +
+                        std::to_string(synthetic_index++) + ".case" +
+                        std::to_string(case_index));
+                    block_map[false_target->get_name()] = false_target;
+                }
+                CoreIrValue *case_value =
+                    context_->create_constant<CoreIrConstantInt>(
+                        selector_type, case_entry.value);
+                CoreIrValue *compare = test_block->create_instruction<CoreIrCompareInst>(
+                    CoreIrComparePredicate::Equal, i1_type,
+                    "ll.switch.eq." + std::to_string(synthetic_index++), selector,
+                    case_value);
+                test_block->create_instruction<CoreIrCondJumpInst>(
+                    void_type(), compare, target_it->second, false_target);
+                test_block = false_target;
+            }
             return true;
         }
         if (instruction_kind == AArch64LlvmImportInstructionKind::IndirectBranch) {

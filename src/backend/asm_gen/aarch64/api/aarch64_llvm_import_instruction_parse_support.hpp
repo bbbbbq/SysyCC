@@ -143,6 +143,17 @@ struct AArch64LlvmImportIndirectBranchSpec {
     std::vector<std::string> target_labels;
 };
 
+struct AArch64LlvmImportSwitchCase {
+    std::uint64_t value = 0;
+    std::string target_label;
+};
+
+struct AArch64LlvmImportSwitchSpec {
+    AArch64LlvmImportTypedValue selector;
+    std::string default_target_label;
+    std::vector<AArch64LlvmImportSwitchCase> cases;
+};
+
 struct AArch64LlvmImportReturnSpec {
     bool is_void = false;
     AArch64LlvmImportTypedValue value;
@@ -203,6 +214,9 @@ parse_llvm_import_branch_spec(const AArch64LlvmImportInstruction &instruction);
 std::optional<AArch64LlvmImportIndirectBranchSpec>
 parse_llvm_import_indirect_branch_spec(
     const AArch64LlvmImportInstruction &instruction);
+
+std::optional<AArch64LlvmImportSwitchSpec>
+parse_llvm_import_switch_spec(const AArch64LlvmImportInstruction &instruction);
 
 std::optional<AArch64LlvmImportReturnSpec>
 parse_llvm_import_return_spec(const AArch64LlvmImportInstruction &instruction);

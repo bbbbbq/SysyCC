@@ -16,8 +16,8 @@ PASS|gnu11|SingleSource/Regression/C/2003-05-21-UnionTest.c|-|-
 PASS|gnu11|SingleSource/Regression/C/2003-05-22-LocalTypeTest.c|-|-
 PASS|gnu11|SingleSource/Regression/C/float16-smoke.c|-|-
 PASS|gnu11|SingleSource/Regression/C/2004-02-03-AggregateCopy.c|-|-
-XFAIL|gnu11|SingleSource/Regression/C/2008-01-07-LongDouble.c|-|unsupported LLVM store instruction: store fp128
+PASS|gnu11|SingleSource/Regression/C/2008-01-07-LongDouble.c|-|-
 PASS|gnu11|SingleSource/Regression/C/2003-05-22-VarSizeArray.c|-|-
-XFAIL|gnu11|SingleSource/Benchmarks/Stanford/Quicksort.c|-|unsupported LLVM address operand: getelementptr inbounds ([5001 x i32], ptr @sortlist
-XFAIL|gnu11|SingleSource/Benchmarks/Stanford/Treesort.c|-|unsupported LLVM address operand: getelementptr inbounds ([5001 x i32], ptr @sortlist
-XFAIL|gnu89|SingleSource/Regression/C/DuffsDevice.c|-|unsupported LLVM instruction in restricted importer: switch
+PASS|gnu11|SingleSource/Benchmarks/Stanford/Quicksort.c|-|-
+PASS|gnu11|SingleSource/Benchmarks/Stanford/Treesort.c|-|-
+PASS|gnu89|SingleSource/Regression/C/DuffsDevice.c|-|-

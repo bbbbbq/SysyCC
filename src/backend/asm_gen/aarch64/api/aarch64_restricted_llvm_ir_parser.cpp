@@ -178,6 +178,9 @@ AArch64LlvmImportInstructionKind classify_instruction_kind(
     if (starts_with(normalized, "indirectbr ")) {
         return AArch64LlvmImportInstructionKind::IndirectBranch;
     }
+    if (starts_with(normalized, "switch ")) {
+        return AArch64LlvmImportInstructionKind::Switch;
+    }
     if (starts_with(normalized, "br ")) {
         return AArch64LlvmImportInstructionKind::CondBranch;
     }
@@ -200,7 +203,10 @@ std::vector<AArch64LlvmImportBasicBlock> split_basic_blocks(
     int line_number) {
     std::vector<AArch64LlvmImportBasicBlock> blocks;
     AArch64LlvmImportBasicBlock *current_block = nullptr;
-    for (const ParsedBodyLine &body_line : body_lines) {
+    (void)module;
+    (void)line_number;
+    for (std::size_t index = 0; index < body_lines.size(); ++index) {
+        const ParsedBodyLine &body_line = body_lines[index];
         const std::string &line = body_line.text;
         if (!line.empty() && line.back() == ':') {
             AArch64LlvmImportBasicBlock block;
@@ -218,6 +224,15 @@ std::vector<AArch64LlvmImportBasicBlock> split_basic_blocks(
 
         std::string result_name;
         std::string instruction_text = line;
+        if (starts_with(trim_copy(line), "switch ") && line.find(']') == std::string::npos) {
+            while (index + 1 < body_lines.size()) {
+                instruction_text += "\n" + body_lines[index + 1].text;
+                ++index;
+                if (body_lines[index].text.find(']') != std::string::npos) {
+                    break;
+                }
+            }
+        }
         const std::size_t equal_pos = line.find('=');
         if (!line.empty() && line.front() == '%' && equal_pos != std::string::npos) {
             result_name = trim_copy(line.substr(1, equal_pos - 1));
