@@ -1148,6 +1148,31 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         }
         return constant;
     }
+    case AArch64LlvmImportTypeKind::Named: {
+        const bool square_bracketed =
+            trimmed.size() >= 2 && trimmed.front() == '[' && trimmed.back() == ']';
+        const bool brace_bracketed =
+            trimmed.size() >= 2 && trimmed.front() == '{' && trimmed.back() == '}';
+        if (!square_bracketed && !brace_bracketed) {
+            return std::nullopt;
+        }
+        AArch64LlvmImportConstant constant;
+        constant.kind = AArch64LlvmImportConstantKind::Aggregate;
+        const std::string inner =
+            llvm_import_trim_copy(trimmed.substr(1, trimmed.size() - 2));
+        for (const std::string &element_entry :
+             llvm_import_split_top_level(inner, ',')) {
+            if (element_entry.empty()) {
+                continue;
+            }
+            const auto typed_element = parse_typed_constant(element_entry);
+            if (!typed_element.has_value()) {
+                return std::nullopt;
+            }
+            constant.elements.push_back(typed_element->constant);
+        }
+        return constant;
+    }
     case AArch64LlvmImportTypeKind::Struct: {
         if (trimmed.size() < 2 || trimmed.front() != '{' || trimmed.back() != '}') {
             return std::nullopt;
@@ -1182,7 +1207,6 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     }
     case AArch64LlvmImportTypeKind::Unknown:
     case AArch64LlvmImportTypeKind::Void:
-    case AArch64LlvmImportTypeKind::Named:
     default:
         return std::nullopt;
     }

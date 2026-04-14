@@ -3639,9 +3639,48 @@ class RestrictedLlvmIrImporter {
             return result;
         }
 
-        for (const AArch64LlvmImportNamedType &named_type :
-             parsed_module.named_types) {
-            if (!lower_named_type_definition(named_type)) {
+        std::vector<bool> lowered_named_types(parsed_module.named_types.size(), false);
+        std::size_t remaining_named_types = parsed_module.named_types.size();
+        while (remaining_named_types != 0) {
+            bool made_progress = false;
+            for (std::size_t index = 0; index < parsed_module.named_types.size(); ++index) {
+                if (lowered_named_types[index]) {
+                    continue;
+                }
+                const AArch64LlvmImportNamedType &named_type =
+                    parsed_module.named_types[index];
+                if (named_type.is_opaque || named_type.body_text == "opaque") {
+                    if (!lower_named_type_definition(named_type)) {
+                        remaining_named_types = 0;
+                        break;
+                    }
+                    lowered_named_types[index] = true;
+                    --remaining_named_types;
+                    made_progress = true;
+                    continue;
+                }
+                const CoreIrType *type = lower_import_type(named_type.body_type);
+                if (type == nullptr) {
+                    continue;
+                }
+                named_type_cache_[named_type.name] = type;
+                lowered_named_types[index] = true;
+                --remaining_named_types;
+                made_progress = true;
+            }
+            if (!diagnostics_.empty() || remaining_named_types == 0) {
+                break;
+            }
+            if (!made_progress) {
+                for (std::size_t index = 0; index < parsed_module.named_types.size();
+                     ++index) {
+                    if (!lowered_named_types[index]) {
+                        add_error("unsupported LLVM named type body: " +
+                                      parsed_module.named_types[index].body_text,
+                                  parsed_module.named_types[index].line, 1);
+                        break;
+                    }
+                }
                 break;
             }
         }
