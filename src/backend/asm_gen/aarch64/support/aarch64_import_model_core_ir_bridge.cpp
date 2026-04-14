@@ -3195,6 +3195,9 @@ class RestrictedLlvmIrImporter {
                 bindings);
         }
         if (instruction_kind == AArch64LlvmImportInstructionKind::Call) {
+            if (starts_with(instruction_text, "call void asm sideeffect \"\"")) {
+                return true;
+            }
             const std::optional<AArch64LlvmImportCallSpec> call_spec =
                 parse_llvm_import_call_spec(instruction);
             if (!call_spec.has_value()) {
