@@ -122,3 +122,9 @@ PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20010910-1.c|-|-
 PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20010915-1.c|-|-
 PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20010924-1.c|-|-
 PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20011109-1.c|-|-
+PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20020103-1.c|-|-
+PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20020108-1.c|-|-
+PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20020201-1.c|-|-
+PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20020216-1.c|-|-
+PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20020226-1.c|-|-
+PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/20020307-1.c|-|-
