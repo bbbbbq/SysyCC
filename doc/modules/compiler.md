@@ -116,8 +116,8 @@ CoreIrInstCombinePass -> CoreIrMem2RegPass ->
   for preprocess include resolution.
 - The backend stage now branches after optimized Core IR: the default path still
   emits textual LLVM IR for the supported subset, while
-  `-S --backend=aarch64-native` runs a first native Linux AArch64 asm backend
-  over the same `CoreIrModule`.
+  `-S --backend=aarch64-native` or `-S --backend=riscv64-native` run native
+  Linux backends over the same lowered LLVM IR artifacts.
 - The public driver now also carries an explicit optimization level. `-O0`
   keeps only the minimum Core IR normalization required by later lowering,
   while `-O1` enables the current canonicalize/const-fold/DCE batch over the
@@ -131,14 +131,17 @@ CoreIrInstCombinePass -> CoreIrMem2RegPass ->
   CoreIrInstCombinePass -> CoreIrStackSlotForwardPass ->
   CoreIrDeadStoreEliminationPass -> CoreIrInstCombinePass ->
   CoreIrMem2RegPass -> post-SSA fixed-point group -> LowerIrPass ->
-  AArch64AsmGenPass`.
+  native codegen pass`.
   That fixed-point group is
   `CopyPropagation -> InstCombine -> Sccp -> SimplifyCfg -> Licm ->
   LocalCse -> Gvn -> InstCombine -> ConstFold -> Dce -> SimplifyCfg`,
   iterated up to four rounds until one full round makes no Core IR changes.
-  `LowerIrPass` is now LLVM-specific and no-ops for the native backend, while
-  the native AArch64 path lives under
-  [src/backend/asm_gen/aarch64](/Users/caojunze424/code/SysyCC/src/backend/asm_gen/aarch64).
+  `LowerIrPass` is now LLVM-specific and materializes stable `.ll` / `.bc`
+  artifacts before the native backend adapters run. The native AArch64 path
+  lives under
+  [src/backend/asm_gen/aarch64](/Users/caojunze424/code/SysyCC/src/backend/asm_gen/aarch64),
+  while the standalone RISC-V64 path lives under
+  [src/backend/asm_gen/riscv64](/Users/caojunze424/code/SysyCC/src/backend/asm_gen/riscv64).
   The legacy `IRBuilder -> IRBackend -> LlvmIrBackend` stack remains in tree as
   a reference implementation during the migration.
 - `CoreIrCanonicalizePass` now only keeps the pre-SSA hard-structure

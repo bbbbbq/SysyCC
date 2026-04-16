@@ -432,5 +432,15 @@ int main() {
     assert_context_matches(complier.get_context(), assigned_option,
                            {"c99", "gnu-c", "extended-builtin-types"});
 
+    const ComplierOption riscv_option =
+        make_option("riscv_input.sy", {"include/riscv"}, {"system/riscv"},
+                    false, false, false, false, false, false,
+                    StopAfterStage::Asm, OptimizationLevel::O1,
+                    BackendKind::Riscv64Native,
+                    "riscv64-unknown-linux-gnu", true, false, true);
+    complier.set_option(riscv_option);
+    assert_context_matches(complier.get_context(), riscv_option,
+                           {"c99", "gnu-c", "extended-builtin-types"});
+
     return 0;
 }

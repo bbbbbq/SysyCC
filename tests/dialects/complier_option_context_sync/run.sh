@@ -40,6 +40,9 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${PROJECT_ROOT}/src/frontend/dialects/packs/c99/c99_dialect.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/packs/clang/clang_dialect.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/packs/gnu/gnu_dialect.cpp" \
+    -L"${BUILD_DIR}" \
+    -lsysycc_riscv64_codegen \
+    -Wl,-rpath,"${BUILD_DIR}" \
     -o "${TEST_BINARY}"
 
 "${TEST_BINARY}"

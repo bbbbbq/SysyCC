@@ -28,9 +28,10 @@ The CLI module converts `argv` into a compiler configuration object.
 - enable dump switches such as `--dump-tokens` and `--dump-parse`
 - support `--stop-after=<stage>` so tests and tooling can stop after
   `preprocess`, `lex`, `parse`, `ast`, `semantic`, `core-ir`, `ir`, or `asm`
-- select backend-specific emission modes such as native Linux AArch64 asm
-- select native AArch64 object / PIC / debug emission modes such as `-c`,
-  `-fPIC`, and `-g`
+- select backend-specific emission modes such as native Linux AArch64 or
+  RISC-V64 asm
+- select native object / PIC / debug emission modes such as `-c`, `-fPIC`,
+  and `-g`
 - print help, version, and verbose driver configuration information
 - fill [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
 
@@ -56,13 +57,13 @@ Output:
 - The public user-facing actions are now GCC-like:
   - `-E` preprocesses to stdout or `-o`
   - `-fsyntax-only` stops after semantic analysis
-  - `-S` emits AArch64 assembly
-  - `-c` emits a native AArch64 ELF object file
-  - `-g` requests basic native AArch64 debug information
+  - `-S` emits native assembly
+  - `-c` emits a native ELF object file
+  - `-g` forwards a native debug-info request
   - `-S -emit-llvm` emits LLVM IR
 - Bare `sysycc input.sy` still fails with an explicit linking-not-supported
   diagnostic, but `-c` is now a supported compile-only object-emission path for
-  the native AArch64 backend.
+  the native backends.
 - `-O0` keeps the minimum Core IR pipeline required by later lowering, while
   `-O1` additionally enables the current Core IR optimization batch:
   canonicalization, constant folding, and dead-code elimination.
@@ -96,19 +97,17 @@ Output:
   - `--sysy-stop-after`
   - `--sysy-backend`
   - `--sysy-target`
-- The public `-S` path defaults to the native AArch64 backend and fills in the
-  default target triple `aarch64-unknown-linux-gnu` when the user does not
-  specify one.
-- The public `-c` path now also defaults to the native AArch64 backend and the
+- The public `-S` path still defaults to the native AArch64 backend and fills
+  in `aarch64-unknown-linux-gnu` when the user does not specify a target.
+- The public `-c` path still defaults to the native AArch64 backend and the
   same default target triple.
-- `-fPIC` is now accepted on the native AArch64 path and enables
-  position-independent address materialization for external symbol references.
-- `-g` is now accepted on the native AArch64 `-S` / `-c` path and emits
-  `.file` / `.loc` directives for assembly output plus assembler-generated
-  DWARF line tables for object output.
-- `--backend=llvm-ir|aarch64-native` and `--target=...` remain accepted as
-  compatibility / developer controls but are no longer the primary user-facing
-  surface.
+- `--backend=riscv64-native` now switches the native path to a decoupled
+  RISC-V64 codegen library and fills in `riscv64-unknown-linux-gnu` when the
+  user omits `--target`.
+- `-fPIC` and `-g` are now forwarded to both native backends.
+- `--backend=llvm-ir|aarch64-native|riscv64-native` and `--target=...` remain
+  accepted as compatibility / developer controls but are no longer the primary
+  user-facing surface.
 - The older `--dump-*`, `--stop-after`, `--backend`, and `--target` spellings
   remain as compatibility aliases for existing tests and developer workflows.
 - `--dump-ir` remains specific to internal LLVM IR dumps in

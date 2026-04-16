@@ -200,6 +200,10 @@ The current IR module is intentionally a staged optimization pipeline:
   now routes one function through a session-backed lowering facade that owns the
   per-function ABI/value/memory/scalar/call-return services directly, instead of
   rebuilding callback/factory context tables inside the monolithic lowering pass
+- the native RISC-V64 `llvm-ir -> asm/object` path under
+  `src/backend/asm_gen/riscv64/` now mirrors the same decoupled-library
+  boundary, but currently uses LLVM `TargetMachine` emission instead of a
+  backend-local machine IR pipeline
 - `shared/printer/CoreIrRawPrinter` can dump that Core IR into a stable textual
   representation for regression tests and future raw/optimized IR dumps
 - `IRBuilder` now validates that every top-level function/global requiring
@@ -417,6 +421,10 @@ LLVM IR lowering path:
   arithmetic, and compares, variadic call signatures that do not read
   `va_list`, and aggregate by-value ABI cases through direct-register, HFA,
   and indirect/sret conventions where supported
+- the native `Riscv64AsmGenPass` path now also lowers staged LLVM IR artifacts
+  through a standalone `sysycc_riscv64_codegen` shared library and a matching
+  `sysycc-riscv64c` CLI, currently delegating final asm/object emission to
+  LLVM's in-process RISC-V64 target machine
 - `CoreIrBuilder` currently lowers a deliberately small staged subset:
   - `TranslationUnit`
   - top-level scalar `VarDecl` with constant initializer or zero-initialized
@@ -715,11 +723,18 @@ LLVM IR lowering path:
 - `-S --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now emits a
   native `.s` file from lowered LLVM IR artifacts through the decoupled
   AArch64 codegen library
+- `-S --backend=riscv64-native --target=riscv64-unknown-linux-gnu` now emits a
+  native `.s` file from the same lowered LLVM IR artifacts through the
+  decoupled RISC-V64 codegen library
 - `-c --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now also
   emits an ELF relocatable object from the native backend’s structured
   asm/machine/object module state, keeping the produced bytes in compiler state
   as an `ObjectResult`; that object path now writes `.text`, data sections,
   relocations, `.eh_frame`, and `.debug_line` directly instead of round-tripping
+- `-c --backend=riscv64-native --target=riscv64-unknown-linux-gnu` now also
+  emits an ELF relocatable object directly from LLVM's in-process RISC-V64
+  code generator, keeping the produced bytes in compiler state as an
+  `ObjectResult`
   function text through an external assembler/linker merge flow
 - `-g` on the native AArch64 path now emits basic debug line information:
   assembly output carries `.file` / `.loc`, and object output carries

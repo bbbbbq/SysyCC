@@ -109,6 +109,30 @@ int main() {
 
     {
         char arg0[] = "sysycc";
+        char arg1[] = "-S";
+        char arg2[] = "--backend=riscv64-native";
+        char arg3[] = "-o";
+        char arg4[] = "out.s";
+        char arg5[] = "input.sy";
+        char *argv[] = {arg0, arg1, arg2, arg3, arg4, arg5};
+        ClI::Cli cli;
+        cli.Run(6, argv);
+        assert(!cli.get_has_error());
+        ComplierOption option;
+        cli.set_compiler_option(option);
+        assert(option.get_driver_action() == DriverAction::EmitAssembly);
+        assert(option.emit_asm());
+        assert(option.get_stop_after_stage() == StopAfterStage::Asm);
+        assert(option.get_output_file() == "out.s");
+        assert(option.get_backend_options().get_backend_kind() ==
+               BackendKind::Riscv64Native);
+        assert(option.get_backend_options().get_target_triple() ==
+               "riscv64-unknown-linux-gnu");
+        assert(option.get_backend_options().get_output_file() == "out.s");
+    }
+
+    {
+        char arg0[] = "sysycc";
         char arg1[] = "-DDEBUG=1";
         char arg2[] = "-ULEGACY";
         char arg3[] = "-include";
