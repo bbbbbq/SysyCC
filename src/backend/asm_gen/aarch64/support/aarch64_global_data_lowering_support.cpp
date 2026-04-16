@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_float_literal_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -335,13 +336,14 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
                 return true;
             }
             case CoreIrFloatKind::Float128:
-                if (floating_literal_is_zero(literal_text)) {
-                    append_zero_fill_fragment(data_object, 16);
+                if (const auto bytes = encode_fp128_literal_bytes(literal_text);
+                    bytes.has_value()) {
+                    append_byte_sequence_fragment(data_object, *bytes);
                     return true;
                 }
                 context.report_error(
-                    "non-zero float128 global initializers are not yet supported by the "
-                    "AArch64 native backend");
+                    "failed to encode float128 global initializer in the AArch64 "
+                    "native backend");
                 return false;
             }
         } catch (...) {

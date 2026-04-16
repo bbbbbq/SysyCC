@@ -27,7 +27,18 @@ void apply_truncate_to_virtual_reg(AArch64MachineBlock &machine_block,
         machine_block.append_instruction(AArch64MachineInstr(
             "uxth", {def_vreg_operand_as(reg, false), use_vreg_operand_as(reg, false)}));
         break;
+    case 32:
+    case 64:
+        break;
     default:
+        if (integer_type->get_bit_width() < 64) {
+            machine_block.append_instruction(AArch64MachineInstr(
+                "ubfx", {def_vreg_operand_as(reg, integer_type->get_bit_width() > 32),
+                         use_vreg_operand_as(reg, integer_type->get_bit_width() > 32),
+                         AArch64MachineOperand::immediate("#0"),
+                         AArch64MachineOperand::immediate(
+                             "#" + std::to_string(integer_type->get_bit_width()))}));
+        }
         break;
     }
 }
@@ -58,8 +69,19 @@ void apply_zero_extend_to_virtual_reg(AArch64MachineBlock &machine_block,
                                          use_vreg_operand_as(dst_reg, false)}));
         break;
     case 32:
+    case 64:
         break;
     default:
+        if (source_integer->get_bit_width() < 64) {
+            machine_block.append_instruction(AArch64MachineInstr(
+                "ubfx", {def_vreg_operand_as(dst_reg,
+                                             source_integer->get_bit_width() > 32),
+                         use_vreg_operand_as(dst_reg,
+                                             source_integer->get_bit_width() > 32),
+                         AArch64MachineOperand::immediate("#0"),
+                         AArch64MachineOperand::immediate(
+                             "#" + std::to_string(source_integer->get_bit_width()))}));
+        }
         break;
     }
 }
@@ -100,7 +122,19 @@ void apply_sign_extend_to_virtual_reg(AArch64MachineBlock &machine_block,
                          use_vreg_operand_as(dst_reg, false)}));
         }
         break;
+    case 64:
+        break;
     default:
+        if (source_integer->get_bit_width() < 64) {
+            const bool use_64bit = target_uses_64bit ||
+                                   source_integer->get_bit_width() > 32;
+            machine_block.append_instruction(AArch64MachineInstr(
+                "sbfx", {def_vreg_operand_as(dst_reg, use_64bit),
+                         use_vreg_operand_as(dst_reg, use_64bit),
+                         AArch64MachineOperand::immediate("#0"),
+                         AArch64MachineOperand::immediate(
+                             "#" + std::to_string(source_integer->get_bit_width()))}));
+        }
         break;
     }
 }

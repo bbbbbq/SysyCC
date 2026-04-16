@@ -255,6 +255,9 @@ classify_aarch64_machine_opcode(std::string_view mnemonic) noexcept {
     if (mnemonic == "fmul") {
         return AArch64MachineOpcode::FloatMul;
     }
+    if (mnemonic == "fmadd") {
+        return AArch64MachineOpcode::FloatMulAdd;
+    }
     if (mnemonic == "fdiv") {
         return AArch64MachineOpcode::FloatDiv;
     }
@@ -370,6 +373,8 @@ aarch64_machine_opcode_mnemonic(AArch64MachineOpcode opcode) noexcept {
         return "fsub";
     case AArch64MachineOpcode::FloatMul:
         return "fmul";
+    case AArch64MachineOpcode::FloatMulAdd:
+        return "fmadd";
     case AArch64MachineOpcode::FloatDiv:
         return "fdiv";
     case AArch64MachineOpcode::FloatCompare:
@@ -490,6 +495,8 @@ describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept {
         AArch64MachineOpcode::FloatSub, "fsub", false, false, false};
     static const AArch64MachineOpcodeDescriptor kFloatMul{
         AArch64MachineOpcode::FloatMul, "fmul", false, false, false};
+    static const AArch64MachineOpcodeDescriptor kFloatMulAdd{
+        AArch64MachineOpcode::FloatMulAdd, "fmadd", false, false, false};
     static const AArch64MachineOpcodeDescriptor kFloatDiv{
         AArch64MachineOpcode::FloatDiv, "fdiv", false, false, false};
     static const AArch64MachineOpcodeDescriptor kFloatCompare{
@@ -598,6 +605,8 @@ describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept {
         return kFloatSub;
     case AArch64MachineOpcode::FloatMul:
         return kFloatMul;
+    case AArch64MachineOpcode::FloatMulAdd:
+        return kFloatMulAdd;
     case AArch64MachineOpcode::FloatDiv:
         return kFloatDiv;
     case AArch64MachineOpcode::FloatCompare:

@@ -29,6 +29,7 @@ class CoreIrConstantFloat;
 class CoreIrIndirectJumpInst;
 class CoreIrLoadInst;
 class CoreIrReturnInst;
+class CoreIrSelectInst;
 class CoreIrStoreInst;
 class CoreIrUnaryInst;
 class DiagnosticEngine;
@@ -206,6 +207,9 @@ class AArch64FunctionLoweringFacade final
     bool materialize_value(AArch64MachineBlock &machine_block,
                            const CoreIrValue *value,
                            const AArch64VirtualReg &target_reg) override;
+    bool materialize_noncanonical_value(AArch64MachineBlock &machine_block,
+                                        const CoreIrValue *value,
+                                        const AArch64VirtualReg &target_reg) override;
 
     void append_frame_address(AArch64MachineBlock &machine_block,
                               const AArch64VirtualReg &target_reg,
@@ -337,6 +341,7 @@ class AArch64FunctionLoweringFacade final
         const CoreIrCallInst &call) const override;
     const AArch64FunctionAbiInfo &function_abi_info() const override;
     const AArch64VirtualReg &indirect_result_address() const override;
+    AArch64VariadicVaListState variadic_va_list_state() const override;
 
     void emit_debug_location(AArch64MachineBlock &machine_block,
                              const SourceSpan &source_span,
@@ -357,6 +362,9 @@ class AArch64FunctionLoweringFacade final
     bool emit_compare(AArch64MachineBlock &machine_block,
                       const CoreIrCompareInst &compare,
                       const FunctionState &state);
+    bool emit_select(AArch64MachineBlock &machine_block,
+                     const CoreIrSelectInst &select,
+                     const FunctionState &state);
     bool emit_cast(AArch64MachineBlock &machine_block,
                    const CoreIrCastInst &cast, const FunctionState &state);
     bool emit_call(AArch64MachineBlock &machine_block,

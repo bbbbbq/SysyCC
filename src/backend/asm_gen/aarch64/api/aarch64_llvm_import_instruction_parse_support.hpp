@@ -13,6 +13,7 @@ enum class AArch64LlvmImportValueKind : unsigned char {
     Local,
     Global,
     Constant,
+    ConstantExpressionRaw,
 };
 
 struct AArch64LlvmImportTypedValue {
@@ -22,6 +23,7 @@ struct AArch64LlvmImportTypedValue {
     AArch64LlvmImportValueKind kind = AArch64LlvmImportValueKind::Unknown;
     std::string local_name;
     std::string global_name;
+    std::string raw_constant_expression_text;
     AArch64LlvmImportConstant constant;
 
     bool is_valid() const {
@@ -53,6 +55,7 @@ struct AArch64LlvmImportCastSpec {
 struct AArch64LlvmImportAllocaSpec {
     std::string allocated_type_text;
     AArch64LlvmImportType allocated_type;
+    std::optional<AArch64LlvmImportTypedValue> element_count;
     std::size_t alignment = 0;
 };
 

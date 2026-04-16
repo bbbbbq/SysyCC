@@ -68,6 +68,27 @@ parse_llvm_import_type_impl(const std::string &text) {
         type.named_type_name = normalized.substr(1);
         return type;
     }
+    if (normalized.front() == '<' && normalized.size() >= 4 &&
+        normalized[1] == '{' && normalized[normalized.size() - 2] == '}' &&
+        normalized.back() == '>') {
+        const std::string inner = llvm_import_trim_copy(
+            normalized.substr(2, normalized.size() - 4));
+        type.kind = AArch64LlvmImportTypeKind::Struct;
+        type.struct_is_packed = true;
+        for (const std::string &element_text :
+             llvm_import_split_top_level(inner, ',')) {
+            if (element_text.empty()) {
+                continue;
+            }
+            const auto element_type =
+                parse_llvm_import_type_impl(llvm_import_trim_copy(element_text));
+            if (!element_type.has_value()) {
+                return std::nullopt;
+            }
+            type.element_types.push_back(*element_type);
+        }
+        return type;
+    }
     if ((normalized.front() == '[' || normalized.front() == '<') &&
         normalized.back() == (normalized.front() == '[' ? ']' : '>')) {
         const bool is_vector_syntax = normalized.front() == '<';
@@ -99,6 +120,7 @@ parse_llvm_import_type_impl(const std::string &text) {
         const std::string inner = llvm_import_trim_copy(
             normalized.substr(1, normalized.size() - 2));
         type.kind = AArch64LlvmImportTypeKind::Struct;
+        type.struct_is_packed = false;
         for (const std::string &element_text :
              llvm_import_split_top_level(inner, ',')) {
             if (element_text.empty()) {

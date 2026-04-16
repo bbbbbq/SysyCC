@@ -3,6 +3,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_binary_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_cast_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_compare_lowering_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_unary_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -120,6 +121,37 @@ bool emit_compare_instruction(AArch64MachineBlock &machine_block,
 
     return emit_non_float128_compare(machine_block, compare, lhs_reg, rhs_reg,
                                      dst_reg, function);
+}
+
+bool emit_select_instruction(AArch64MachineBlock &machine_block,
+                             AArch64ScalarLoweringContext &context,
+                             const CoreIrSelectInst &select,
+                             AArch64MachineFunction &function) {
+    AArch64VirtualReg condition_reg;
+    AArch64VirtualReg true_reg;
+    AArch64VirtualReg false_reg;
+    AArch64VirtualReg dst_reg;
+    if (!context.ensure_value_in_vreg(machine_block, select.get_condition(),
+                                      condition_reg) ||
+        !context.ensure_value_in_vreg(machine_block, select.get_true_value(),
+                                      true_reg) ||
+        !context.ensure_value_in_vreg(machine_block, select.get_false_value(),
+                                      false_reg) ||
+        !context.require_canonical_vreg(&select, dst_reg)) {
+        return false;
+    }
+
+    if (dst_reg.is_floating_point()) {
+        return false;
+    }
+
+    machine_block.append_instruction(AArch64MachineInstr(
+        "cmp", {use_vreg_operand(condition_reg),
+                AArch64MachineOperand::immediate("#0")}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "csel", {def_vreg_operand(dst_reg), use_vreg_operand(true_reg),
+                 use_vreg_operand(false_reg), condition_code_operand("ne")}));
+    return true;
 }
 
 bool emit_cast_instruction(AArch64MachineBlock &machine_block,

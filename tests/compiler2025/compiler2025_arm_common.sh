@@ -104,6 +104,8 @@ compiler2025_run_binary_capture() {
             "${stderr_log_file}" "${timeout_seconds}" <<'PY'
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -116,18 +118,34 @@ timeout_seconds = int(sys.argv[5])
 
 stdin = input_file.open("rb") if input_file is not None and input_file.is_file() else None
 try:
+    process = None
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             [str(program)],
             stdin=stdin,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            check=False,
+            start_new_session=True,
+        )
+        stdout_data, stderr_data = process.communicate(
             timeout=None if timeout_seconds <= 0 else timeout_seconds,
         )
     except subprocess.TimeoutExpired as exc:
         partial_stdout = exc.stdout or b""
         partial_stderr = exc.stderr or b""
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
         newline = b"" if not partial_stdout or partial_stdout.endswith(b"\n") else b"\n"
         actual_output_file.write_bytes(partial_stdout + newline)
         timeout_message = (
@@ -140,11 +158,11 @@ finally:
     if stdin is not None:
         stdin.close()
 
-stdout = completed.stdout or b""
+stdout = stdout_data or b""
 new_line = b"" if not stdout or stdout.endswith(b"\n") else b"\n"
-actual_output_file.write_bytes(stdout + new_line + f"{completed.returncode}\n".encode())
-stderr_log_file.write_bytes(completed.stderr or b"")
-print(completed.returncode)
+actual_output_file.write_bytes(stdout + new_line + f"{process.returncode}\n".encode())
+stderr_log_file.write_bytes(stderr_data or b"")
+print(process.returncode)
 PY
     })"
     status=$?
@@ -278,6 +296,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import statistics
 import subprocess
 import sys
@@ -304,16 +323,32 @@ def run_once(label: str) -> float:
     devnull = open(os.devnull, "wb")
     start = time.perf_counter()
     try:
+        process = None
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 [str(program)],
                 stdin=stdin,
                 stdout=devnull,
                 stderr=devnull,
-                check=False,
+                start_new_session=True,
+            )
+            return_code = process.wait(
                 timeout=None if timeout_seconds <= 0 else timeout_seconds,
             )
         except subprocess.TimeoutExpired:
+            if process is not None:
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
             timeout_suffix = f" after {timeout_seconds}s" if timeout_seconds > 0 else ""
             print(
                 f"timed out while measuring {program} ({label}){timeout_suffix}",
@@ -325,10 +360,10 @@ def run_once(label: str) -> float:
         devnull.close()
         if stdin is not None:
             stdin.close()
-    if completed.returncode != expected_exit:
+    if return_code != expected_exit:
         raise SystemExit(
             f"unexpected exit code from {program}: "
-            f"{completed.returncode} != {expected_exit}"
+            f"{return_code} != {expected_exit}"
         )
     return end - start
 

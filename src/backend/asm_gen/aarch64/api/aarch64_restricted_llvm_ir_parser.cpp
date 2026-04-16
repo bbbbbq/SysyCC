@@ -43,6 +43,38 @@ std::string strip_trailing_alignment_suffix(const std::string &text) {
     return llvm_import_strip_trailing_alignment_suffix(text);
 }
 
+bool is_global_initializer_trailer(std::string_view text) {
+    return starts_with(text, "align ") || starts_with(text, "section ") ||
+           starts_with(text, "comdat") ||
+           starts_with(text, "no_sanitize") ||
+           starts_with(text, "sanitize_") ||
+           starts_with(text, "partition ") ||
+           starts_with(text, "!dbg ");
+}
+
+std::string strip_trailing_global_initializer_suffixes(const std::string &text) {
+    const std::vector<std::string> parts = split_top_level(text, ',');
+    if (parts.empty()) {
+        return trim_copy(text);
+    }
+
+    std::string result = parts.front();
+    for (std::size_t index = 1; index < parts.size(); ++index) {
+        if (is_global_initializer_trailer(parts[index])) {
+            break;
+        }
+        result += ", " + parts[index];
+    }
+    return strip_trailing_alignment_suffix(result);
+}
+
+bool looks_like_blockaddress_difference_global_initializer(
+    std::string_view text) {
+    return text.find("blockaddress(") != std::string_view::npos &&
+           text.find("ptrtoint") != std::string_view::npos &&
+           text.find(" sub ") != std::string_view::npos;
+}
+
 std::optional<std::string> consume_type_token(const std::string &text,
                                               std::size_t &position) {
     return llvm_import_consume_type_token(text, position);
@@ -299,9 +331,15 @@ bool parse_global_definition(AArch64LlvmImportModule &module,
         return false;
     }
 
+    if ((name.value() == "llvm.compiler.used" || name.value() == "llvm.used") &&
+        line.find("appending global") != std::string::npos) {
+        return true;
+    }
+
     std::string remainder = trim_copy(line.substr(equal_pos + 1));
     bool is_internal_linkage = false;
     bool is_constant = false;
+    bool is_external_declaration = false;
     while (true) {
         if (starts_with(remainder, "internal ")) {
             is_internal_linkage = true;
@@ -323,6 +361,16 @@ bool parse_global_definition(AArch64LlvmImportModule &module,
         }
         if (starts_with(remainder, "local_unnamed_addr ")) {
             remainder = trim_copy(remainder.substr(19));
+            continue;
+        }
+        if (starts_with(remainder, "appending ")) {
+            is_internal_linkage = true;
+            remainder = trim_copy(remainder.substr(10));
+            continue;
+        }
+        if (starts_with(remainder, "external ")) {
+            is_external_declaration = true;
+            remainder = trim_copy(remainder.substr(9));
             continue;
         }
         break;
@@ -353,16 +401,26 @@ bool parse_global_definition(AArch64LlvmImportModule &module,
         return false;
     }
 
-    const std::string initializer_text =
-        strip_trailing_alignment_suffix(trim_copy(remainder.substr(type_position)));
-    const AArch64LlvmImportType constant_type =
-        resolve_import_type(module, *parsed_type).value_or(*parsed_type);
-    const auto initializer =
-        parse_llvm_import_constant_text(constant_type, initializer_text);
-    if (!initializer.has_value()) {
-        add_error(module, "failed to parse LLVM global initializer: " +
-                              initializer_text,
-                  line_number, 1);
+    std::string initializer_text;
+    AArch64LlvmImportConstant initializer;
+    if (!is_external_declaration) {
+        initializer_text = strip_trailing_global_initializer_suffixes(
+            trim_copy(remainder.substr(type_position)));
+        const AArch64LlvmImportType constant_type =
+            resolve_import_type(module, *parsed_type).value_or(*parsed_type);
+        const auto parsed_initializer =
+            parse_llvm_import_constant_text(constant_type, initializer_text);
+        if (!parsed_initializer.has_value()) {
+            if (!looks_like_blockaddress_difference_global_initializer(
+                    initializer_text)) {
+                add_error(module, "failed to parse LLVM global initializer: " +
+                                      initializer_text,
+                          line_number, 1);
+                return false;
+            }
+        } else {
+            initializer = *parsed_initializer;
+        }
     }
 
     module.globals.push_back(AArch64LlvmImportGlobal{
@@ -370,9 +428,10 @@ bool parse_global_definition(AArch64LlvmImportModule &module,
         type_text.value(),
         *parsed_type,
         initializer_text,
-        initializer.value_or(AArch64LlvmImportConstant{}),
+        initializer,
         is_internal_linkage,
         is_constant,
+        is_external_declaration,
         line_number});
     return true;
 }
@@ -393,6 +452,29 @@ bool parse_alias_definition(AArch64LlvmImportModule &module,
     }
 
     std::string remainder = trim_copy(line.substr(equal_pos + 1));
+    while (true) {
+        if (starts_with(remainder, "internal ")) {
+            remainder = trim_copy(remainder.substr(9));
+            continue;
+        }
+        if (starts_with(remainder, "dso_local ")) {
+            remainder = trim_copy(remainder.substr(10));
+            continue;
+        }
+        if (starts_with(remainder, "private ")) {
+            remainder = trim_copy(remainder.substr(8));
+            continue;
+        }
+        if (starts_with(remainder, "unnamed_addr ")) {
+            remainder = trim_copy(remainder.substr(13));
+            continue;
+        }
+        if (starts_with(remainder, "local_unnamed_addr ")) {
+            remainder = trim_copy(remainder.substr(19));
+            continue;
+        }
+        break;
+    }
     if (!starts_with(remainder, "alias ")) {
         add_error(module, "failed to parse LLVM alias target", line_number, 1);
         return false;
@@ -444,13 +526,17 @@ bool parse_alias_definition(AArch64LlvmImportModule &module,
 bool parse_function_signature(AArch64LlvmImportModule &module,
                               const std::string &line, bool is_definition,
                               AArch64LlvmImportFunction &function) {
-    std::string remainder =
-        strip_leading_modifiers(trim_copy(line.substr(is_definition ? 6 : 7)));
+    std::string remainder = trim_copy(line.substr(is_definition ? 6 : 7));
     function.is_definition = is_definition;
     if (starts_with(remainder, "internal ")) {
         function.is_internal_linkage = true;
         remainder = trim_copy(remainder.substr(9));
     }
+    if (starts_with(remainder, "extern_weak ")) {
+        function.is_extern_weak = true;
+        remainder = trim_copy(remainder.substr(12));
+    }
+    remainder = strip_leading_modifiers(remainder);
 
     std::size_t type_position = 0;
     const std::optional<std::string> return_type_text =
@@ -510,7 +596,8 @@ bool parse_function_signature(AArch64LlvmImportModule &module,
                       function.line, 1);
             return false;
         }
-        std::string remainder_text = trim_copy(trimmed_parameter.substr(position));
+        std::string remainder_text =
+            strip_leading_modifiers(trim_copy(trimmed_parameter.substr(position)));
         while (!remainder_text.empty()) {
             std::size_t token_end = 0;
             while (token_end < remainder_text.size() &&
@@ -527,6 +614,24 @@ bool parse_function_signature(AArch64LlvmImportModule &module,
                 break;
             }
             remainder_text = trim_copy(remainder_text.substr(token_end));
+            if (token == "align") {
+                std::size_t align_value_end = 0;
+                while (align_value_end < remainder_text.size() &&
+                       std::isspace(static_cast<unsigned char>(
+                           remainder_text[align_value_end])) == 0) {
+                    ++align_value_end;
+                }
+                const std::string align_value =
+                    remainder_text.substr(0, align_value_end);
+                if (!align_value.empty() &&
+                    std::all_of(align_value.begin(), align_value.end(),
+                                [](unsigned char ch) {
+                                    return std::isdigit(ch) != 0;
+                                })) {
+                    remainder_text =
+                        trim_copy(remainder_text.substr(align_value_end));
+                }
+            }
         }
         function.parameters.push_back(std::move(parameter));
     }
@@ -585,7 +690,7 @@ AArch64LlvmImportModule parse_lines(const std::string &source_name,
             continue;
         }
         if (!current.empty() && current.front() == '@') {
-            if (current.find(" = alias ") != std::string::npos) {
+            if (current.find(" alias ") != std::string::npos) {
                 if (!parse_alias_definition(module, current, line_number)) {
                     break;
                 }

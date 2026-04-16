@@ -79,8 +79,8 @@ bool instruction_has_canonical_vreg(const CoreIrInstruction &instruction) {
 
 std::size_t allocate_aggregate_value_slot(std::size_t &current_offset,
                                           const CoreIrType *type) {
-    current_offset = align_to(current_offset, get_type_alignment(type));
     current_offset += get_type_size(type);
+    current_offset = align_to(current_offset, get_type_alignment(type));
     return current_offset;
 }
 
@@ -116,10 +116,11 @@ void layout_stack_slots(AArch64MachineFunction &machine_function,
                         const CoreIrFunction &function,
                         std::size_t &current_offset) {
     for (const auto &stack_slot : function.get_stack_slots()) {
-        current_offset =
-            align_to(current_offset,
-                     get_type_alignment(stack_slot->get_allocated_type()));
+        const std::size_t requested_alignment =
+            std::max(get_type_alignment(stack_slot->get_allocated_type()),
+                     stack_slot->get_alignment());
         current_offset += get_type_size(stack_slot->get_allocated_type());
+        current_offset = align_to(current_offset, requested_alignment);
         machine_function.get_frame_info().set_stack_slot_offset(
             stack_slot.get(), current_offset);
     }
@@ -222,6 +223,15 @@ void seed_promoted_stack_slots(
     const std::unordered_map<const CoreIrValue *, AArch64ValueLocation>
         &value_locations,
     std::unordered_set<const CoreIrStackSlot *> &promoted_stack_slots) {
+    for (const auto &basic_block : function.get_basic_blocks()) {
+        for (const auto &instruction : basic_block->get_instructions()) {
+            if (dynamic_cast<const CoreIrIndirectJumpInst *>(instruction.get()) !=
+                nullptr) {
+                return;
+            }
+        }
+    }
+
     const CoreIrBasicBlock *entry_block =
         function.get_basic_blocks().empty()
             ? nullptr

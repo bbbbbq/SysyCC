@@ -1,9 +1,24 @@
 #include "backend/asm_gen/aarch64/support/aarch64_call_abi_support.hpp"
 
+#include <vector>
+
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 
 namespace sysycc {
+
+namespace {
+
+struct PreparedCallArgument {
+    CoreIrValue *value = nullptr;
+    const AArch64AbiAssignment *assignment = nullptr;
+    std::size_t argument_index = 0;
+    bool is_aggregate = false;
+    AArch64VirtualReg value_reg{};
+    AArch64VirtualReg address_reg{};
+};
+
+} // namespace
 
 bool emit_call_with_abi(AArch64MachineBlock &machine_block, const CoreIrCallInst &call,
                         const AArch64FunctionAbiInfo &abi_info,
@@ -29,40 +44,62 @@ bool emit_call_with_abi(AArch64MachineBlock &machine_block, const CoreIrCallInst
             AArch64VirtualRegKind::General64, result_address);
     }
 
+    std::vector<PreparedCallArgument> prepared_arguments;
+    prepared_arguments.reserve(arguments.size() - call.get_argument_begin_index());
     for (std::size_t index = call.get_argument_begin_index();
          index < arguments.size(); ++index) {
         CoreIrValue *argument = arguments[index];
         const std::size_t argument_index = index - call.get_argument_begin_index();
         const AArch64AbiAssignment &assignment = abi_info.parameters[argument_index];
+        PreparedCallArgument prepared_argument{
+            .value = argument,
+            .assignment = &assignment,
+            .argument_index = argument_index,
+            .is_aggregate = is_aggregate_type(argument->get_type()),
+        };
 
-        if (is_aggregate_type(argument->get_type())) {
-            AArch64VirtualReg argument_address;
+        if (prepared_argument.is_aggregate) {
             if (!context.ensure_value_in_memory_address(machine_block, argument,
-                                                        argument_address) ||
-                !copy_aggregate_from_memory_to_assignment(
-                    machine_block, assignment, argument->get_type(), argument_address,
-                    machine_function, context, indirect_copy_offsets,
+                                                        prepared_argument.address_reg)) {
+                context.report_error(
+                    "failed to materialize aggregate call argument #" +
+                    std::to_string(argument_index) + " for AArch64 call");
+                return false;
+            }
+        } else if (!context.ensure_value_in_vreg(machine_block, argument,
+                                                 prepared_argument.value_reg)) {
+            return false;
+        }
+
+        prepared_arguments.push_back(prepared_argument);
+    }
+
+    for (const PreparedCallArgument &prepared_argument : prepared_arguments) {
+        const AArch64AbiAssignment &assignment = *prepared_argument.assignment;
+        if (prepared_argument.is_aggregate) {
+            if (!copy_aggregate_from_memory_to_assignment(
+                    machine_block, assignment, prepared_argument.value->get_type(),
+                    prepared_argument.address_reg, machine_function, context,
+                    indirect_copy_offsets,
                     stack_base_address.has_value() ? &*stack_base_address : nullptr,
-                    argument_index)) {
+                    prepared_argument.argument_index)) {
                 return false;
             }
             continue;
-        }
-
-        AArch64VirtualReg arg_value;
-        if (!context.ensure_value_in_vreg(machine_block, argument, arg_value)) {
-            return false;
         }
         const AArch64AbiLocation &location = assignment.locations.front();
         if (location.kind == AArch64AbiLocationKind::GeneralRegister ||
             location.kind == AArch64AbiLocationKind::FloatingRegister) {
             context.append_copy_to_physical_reg(machine_block, location.physical_reg,
-                                                location.reg_kind, arg_value);
+                                                location.reg_kind,
+                                                prepared_argument.value_reg);
             continue;
         }
         if (!stack_base_address.has_value() ||
-            !context.append_store_to_address(machine_block, argument->get_type(),
-                                             arg_value, *stack_base_address,
+            !context.append_store_to_address(machine_block,
+                                             prepared_argument.value->get_type(),
+                                             prepared_argument.value_reg,
+                                             *stack_base_address,
                                              location.stack_offset,
                                              machine_function)) {
             context.report_error(

@@ -891,6 +891,33 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         return encoded;
     }
 
+    if (opcode == AArch64MachineOpcode::FloatMulAdd) {
+        if (operands.size() != 4) {
+            return unsupported("floating ternary operand shape");
+        }
+        const auto rd = resolve_float_reg_operand(
+            operands[0], function, diagnostic_engine, mnemonic + " dst");
+        const auto rn = resolve_float_reg_operand(
+            operands[1], function, diagnostic_engine, mnemonic + " lhs");
+        const auto rm = resolve_float_reg_operand(
+            operands[2], function, diagnostic_engine, mnemonic + " mul");
+        const auto ra = resolve_float_reg_operand(
+            operands[3], function, diagnostic_engine, mnemonic + " acc");
+        const auto base =
+            (rd.has_value() && rn.has_value() && rm.has_value() && ra.has_value())
+                ? fp_ternary_base(opcode, rd->kind)
+                : std::nullopt;
+        if (!rd.has_value() || !rn.has_value() || !rm.has_value() ||
+            !ra.has_value() || rd->kind != rn->kind || rd->kind != rm->kind ||
+            rd->kind != ra->kind || !base.has_value()) {
+            return std::nullopt;
+        }
+        encoded.word = *base | ((rm->code & 0x1fU) << 16) |
+                       ((ra->code & 0x1fU) << 10) |
+                       ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+        return encoded;
+    }
+
     if (opcode == AArch64MachineOpcode::FloatCompare) {
         if (operands.size() != 2) {
             return unsupported("fcmp operand shape");

@@ -2,6 +2,7 @@
 
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_parse_common_support.hpp"
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_type_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_float_literal_support.hpp"
 
 #include <cctype>
 #include <cstdlib>
@@ -32,51 +33,15 @@ std::string format_float_literal(long double value) {
     return stream.str();
 }
 
-std::optional<std::string> canonicalize_float128_hex_literal_text(
-    const std::string &trimmed) {
-    if (!llvm_import_starts_with(trimmed, "0xL") &&
-        !llvm_import_starts_with(trimmed, "0XL")) {
-        return std::nullopt;
-    }
-    const std::string payload = trimmed.substr(3);
-    if (payload.size() != 32) {
-        return std::nullopt;
-    }
-
-    try {
-        const std::uint64_t low =
-            static_cast<std::uint64_t>(std::stoull(payload.substr(0, 16), nullptr, 16));
-        const std::uint64_t high =
-            static_cast<std::uint64_t>(std::stoull(payload.substr(16, 16), nullptr, 16));
-        const bool negative = (high >> 63U) != 0;
-        const std::uint16_t exponent =
-            static_cast<std::uint16_t>((high >> 48U) & 0x7fffU);
-        const std::uint64_t fraction_high = high & 0x0000FFFFFFFFFFFFULL;
-        if (low == 0 && fraction_high == 0) {
-            if (exponent == 0) {
-                return negative ? std::optional<std::string>("-0.0")
-                                : std::optional<std::string>("0.0");
-            }
-            if (exponent == 0x7fffU) {
-                return negative ? std::optional<std::string>("-inf")
-                                : std::optional<std::string>("inf");
-            }
-            const int unbiased_exponent = static_cast<int>(exponent) - 16383;
-            return format_float_literal(
-                negative ? -std::ldexp(1.0L, unbiased_exponent)
-                         : std::ldexp(1.0L, unbiased_exponent));
-        }
-    } catch (...) {
-        return std::nullopt;
-    }
-    return std::nullopt;
-}
-
 std::optional<std::string> canonicalize_float_literal_text(
     const AArch64LlvmImportType &type, const std::string &literal_text) {
     const std::string trimmed = llvm_import_trim_copy(literal_text);
     if (trimmed.empty()) {
         return std::nullopt;
+    }
+
+    if (type.kind == AArch64LlvmImportTypeKind::Float128) {
+        return canonicalize_fp128_literal_text(trimmed);
     }
 
     if (llvm_import_starts_with(trimmed, "0x") ||
@@ -85,12 +50,6 @@ std::optional<std::string> canonicalize_float_literal_text(
         llvm_import_starts_with(trimmed, "0X") ||
         llvm_import_starts_with(trimmed, "-0X") ||
         llvm_import_starts_with(trimmed, "+0X")) {
-        if (type.kind == AArch64LlvmImportTypeKind::Float128) {
-            if (const auto normalized = canonicalize_float128_hex_literal_text(trimmed);
-                normalized.has_value()) {
-                return normalized;
-            }
-        }
         if (trimmed.find('p') != std::string::npos ||
             trimmed.find('P') != std::string::npos) {
             char *end = nullptr;
@@ -119,7 +78,17 @@ std::optional<std::string> canonicalize_float_literal_text(
             if (consumed != hex_bits_text.size()) {
                 return std::nullopt;
             }
+            auto decode_float64_bits = [](std::uint64_t raw_bits) {
+                double value = 0.0;
+                std::memcpy(&value, &raw_bits, sizeof(value));
+                return static_cast<long double>(value);
+            };
             if (type.kind == AArch64LlvmImportTypeKind::Float16) {
+                const std::size_t hex_digit_count =
+                    hex_bits_text.size() >= 2 ? (hex_bits_text.size() - 2) : 0;
+                if (hex_digit_count > 4U) {
+                    return format_float_literal(decode_float64_bits(bits));
+                }
                 const std::uint16_t half_bits =
                     static_cast<std::uint16_t>(bits & 0xffffU);
                 const int sign = (half_bits & 0x8000U) != 0 ? -1 : 1;
@@ -143,6 +112,13 @@ std::optional<std::string> canonicalize_float_literal_text(
                 return format_float_literal(sign < 0 ? -value : value);
             }
             if (type.kind == AArch64LlvmImportTypeKind::Float32) {
+                const std::size_t hex_digit_count =
+                    hex_bits_text.size() >= 2 ? (hex_bits_text.size() - 2) : 0;
+                if (hex_digit_count > 8U) {
+                    return format_float_literal(
+                        static_cast<long double>(
+                            static_cast<float>(decode_float64_bits(bits))));
+                }
                 const std::uint32_t float_bits =
                     static_cast<std::uint32_t>(bits & 0xffffffffU);
                 float value = 0.0F;
@@ -273,6 +249,31 @@ std::optional<std::size_t> find_top_level_separator(const std::string &text,
         }
     }
     return std::nullopt;
+}
+
+bool is_constant_trailing_suffix(std::string_view text) {
+    return llvm_import_starts_with(text, "align ") ||
+           llvm_import_starts_with(text, "section ") ||
+           llvm_import_starts_with(text, "comdat") ||
+           llvm_import_starts_with(text, "partition ") ||
+           llvm_import_starts_with(text, "!dbg ");
+}
+
+std::string strip_trailing_constant_suffixes(const std::string &text) {
+    const std::vector<std::string> parts =
+        llvm_import_split_top_level(text, ',');
+    if (parts.empty()) {
+        return llvm_import_trim_copy(text);
+    }
+
+    std::string result = parts.front();
+    for (std::size_t index = 1; index < parts.size(); ++index) {
+        if (is_constant_trailing_suffix(parts[index])) {
+            break;
+        }
+        result += ", " + parts[index];
+    }
+    return llvm_import_strip_trailing_alignment_suffix(result);
 }
 
 bool import_types_equal(const AArch64LlvmImportType &lhs,
@@ -924,7 +925,8 @@ std::optional<AArch64LlvmImportConstant> parse_fptrunc_constant(
 
 std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     const AArch64LlvmImportType &type, const std::string &text) {
-    const std::string trimmed = llvm_import_trim_copy(text);
+    const std::string trimmed =
+        strip_trailing_constant_suffixes(llvm_import_trim_copy(text));
     if (trimmed == "zeroinitializer") {
         AArch64LlvmImportConstant constant;
         constant.kind = AArch64LlvmImportConstantKind::ZeroInitializer;
@@ -975,20 +977,29 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         if (llvm_import_starts_with(trimmed, "ptrtoint ")) {
             return parse_ptrtoint_constant(type, trimmed);
         }
-        if (type.integer_bit_width == 128) {
+        if (type.integer_bit_width > 64 && type.integer_bit_width <= 128) {
             const auto words = parse_integer_literal_words_128(trimmed);
             if (!words.has_value()) {
                 return std::nullopt;
+            }
+            unsigned __int128 combined =
+                (static_cast<unsigned __int128>(words->second) << 64U) |
+                static_cast<unsigned __int128>(words->first);
+            if (type.integer_bit_width < 128) {
+                const unsigned __int128 mask =
+                    (static_cast<unsigned __int128>(1) << type.integer_bit_width) -
+                    1;
+                combined &= mask;
             }
             AArch64LlvmImportConstant constant;
             constant.kind = AArch64LlvmImportConstantKind::Aggregate;
             AArch64LlvmImportConstant low;
             low.kind = AArch64LlvmImportConstantKind::Integer;
-            low.integer_value = words->first;
+            low.integer_value = static_cast<std::uint64_t>(combined);
             constant.elements.push_back(low);
             AArch64LlvmImportConstant high;
             high.kind = AArch64LlvmImportConstantKind::Integer;
-            high.integer_value = words->second;
+            high.integer_value = static_cast<std::uint64_t>(combined >> 64U);
             constant.elements.push_back(high);
             return constant;
         }
@@ -1174,11 +1185,20 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
         return constant;
     }
     case AArch64LlvmImportTypeKind::Struct: {
-        if (trimmed.size() < 2 || trimmed.front() != '{' || trimmed.back() != '}') {
+        const bool brace_bracketed =
+            trimmed.size() >= 2 && trimmed.front() == '{' && trimmed.back() == '}';
+        const bool packed_bracketed =
+            trimmed.size() >= 4 && trimmed.front() == '<' && trimmed[1] == '{' &&
+            trimmed[trimmed.size() - 2] == '}' && trimmed.back() == '>';
+        if (!brace_bracketed && !packed_bracketed) {
             return std::nullopt;
         }
+        const std::string inner =
+            brace_bracketed
+                ? llvm_import_trim_copy(trimmed.substr(1, trimmed.size() - 2))
+                : llvm_import_trim_copy(trimmed.substr(2, trimmed.size() - 4));
         const std::vector<std::string> entries = llvm_import_split_top_level(
-            llvm_import_trim_copy(trimmed.substr(1, trimmed.size() - 2)), ',');
+            inner, ',');
         if (entries.size() != type.element_types.size()) {
             return std::nullopt;
         }

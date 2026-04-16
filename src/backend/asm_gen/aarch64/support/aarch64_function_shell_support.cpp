@@ -1,4 +1,5 @@
 #include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -38,6 +39,43 @@ bool same_machine_symbol_reference(const AArch64MachineSymbolReference &actual,
 AArch64MachineInstr cfi_instruction(
     std::string mnemonic, std::vector<AArch64MachineOperand> operands = {}) {
     return AArch64MachineInstr(std::move(mnemonic), std::move(operands));
+}
+
+void append_stack_pointer_adjust_shell_ops(
+    std::vector<AArch64StandardFrameShellOp> &shell, bool is_sub,
+    std::size_t amount, AArch64StandardFrameShellOpKind final_kind,
+    AArch64StandardFrameShellOpKind chunk_kind) {
+    constexpr std::size_t kImm12Max = 4095;
+    constexpr std::size_t kShiftedUnit = 4096;
+    constexpr std::size_t kShiftedMax = kImm12Max * kShiftedUnit;
+    while (amount != 0) {
+        std::size_t chunk = 0;
+        bool use_shift = false;
+        if (amount >= kShiftedUnit) {
+            const std::size_t shifted_chunk =
+                std::min(amount & ~(kShiftedUnit - 1), kShiftedMax);
+            if (shifted_chunk >= kShiftedUnit) {
+                chunk = shifted_chunk;
+                use_shift = true;
+            }
+        }
+        if (chunk == 0) {
+            chunk = std::min(amount, kImm12Max);
+        }
+        amount -= chunk;
+
+        std::vector<AArch64MachineOperand> operands{
+            AArch64MachineOperand::stack_pointer(true),
+            AArch64MachineOperand::stack_pointer(true),
+            AArch64MachineOperand::immediate(
+                "#" + std::to_string(use_shift ? (chunk >> 12) : chunk))};
+        if (use_shift) {
+            operands.push_back(shift_operand("lsl", 12));
+        }
+        shell.push_back(AArch64StandardFrameShellOp{
+            amount == 0 ? final_kind : chunk_kind,
+            AArch64MachineInstr(is_sub ? "sub" : "add", std::move(operands))});
+    }
 }
 
 bool has_exact_instruction_shape(const AArch64MachineInstr &instruction,
@@ -186,10 +224,18 @@ bool is_stack_pointer_operand(const AArch64MachineOperand &operand) {
 bool is_frame_adjust_instruction(const AArch64MachineInstr &instruction,
                                  const char *mnemonic) {
     if (instruction.get_mnemonic() != mnemonic ||
-        instruction.get_operands().size() != 3) {
+        (instruction.get_operands().size() != 3 &&
+         instruction.get_operands().size() != 4)) {
         return false;
     }
     const auto *immediate = instruction.get_operands()[2].get_immediate_operand();
+    if (instruction.get_operands().size() == 4) {
+        const auto *shift = instruction.get_operands()[3].get_shift_operand();
+        if (shift == nullptr || shift->kind != AArch64ShiftKind::Lsl ||
+            shift->amount != 12) {
+            return false;
+        }
+    }
     return is_stack_pointer_operand(instruction.get_operands()[0]) &&
            is_stack_pointer_operand(instruction.get_operands()[1]) &&
            immediate != nullptr && !immediate->asm_text.empty() &&
@@ -286,14 +332,10 @@ build_aarch64_standard_prologue_shell(std::size_t frame_size) {
                  AArch64VirtualRegKind::General64),
              AArch64MachineOperand::stack_pointer(true)})});
     if (frame_size > 0) {
-        shell.push_back(AArch64StandardFrameShellOp{
+        append_stack_pointer_adjust_shell_ops(
+            shell, true, frame_size,
             AArch64StandardFrameShellOpKind::AllocateLocalFrame,
-            AArch64MachineInstr(
-                "sub",
-                {AArch64MachineOperand::stack_pointer(true),
-                 AArch64MachineOperand::stack_pointer(true),
-                 AArch64MachineOperand::immediate("#" +
-                                                  std::to_string(frame_size))})});
+            AArch64StandardFrameShellOpKind::AllocateLocalFrameChunk);
     }
     return shell;
 }
@@ -302,14 +344,10 @@ std::vector<AArch64StandardFrameShellOp>
 build_aarch64_standard_epilogue_shell(std::size_t frame_size) {
     std::vector<AArch64StandardFrameShellOp> shell;
     if (frame_size > 0) {
-        shell.push_back(AArch64StandardFrameShellOp{
+        append_stack_pointer_adjust_shell_ops(
+            shell, false, frame_size,
             AArch64StandardFrameShellOpKind::DeallocateLocalFrame,
-            AArch64MachineInstr(
-                "add",
-                {AArch64MachineOperand::stack_pointer(true),
-                 AArch64MachineOperand::stack_pointer(true),
-                 AArch64MachineOperand::immediate("#" +
-                                                  std::to_string(frame_size))})});
+            AArch64StandardFrameShellOpKind::DeallocateLocalFrameChunk);
     }
     shell.push_back(AArch64StandardFrameShellOp{
         AArch64StandardFrameShellOpKind::RestoreFrameRecord,
@@ -367,6 +405,9 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
         bundle.asm_instructions.push_back(
             cfi_instruction(".cfi_def_cfa_register",
                             {AArch64MachineOperand::immediate("29")}));
+        break;
+    case AArch64StandardFrameShellOpKind::AllocateLocalFrameChunk:
+    case AArch64StandardFrameShellOpKind::DeallocateLocalFrameChunk:
         break;
     case AArch64StandardFrameShellOpKind::AllocateLocalFrame:
         bundle.frame_record_directives.push_back(
@@ -451,8 +492,8 @@ std::size_t count_aarch64_standard_prologue_prefix(
         }
     }
     std::size_t matched = shell_without_allocation.size();
-    if (instructions.size() > matched &&
-        is_frame_adjust_instruction(instructions[matched], "sub")) {
+    while (instructions.size() > matched &&
+           is_frame_adjust_instruction(instructions[matched], "sub")) {
         ++matched;
     }
     return matched;

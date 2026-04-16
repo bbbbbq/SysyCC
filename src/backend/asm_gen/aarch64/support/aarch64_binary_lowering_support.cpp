@@ -160,15 +160,96 @@ bool emit_non_float128_binary(AArch64MachineBlock &machine_block,
     case CoreIrBinaryOpcode::AShr:
         opcode = "asr";
         break;
-    case CoreIrBinaryOpcode::SRem:
-    case CoreIrBinaryOpcode::URem:
-        return emit_integer_remainder(machine_block, binary.get_binary_opcode(),
-                                      binary, lhs_reg, rhs_reg, dst_reg, function);
+    }
+
+    const auto *integer_type = as_integer_type(binary.get_type());
+    const bool is_narrow_integer =
+        integer_type != nullptr && integer_type->get_bit_width() < 32;
+    const bool is_non_native_integer =
+        integer_type != nullptr && integer_type->get_bit_width() < 64 &&
+        integer_type->get_bit_width() != 32;
+    AArch64VirtualReg lhs_operand_reg = lhs_reg;
+    AArch64VirtualReg rhs_operand_reg = rhs_reg;
+    if (is_narrow_integer &&
+        (binary.get_binary_opcode() == CoreIrBinaryOpcode::SDiv ||
+         binary.get_binary_opcode() == CoreIrBinaryOpcode::UDiv ||
+         binary.get_binary_opcode() == CoreIrBinaryOpcode::SRem ||
+         binary.get_binary_opcode() == CoreIrBinaryOpcode::URem)) {
+        lhs_operand_reg =
+            function.create_virtual_reg(AArch64VirtualRegKind::General32);
+        rhs_operand_reg =
+            function.create_virtual_reg(AArch64VirtualRegKind::General32);
+        machine_block.append_instruction(
+            AArch64MachineInstr("mov", {def_vreg_operand(lhs_operand_reg),
+                                        use_vreg_operand(lhs_reg)}));
+        machine_block.append_instruction(
+            AArch64MachineInstr("mov", {def_vreg_operand(rhs_operand_reg),
+                                        use_vreg_operand(rhs_reg)}));
+        const bool is_signed_op =
+            binary.get_binary_opcode() == CoreIrBinaryOpcode::SDiv ||
+            binary.get_binary_opcode() == CoreIrBinaryOpcode::SRem;
+        if (is_signed_op) {
+            apply_sign_extend_to_virtual_reg(machine_block, lhs_operand_reg,
+                                             binary.get_type(), binary.get_type());
+            apply_sign_extend_to_virtual_reg(machine_block, rhs_operand_reg,
+                                             binary.get_type(), binary.get_type());
+        } else {
+            apply_zero_extend_to_virtual_reg(machine_block, lhs_operand_reg,
+                                             binary.get_type(), binary.get_type());
+            apply_zero_extend_to_virtual_reg(machine_block, rhs_operand_reg,
+                                             binary.get_type(), binary.get_type());
+        }
+    }
+    if (binary.get_binary_opcode() == CoreIrBinaryOpcode::SRem ||
+        binary.get_binary_opcode() == CoreIrBinaryOpcode::URem) {
+        const bool ok = emit_integer_remainder(machine_block,
+                                               binary.get_binary_opcode(), binary,
+                                               lhs_operand_reg, rhs_operand_reg,
+                                               dst_reg, function);
+        if (ok && is_narrow_integer) {
+            apply_truncate_to_virtual_reg(machine_block, dst_reg, binary.get_type());
+        }
+        return ok;
+    }
+    if (is_non_native_integer &&
+        (binary.get_binary_opcode() == CoreIrBinaryOpcode::Shl ||
+         binary.get_binary_opcode() == CoreIrBinaryOpcode::LShr ||
+         binary.get_binary_opcode() == CoreIrBinaryOpcode::AShr)) {
+        machine_block.append_instruction(
+            AArch64MachineInstr("mov", {def_vreg_operand(dst_reg),
+                                        use_vreg_operand(lhs_reg)}));
+        switch (binary.get_binary_opcode()) {
+        case CoreIrBinaryOpcode::Shl:
+            apply_truncate_to_virtual_reg(machine_block, dst_reg, binary.get_type());
+            break;
+        case CoreIrBinaryOpcode::LShr:
+            apply_zero_extend_to_virtual_reg(machine_block, dst_reg,
+                                             binary.get_type(), binary.get_type());
+            break;
+        case CoreIrBinaryOpcode::AShr:
+            apply_sign_extend_to_virtual_reg(machine_block, dst_reg,
+                                             binary.get_type(), binary.get_type());
+            break;
+        default:
+            break;
+        }
+        machine_block.append_instruction(AArch64MachineInstr(
+            opcode, {def_vreg_operand(dst_reg), use_vreg_operand(dst_reg),
+                     use_vreg_operand(rhs_reg)}));
+        if (binary.get_binary_opcode() != CoreIrBinaryOpcode::AShr) {
+            apply_truncate_to_virtual_reg(machine_block, dst_reg, binary.get_type());
+        }
+        return true;
     }
 
     machine_block.append_instruction(AArch64MachineInstr(
-        opcode, {def_vreg_operand(dst_reg), use_vreg_operand(lhs_reg),
-                 use_vreg_operand(rhs_reg)}));
+        opcode, {def_vreg_operand(dst_reg), use_vreg_operand(lhs_operand_reg),
+                 use_vreg_operand(rhs_operand_reg)}));
+    if (is_narrow_integer &&
+        (binary.get_binary_opcode() == CoreIrBinaryOpcode::SDiv ||
+         binary.get_binary_opcode() == CoreIrBinaryOpcode::UDiv)) {
+        apply_truncate_to_virtual_reg(machine_block, dst_reg, binary.get_type());
+    }
     return true;
 }
 

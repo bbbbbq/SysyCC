@@ -6,6 +6,7 @@
 #include <limits>
 #include <sstream>
 
+#include "backend/asm_gen/aarch64/support/aarch64_float_literal_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -35,6 +36,23 @@ std::optional<std::uint64_t> parse_raw_hex_float_bits(const std::string &literal
     }
 }
 
+std::optional<std::uint64_t>
+parse_scalar_float_bits_with_apfloat(const std::string &literal_text,
+                                     CoreIrFloatKind kind) {
+    llvm::APFloat value(kind == CoreIrFloatKind::Float16
+                            ? llvm::APFloat::IEEEhalf()
+                            : (kind == CoreIrFloatKind::Float32
+                                   ? llvm::APFloat::IEEEsingle()
+                                   : llvm::APFloat::IEEEdouble()));
+    auto status = value.convertFromString(
+        llvm::StringRef(literal_text), llvm::APFloat::rmNearestTiesToEven);
+    if (!status) {
+        llvm::consumeError(status.takeError());
+        return std::nullopt;
+    }
+    return value.bitcastToAPInt().getZExtValue();
+}
+
 bool is_named_nonfinite_literal(std::string_view value_text) {
     std::string normalized(value_text);
     for (char &ch : normalized) {
@@ -50,18 +68,10 @@ bool is_named_nonfinite_literal(std::string_view value_text) {
 }
 
 std::string strip_floating_literal_suffix(std::string value_text) {
-    if (is_named_nonfinite_literal(value_text)) {
-        return value_text;
-    }
-    while (!value_text.empty()) {
-        const char last = value_text.back();
-        if (last == 'f' || last == 'F' || last == 'l' || last == 'L') {
-            value_text.pop_back();
-            continue;
-        }
-        break;
-    }
-    return value_text;
+    return is_named_nonfinite_literal(value_text)
+               ? value_text
+               : strip_floating_literal_suffix_preserving_hex(
+                     std::move(value_text));
 }
 
 std::string format_bits_literal(std::uint64_t bits, unsigned hex_digits) {
@@ -131,49 +141,19 @@ bool floating_literal_is_zero(const std::string &literal_text) {
 }
 
 bool float128_literal_is_supported_by_helper_path(const std::string &literal_text) {
-    if (literal_text.find("0x") != std::string::npos ||
-        literal_text.find("0X") != std::string::npos ||
-        literal_text.find('e') != std::string::npos ||
-        literal_text.find('E') != std::string::npos ||
-        literal_text.find('p') != std::string::npos ||
-        literal_text.find('P') != std::string::npos) {
+    if (aarch64_literal_has_raw_hex_bit_pattern(literal_text)) {
         return false;
     }
-
-    std::string normalized = literal_text;
-    if (!normalized.empty() &&
-        (normalized.front() == '+' || normalized.front() == '-')) {
-        normalized.erase(normalized.begin());
-    }
-    if (normalized.empty()) {
-        return false;
-    }
-
-    const std::size_t dot = normalized.find('.');
-    std::string integral_text = normalized;
-    if (dot != std::string::npos) {
-        integral_text = normalized.substr(0, dot);
-        const std::string fractional_text = normalized.substr(dot + 1);
-        if (fractional_text.empty()) {
-            return false;
-        }
-        if (fractional_text.find_first_not_of('0') != std::string::npos) {
-            return false;
-        }
-    }
-    if (integral_text.empty()) {
-        integral_text = "0";
-    }
-    if (integral_text.find_first_not_of("0123456789") != std::string::npos) {
-        return false;
-    }
-
     char *value_end = nullptr;
-    const long double value = std::strtold(integral_text.c_str(), &value_end);
+    const long double value = std::strtold(literal_text.c_str(), &value_end);
     if (value_end == nullptr || *value_end != '\0' || !std::isfinite(value)) {
         return false;
     }
-    return std::fabs(value) <= 9007199254740992.0L;
+    const double narrowed = static_cast<double>(value);
+    if (!std::isfinite(narrowed)) {
+        return false;
+    }
+    return static_cast<long double>(narrowed) == value;
 }
 
 bool materialize_integer_constant(AArch64MachineBlock &machine_block,
@@ -227,9 +207,17 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
         switch (float_type->get_float_kind()) {
         case CoreIrFloatKind::Float16: {
             static CoreIrIntegerType i32_type(32);
-            const float parsed = std::stof(literal_text);
-            std::uint32_t bits = 0;
-            std::memcpy(&bits, &parsed, sizeof(bits));
+            const auto bits_or =
+                parse_scalar_float_bits_with_apfloat(literal_text,
+                                                     CoreIrFloatKind::Float32);
+            if (!bits_or.has_value()) {
+                context.report_error(
+                    "failed to parse floating literal for the AArch64 native "
+                    "backend: " +
+                    literal_text);
+                return false;
+            }
+            std::uint32_t bits = static_cast<std::uint32_t>(*bits_or);
             const AArch64VirtualReg temp_bits =
                 function.create_virtual_reg(AArch64VirtualRegKind::General32);
             const AArch64VirtualReg temp_float =
@@ -252,8 +240,17 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
                 raw_bits.has_value()) {
                 bits = static_cast<std::uint32_t>(*raw_bits);
             } else {
-                const float parsed = std::stof(literal_text);
-                std::memcpy(&bits, &parsed, sizeof(bits));
+                const auto bits_or =
+                    parse_scalar_float_bits_with_apfloat(literal_text,
+                                                         CoreIrFloatKind::Float32);
+                if (!bits_or.has_value()) {
+                    context.report_error(
+                        "failed to parse floating literal for the AArch64 native "
+                        "backend: " +
+                        literal_text);
+                    return false;
+                }
+                bits = static_cast<std::uint32_t>(*bits_or);
             }
             const AArch64VirtualReg temp =
                 function.create_virtual_reg(AArch64VirtualRegKind::General32);
@@ -272,8 +269,17 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
                 raw_bits.has_value()) {
                 bits = *raw_bits;
             } else {
-                const double parsed = std::stod(literal_text);
-                std::memcpy(&bits, &parsed, sizeof(bits));
+                const auto bits_or =
+                    parse_scalar_float_bits_with_apfloat(literal_text,
+                                                         CoreIrFloatKind::Float64);
+                if (!bits_or.has_value()) {
+                    context.report_error(
+                        "failed to parse floating literal for the AArch64 native "
+                        "backend: " +
+                        literal_text);
+                    return false;
+                }
+                bits = *bits_or;
             }
             const AArch64VirtualReg temp =
                 function.create_virtual_reg(AArch64VirtualRegKind::General64);
@@ -286,34 +292,43 @@ bool materialize_float_constant(AArch64MachineBlock &machine_block,
             return true;
         }
         case CoreIrFloatKind::Float128: {
-            if (!float128_literal_is_supported_by_helper_path(literal_text)) {
+            const auto words = encode_fp128_literal_words(literal_text);
+            if (!words.has_value()) {
                 context.report_error(
-                    "float128 literal is not exactly representable by the current "
-                    "AArch64 helper-based materialization path");
+                    "failed to encode float128 literal for AArch64 exact "
+                    "materialization");
                 return false;
             }
             static CoreIrIntegerType i64_type(64);
-            const double parsed = std::stod(literal_text);
-            std::uint64_t bits = 0;
-            std::memcpy(&bits, &parsed, sizeof(bits));
-            const AArch64VirtualReg temp_double =
-                function.create_virtual_reg(AArch64VirtualRegKind::Float64);
-            const AArch64VirtualReg temp_bits =
+            const AArch64VirtualReg low_bits =
                 function.create_virtual_reg(AArch64VirtualRegKind::General64);
-            if (!materialize_integer_constant(machine_block, context, &i64_type, bits,
-                                             temp_bits)) {
+            const AArch64VirtualReg high_bits =
+                function.create_virtual_reg(AArch64VirtualRegKind::General64);
+            if (!materialize_integer_constant(machine_block, context, &i64_type,
+                                             words->first, low_bits) ||
+                !materialize_integer_constant(machine_block, context, &i64_type,
+                                             words->second, high_bits)) {
                 return false;
             }
             machine_block.append_instruction(AArch64MachineInstr(
-                "fmov", {def_vreg_operand(temp_double), use_vreg_operand(temp_bits)}));
-            context.append_copy_to_physical_reg(
-                machine_block, static_cast<unsigned>(AArch64PhysicalReg::V0),
-                AArch64VirtualRegKind::Float64, temp_double);
-            context.append_helper_call(machine_block, "__extenddftf2");
-            context.append_copy_from_physical_reg(
-                machine_block, target_reg,
-                static_cast<unsigned>(AArch64PhysicalReg::V0),
-                AArch64VirtualRegKind::Float128);
+                "sub",
+                {AArch64MachineOperand::stack_pointer(true),
+                 AArch64MachineOperand::stack_pointer(true),
+                 AArch64MachineOperand::immediate("#16")}));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "str", {use_vreg_operand(low_bits),
+                        AArch64MachineOperand::memory_address_stack_pointer()}));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "str", {use_vreg_operand(high_bits),
+                        AArch64MachineOperand::memory_address_stack_pointer(8)}));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "ldr", {def_vreg_operand(target_reg),
+                        AArch64MachineOperand::memory_address_stack_pointer()}));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "add",
+                {AArch64MachineOperand::stack_pointer(true),
+                 AArch64MachineOperand::stack_pointer(true),
+                 AArch64MachineOperand::immediate("#16")}));
             return true;
         }
         }

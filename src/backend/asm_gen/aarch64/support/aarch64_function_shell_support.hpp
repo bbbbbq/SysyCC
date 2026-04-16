@@ -15,7 +15,9 @@ class CoreIrFunction;
 enum class AArch64StandardFrameShellOpKind : unsigned char {
     SaveFrameRecord,
     EstablishFramePointer,
+    AllocateLocalFrameChunk,
     AllocateLocalFrame,
+    DeallocateLocalFrameChunk,
     DeallocateLocalFrame,
     RestoreFrameRecord,
     Return,

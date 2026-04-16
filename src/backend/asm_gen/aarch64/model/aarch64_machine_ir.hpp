@@ -65,6 +65,7 @@ enum class AArch64MachineOpcode : unsigned char {
     FloatAdd,
     FloatSub,
     FloatMul,
+    FloatMulAdd,
     FloatDiv,
     FloatCompare,
     SignedIntToFloat,
@@ -517,6 +518,11 @@ class AArch64FunctionFrameInfo {
     std::set<unsigned> saved_physical_regs_;
     std::size_t local_size_ = 0;
     std::size_t frame_size_ = 0;
+    std::optional<std::size_t> variadic_gpr_save_area_offset_;
+    std::optional<std::size_t> variadic_fpr_save_area_offset_;
+    std::size_t variadic_incoming_stack_offset_ = 16;
+    unsigned variadic_named_gpr_slots_ = 0;
+    unsigned variadic_named_fpr_slots_ = 0;
 
   public:
     void set_stack_slot_offset(const CoreIrStackSlot *stack_slot,
@@ -564,6 +570,36 @@ class AArch64FunctionFrameInfo {
     std::size_t get_local_size() const noexcept { return local_size_; }
     void set_frame_size(std::size_t frame_size) noexcept { frame_size_ = frame_size; }
     std::size_t get_frame_size() const noexcept { return frame_size_; }
+    void set_variadic_gpr_save_area_offset(std::size_t offset) noexcept {
+        variadic_gpr_save_area_offset_ = offset;
+    }
+    std::optional<std::size_t> get_variadic_gpr_save_area_offset() const noexcept {
+        return variadic_gpr_save_area_offset_;
+    }
+    void set_variadic_fpr_save_area_offset(std::size_t offset) noexcept {
+        variadic_fpr_save_area_offset_ = offset;
+    }
+    std::optional<std::size_t> get_variadic_fpr_save_area_offset() const noexcept {
+        return variadic_fpr_save_area_offset_;
+    }
+    void set_variadic_incoming_stack_offset(std::size_t offset) noexcept {
+        variadic_incoming_stack_offset_ = offset;
+    }
+    std::size_t get_variadic_incoming_stack_offset() const noexcept {
+        return variadic_incoming_stack_offset_;
+    }
+    void set_variadic_named_gpr_slots(unsigned slots) noexcept {
+        variadic_named_gpr_slots_ = slots;
+    }
+    unsigned get_variadic_named_gpr_slots() const noexcept {
+        return variadic_named_gpr_slots_;
+    }
+    void set_variadic_named_fpr_slots(unsigned slots) noexcept {
+        variadic_named_fpr_slots_ = slots;
+    }
+    unsigned get_variadic_named_fpr_slots() const noexcept {
+        return variadic_named_fpr_slots_;
+    }
 };
 
 class AArch64MachineFunction {

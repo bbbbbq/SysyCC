@@ -110,6 +110,32 @@ const CoreIrValue *find_phi_incoming_value(const CoreIrPhiInst &phi,
     return nullptr;
 }
 
+bool prefer_edge_materialization_for_phi_source(const CoreIrValue *value,
+                                                const CoreIrBasicBlock *predecessor) {
+    if (dynamic_cast<const CoreIrParameter *>(value) != nullptr) {
+        return false;
+    }
+    const auto *instruction = dynamic_cast<const CoreIrInstruction *>(value);
+    if (instruction == nullptr) {
+        return true;
+    }
+    if (instruction->get_parent() == predecessor) {
+        return false;
+    }
+    if (instruction->get_has_side_effect()) {
+        return false;
+    }
+    switch (instruction->get_opcode()) {
+    case CoreIrOpcode::AddressOfStackSlot:
+    case CoreIrOpcode::AddressOfGlobal:
+    case CoreIrOpcode::AddressOfFunction:
+    case CoreIrOpcode::GetElementPtr:
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // namespace
 
 std::size_t AArch64PhiEdgeKeyHash::operator()(
@@ -190,6 +216,7 @@ bool emit_parallel_phi_copies(AArch64MachineBlock &machine_block,
         AArch64VirtualReg destination;
         std::optional<AArch64VirtualReg> source_reg;
         const CoreIrValue *source_value = nullptr;
+        bool force_edge_materialization = false;
     };
 
     std::vector<PendingPhiCopy> pending;
@@ -205,8 +232,12 @@ bool emit_parallel_phi_copies(AArch64MachineBlock &machine_block,
             return false;
         }
         pending_copy.source_value = copy.source_value;
+        pending_copy.force_edge_materialization =
+            prefer_edge_materialization_for_phi_source(copy.source_value,
+                                                       plan.edge.predecessor);
         AArch64VirtualReg source_reg;
-        if (context.try_get_value_vreg(copy.source_value, source_reg)) {
+        if (!pending_copy.force_edge_materialization &&
+            context.try_get_value_vreg(copy.source_value, source_reg)) {
             pending_copy.source_reg = source_reg;
         }
         if (pending_copy.source_reg.has_value() &&
@@ -236,8 +267,13 @@ bool emit_parallel_phi_copies(AArch64MachineBlock &machine_block,
             if (it->source_reg.has_value()) {
                 append_register_copy(machine_block, it->destination,
                                      *it->source_reg);
-            } else if (!context.materialize_value(machine_block, it->source_value,
-                                                  it->destination)) {
+            } else if (!(it->force_edge_materialization
+                             ? context.materialize_noncanonical_value(
+                                   machine_block, it->source_value,
+                                   it->destination)
+                             : context.materialize_value(
+                                   machine_block, it->source_value,
+                                   it->destination))) {
                 return false;
             }
             pending.erase(it);

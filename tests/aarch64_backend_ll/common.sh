@@ -53,6 +53,8 @@ run_aarch64_backend_ll_case() {
     clang_emit_args+=(
         --target=aarch64-unknown-linux-gnu \
         -std=gnu11 \
+        -Dalloca=__builtin_alloca \
+        -Wno-int-conversion \
         -S -emit-llvm -O0 \
         -Xclang -disable-O0-optnone \
         -fno-stack-protector \
@@ -88,11 +90,11 @@ run_aarch64_backend_ll_case() {
     run_aarch64_cc "${aarch64_cc}" -c "${sysycc_asm_file}" -o "${sysycc_obj_file}"
     assert_file_nonempty "${sysycc_obj_file}"
 
-    run_aarch64_cc "${aarch64_cc}" "${clang_obj_file}" -o "${clang_bin}"
+    run_aarch64_cc "${aarch64_cc}" "${clang_obj_file}" -lm -o "${clang_bin}"
     assert_file_nonempty "${clang_bin}"
 
     run_aarch64_cc "${aarch64_cc}" "${sysycc_obj_file}" \
-        -o "${sysycc_bin}"
+        -lm -o "${sysycc_bin}"
     assert_file_nonempty "${sysycc_bin}"
 
     if ! have_aarch64_binary_runtime; then

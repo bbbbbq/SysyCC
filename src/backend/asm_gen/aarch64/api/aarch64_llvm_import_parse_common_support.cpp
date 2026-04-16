@@ -31,8 +31,33 @@ bool llvm_import_is_identifier_char(char ch) {
 }
 
 std::string llvm_import_strip_comment(const std::string &line) {
-    const std::size_t comment_pos = line.find(';');
-    return llvm_import_trim_copy(line.substr(0, comment_pos));
+    bool in_quote = false;
+    bool quote_escape = false;
+    for (std::size_t index = 0; index < line.size(); ++index) {
+        const char ch = line[index];
+        if (in_quote) {
+            if (quote_escape) {
+                quote_escape = false;
+                continue;
+            }
+            if (ch == '\\') {
+                quote_escape = true;
+                continue;
+            }
+            if (ch == '"') {
+                in_quote = false;
+            }
+            continue;
+        }
+        if (ch == '"') {
+            in_quote = true;
+            continue;
+        }
+        if (ch == ';') {
+            return llvm_import_trim_copy(line.substr(0, index));
+        }
+    }
+    return llvm_import_trim_copy(line);
 }
 
 std::optional<std::string>
@@ -80,9 +105,29 @@ std::vector<std::string> llvm_import_split_top_level(const std::string &text,
     int brace_depth = 0;
     int paren_depth = 0;
     int angle_depth = 0;
+    bool in_quote = false;
+    bool quote_escape = false;
 
     for (std::size_t index = 0; index < text.size(); ++index) {
+        if (in_quote) {
+            if (quote_escape) {
+                quote_escape = false;
+                continue;
+            }
+            if (text[index] == '\\') {
+                quote_escape = true;
+                continue;
+            }
+            if (text[index] == '"') {
+                in_quote = false;
+            }
+            continue;
+        }
+
         switch (text[index]) {
+        case '"':
+            in_quote = true;
+            break;
         case '[':
             ++square_depth;
             break;
@@ -127,8 +172,27 @@ llvm_import_strip_trailing_alignment_suffix(const std::string &text) {
     std::size_t square_depth = 0;
     std::size_t brace_depth = 0;
     std::size_t paren_depth = 0;
+    bool in_quote = false;
+    bool quote_escape = false;
     for (std::size_t index = 0; index + 8 < text.size(); ++index) {
+        if (in_quote) {
+            if (quote_escape) {
+                quote_escape = false;
+                continue;
+            }
+            if (text[index] == '\\') {
+                quote_escape = true;
+                continue;
+            }
+            if (text[index] == '"') {
+                in_quote = false;
+            }
+            continue;
+        }
         switch (text[index]) {
+        case '"':
+            in_quote = true;
+            break;
         case '[':
             ++square_depth;
             break;
@@ -279,6 +343,8 @@ bool llvm_import_is_modifier_token(const std::string &token) {
         "noalias",           "readonly",           "readnone",
         "writeonly",         "returned",           "signext",
         "zeroext",           "inreg",              "immarg",
+        "volatile",          "atomic",
+        "writable",          "dead_on_unwind",
         "swiftself",         "swifterror",         "sret",
         "byval",             "align",              "dereferenceable",
         "dereferenceable_or_null",                 "nonnull",
@@ -286,7 +352,8 @@ bool llvm_import_is_modifier_token(const std::string &token) {
         "tail",              "musttail",           "notail",
         "fast",              "coldcc",             "fastcc",
         "ccc",               "internal",           "private",
-        "external",          "weak",               "linkonce",
+        "external",          "extern_weak",        "weak",
+        "linkonce",
         "linkonce_odr",      "available_externally", "common",
         "comdat",            "any",                "hidden",
     };
@@ -304,9 +371,43 @@ bool llvm_import_is_modifier_token(const std::string &token) {
            llvm_import_starts_with(token, "dereferenceable_or_null(");
 }
 
+std::optional<std::size_t>
+llvm_import_consume_parenthesized_modifier_prefix(const std::string &text) {
+    static const std::vector<std::string> prefixes = {
+        "addrspace(", "byval(", "sret(", "dereferenceable(",
+        "dereferenceable_or_null(", "elementtype(",
+    };
+    for (const std::string &prefix : prefixes) {
+        if (!llvm_import_starts_with(text, prefix)) {
+            continue;
+        }
+        std::size_t position = prefix.size();
+        int depth = 1;
+        while (position < text.size() && depth > 0) {
+            if (text[position] == '(') {
+                ++depth;
+            } else if (text[position] == ')') {
+                --depth;
+            }
+            ++position;
+        }
+        if (depth == 0) {
+            return position;
+        }
+    }
+    return std::nullopt;
+}
+
 std::string llvm_import_strip_leading_modifiers(const std::string &text) {
     std::string current = llvm_import_trim_copy(text);
     while (!current.empty()) {
+        if (const auto parenthesized_modifier_end =
+                llvm_import_consume_parenthesized_modifier_prefix(current);
+            parenthesized_modifier_end.has_value()) {
+            current = llvm_import_trim_copy(
+                current.substr(*parenthesized_modifier_end));
+            continue;
+        }
         std::size_t token_end = 0;
         while (token_end < current.size() &&
                std::isspace(static_cast<unsigned char>(current[token_end])) == 0) {

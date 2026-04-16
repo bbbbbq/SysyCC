@@ -32,6 +32,7 @@ struct AArch64LlvmImportType {
     std::size_t pointer_address_space = 0;
     std::size_t array_element_count = 0;
     bool array_uses_vector_syntax = false;
+    bool struct_is_packed = false;
     std::string named_type_name;
     std::vector<AArch64LlvmImportType> element_types;
 
@@ -139,6 +140,7 @@ struct AArch64LlvmImportGlobal {
     AArch64LlvmImportConstant initializer;
     bool is_internal_linkage = false;
     bool is_constant = false;
+    bool is_external_declaration = false;
     int line = 0;
 };
 
@@ -202,6 +204,7 @@ struct AArch64LlvmImportFunction {
     AArch64LlvmImportType return_type;
     std::vector<AArch64LlvmImportParameter> parameters;
     bool is_internal_linkage = false;
+    bool is_extern_weak = false;
     bool is_variadic = false;
     bool is_definition = false;
     std::vector<AArch64LlvmImportBasicBlock> basic_blocks;

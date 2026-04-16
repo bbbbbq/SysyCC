@@ -202,6 +202,15 @@ std::vector<std::size_t> collect_block_successors(
         return successors;
     }
 
+    if (last.get_opcode() == AArch64MachineOpcode::BranchRegister) {
+        for (std::size_t successor = 0; successor < blocks.size(); ++successor) {
+            if (successor != block_index) {
+                successors.push_back(successor);
+            }
+        }
+        return successors;
+    }
+
     if (block_index + 1 < blocks.size()) {
         successors.push_back(block_index + 1);
     }

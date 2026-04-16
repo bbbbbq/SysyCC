@@ -172,7 +172,7 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
     }
     case CoreIrTypeKind::Struct: {
         const auto *struct_type = static_cast<const CoreIrStructType *>(type);
-        std::string result = "{ ";
+        std::string result = struct_type->get_is_packed() ? "<{ " : "{ ";
         const auto &element_types = struct_type->get_element_types();
         for (std::size_t index = 0; index < element_types.size(); ++index) {
             if (index > 0) {
@@ -180,7 +180,7 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
             }
             result += format_type(element_types[index]);
         }
-        result += " }";
+        result += struct_type->get_is_packed() ? " }>" : " }";
         return result;
     }
     case CoreIrTypeKind::Function: {

@@ -19,10 +19,10 @@ std::string float_condition_code(CoreIrComparePredicate predicate) {
         return "ne";
     case CoreIrComparePredicate::SignedLess:
     case CoreIrComparePredicate::UnsignedLess:
-        return "lt";
+        return "mi";
     case CoreIrComparePredicate::SignedLessEqual:
     case CoreIrComparePredicate::UnsignedLessEqual:
-        return "le";
+        return "ls";
     case CoreIrComparePredicate::SignedGreater:
     case CoreIrComparePredicate::UnsignedGreater:
         return "gt";

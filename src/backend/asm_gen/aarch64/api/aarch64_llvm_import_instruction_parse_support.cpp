@@ -27,6 +27,50 @@ std::vector<std::string> split_top_level(const std::string &text,
     return llvm_import_split_top_level(text, delimiter);
 }
 
+std::size_t find_top_level_to_pos(const std::string &text,
+                                  std::size_t start_pos) {
+    int square_depth = 0;
+    int brace_depth = 0;
+    int paren_depth = 0;
+    int angle_depth = 0;
+    for (std::size_t index = start_pos; index + 3 < text.size(); ++index) {
+        switch (text[index]) {
+        case '[':
+            ++square_depth;
+            break;
+        case ']':
+            --square_depth;
+            break;
+        case '{':
+            ++brace_depth;
+            break;
+        case '}':
+            --brace_depth;
+            break;
+        case '(':
+            ++paren_depth;
+            break;
+        case ')':
+            --paren_depth;
+            break;
+        case '<':
+            ++angle_depth;
+            break;
+        case '>':
+            --angle_depth;
+            break;
+        default:
+            break;
+        }
+        if (square_depth == 0 && brace_depth == 0 && paren_depth == 0 &&
+            angle_depth == 0 && text[index] == ' ' && text[index + 1] == 't' &&
+            text[index + 2] == 'o' && text[index + 3] == ' ') {
+            return index;
+        }
+    }
+    return std::string::npos;
+}
+
 bool is_modifier_token(const std::string &token) {
     return llvm_import_is_modifier_token(token);
 }
@@ -53,6 +97,17 @@ std::string payload_after_opcode(const AArch64LlvmImportInstruction &instruction
     return trim_copy(normalized.substr(opcode_pos + instruction.opcode_text.size()));
 }
 
+bool is_raw_constant_expression_text(const std::string &text) {
+    const std::string normalized = strip_leading_modifiers(trim_copy(text));
+    return starts_with(normalized, "add ") || starts_with(normalized, "sub ") ||
+           starts_with(normalized, "mul ") || starts_with(normalized, "sdiv ") ||
+           starts_with(normalized, "udiv ") || starts_with(normalized, "srem ") ||
+           starts_with(normalized, "urem ") || starts_with(normalized, "and ") ||
+           starts_with(normalized, "or ") || starts_with(normalized, "xor ") ||
+           starts_with(normalized, "shl ") || starts_with(normalized, "lshr ") ||
+           starts_with(normalized, "ashr ");
+}
+
 std::optional<AArch64LlvmImportTypedValue>
 parse_typed_value_with_known_type(const std::string &type_text,
                                   const AArch64LlvmImportType &type,
@@ -76,6 +131,11 @@ parse_typed_value_with_known_type(const std::string &type_text,
         constant.has_value()) {
         value.kind = AArch64LlvmImportValueKind::Constant;
         value.constant = *constant;
+        return value;
+    }
+    if (is_raw_constant_expression_text(value.value_text)) {
+        value.kind = AArch64LlvmImportValueKind::ConstantExpressionRaw;
+        value.raw_constant_expression_text = value.value_text;
         return value;
     }
     return std::nullopt;
@@ -254,7 +314,8 @@ parse_llvm_import_cast_spec(const AArch64LlvmImportInstruction &instruction) {
     if (!source_type_text.has_value()) {
         return std::nullopt;
     }
-    const std::size_t to_pos = payload.find(" to ", source_type_position);
+    const std::size_t to_pos =
+        find_top_level_to_pos(payload, source_type_position);
     if (to_pos == std::string::npos) {
         return std::nullopt;
     }
@@ -287,9 +348,14 @@ parse_llvm_import_alloca_spec(const AArch64LlvmImportInstruction &instruction) {
         return std::nullopt;
     }
     const std::string payload = payload_after_opcode(instruction);
+    const std::vector<std::string> operands = split_top_level(payload, ',');
+    if (operands.empty()) {
+        return std::nullopt;
+    }
+    const std::string first_operand = trim_copy(operands.front());
     std::size_t type_position = 0;
     const std::optional<std::string> allocated_type_text =
-        consume_type_token(payload, type_position);
+        consume_type_token(first_operand, type_position);
     if (!allocated_type_text.has_value()) {
         return std::nullopt;
     }
@@ -301,15 +367,25 @@ parse_llvm_import_alloca_spec(const AArch64LlvmImportInstruction &instruction) {
         return std::nullopt;
     }
     spec.allocated_type = *allocated_type;
-    const std::string remainder = trim_copy(payload.substr(type_position));
-    const std::size_t align_pos = remainder.find("align");
-    if (align_pos != std::string::npos) {
-        try {
-            spec.alignment = static_cast<std::size_t>(
-                std::stoull(trim_copy(remainder.substr(align_pos + 5))));
-        } catch (...) {
+    for (std::size_t index = 1; index < operands.size(); ++index) {
+        const std::string operand = trim_copy(operands[index]);
+        if (operand.empty()) {
+            continue;
+        }
+        if (starts_with(operand, "align ")) {
+            try {
+                spec.alignment = static_cast<std::size_t>(
+                    std::stoull(trim_copy(operand.substr(6))));
+            } catch (...) {
+                return std::nullopt;
+            }
+            continue;
+        }
+        auto count = parse_typed_value(operand);
+        if (!count.has_value()) {
             return std::nullopt;
         }
+        spec.element_count = std::move(*count);
     }
     return spec;
 }
@@ -331,7 +407,7 @@ parse_llvm_import_load_spec(const AArch64LlvmImportInstruction &instruction) {
     }
 
     AArch64LlvmImportLoadSpec spec;
-    spec.load_type_text = trim_copy(operands[0]);
+    spec.load_type_text = strip_leading_modifiers(trim_copy(operands[0]));
     const auto load_type = parse_llvm_import_type_text(spec.load_type_text);
     if (!load_type.has_value()) {
         return std::nullopt;
@@ -357,8 +433,8 @@ parse_llvm_import_store_spec(const AArch64LlvmImportInstruction &instruction) {
         return std::nullopt;
     }
 
-    auto value = parse_typed_value(operands[0]);
-    auto address = parse_typed_value(operands[1]);
+    auto value = parse_typed_value(strip_leading_modifiers(operands[0]));
+    auto address = parse_typed_value(strip_leading_modifiers(operands[1]));
     if (!value.has_value() || !address.has_value()) {
         return std::nullopt;
     }
