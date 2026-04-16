@@ -10,6 +10,18 @@
 
 namespace {
 
+std::string backend_kind_name(sysycc::BackendKind backend_kind) {
+    switch (backend_kind) {
+    case sysycc::BackendKind::LlvmIr:
+        return "llvm-ir";
+    case sysycc::BackendKind::AArch64Native:
+        return "aarch64-native";
+    case sysycc::BackendKind::Riscv64Native:
+        return "riscv64-native";
+    }
+    return "unknown";
+}
+
 std::string language_mode_name(sysycc::LanguageMode language_mode) {
     switch (language_mode) {
     case sysycc::LanguageMode::Sysy:
@@ -75,10 +87,8 @@ void print_verbose_configuration(const ClI::Cli &cli,
                                                                   : "disabled")
               << '\n';
     std::cerr << "backend: "
-              << (option.get_backend_options().get_backend_kind() ==
-                          sysycc::BackendKind::AArch64Native
-                      ? "aarch64-native"
-                      : "llvm-ir")
+              << backend_kind_name(
+                     option.get_backend_options().get_backend_kind())
               << '\n';
     if (!option.get_backend_options().get_target_triple().empty()) {
         std::cerr << "target: "

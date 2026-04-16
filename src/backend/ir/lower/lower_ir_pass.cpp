@@ -61,6 +61,8 @@ PassResult materialize_llvm_ir_artifacts(CompilerContext &context) {
     const bool should_materialize_artifacts =
         context.get_backend_options().get_backend_kind() ==
             BackendKind::AArch64Native ||
+        context.get_backend_options().get_backend_kind() ==
+            BackendKind::Riscv64Native ||
         context.get_dump_ir() ||
         context.get_stop_after_stage() == StopAfterStage::IR;
     if (!should_materialize_artifacts) {

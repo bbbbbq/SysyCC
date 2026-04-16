@@ -105,6 +105,15 @@ set(SYSYCC_AARCH64_CODEGEN_SOURCES
     src/common/source_span.cpp
 )
 
+set(SYSYCC_RISCV64_CODEGEN_SOURCES
+    src/backend/asm_gen/riscv64/api/riscv64_codegen_api.cpp
+    src/backend/asm_gen/riscv64/riscv64_asm_gen_pass.cpp
+    src/backend/asm_gen/riscv64/support/riscv64_llvm_target_machine_bridge.cpp
+    src/common/diagnostic/diagnostic.cpp
+    src/common/diagnostic/diagnostic_engine.cpp
+    src/common/source_span.cpp
+)
+
 add_library(sysycc_aarch64_codegen SHARED
     ${SYSYCC_AARCH64_CODEGEN_SOURCES}
 )
@@ -143,6 +152,54 @@ set_target_properties(sysycc_aarch64_codegen
         OUTPUT_NAME sysycc_aarch64_codegen
 )
 
+add_library(sysycc_riscv64_codegen SHARED
+    ${SYSYCC_RISCV64_CODEGEN_SOURCES}
+)
+
+target_include_directories(sysycc_riscv64_codegen
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
+        ${LLVM_INCLUDE_DIRS}
+)
+
+llvm_map_components_to_libnames(SYSYCC_RISCV64_LLVM_LIBS
+    Analysis
+    AsmPrinter
+    BitReader
+    CodeGen
+    Core
+    IRReader
+    MC
+    Object
+    Passes
+    RISCVAsmParser
+    RISCVCodeGen
+    RISCVDesc
+    RISCVInfo
+    ScalarOpts
+    SelectionDAG
+    Support
+    Target
+    TargetParser
+    TransformUtils
+)
+target_compile_definitions(sysycc_riscv64_codegen
+    PRIVATE
+        ${LLVM_DEFINITIONS}
+)
+target_link_libraries(sysycc_riscv64_codegen
+    PRIVATE
+        ${SYSYCC_RISCV64_LLVM_LIBS}
+)
+
+set_target_properties(sysycc_riscv64_codegen
+    PROPERTIES
+        OUTPUT_NAME sysycc_riscv64_codegen
+)
+
 add_executable(sysycc-aarch64c
     src/tools/sysycc_aarch64c_main.cpp
 )
@@ -155,6 +212,20 @@ target_include_directories(sysycc-aarch64c
 target_link_libraries(sysycc-aarch64c
     PRIVATE
         sysycc_aarch64_codegen
+)
+
+add_executable(sysycc-riscv64c
+    src/tools/sysycc_riscv64c_main.cpp
+)
+
+target_include_directories(sysycc-riscv64c
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+target_link_libraries(sysycc-riscv64c
+    PRIVATE
+        sysycc_riscv64_codegen
 )
 
 add_executable(${PROJECT_NAME}
@@ -317,6 +388,7 @@ target_include_directories(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
         sysycc_aarch64_codegen
+        sysycc_riscv64_codegen
 )
 
 set_target_properties(${PROJECT_NAME}
@@ -338,11 +410,25 @@ install(TARGETS sysycc_aarch64_codegen sysycc-aarch64c
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
+install(TARGETS sysycc_riscv64_codegen sysycc-riscv64c
+    EXPORT SysyCCRiscv64CodegenTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
 install(
     FILES
         src/backend/asm_gen/aarch64/api/aarch64_codegen_api.hpp
     DESTINATION
         ${CMAKE_INSTALL_INCLUDEDIR}/backend/asm_gen/aarch64/api
+)
+
+install(
+    FILES
+        src/backend/asm_gen/riscv64/api/riscv64_codegen_api.hpp
+    DESTINATION
+        ${CMAKE_INSTALL_INCLUDEDIR}/backend/asm_gen/riscv64/api
 )
 
 install(EXPORT SysyCCAArch64CodegenTargets
@@ -351,14 +437,32 @@ install(EXPORT SysyCCAArch64CodegenTargets
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SysyCCAArch64Codegen
 )
 
+install(EXPORT SysyCCRiscv64CodegenTargets
+    FILE SysyCCRiscv64CodegenTargets.cmake
+    NAMESPACE SysyCC::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SysyCCRiscv64Codegen
+)
+
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SysyCCAArch64CodegenConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/SysyCCAArch64CodegenConfig.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SysyCCAArch64Codegen
 )
 
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SysyCCRiscv64CodegenConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/SysyCCRiscv64CodegenConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SysyCCRiscv64Codegen
+)
+
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/SysyCCAArch64CodegenConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/SysyCCRiscv64CodegenConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
@@ -369,4 +473,12 @@ install(
         ${CMAKE_CURRENT_BINARY_DIR}/SysyCCAArch64CodegenConfigVersion.cmake
     DESTINATION
         ${CMAKE_INSTALL_LIBDIR}/cmake/SysyCCAArch64Codegen
+)
+
+install(
+    FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/SysyCCRiscv64CodegenConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/SysyCCRiscv64CodegenConfigVersion.cmake
+    DESTINATION
+        ${CMAKE_INSTALL_LIBDIR}/cmake/SysyCCRiscv64Codegen
 )

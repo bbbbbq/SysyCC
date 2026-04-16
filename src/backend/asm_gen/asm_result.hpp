@@ -8,6 +8,7 @@ namespace sysycc {
 enum class AsmTargetKind : unsigned char {
     None,
     AArch64,
+    Riscv64,
 };
 
 class AsmResult {

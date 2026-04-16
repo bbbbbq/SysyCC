@@ -10,6 +10,7 @@ namespace sysycc {
 enum class ObjectTargetKind : unsigned char {
     None,
     ElfAArch64,
+    ElfRiscv64,
 };
 
 class ObjectResult {

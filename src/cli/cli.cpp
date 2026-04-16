@@ -59,7 +59,23 @@ bool parse_backend_kind(const std::string &backend_name,
         backend_kind = sysycc::BackendKind::AArch64Native;
         return true;
     }
+    if (backend_name == "riscv64-native") {
+        backend_kind = sysycc::BackendKind::Riscv64Native;
+        return true;
+    }
     return false;
+}
+
+const char *default_target_triple_for_backend(sysycc::BackendKind backend_kind) {
+    switch (backend_kind) {
+    case sysycc::BackendKind::AArch64Native:
+        return "aarch64-unknown-linux-gnu";
+    case sysycc::BackendKind::Riscv64Native:
+        return "riscv64-unknown-linux-gnu";
+    case sysycc::BackendKind::LlvmIr:
+        return "";
+    }
+    return "";
 }
 
 bool parse_language_mode(const std::string &mode_name,
@@ -262,7 +278,7 @@ bool Cli::finalize_driver_mode() {
     if ((driver_action_ == sysycc::DriverAction::EmitAssembly ||
          driver_action_ == sysycc::DriverAction::CompileOnly) &&
         target_triple_.empty()) {
-        target_triple_ = "aarch64-unknown-linux-gnu";
+        target_triple_ = default_target_triple_for_backend(backend_kind_);
     }
 
     return true;
