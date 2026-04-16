@@ -30,15 +30,77 @@ export SYSYCC_TEST_SUPERSEDE_OLD_SESSIONS="${SYSYCC_TEST_SUPERSEDE_OLD_SESSIONS:
 source "${SCRIPT_DIR}/test_helpers.sh"
 initialize_sysycc_test_session
 
+layer_one_stage_names() {
+    printf '%s\n' run cli dialects
+}
+
+discovered_stage_names() {
+    find "${SCRIPT_DIR}" -mindepth 3 -maxdepth 3 -type f -name run.sh -perm -111 -print0 |
+        while IFS= read -r -d '' run_script; do
+            basename "$(dirname "$(dirname "${run_script}")")"
+        done | sort -u
+}
+
+stage_names_csv() {
+    local mode="$1"
+    local stage_name=""
+    local first=1
+
+    case "${mode}" in
+        tier1)
+            while IFS= read -r stage_name; do
+                [[ -z "${stage_name}" ]] && continue
+                if [[ "${first}" -eq 1 ]]; then
+                    printf '%s' "${stage_name}"
+                    first=0
+                else
+                    printf ', %s' "${stage_name}"
+                fi
+            done < <(layer_one_stage_names)
+            ;;
+        tier2)
+            while IFS= read -r stage_name; do
+                [[ -z "${stage_name}" ]] && continue
+                if is_layer_one_stage "${stage_name}"; then
+                    continue
+                fi
+                if [[ "${first}" -eq 1 ]]; then
+                    printf '%s' "${stage_name}"
+                    first=0
+                else
+                    printf ', %s' "${stage_name}"
+                fi
+            done < <(discovered_stage_names)
+            ;;
+        all)
+            while IFS= read -r stage_name; do
+                [[ -z "${stage_name}" ]] && continue
+                if [[ "${first}" -eq 1 ]]; then
+                    printf '%s' "${stage_name}"
+                    first=0
+                else
+                    printf ', %s' "${stage_name}"
+                fi
+            done < <(discovered_stage_names)
+            ;;
+        *)
+            echo "error: unknown stage csv mode '${mode}'" >&2
+            exit 1
+            ;;
+    esac
+}
+
 usage() {
     cat <<'EOF'
 Usage:
   ./tests/run_all.sh [--layer tier1|tier2|all] [--stage name ...] [--list]
 
 Layers:
-  tier1 (default): run, cli, dialects
-  tier2: asm, ast, fuzz, ir, lexer, object, parser, preprocess, semantic
-  all: tier1 + tier2
+EOF
+    printf '  tier1 (default): %s\n' "$(stage_names_csv tier1)"
+    printf '  tier2: %s\n' "$(stage_names_csv tier2)"
+    printf '  all: %s\n' "$(stage_names_csv all)"
+    cat <<'EOF'
 
 Options:
   --layer value   Select a regression layer.
@@ -131,13 +193,13 @@ selected_scope_description() {
 
     case "${SELECTED_LAYER}" in
         tier1)
-            printf 'layer tier1 (run, cli, dialects)\n'
+            printf 'layer tier1 (%s)\n' "$(stage_names_csv tier1)"
             ;;
         tier2)
-            printf 'layer tier2 (asm, ast, fuzz, ir, lexer, object, parser, preprocess, semantic)\n'
+            printf 'layer tier2 (%s)\n' "$(stage_names_csv tier2)"
             ;;
         all)
-            printf 'layer all (tier1 + tier2)\n'
+            printf 'layer all (%s)\n' "$(stage_names_csv all)"
             ;;
     esac
 }
@@ -278,6 +340,10 @@ discover_tests() {
         test_dir="$(dirname "${run_script}")"
         test_name="$(basename "${test_dir}")"
         stage_name="$(basename "$(dirname "${test_dir}")")"
+        if [[ "${stage_name}" == "aarch64_backend_single_source" ]] &&
+            [[ "${test_name}" == "imported_suite" ]]; then
+            continue
+        fi
         if ! should_include_stage "${stage_name}"; then
             continue
         fi

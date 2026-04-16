@@ -6,7 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
-MANIFEST_FILE="${STAGE_ROOT}/manifest.txt"
+MANIFEST_FILE="${SYSYCC_AARCH64_SINGLE_SOURCE_MANIFEST:-${STAGE_ROOT}/manifest.txt}"
+
+# This suite already runs long-lived host clang/qemu pipelines and captures
+# per-case logs directly, so the generic heavy-tool wrapper only adds session
+# management overhead without improving the signal.
+export SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS=1
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 source "${STAGE_ROOT}/common.sh"
@@ -39,6 +44,10 @@ xfail_count=0
 fail_count=0
 xpass_count=0
 case_count=0
+manifest_case_total="$(awk -F'|' '
+    NF > 0 && $1 != "" && $1 !~ /^#/ { count++ }
+    END { print count + 0 }
+' "${MANIFEST_FILE}")"
 
 while IFS='|' read -r expectation c_std source_rel argv_text xfail_substring; do
     if [[ -z "${expectation}" || "${expectation}" == \#* ]]; then
@@ -47,9 +56,10 @@ while IFS='|' read -r expectation c_std source_rel argv_text xfail_substring; do
     case_count=$((case_count + 1))
     case_id="$(single_source_case_id "${source_rel}")"
     log_file="${BUILD_DIR}/test_logs/aarch64_backend_single_source_${case_id}.log"
+    progress_prefix="[${case_count}/${manifest_case_total}]"
 
     if [[ ! -f "${STAGE_ROOT}/upstream/${source_rel}" ]]; then
-        echo "[FAIL] ${source_rel} (missing vendored snapshot; run sync_upstream_cases.sh)"
+        echo "${progress_prefix} [FAIL] ${source_rel} (missing vendored snapshot; run sync_upstream_cases.sh)"
         fail_count=$((fail_count + 1))
         continue
     fi
@@ -58,21 +68,21 @@ while IFS='|' read -r expectation c_std source_rel argv_text xfail_substring; do
         "${sysroot}" "${aarch64_cc}" "${host_clang}" "${source_rel}" "${c_std}" \
         "${argv_text}"; then
         if [[ "${expectation}" == "XFAIL" ]]; then
-            echo "[XPASS] ${source_rel}"
+            echo "${progress_prefix} [XPASS] ${source_rel}"
             xpass_count=$((xpass_count + 1))
         else
-            echo "[PASS] ${source_rel}"
+            echo "${progress_prefix} [PASS] ${source_rel}"
             pass_count=$((pass_count + 1))
         fi
         continue
     fi
 
     if [[ "${expectation}" == "XFAIL" ]] && grep -Fq "${xfail_substring}" "${log_file}"; then
-        echo "[XFAIL] ${source_rel}"
+        echo "${progress_prefix} [XFAIL] ${source_rel}"
         xfail_count=$((xfail_count + 1))
     else
-        echo "[FAIL] ${source_rel}"
-        echo "       log: ${log_file}"
+        echo "${progress_prefix} [FAIL] ${source_rel}"
+        echo "                 log: ${log_file}"
         fail_count=$((fail_count + 1))
     fi
 done <"${MANIFEST_FILE}"

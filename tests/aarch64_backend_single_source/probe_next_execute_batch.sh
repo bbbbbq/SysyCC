@@ -9,13 +9,23 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 LIMIT="${1:-100}"
 OUTPUT_FILE="${2:-${SCRIPT_DIR}/last_execute_batch_probe.tsv}"
 
+# The execute probe is an intentionally long-running clang/sysycc/qemu sweep,
+# so the generic heavy-tool wrapper only slows it down without adding value.
+export SYSYCC_TEST_DISABLE_HOST_TOOL_WRAPPERS=1
+
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
+source "${SCRIPT_DIR}/common.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 sysroot="$(find_aarch64_sysroot)"
 aarch64_cc="$(find_aarch64_cc)"
 sysycc_bin="${BUILD_DIR}/sysycc-aarch64c"
+
+if ! have_aarch64_binary_runtime; then
+    echo "failed: missing AArch64 runtime runner for execute probe" >&2
+    exit 1
+fi
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "${tmpdir}"' EXIT
@@ -57,7 +67,8 @@ probe_case() {
     local sysycc_err="${tmpdir}/${base}.sysycc.err"
 
     if ! clang --target=aarch64-unknown-linux-gnu --sysroot="${sysroot}" \
-        -std=gnu89 -S -emit-llvm -O0 -Xclang -disable-O0-optnone \
+        -std=gnu89 -Dalloca=__builtin_alloca -Wno-int-conversion \
+        -S -emit-llvm -O0 -Xclang -disable-O0-optnone \
         -fno-stack-protector -fno-unwind-tables -fno-asynchronous-unwind-tables \
         -fno-builtin "${src}" -o "${ll_file}" >/dev/null 2>&1; then
         printf 'COMPILE_SRC_FAIL|%s\n' "${src}"
@@ -77,27 +88,25 @@ probe_case() {
         printf 'ASM_FAIL|%s\n' "${src}"
         return 0
     fi
-    if ! run_aarch64_cc "${aarch64_cc}" "${clang_obj}" -o "${clang_bin}" \
+    if ! run_aarch64_cc "${aarch64_cc}" "${clang_obj}" -lm -o "${clang_bin}" \
         >/dev/null 2>&1; then
         printf 'CLANG_LINK_FAIL|%s\n' "${src}"
         return 0
     fi
-    if ! run_aarch64_cc "${aarch64_cc}" "${sysycc_obj}" -o "${sysycc_bin_out}" \
+    if ! run_aarch64_cc "${aarch64_cc}" "${sysycc_obj}" -lm -o "${sysycc_bin_out}" \
         >/dev/null 2>&1; then
         printf 'SYSYCC_LINK_FAIL|%s\n' "${src}"
         return 0
     fi
 
+    run_single_source_runtime_case "${PROJECT_ROOT}" "${clang_bin}" "${sysroot}" \
+        /dev/null "${clang_err}" "${tmpdir}/${base}.clang.status"
+    run_single_source_runtime_case "${PROJECT_ROOT}" "${sysycc_bin_out}" "${sysroot}" \
+        /dev/null "${sysycc_err}" "${tmpdir}/${base}.sysycc.status"
     local clang_rc=0
     local sysycc_rc=0
-    set +e
-    run_aarch64_binary_with_available_runtime "${clang_bin}" "${sysroot}" \
-        >/dev/null 2>"${clang_err}"
-    clang_rc=$?
-    run_aarch64_binary_with_available_runtime "${sysycc_bin_out}" "${sysroot}" \
-        >/dev/null 2>"${sysycc_err}"
-    sysycc_rc=$?
-    set -e
+    clang_rc="$(tr -d '[:space:]' < "${tmpdir}/${base}.clang.status")"
+    sysycc_rc="$(tr -d '[:space:]' < "${tmpdir}/${base}.sysycc.status")"
 
     if [[ "${clang_rc}" -eq "${sysycc_rc}" ]] &&
         diff -u "${clang_err}" "${sysycc_err}" >/dev/null 2>&1; then

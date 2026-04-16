@@ -174,7 +174,9 @@ reap_sysycc_test_process_group() {
         return 0
     fi
 
-    kill -TERM -- "-${pgid}" 2>/dev/null || true
+    if ! kill -TERM -- "-${pgid}" 2>/dev/null; then
+        return 0
+    fi
     sleep 0.2
     kill -KILL -- "-${pgid}" 2>/dev/null || true
 }
@@ -670,6 +672,10 @@ find_aarch64_docker_runtime_image() {
         debian:bookworm-slim; do
         if docker image inspect "${candidate}" >/dev/null 2>&1; then
             printf '%s\n' "${candidate}"
+            return 0
+        fi
+        if docker image inspect "docker.io/library/${candidate}" >/dev/null 2>&1; then
+            printf '%s\n' "docker.io/library/${candidate}"
             return 0
         fi
     done

@@ -53,6 +53,18 @@ make test-tier1
 make test-tier2 TEST_ARGS="--stage ir"
 ```
 
+```bash
+make test-aarch64-single-source TEST_ARGS="--list"
+```
+
+```bash
+make test-aarch64-single-source-smoke
+```
+
+```bash
+make test-aarch64-single-source-full
+```
+
 ## Notes
 
 - `make check` requires these tools to be installed and visible in `PATH`:
@@ -63,6 +75,13 @@ make test-tier2 TEST_ARGS="--stage ir"
 - `make test-tier1` runs `./tests/run_tier1.sh`
 - `make test-tier2` runs `./tests/run_tier2.sh`
 - `make test-full` runs `./tests/run_full.sh`
+- `make test-aarch64-ll` runs `./tests/run_all.sh --stage aarch64_backend_ll`
+- `make test-aarch64-single-source` runs
+  `./tests/run_all.sh --stage aarch64_backend_single_source`
+- `make test-aarch64-single-source-smoke` runs
+  `./tests/aarch64_backend_single_source/smoke/run.sh`
+- `make test-aarch64-single-source-full` runs
+  `./tests/aarch64_backend_single_source/imported_suite/run.sh`
 - `make test` is an alias for `make test-tier1`
 - `TEST_ARGS="..."` forwards extra arguments such as `--list` or `--stage ir`
 - the static-check pipeline configures and builds the project first so

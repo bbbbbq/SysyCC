@@ -61,6 +61,29 @@ now also does three important pieces of resource coordination for local runs:
   behind one shared slot controller so several manually started single-case
   scripts do not all spawn peak-memory compile/link work at once
 
+The tree now also includes
+[tests/aarch64_backend_single_source](/Users/caojunze424/code/SysyCC/tests/aarch64_backend_single_source),
+which vendors selected `llvm-test-suite/SingleSource` C cases and drives an
+AArch64-native differential path:
+
+- host `clang` emits `.ll`
+- `sysycc-aarch64c` lowers that LLVM IR to native AArch64 assembly
+- the host AArch64 cross toolchain assembles/links both the Clang and SysyCC
+  variants
+- qemu-user or the Docker AArch64 runtime executes both binaries and compares
+  stdout, stderr, and exit status
+
+That imported suite is manifest-driven, records per-case logs under
+`build/test_logs/`, supports source-compat preparation in
+`tests/aarch64_backend_single_source/common.sh`, and currently tracks `1770`
+imported cases with a clean `PASS` manifest.
+It also ships a smaller `smoke/run.sh` fast lane backed by a curated
+24-case `smoke_manifest.txt`, so day-to-day backend work can exercise the main
+correctness surfaces without paying the cost of the full imported sweep. The
+shared `tests/run_all.sh` discovery now includes only that smoke lane for the
+`aarch64_backend_single_source` stage; the full 1770-case imported sweep is an
+explicit opt-in entry through `tests/aarch64_backend_single_source/imported_suite/run.sh`.
+
 `tests/compiler2025/` holds larger external-suite entry points that sit beside,
 rather than inside, the regular `tests/<stage>/<case>/run.sh` tree. The
 current scripts cover:
