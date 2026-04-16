@@ -1,0 +1,13 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        clang \
+        gcc-riscv64-linux-gnu \
+        libc6-dev-riscv64-cross \
+        lld \
+        qemu-user && \
+    rm -rf /var/lib/apt/lists/*

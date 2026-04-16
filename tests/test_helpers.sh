@@ -508,6 +508,12 @@ prune_stale_build_outputs() {
     local stale_generated_parser_dep="${build_dir}/CMakeFiles/SysyCC.dir/src/frontend/parser/parser_generated.cpp.o.d"
     local stale_generated_lexer_object="${build_dir}/CMakeFiles/SysyCC.dir/src/frontend/lexer/lexer_scanner.cpp.o"
     local stale_generated_lexer_dep="${build_dir}/CMakeFiles/SysyCC.dir/src/frontend/lexer/lexer_scanner.cpp.o.d"
+    local stale_riscv_codegen_api_object="${build_dir}/CMakeFiles/SysyCC.dir/src/backend/asm_gen/riscv64/api/riscv64_codegen_api.cpp.o"
+    local stale_riscv_codegen_api_dep="${build_dir}/CMakeFiles/SysyCC.dir/src/backend/asm_gen/riscv64/api/riscv64_codegen_api.cpp.o.d"
+    local stale_riscv_codegen_bridge_object="${build_dir}/CMakeFiles/SysyCC.dir/src/backend/asm_gen/riscv64/support/riscv64_llvm_target_machine_bridge.cpp.o"
+    local stale_riscv_codegen_bridge_dep="${build_dir}/CMakeFiles/SysyCC.dir/src/backend/asm_gen/riscv64/support/riscv64_llvm_target_machine_bridge.cpp.o.d"
+    local stale_riscv_codegen_pass_object="${build_dir}/CMakeFiles/SysyCC.dir/src/backend/asm_gen/riscv64/riscv64_asm_gen_pass.cpp.o"
+    local stale_riscv_codegen_pass_dep="${build_dir}/CMakeFiles/SysyCC.dir/src/backend/asm_gen/riscv64/riscv64_asm_gen_pass.cpp.o.d"
 
     # Path-only refactors can leave old object trees behind. Some IR tests link
     # every compiler object except main.cpp, so stale objects must be removed.
@@ -522,6 +528,14 @@ prune_stale_build_outputs() {
     if [[ ! -f "${project_root}/src/frontend/lexer/lexer_scanner.cpp" ]]; then
         rm -f "${stale_generated_lexer_object}" "${stale_generated_lexer_dep}"
     fi
+
+    rm -f \
+        "${stale_riscv_codegen_api_object}" \
+        "${stale_riscv_codegen_api_dep}" \
+        "${stale_riscv_codegen_bridge_object}" \
+        "${stale_riscv_codegen_bridge_dep}" \
+        "${stale_riscv_codegen_pass_object}" \
+        "${stale_riscv_codegen_pass_dep}"
 }
 
 build_project() {
