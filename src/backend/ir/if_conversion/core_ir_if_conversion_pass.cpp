@@ -71,6 +71,7 @@ bool instruction_is_ifconvertible_value(const CoreIrInstruction &instruction) {
     case CoreIrOpcode::Call:
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
     case CoreIrOpcode::Return:
         return false;
     }

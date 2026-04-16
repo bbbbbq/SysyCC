@@ -3,7 +3,7 @@ TARGET := $(DEV_BUILD_DIR)/SysyCC
 FORMAT_FILES := $(shell find src -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) 2>/dev/null)
 TEST_ARGS ?=
 
-.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja test-tier1 test-tier2 test-full test clean clean-ninja format check
+.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja test-tier1 test-tier2 test-full test-aarch64-ll test-aarch64-single-source test-aarch64-single-source-smoke test-aarch64-single-source-full test clean clean-ninja format check
 
 all: run
 
@@ -31,6 +31,18 @@ test-tier2:
 
 test-full:
 	./tests/run_full.sh $(TEST_ARGS)
+
+test-aarch64-ll:
+	./tests/run_all.sh --stage aarch64_backend_ll $(TEST_ARGS)
+
+test-aarch64-single-source:
+	./tests/run_all.sh --stage aarch64_backend_single_source $(TEST_ARGS)
+
+test-aarch64-single-source-smoke:
+	./tests/aarch64_backend_single_source/smoke/run.sh $(TEST_ARGS)
+
+test-aarch64-single-source-full:
+	./tests/aarch64_backend_single_source/imported_suite/run.sh $(TEST_ARGS)
 
 test: test-tier1
 

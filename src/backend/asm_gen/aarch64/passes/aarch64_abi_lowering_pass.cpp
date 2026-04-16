@@ -30,6 +30,11 @@ std::size_t get_stack_abi_size(const CoreIrType *type) {
     return align_to(get_type_size(type), 8);
 }
 
+bool requires_even_gpr_pair_for_variadic_arg(const CoreIrType *type) {
+    return type != nullptr && get_type_size(type) == 16 &&
+           !is_float_type(type) && !is_aggregate_type(type);
+}
+
 } // namespace
 
 std::optional<AArch64HfaInfo>
@@ -296,8 +301,20 @@ AArch64AbiLoweringPass::classify_call(const CoreIrCallInst &call) const {
     unsigned next_fpr = 0;
     std::size_t next_stack_offset = 0;
     const auto &arguments = call.get_operands();
+    const std::size_t fixed_parameter_count =
+        callee_type->get_parameter_types().size();
     for (std::size_t index = call.get_argument_begin_index(); index < arguments.size();
          ++index) {
+        const std::size_t argument_index = index - call.get_argument_begin_index();
+        const bool is_variadic_anonymous_argument =
+            callee_type->get_is_variadic() &&
+            argument_index >= fixed_parameter_count;
+        if (is_variadic_anonymous_argument &&
+            (call.get_argument_requires_even_gpr_pair(argument_index) ||
+             requires_even_gpr_pair_for_variadic_arg(arguments[index]->get_type())) &&
+            (next_gpr & 1U) != 0) {
+            ++next_gpr;
+        }
         abi_info.parameters.push_back(classify_parameter(
             arguments[index]->get_type(), next_gpr, next_fpr, next_stack_offset));
     }

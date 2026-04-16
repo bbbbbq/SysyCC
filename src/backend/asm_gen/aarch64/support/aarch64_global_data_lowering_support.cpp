@@ -5,15 +5,40 @@
 #include <optional>
 
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_float_literal_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_global.hpp"
+#include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_module.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 
 namespace sysycc {
 
 namespace {
+
+std::optional<std::uint64_t> parse_raw_hex_float_bits(const std::string &literal_text,
+                                                      unsigned bit_width) {
+    if ((bit_width != 32U && bit_width != 64U) || literal_text.size() < 3 ||
+        literal_text[0] != '0' ||
+        (literal_text[1] != 'x' && literal_text[1] != 'X') ||
+        literal_text.find('p') != std::string::npos ||
+        literal_text.find('P') != std::string::npos) {
+        return std::nullopt;
+    }
+    try {
+        std::size_t consumed = 0;
+        const std::uint64_t bits =
+            static_cast<std::uint64_t>(std::stoull(literal_text, &consumed, 16));
+        if (consumed != literal_text.size()) {
+            return std::nullopt;
+        }
+        return bit_width == 32U ? (bits & 0xffffffffU) : bits;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
 
 bool is_byte_string_global(const CoreIrGlobal &global) {
     const auto *array_type =
@@ -67,6 +92,15 @@ std::optional<long long> get_signed_integer_constant(const CoreIrConstant *const
     }
     return static_cast<long long>(masked | ~mask);
 }
+
+struct ConstantAddressParts {
+    std::string symbol_name;
+    long long offset = 0;
+    AArch64SymbolKind symbol_kind = AArch64SymbolKind::Object;
+    AArch64SymbolBinding binding = AArch64SymbolBinding::Unknown;
+    std::optional<AArch64SectionKind> section_kind = std::nullopt;
+    bool is_defined = false;
+};
 
 std::optional<long long>
 compute_constant_gep_offset(const CoreIrType *base_type,
@@ -126,19 +160,41 @@ compute_constant_gep_offset(const CoreIrType *base_type,
     return offset;
 }
 
-bool split_constant_address(const CoreIrConstant *constant, std::string &symbol_name,
-                            long long &offset) {
+bool split_constant_address(const CoreIrConstant *constant,
+                            ConstantAddressParts &address) {
     if (const auto *global_address =
             dynamic_cast<const CoreIrConstantGlobalAddress *>(constant);
         global_address != nullptr) {
-        symbol_name = global_address->get_global()->get_name();
-        offset = 0;
+        if (global_address->get_global() != nullptr) {
+            address.symbol_name = global_address->get_global()->get_name();
+            address.offset = 0;
+            address.symbol_kind = AArch64SymbolKind::Object;
+            return true;
+        }
+        if (global_address->get_function() != nullptr) {
+            address.symbol_name = global_address->get_function()->get_name();
+            address.offset = 0;
+            address.symbol_kind = AArch64SymbolKind::Function;
+            return true;
+        }
+        return false;
+    }
+    if (const auto *block_address =
+            dynamic_cast<const CoreIrConstantBlockAddress *>(constant);
+        block_address != nullptr) {
+        address.symbol_name = make_aarch64_function_block_label(
+            block_address->get_function_name(), block_address->get_block_name());
+        address.offset = 0;
+        address.symbol_kind = AArch64SymbolKind::Label;
+        address.binding = AArch64SymbolBinding::Local;
+        address.section_kind = AArch64SectionKind::Text;
+        address.is_defined = true;
         return true;
     }
     if (const auto *gep_constant =
             dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
         gep_constant != nullptr) {
-        if (!split_constant_address(gep_constant->get_base(), symbol_name, offset)) {
+        if (!split_constant_address(gep_constant->get_base(), address)) {
             return false;
         }
         const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
@@ -152,8 +208,22 @@ bool split_constant_address(const CoreIrConstant *constant, std::string &symbol_
         if (!gep_offset.has_value()) {
             return false;
         }
-        offset += *gep_offset;
+        address.offset += *gep_offset;
         return true;
+    }
+    if (const auto *cast_constant = dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast_constant != nullptr) {
+        if (cast_constant->get_cast_kind() == CoreIrCastKind::PtrToInt) {
+            return split_constant_address(cast_constant->get_operand(), address);
+        }
+        if (cast_constant->get_cast_kind() == CoreIrCastKind::IntToPtr) {
+            const auto *nested_cast =
+                dynamic_cast<const CoreIrConstantCast *>(cast_constant->get_operand());
+            if (nested_cast != nullptr &&
+                nested_cast->get_cast_kind() == CoreIrCastKind::PtrToInt) {
+                return split_constant_address(nested_cast->get_operand(), address);
+            }
+        }
     }
     return false;
 }
@@ -242,27 +312,38 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
                 return true;
             }
             case CoreIrFloatKind::Float32: {
-                const float parsed = std::stof(literal_text);
                 std::uint32_t bits = 0;
-                std::memcpy(&bits, &parsed, sizeof(bits));
+                if (const auto raw_bits = parse_raw_hex_float_bits(literal_text, 32U);
+                    raw_bits.has_value()) {
+                    bits = static_cast<std::uint32_t>(*raw_bits);
+                } else {
+                    const float parsed = std::stof(literal_text);
+                    std::memcpy(&bits, &parsed, sizeof(bits));
+                }
                 append_scalar_fragment(data_object, 4, bits);
                 return true;
             }
             case CoreIrFloatKind::Float64: {
-                const double parsed = std::stod(literal_text);
                 std::uint64_t bits = 0;
-                std::memcpy(&bits, &parsed, sizeof(bits));
+                if (const auto raw_bits = parse_raw_hex_float_bits(literal_text, 64U);
+                    raw_bits.has_value()) {
+                    bits = *raw_bits;
+                } else {
+                    const double parsed = std::stod(literal_text);
+                    std::memcpy(&bits, &parsed, sizeof(bits));
+                }
                 append_scalar_fragment(data_object, 8, bits);
                 return true;
             }
             case CoreIrFloatKind::Float128:
-                if (floating_literal_is_zero(literal_text)) {
-                    append_zero_fill_fragment(data_object, 16);
+                if (const auto bytes = encode_fp128_literal_bytes(literal_text);
+                    bytes.has_value()) {
+                    append_byte_sequence_fragment(data_object, *bytes);
                     return true;
                 }
                 context.report_error(
-                    "non-zero float128 global initializers are not yet supported by the "
-                    "AArch64 native backend");
+                    "failed to encode float128 global initializer in the AArch64 "
+                    "native backend");
                 return false;
             }
         } catch (...) {
@@ -274,6 +355,22 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
     if (dynamic_cast<const CoreIrConstantNull *>(constant) != nullptr) {
         append_scalar_fragment(data_object, scalar_size(type), 0);
         return true;
+    }
+    if (const auto *cast_constant = dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast_constant != nullptr) {
+        if (cast_constant->get_cast_kind() == CoreIrCastKind::IntToPtr) {
+            return append_global_constant_fragments(data_object,
+                                                   cast_constant->get_operand(), type,
+                                                   context);
+        }
+        if (cast_constant->get_cast_kind() == CoreIrCastKind::PtrToInt &&
+            (dynamic_cast<const CoreIrConstantNull *>(cast_constant->get_operand()) !=
+                 nullptr ||
+             dynamic_cast<const CoreIrConstantZeroInitializer *>(
+                 cast_constant->get_operand()) != nullptr)) {
+            append_scalar_fragment(data_object, scalar_size(type), 0);
+            return true;
+        }
     }
     if (const auto *byte_string = dynamic_cast<const CoreIrConstantByteString *>(constant);
         byte_string != nullptr) {
@@ -320,18 +417,18 @@ bool append_global_constant_fragments(AArch64DataObject &data_object,
         }
         return true;
     }
-    std::string symbol_name;
-    long long offset = 0;
-    if (split_constant_address(constant, symbol_name, offset)) {
-        context.record_symbol_reference(symbol_name, AArch64SymbolKind::Object);
+    ConstantAddressParts address;
+    if (split_constant_address(constant, address)) {
+        context.record_symbol_reference(address.symbol_name, address.symbol_kind);
         append_scalar_fragment(
             data_object, scalar_size(type), 0,
             {AArch64RelocationRecord{
                 get_storage_size(type) <= 4 ? AArch64RelocationKind::Absolute32
                                             : AArch64RelocationKind::Absolute64,
                 context.make_symbol_reference(
-                    symbol_name, AArch64SymbolKind::Object,
-                    AArch64SymbolBinding::Unknown, std::nullopt, offset),
+                    address.symbol_name, address.symbol_kind,
+                    address.binding, address.section_kind, address.offset,
+                    address.is_defined),
                 0,
             }});
         return true;

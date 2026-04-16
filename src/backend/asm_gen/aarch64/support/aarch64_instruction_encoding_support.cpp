@@ -6,25 +6,15 @@
 #include <string>
 #include <utility>
 
+#include "backend/asm_gen/aarch64/support/aarch64_branch_instruction_encoding_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_fp_instruction_encoding_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_memory_instruction_encoding_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
 
 namespace {
-
-struct EncodedGeneralReg {
-    unsigned code = 0;
-    bool use_64bit = false;
-    bool is_stack_pointer = false;
-    bool is_zero_register = false;
-};
-
-struct EncodedFloatReg {
-    unsigned code = 0;
-    AArch64VirtualRegKind kind = AArch64VirtualRegKind::Float64;
-};
 
 bool starts_with(const std::string &text, const char *prefix) {
     return text.rfind(prefix, 0) == 0;
@@ -210,12 +200,6 @@ resolve_float_reg_operand(const AArch64MachineOperand &operand,
     return std::nullopt;
 }
 
-bool encode_fp_reg_reg(std::uint32_t base, unsigned rd, unsigned rn,
-                       EncodedInstruction &encoded) {
-    encoded.word = base | ((rn & 0x1fU) << 5) | (rd & 0x1fU);
-    return true;
-}
-
 bool operand_is_float_reg_like(const AArch64MachineOperand &operand) {
     if (const auto *physical_reg = operand.get_physical_reg_operand();
         physical_reg != nullptr) {
@@ -228,44 +212,10 @@ bool operand_is_float_reg_like(const AArch64MachineOperand &operand) {
     return false;
 }
 
-std::optional<EncodedGeneralReg>
-resolve_memory_base_reg(const AArch64MachineMemoryAddressOperand &memory,
-                        const AArch64MachineFunction &function,
-                        DiagnosticEngine &diagnostic_engine,
-                        const std::string &context) {
-    switch (memory.base_kind) {
-    case AArch64MachineMemoryAddressOperand::BaseKind::StackPointer:
-        return EncodedGeneralReg{31, true, true, false};
-    case AArch64MachineMemoryAddressOperand::BaseKind::PhysicalReg:
-        if (is_float_physical_reg(memory.physical_reg)) {
-            diagnostic_engine.add_error(
-                DiagnosticStage::Compiler,
-                "AArch64 direct object writer: floating-point register cannot be used as memory base in " +
-                    context);
-            return std::nullopt;
-        }
-        return EncodedGeneralReg{memory.physical_reg, true, false, false};
-    case AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg: {
-        const std::optional<unsigned> physical_reg =
-            function.get_physical_reg_for_virtual(memory.virtual_reg.get_id());
-        if (!physical_reg.has_value()) {
-            diagnostic_engine.add_error(
-                DiagnosticStage::Compiler,
-                "AArch64 direct object writer: unresolved memory base register in " +
-                    context);
-            return std::nullopt;
-        }
-        if (is_float_physical_reg(*physical_reg)) {
-            diagnostic_engine.add_error(
-                DiagnosticStage::Compiler,
-                "AArch64 direct object writer: floating-point register cannot be used as memory base in " +
-                    context);
-            return std::nullopt;
-        }
-        return EncodedGeneralReg{*physical_reg, true, false, false};
-    }
-    }
-    return std::nullopt;
+bool encode_fp_reg_reg(std::uint32_t base, unsigned rd, unsigned rn,
+                       EncodedInstruction &encoded) {
+    encoded.word = base | ((rn & 0x1fU) << 5) | (rd & 0x1fU);
+    return true;
 }
 
 unsigned encode_condition_code(AArch64ConditionCode code) {
@@ -335,22 +285,6 @@ unsigned shift_type_bits(AArch64ShiftKind kind) {
     return 0xffU;
 }
 
-std::optional<long long> resolve_branch_delta(const std::string &label,
-                                              std::size_t pc_offset,
-                                              const FunctionScanInfo &scan_info,
-                                              DiagnosticEngine &diagnostic_engine,
-                                              const std::string &context) {
-    const auto it = scan_info.label_offsets.find(label);
-    if (it == scan_info.label_offsets.end()) {
-        diagnostic_engine.add_error(
-            DiagnosticStage::Compiler,
-            "AArch64 direct object writer: unknown branch label '" + label +
-                "' in " + context);
-        return std::nullopt;
-    }
-    return static_cast<long long>(it->second) - static_cast<long long>(pc_offset);
-}
-
 bool check_signed_range(long long value, long long min_value, long long max_value,
                         DiagnosticEngine &diagnostic_engine,
                         const std::string &message) {
@@ -387,27 +321,6 @@ std::uint32_t encode_logical_register_word(std::uint32_t base, unsigned rd,
                                            unsigned shift_type, unsigned amount) {
     return base | ((rm & 0x1fU) << 16) | ((shift_type & 0x3U) << 22) |
            ((amount & 0x3fU) << 10) | ((rn & 0x1fU) << 5) | (rd & 0x1fU);
-}
-
-std::uint32_t encode_unconditional_branch_word(std::uint32_t base,
-                                               long long delta) {
-    const std::uint32_t imm26 =
-        static_cast<std::uint32_t>((delta >> 2) & 0x03ffffffU);
-    return base | imm26;
-}
-
-std::uint32_t encode_conditional_branch_word(unsigned condition_bits,
-                                             long long delta) {
-    const std::uint32_t imm19 =
-        static_cast<std::uint32_t>((delta >> 2) & 0x7ffffU);
-    return 0x54000000U | (imm19 << 5) | (condition_bits & 0xfU);
-}
-
-std::uint32_t encode_compare_branch_word(std::uint32_t base, unsigned rt,
-                                         long long delta) {
-    const std::uint32_t imm19 =
-        static_cast<std::uint32_t>((delta >> 2) & 0x7ffffU);
-    return base | (imm19 << 5) | (rt & 0x1fU);
 }
 
 std::uint32_t encode_wide_move_word(std::uint32_t base, unsigned rd,
@@ -490,6 +403,34 @@ std::optional<EncodedInstruction> encode_machine_instruction(
     const std::string &mnemonic = instruction.get_mnemonic();
     const auto &operands = instruction.get_operands();
 
+    if (opcode == AArch64MachineOpcode::Branch ||
+        opcode == AArch64MachineOpcode::BranchLink ||
+        opcode == AArch64MachineOpcode::BranchRegister ||
+        opcode == AArch64MachineOpcode::BranchLinkRegister ||
+        opcode == AArch64MachineOpcode::BranchConditional ||
+        opcode == AArch64MachineOpcode::CompareBranchZero ||
+        opcode == AArch64MachineOpcode::CompareBranchNonZero) {
+        return encode_branch_family_instruction(
+            instruction, function, scan_info, pc_offset, diagnostic_engine,
+            AArch64BranchInstructionEncodingContext{
+                .resolve_general_reg_operand =
+                    [&](const AArch64MachineOperand &operand,
+                        const AArch64MachineFunction &encoded_function,
+                        bool allow_stack_pointer, bool allow_zero_register,
+                        DiagnosticEngine &encoded_diagnostics,
+                        const std::string &context)
+                    -> std::optional<EncodedGeneralReg> {
+                    return resolve_general_reg_operand(
+                        operand, encoded_function, allow_stack_pointer,
+                        allow_zero_register, encoded_diagnostics, context);
+                },
+                .get_symbol_reference_operand =
+                    [&](const AArch64MachineOperand &operand)
+                    -> std::optional<AArch64MachineSymbolReference> {
+                    return get_symbol_reference_operand(operand);
+                }});
+    }
+
     if (opcode == AArch64MachineOpcode::Return) {
         unsigned reg = 30;
         if (!operands.empty()) {
@@ -501,106 +442,6 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             reg = rn->code;
         }
         encoded.word = 0xD65F0000U | ((reg & 0x1fU) << 5);
-        return encoded;
-    }
-
-    if (opcode == AArch64MachineOpcode::Branch ||
-        opcode == AArch64MachineOpcode::BranchLink) {
-        if (operands.size() != 1) {
-            return unsupported("branch operand shape");
-        }
-        const std::uint32_t base =
-            opcode == AArch64MachineOpcode::BranchLink ? 0x94000000U
-                                                       : 0x14000000U;
-        if (const auto *label = operands[0].get_label_operand(); label != nullptr) {
-            const auto delta = resolve_branch_delta(label->label_text, pc_offset,
-                                                    scan_info, diagnostic_engine,
-                                                    mnemonic);
-            if (!delta.has_value() || (*delta % 4) != 0 ||
-                !check_signed_range(*delta >> 2, -(1 << 25), (1 << 25) - 1,
-                                    diagnostic_engine,
-                                    "AArch64 direct object writer: branch target out of range")) {
-                return std::nullopt;
-            }
-            encoded.word = encode_unconditional_branch_word(base, *delta);
-            return encoded;
-        }
-        const auto symbol = get_symbol_reference_operand(operands[0]);
-        if (!symbol.has_value()) {
-            return unsupported("branch target operand");
-        }
-        encoded.word = base;
-        encoded.relocations.push_back(AArch64RelocationRecord{
-            opcode == AArch64MachineOpcode::BranchLink
-                ? AArch64RelocationKind::Call26
-                : AArch64RelocationKind::Branch26,
-            symbol->target, pc_offset});
-        return encoded;
-    }
-
-    if (opcode == AArch64MachineOpcode::BranchLinkRegister) {
-        if (operands.size() != 1) {
-            return unsupported("indirect branch-link operand shape");
-        }
-        const auto rn = resolve_general_reg_operand(
-            operands[0], function, false, false, diagnostic_engine, "blr");
-        if (!rn.has_value()) {
-            return std::nullopt;
-        }
-        encoded.word = 0xD63F0000U | ((rn->code & 0x1fU) << 5);
-        return encoded;
-    }
-
-    if (opcode == AArch64MachineOpcode::BranchConditional) {
-        if (operands.size() != 1 || operands[0].get_label_operand() == nullptr) {
-            return unsupported("conditional branch operand shape");
-        }
-        const auto cond =
-            parse_aarch64_condition_code(mnemonic.substr(2));
-        if (!cond.has_value()) {
-            return unsupported("conditional branch condition");
-        }
-        const auto delta = resolve_branch_delta(
-            operands[0].get_label_operand()->label_text, pc_offset, scan_info,
-            diagnostic_engine, mnemonic);
-        if (!delta.has_value() || (*delta % 4) != 0 ||
-            !check_signed_range(*delta >> 2, -(1 << 18), (1 << 18) - 1,
-                                diagnostic_engine,
-                                "AArch64 direct object writer: conditional branch target out of range")) {
-            return std::nullopt;
-        }
-        encoded.word = encode_conditional_branch_word(
-            encode_condition_code(*cond), *delta);
-        return encoded;
-    }
-
-    if (opcode == AArch64MachineOpcode::CompareBranchZero ||
-        opcode == AArch64MachineOpcode::CompareBranchNonZero) {
-        if (operands.size() != 2 || operands[1].get_label_operand() == nullptr) {
-            return unsupported("compare-and-branch operand shape");
-        }
-        const auto rt = resolve_general_reg_operand(
-            operands[0], function, false, false, diagnostic_engine,
-            mnemonic + " value");
-        if (!rt.has_value()) {
-            return std::nullopt;
-        }
-        const auto delta = resolve_branch_delta(
-            operands[1].get_label_operand()->label_text, pc_offset, scan_info,
-            diagnostic_engine, mnemonic);
-        if (!delta.has_value() || (*delta % 4) != 0 ||
-            !check_signed_range(*delta >> 2, -(1 << 18), (1 << 18) - 1,
-                                diagnostic_engine,
-                                "AArch64 direct object writer: compare-and-branch target out of range")) {
-            return std::nullopt;
-        }
-        std::uint32_t base = 0x34000000U;
-        if (opcode == AArch64MachineOpcode::CompareBranchZero) {
-            base = rt->use_64bit ? 0xB4000000U : 0x34000000U;
-        } else {
-            base = rt->use_64bit ? 0xB5000000U : 0x35000000U;
-        }
-        encoded.word = encode_compare_branch_word(base, rt->code, *delta);
         return encoded;
     }
 
@@ -924,50 +765,8 @@ std::optional<EncodedInstruction> encode_machine_instruction(
     }
 
     if (opcode == AArch64MachineOpcode::StorePair ||
-        opcode == AArch64MachineOpcode::LoadPair) {
-        if (operands.size() != 3) {
-            return unsupported("pair load/store operand shape");
-        }
-        const auto rt = resolve_general_reg_operand(
-            operands[0], function, false, false, diagnostic_engine, mnemonic + " rt");
-        const auto rt2 = resolve_general_reg_operand(
-            operands[1], function, false, false, diagnostic_engine, mnemonic + " rt2");
-        const auto *memory = operands[2].get_memory_address_operand();
-        if (!rt.has_value() || !rt2.has_value() || !rt->use_64bit ||
-            !rt2->use_64bit || memory == nullptr) {
-            return std::nullopt;
-        }
-        if (memory->get_symbolic_offset() != nullptr) {
-            return unsupported("symbolic pair load/store");
-        }
-        const auto base = resolve_memory_base_reg(*memory, function, diagnostic_engine,
-                                                  mnemonic + " base");
-        if (!base.has_value()) {
-            return std::nullopt;
-        }
-        const long long offset = memory->get_immediate_offset().value_or(0);
-        if ((offset % 8) != 0 ||
-            !check_signed_range(offset / 8, -64, 63, diagnostic_engine,
-                                "AArch64 direct object writer: pair load/store offset out of range")) {
-            return std::nullopt;
-        }
-        std::uint32_t base_word =
-            opcode == AArch64MachineOpcode::StorePair ? 0xA9000000U : 0xA9400000U;
-        if (memory->address_mode ==
-            AArch64MachineMemoryAddressOperand::AddressMode::PreIndex) {
-            base_word = opcode == AArch64MachineOpcode::StorePair ? 0xA9800000U
-                                                                  : 0xA9C00000U;
-        } else if (memory->address_mode ==
-                   AArch64MachineMemoryAddressOperand::AddressMode::PostIndex) {
-            base_word = opcode == AArch64MachineOpcode::StorePair ? 0xA8800000U
-                                                                  : 0xA8C00000U;
-        }
-        encoded.word = encode_pair_word(base_word, rt->code, rt2->code, base->code,
-                                        offset / 8);
-        return encoded;
-    }
-
-    if (opcode == AArch64MachineOpcode::Load ||
+        opcode == AArch64MachineOpcode::LoadPair ||
+        opcode == AArch64MachineOpcode::Load ||
         opcode == AArch64MachineOpcode::Store ||
         opcode == AArch64MachineOpcode::LoadByte ||
         opcode == AArch64MachineOpcode::StoreByte ||
@@ -979,121 +778,34 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         opcode == AArch64MachineOpcode::StoreByteUnscaled ||
         opcode == AArch64MachineOpcode::LoadHalfUnscaled ||
         opcode == AArch64MachineOpcode::StoreHalfUnscaled) {
-        if (operands.size() != 2) {
-            return unsupported("load/store operand shape");
-        }
-        const bool is_load =
-            opcode == AArch64MachineOpcode::Load ||
-            opcode == AArch64MachineOpcode::LoadByte ||
-            opcode == AArch64MachineOpcode::LoadHalf ||
-            opcode == AArch64MachineOpcode::LoadUnscaled ||
-            opcode == AArch64MachineOpcode::LoadByteUnscaled ||
-            opcode == AArch64MachineOpcode::LoadHalfUnscaled;
-        const AArch64MachineOperand &value_operand = operands[0];
-        const auto *memory = operands[1].get_memory_address_operand();
-        if (memory == nullptr) {
-            return unsupported("load/store memory operand");
-        }
-        std::optional<EncodedGeneralReg> general_value;
-        std::optional<EncodedFloatReg> float_value;
-        bool is_float = false;
-        if (operand_is_float_reg_like(value_operand)) {
-            float_value = resolve_float_reg_operand(value_operand, function,
-                                                   diagnostic_engine, mnemonic);
-            is_float = float_value.has_value();
-        } else {
-            general_value = resolve_general_reg_operand(
-                value_operand, function, false, false, diagnostic_engine,
-                mnemonic + " value");
-        }
-        if (!is_float && !general_value.has_value()) {
-            return std::nullopt;
-        }
-        unsigned rt = is_float ? float_value->code : general_value->code;
-        const bool use_64bit = is_float ? true : general_value->use_64bit;
-        unsigned access_size = 4;
-        std::uint32_t unsigned_base = 0;
-        std::uint32_t unscaled_base = 0;
-        if (opcode == AArch64MachineOpcode::LoadByte ||
-            opcode == AArch64MachineOpcode::StoreByte ||
-            opcode == AArch64MachineOpcode::LoadByteUnscaled ||
-            opcode == AArch64MachineOpcode::StoreByteUnscaled) {
-            access_size = 1;
-            unsigned_base = is_load ? 0x39400000U : 0x39000000U;
-            unscaled_base = is_load ? 0x38400000U : 0x38000000U;
-        } else if (opcode == AArch64MachineOpcode::LoadHalf ||
-                   opcode == AArch64MachineOpcode::StoreHalf ||
-                   opcode == AArch64MachineOpcode::LoadHalfUnscaled ||
-                   opcode == AArch64MachineOpcode::StoreHalfUnscaled) {
-            access_size = 2;
-            unsigned_base = is_load ? 0x79400000U : 0x79000000U;
-            unscaled_base = is_load ? 0x78400000U : 0x78000000U;
-        } else if (is_float) {
-            access_size = static_cast<unsigned>(scalar_fp_size(float_value->kind));
-            if (float_value->kind == AArch64VirtualRegKind::Float16) {
-                unsigned_base = is_load ? 0x7D400000U : 0x7D000000U;
-                unscaled_base = is_load ? 0x7C400000U : 0x7C000000U;
-            } else if (float_value->kind == AArch64VirtualRegKind::Float32) {
-                unsigned_base = is_load ? 0xBD400000U : 0xBD000000U;
-                unscaled_base = is_load ? 0xBC400000U : 0xBC000000U;
-            } else if (float_value->kind == AArch64VirtualRegKind::Float64) {
-                unsigned_base = is_load ? 0xFD400000U : 0xFD000000U;
-                unscaled_base = is_load ? 0xFC400000U : 0xFC000000U;
-            } else {
-                return unsupported("floating load/store kind");
-            }
-        } else if (use_64bit) {
-            access_size = 8;
-            unsigned_base = is_load ? 0xF9400000U : 0xF9000000U;
-            unscaled_base = is_load ? 0xF8400000U : 0xF8000000U;
-        } else {
-            access_size = 4;
-            unsigned_base = is_load ? 0xB9400000U : 0xB9000000U;
-            unscaled_base = is_load ? 0xB8400000U : 0xB8000000U;
-        }
-        const auto base = resolve_memory_base_reg(*memory, function, diagnostic_engine,
-                                                  mnemonic + " base");
-        if (!base.has_value()) {
-            return std::nullopt;
-        }
-        const unsigned rn = base->code;
-        if (const auto *symbolic = memory->get_symbolic_offset();
-            symbolic != nullptr) {
-            if (!is_load || !use_64bit ||
-                symbolic->modifier != AArch64MachineSymbolReference::Modifier::GotLo12) {
-                return unsupported("symbolic memory offset");
-            }
-            encoded.word = encode_load_store_unsigned_word(unsigned_base, rt, rn, 0);
-            encoded.relocations.push_back(AArch64RelocationRecord{
-                AArch64RelocationKind::GotLo12, symbolic->target, pc_offset});
-            return encoded;
-        }
-        const long long offset = memory->get_immediate_offset().value_or(0);
-        const bool force_unscaled =
-            opcode == AArch64MachineOpcode::LoadUnscaled ||
-            opcode == AArch64MachineOpcode::StoreUnscaled ||
-            opcode == AArch64MachineOpcode::LoadByteUnscaled ||
-            opcode == AArch64MachineOpcode::StoreByteUnscaled ||
-            opcode == AArch64MachineOpcode::LoadHalfUnscaled ||
-            opcode == AArch64MachineOpcode::StoreHalfUnscaled || offset < 0 ||
-            (offset % static_cast<long long>(access_size)) != 0;
-        if (force_unscaled) {
-            if (!check_signed_range(offset, -256, 255, diagnostic_engine,
-                                    "AArch64 direct object writer: unscaled load/store offset out of range")) {
-                return std::nullopt;
-            }
-            encoded.word = encode_load_store_unscaled_word(unscaled_base, rt, rn, offset);
-            return encoded;
-        }
-        const long long scaled = offset / static_cast<long long>(access_size);
-        if (!check_signed_range(scaled, 0, 4095, diagnostic_engine,
-                                "AArch64 direct object writer: unsigned load/store offset out of range")) {
-            return std::nullopt;
-        }
-        encoded.word =
-            encode_load_store_unsigned_word(unsigned_base, rt, rn,
-                                            static_cast<unsigned>(scaled));
-        return encoded;
+        return encode_memory_family_instruction(
+            instruction, function, scan_info, pc_offset, diagnostic_engine,
+            AArch64MemoryInstructionEncodingContext{
+                .resolve_general_reg_operand =
+                    [&](const AArch64MachineOperand &operand,
+                        const AArch64MachineFunction &encoded_function,
+                        bool allow_stack_pointer, bool allow_zero_register,
+                        DiagnosticEngine &encoded_diagnostics,
+                        const std::string &context)
+                    -> std::optional<EncodedGeneralReg> {
+                    return resolve_general_reg_operand(
+                        operand, encoded_function, allow_stack_pointer,
+                        allow_zero_register, encoded_diagnostics, context);
+                },
+                .resolve_float_reg_operand =
+                    [&](const AArch64MachineOperand &operand,
+                        const AArch64MachineFunction &encoded_function,
+                        DiagnosticEngine &encoded_diagnostics,
+                        const std::string &context)
+                    -> std::optional<EncodedFloatReg> {
+                    return resolve_float_reg_operand(
+                        operand, encoded_function, encoded_diagnostics, context);
+                },
+                .get_symbol_reference_operand =
+                    [&](const AArch64MachineOperand &operand)
+                    -> std::optional<AArch64MachineSymbolReference> {
+                    return get_symbol_reference_operand(operand);
+                }});
     }
 
     if (opcode == AArch64MachineOpcode::FloatMove) {
@@ -1175,6 +887,33 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             return std::nullopt;
         }
         encoded.word = *base | ((rm->code & 0x1fU) << 16) |
+                       ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+        return encoded;
+    }
+
+    if (opcode == AArch64MachineOpcode::FloatMulAdd) {
+        if (operands.size() != 4) {
+            return unsupported("floating ternary operand shape");
+        }
+        const auto rd = resolve_float_reg_operand(
+            operands[0], function, diagnostic_engine, mnemonic + " dst");
+        const auto rn = resolve_float_reg_operand(
+            operands[1], function, diagnostic_engine, mnemonic + " lhs");
+        const auto rm = resolve_float_reg_operand(
+            operands[2], function, diagnostic_engine, mnemonic + " mul");
+        const auto ra = resolve_float_reg_operand(
+            operands[3], function, diagnostic_engine, mnemonic + " acc");
+        const auto base =
+            (rd.has_value() && rn.has_value() && rm.has_value() && ra.has_value())
+                ? fp_ternary_base(opcode, rd->kind)
+                : std::nullopt;
+        if (!rd.has_value() || !rn.has_value() || !rm.has_value() ||
+            !ra.has_value() || rd->kind != rn->kind || rd->kind != rm->kind ||
+            rd->kind != ra->kind || !base.has_value()) {
+            return std::nullopt;
+        }
+        encoded.word = *base | ((rm->code & 0x1fU) << 16) |
+                       ((ra->code & 0x1fU) << 10) |
                        ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
         return encoded;
     }

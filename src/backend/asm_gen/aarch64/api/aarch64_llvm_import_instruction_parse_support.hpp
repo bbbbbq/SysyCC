@@ -13,6 +13,7 @@ enum class AArch64LlvmImportValueKind : unsigned char {
     Local,
     Global,
     Constant,
+    ConstantExpressionRaw,
 };
 
 struct AArch64LlvmImportTypedValue {
@@ -22,7 +23,12 @@ struct AArch64LlvmImportTypedValue {
     AArch64LlvmImportValueKind kind = AArch64LlvmImportValueKind::Unknown;
     std::string local_name;
     std::string global_name;
+    std::string raw_constant_expression_text;
     AArch64LlvmImportConstant constant;
+
+    bool is_valid() const {
+        return kind != AArch64LlvmImportValueKind::Unknown;
+    }
 };
 
 struct AArch64LlvmImportBinarySpec {
@@ -49,6 +55,7 @@ struct AArch64LlvmImportCastSpec {
 struct AArch64LlvmImportAllocaSpec {
     std::string allocated_type_text;
     AArch64LlvmImportType allocated_type;
+    std::optional<AArch64LlvmImportTypedValue> element_count;
     std::size_t alignment = 0;
 };
 
@@ -76,10 +83,7 @@ struct AArch64LlvmImportGetElementPtrSpec {
 struct AArch64LlvmImportCallSpec {
     std::string return_type_text;
     AArch64LlvmImportType return_type;
-    std::string callee_text;
-    AArch64LlvmImportValueKind callee_kind = AArch64LlvmImportValueKind::Unknown;
-    std::string callee_local_name;
-    std::string callee_global_name;
+    AArch64LlvmImportTypedValue callee;
     std::vector<AArch64LlvmImportTypedValue> arguments;
 };
 
@@ -135,6 +139,22 @@ struct AArch64LlvmImportBranchSpec {
     AArch64LlvmImportTypedValue condition;
     std::string true_target_label;
     std::string false_target_label;
+};
+
+struct AArch64LlvmImportIndirectBranchSpec {
+    AArch64LlvmImportTypedValue address;
+    std::vector<std::string> target_labels;
+};
+
+struct AArch64LlvmImportSwitchCase {
+    std::uint64_t value = 0;
+    std::string target_label;
+};
+
+struct AArch64LlvmImportSwitchSpec {
+    AArch64LlvmImportTypedValue selector;
+    std::string default_target_label;
+    std::vector<AArch64LlvmImportSwitchCase> cases;
 };
 
 struct AArch64LlvmImportReturnSpec {
@@ -193,6 +213,13 @@ parse_llvm_import_phi_spec(const AArch64LlvmImportInstruction &instruction);
 
 std::optional<AArch64LlvmImportBranchSpec>
 parse_llvm_import_branch_spec(const AArch64LlvmImportInstruction &instruction);
+
+std::optional<AArch64LlvmImportIndirectBranchSpec>
+parse_llvm_import_indirect_branch_spec(
+    const AArch64LlvmImportInstruction &instruction);
+
+std::optional<AArch64LlvmImportSwitchSpec>
+parse_llvm_import_switch_spec(const AArch64LlvmImportInstruction &instruction);
 
 std::optional<AArch64LlvmImportReturnSpec>
 parse_llvm_import_return_spec(const AArch64LlvmImportInstruction &instruction);

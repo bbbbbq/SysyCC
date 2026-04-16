@@ -38,8 +38,15 @@ The same helper now also installs a bounded shared slot controller for heavy
 test tools such as `SysyCC`, `clang`, and `clang++`, and its default test/build
 parallelism is intentionally memory-conservative so manually launching several
 single-case scripts is less likely to freeze the host.
+The test tree now also includes
+[tests/aarch64_backend_single_source](/Users/caojunze424/code/SysyCC/tests/aarch64_backend_single_source),
+which vendors selected `llvm-test-suite/SingleSource` cases and runs a native
+AArch64 differential path (`clang -> .ll -> sysycc-aarch64c -> .s -> link/run`)
+against a Clang baseline, with both a fast smoke subset and a full imported
+manifest lane. The shared `run_all`/tiered regression entry only pulls in the
+smoke subset by default; the full imported sweep stays on its explicit target.
 The top-level regression entry [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh) now defaults to the tier-1 regression lane (`run`, `cli`, and `dialects`), still writes a summary table to `build/test_result.md`, and is paired with [tests/run_tier2.sh](/Users/caojunze424/code/SysyCC/tests/run_tier2.sh) plus [tests/run_full.sh](/Users/caojunze424/code/SysyCC/tests/run_full.sh) for deeper or full-suite passes.
-For day-to-day local development, the top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now drives a dedicated Ninja build under `build-ninja/`, exposes `make test-tier1`, `make test-tier2`, and `make test-full`, and leaves test/intermediate-result flows on `build/`.
+For day-to-day local development, the top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now drives a dedicated Ninja build under `build-ninja/`, exposes `make test-tier1`, `make test-tier2`, `make test-full`, `make test-aarch64-ll`, `make test-aarch64-single-source`, `make test-aarch64-single-source-smoke`, and `make test-aarch64-single-source-full`, and leaves test/intermediate-result flows on `build/`.
 
 ## Project Overview
 
@@ -142,7 +149,7 @@ repository transitions toward the public driver name.
   set per invocation, including strict C99 mode and explicit GNU/Clang/
   builtin-type pack toggles.
 - The CLI can collect `-I` include directories and `-isystem` system include directories into compiler options and the preprocess stage now consumes them for include-path resolution.
-- The top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now provides `make test-tier1`, `make test-tier2`, `make test-full`, and `make check`, with `make test` aliased to the tier-1 fast lane.
+- The top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now provides `make test-tier1`, `make test-tier2`, `make test-full`, `make test-aarch64-ll`, `make test-aarch64-single-source`, `make test-aarch64-single-source-smoke`, `make test-aarch64-single-source-full`, and `make check`, with `make test` aliased to the tier-1 fast lane.
 - The static-check pipeline excludes generated parser headers from blocking `clang-tidy` diagnostics and keeps `cppcheck` focused on warning/performance/portability findings.
 - Token dumps are written to `build/intermediate_results/*.tokens.txt`.
 - Parse tree dumps are written to `build/intermediate_results/*.parse.txt`.

@@ -172,7 +172,7 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
     }
     case CoreIrTypeKind::Struct: {
         const auto *struct_type = static_cast<const CoreIrStructType *>(type);
-        std::string result = "{ ";
+        std::string result = struct_type->get_is_packed() ? "<{ " : "{ ";
         const auto &element_types = struct_type->get_element_types();
         for (std::size_t index = 0; index < element_types.size(); ++index) {
             if (index > 0) {
@@ -180,7 +180,7 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
             }
             result += format_type(element_types[index]);
         }
-        result += " }";
+        result += struct_type->get_is_packed() ? " }>" : " }";
         return result;
     }
     case CoreIrTypeKind::Function: {
@@ -277,6 +277,19 @@ CoreIrRawPrinter::format_constant(const CoreIrConstant *constant) const {
         }
         result += ")";
         return result;
+    }
+    if (const auto *cast_constant =
+            dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast_constant != nullptr) {
+        return format_cast_kind(cast_constant->get_cast_kind()) + "(" +
+               format_constant(cast_constant->get_operand()) + " -> " +
+               format_type(cast_constant->get_type()) + ")";
+    }
+    if (const auto *block_address =
+            dynamic_cast<const CoreIrConstantBlockAddress *>(constant);
+        block_address != nullptr) {
+        return "blockaddress(@" + block_address->get_function_name() + ", %" +
+               block_address->get_block_name() + ")";
     }
     return "<constant>";
 }
@@ -541,6 +554,23 @@ std::string CoreIrRawPrinter::format_instruction(
                cond_jump_instruction.get_true_block()->get_name() +
                ", label %" +
                cond_jump_instruction.get_false_block()->get_name();
+    }
+    case CoreIrOpcode::IndirectJump: {
+        const auto &jump_instruction =
+            static_cast<const CoreIrIndirectJumpInst &>(instruction);
+        std::string result = "indirectbr " +
+                             format_type(jump_instruction.get_address()->get_type()) +
+                             " " + format_value(jump_instruction.get_address()) +
+                             ", [";
+        const auto &targets = jump_instruction.get_target_blocks();
+        for (std::size_t index = 0; index < targets.size(); ++index) {
+            if (index > 0) {
+                result += ", ";
+            }
+            result += "label %" + targets[index]->get_name();
+        }
+        result += "]";
+        return result;
     }
     case CoreIrOpcode::Return: {
         const auto &return_instruction =

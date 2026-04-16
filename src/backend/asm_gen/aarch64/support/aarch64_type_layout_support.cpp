@@ -185,8 +185,7 @@ bool is_supported_scalar_storage_type(const CoreIrType *type) {
         return false;
     }
     const std::size_t bit_width = integer_type->get_bit_width();
-    return bit_width == 1 || bit_width == 8 || bit_width == 16 ||
-           bit_width == 32 || bit_width == 64;
+    return bit_width >= 1 && bit_width <= 64;
 }
 
 bool is_supported_object_type(const CoreIrType *type) {
@@ -288,10 +287,13 @@ std::size_t get_type_size(const CoreIrType *type) {
         for (const CoreIrType *element_type : struct_type->get_element_types()) {
             const std::size_t alignment = get_type_alignment(element_type);
             max_alignment = std::max(max_alignment, alignment);
-            offset = align_to(offset, alignment);
+            if (!struct_type->get_is_packed()) {
+                offset = align_to(offset, alignment);
+            }
             offset += get_type_size(element_type);
         }
-        return align_to(offset, max_alignment);
+        return struct_type->get_is_packed() ? offset
+                                            : align_to(offset, max_alignment);
     }
     return 0;
 }
@@ -309,6 +311,9 @@ std::size_t get_type_alignment(const CoreIrType *type) {
     }
     if (const auto *struct_type = dynamic_cast<const CoreIrStructType *>(type);
         struct_type != nullptr) {
+        if (struct_type->get_is_packed()) {
+            return 1;
+        }
         std::size_t max_alignment = 1;
         for (const CoreIrType *element_type : struct_type->get_element_types()) {
             max_alignment = std::max(max_alignment, get_type_alignment(element_type));
@@ -326,11 +331,15 @@ std::size_t get_struct_member_offset(const CoreIrStructType *struct_type,
     std::size_t offset = 0;
     for (std::size_t current = 0; current < index; ++current) {
         const CoreIrType *element_type = struct_type->get_element_types()[current];
-        offset = align_to(offset, get_type_alignment(element_type));
+        if (!struct_type->get_is_packed()) {
+            offset = align_to(offset, get_type_alignment(element_type));
+        }
         offset += get_type_size(element_type);
     }
-    return align_to(offset,
-                    get_type_alignment(struct_type->get_element_types()[index]));
+    return struct_type->get_is_packed()
+               ? offset
+               : align_to(offset,
+                          get_type_alignment(struct_type->get_element_types()[index]));
 }
 
 } // namespace sysycc

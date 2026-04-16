@@ -45,6 +45,11 @@ bool dispatch_aarch64_lowered_instruction(
             machine_block, static_cast<const CoreIrCompareInst &>(instruction),
             state);
     case CoreIrOpcode::Select:
+        context.emit_debug_location(machine_block,
+                                    instruction.get_source_span(), state);
+        return context.emit_select(
+            machine_block, static_cast<const CoreIrSelectInst &>(instruction),
+            state);
     case CoreIrOpcode::ExtractElement:
     case CoreIrOpcode::InsertElement:
     case CoreIrOpcode::ShuffleVector:
@@ -75,6 +80,12 @@ bool dispatch_aarch64_lowered_instruction(
                                     instruction.get_source_span(), state);
         return context.emit_cond_jump(
             machine_block, static_cast<const CoreIrCondJumpInst &>(instruction),
+            state, current_block);
+    case CoreIrOpcode::IndirectJump:
+        context.emit_debug_location(machine_block,
+                                    instruction.get_source_span(), state);
+        return context.emit_indirect_jump(
+            machine_block, static_cast<const CoreIrIndirectJumpInst &>(instruction),
             state, current_block);
     case CoreIrOpcode::Return:
         context.emit_debug_location(machine_block,

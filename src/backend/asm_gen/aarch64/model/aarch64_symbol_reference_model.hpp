@@ -13,6 +13,7 @@ enum class AArch64SymbolKind : unsigned char {
     Function,
     Object,
     Helper,
+    Label,
 };
 
 enum class AArch64SymbolBinding : unsigned char {

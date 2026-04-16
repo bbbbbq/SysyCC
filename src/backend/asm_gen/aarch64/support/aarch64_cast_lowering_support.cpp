@@ -14,6 +14,35 @@ bool emit_non_float128_cast(AArch64MachineBlock &machine_block,
                             AArch64MachineFunction &function) {
     const bool operand_uses_64bit = uses_64bit_register(cast.get_operand()->get_type());
     const bool target_uses_64bit = uses_64bit_register(cast.get_type());
+    auto prepare_int_to_float_source = [&](bool sign_extend) {
+        const auto *source_integer = as_integer_type(cast.get_operand()->get_type());
+        if (source_integer == nullptr) {
+            return operand_reg;
+        }
+        const std::size_t source_bits = source_integer->get_bit_width();
+        const bool needs_extension =
+            source_bits != 0 && source_bits < (operand_uses_64bit ? 64U : 32U);
+        if (!needs_extension) {
+            return operand_reg;
+        }
+
+        const AArch64VirtualReg prepared = function.create_virtual_reg(
+            operand_uses_64bit ? AArch64VirtualRegKind::General64
+                               : AArch64VirtualRegKind::General32);
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov", {def_vreg_operand_as(prepared, operand_uses_64bit),
+                    use_vreg_operand_as(operand_reg, operand_uses_64bit)}));
+        if (sign_extend) {
+            apply_sign_extend_to_virtual_reg(machine_block, prepared,
+                                             cast.get_operand()->get_type(),
+                                             cast.get_operand()->get_type());
+        } else {
+            apply_zero_extend_to_virtual_reg(machine_block, prepared,
+                                             cast.get_operand()->get_type(),
+                                             cast.get_operand()->get_type());
+        }
+        return prepared;
+    };
     switch (cast.get_cast_kind()) {
     case CoreIrCastKind::Truncate:
         machine_block.append_instruction(AArch64MachineInstr(
@@ -70,35 +99,43 @@ bool emit_non_float128_cast(AArch64MachineBlock &machine_block,
         }
         return true;
     case CoreIrCastKind::SignedIntToFloat:
+        {
+        const AArch64VirtualReg prepared_source =
+            prepare_int_to_float_source(true);
         if (dst_reg.get_kind() == AArch64VirtualRegKind::Float16) {
             const AArch64VirtualReg widened =
                 function.create_virtual_reg(AArch64VirtualRegKind::Float32);
             machine_block.append_instruction(AArch64MachineInstr(
                 "scvtf",
-                {def_vreg_operand(widened), use_vreg_operand_as(operand_reg,
+                {def_vreg_operand(widened), use_vreg_operand_as(prepared_source,
                                                                 operand_uses_64bit)}));
             demote_float32_to_float16(machine_block, widened, dst_reg);
             return true;
         }
         machine_block.append_instruction(AArch64MachineInstr(
             "scvtf", {def_vreg_operand(dst_reg),
-                      use_vreg_operand_as(operand_reg, operand_uses_64bit)}));
+                      use_vreg_operand_as(prepared_source, operand_uses_64bit)}));
         return true;
+        }
     case CoreIrCastKind::UnsignedIntToFloat:
+        {
+        const AArch64VirtualReg prepared_source =
+            prepare_int_to_float_source(false);
         if (dst_reg.get_kind() == AArch64VirtualRegKind::Float16) {
             const AArch64VirtualReg widened =
                 function.create_virtual_reg(AArch64VirtualRegKind::Float32);
             machine_block.append_instruction(AArch64MachineInstr(
                 "ucvtf",
-                {def_vreg_operand(widened), use_vreg_operand_as(operand_reg,
+                {def_vreg_operand(widened), use_vreg_operand_as(prepared_source,
                                                                 operand_uses_64bit)}));
             demote_float32_to_float16(machine_block, widened, dst_reg);
             return true;
         }
         machine_block.append_instruction(AArch64MachineInstr(
             "ucvtf", {def_vreg_operand(dst_reg),
-                      use_vreg_operand_as(operand_reg, operand_uses_64bit)}));
+                      use_vreg_operand_as(prepared_source, operand_uses_64bit)}));
         return true;
+        }
     case CoreIrCastKind::FloatToSignedInt:
         if (operand_reg.get_kind() == AArch64VirtualRegKind::Float16) {
             const AArch64VirtualReg widened =

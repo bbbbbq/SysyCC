@@ -2,12 +2,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "backend/asm_gen/aarch64/api/aarch64_codegen_api.hpp"
 
 namespace sysycc {
+
+struct AArch64LlvmImportTypedConstant;
 
 enum class AArch64LlvmImportTypeKind : unsigned char {
     Unknown,
@@ -26,8 +29,10 @@ enum class AArch64LlvmImportTypeKind : unsigned char {
 struct AArch64LlvmImportType {
     AArch64LlvmImportTypeKind kind = AArch64LlvmImportTypeKind::Unknown;
     std::size_t integer_bit_width = 0;
+    std::size_t pointer_address_space = 0;
     std::size_t array_element_count = 0;
     bool array_uses_vector_syntax = false;
+    bool struct_is_packed = false;
     std::string named_type_name;
     std::vector<AArch64LlvmImportType> element_types;
 
@@ -42,6 +47,29 @@ enum class AArch64LlvmImportConstantKind : unsigned char {
     Float,
     NullPointer,
     ZeroInitializer,
+    UndefValue,
+    PoisonValue,
+    SymbolReference,
+    SignExtend,
+    ZeroExtend,
+    Truncate,
+    SignedIntToFloat,
+    UnsignedIntToFloat,
+    FloatToSignedInt,
+    FloatToUnsignedInt,
+    FloatExtend,
+    FloatTruncate,
+    Bitcast,
+    AddrSpaceCast,
+    IntToPtr,
+    PtrToInt,
+    BlockAddress,
+    GetElementPtr,
+    Compare,
+    Select,
+    ExtractElement,
+    InsertElement,
+    ShuffleVector,
     Aggregate,
 };
 
@@ -50,10 +78,49 @@ struct AArch64LlvmImportConstant {
         AArch64LlvmImportConstantKind::Invalid;
     std::uint64_t integer_value = 0;
     std::string float_text;
+    std::string symbol_name;
+    std::string blockaddress_function_name;
+    std::string blockaddress_label_name;
+    std::string cast_source_type_text;
+    AArch64LlvmImportType cast_source_type;
+    std::string cast_target_type_text;
+    std::shared_ptr<AArch64LlvmImportConstant> cast_operand;
+    bool gep_is_inbounds = false;
+    std::string gep_source_type_text;
+    AArch64LlvmImportType gep_source_type;
+    std::shared_ptr<AArch64LlvmImportConstant> gep_base;
+    std::vector<std::string> gep_index_type_texts;
+    std::vector<AArch64LlvmImportType> gep_index_types;
+    std::vector<AArch64LlvmImportConstant> gep_indices;
+    bool compare_is_float = false;
+    std::string compare_predicate_text;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> compare_lhs_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> compare_rhs_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> select_condition_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> select_true_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> select_false_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> extract_vector_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> extract_index_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> insert_vector_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> insert_element_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> insert_index_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> shuffle_lhs_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> shuffle_rhs_operand;
+    std::shared_ptr<AArch64LlvmImportTypedConstant> shuffle_mask_operand;
     std::vector<AArch64LlvmImportConstant> elements;
 
     bool is_valid() const {
         return kind != AArch64LlvmImportConstantKind::Invalid;
+    }
+};
+
+struct AArch64LlvmImportTypedConstant {
+    std::string type_text;
+    AArch64LlvmImportType type;
+    AArch64LlvmImportConstant constant;
+
+    bool is_valid() const {
+        return type.is_valid() && constant.is_valid();
     }
 };
 
@@ -73,12 +140,16 @@ struct AArch64LlvmImportGlobal {
     AArch64LlvmImportConstant initializer;
     bool is_internal_linkage = false;
     bool is_constant = false;
+    bool is_external_declaration = false;
     int line = 0;
 };
 
 struct AArch64LlvmImportAlias {
     std::string name;
-    std::string target_name;
+    std::string target_type_text;
+    AArch64LlvmImportType target_type;
+    std::string target_text;
+    AArch64LlvmImportConstant target;
     int line = 0;
 };
 
@@ -103,6 +174,9 @@ enum class AArch64LlvmImportInstructionKind : unsigned char {
     Phi,
     Branch,
     CondBranch,
+    Switch,
+    IndirectBranch,
+    Unreachable,
     Return,
     ExtractElement,
     InsertElement,
@@ -130,6 +204,7 @@ struct AArch64LlvmImportFunction {
     AArch64LlvmImportType return_type;
     std::vector<AArch64LlvmImportParameter> parameters;
     bool is_internal_linkage = false;
+    bool is_extern_weak = false;
     bool is_variadic = false;
     bool is_definition = false;
     std::vector<AArch64LlvmImportBasicBlock> basic_blocks;

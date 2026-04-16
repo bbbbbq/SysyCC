@@ -87,6 +87,7 @@ get_core_ir_instruction_effect(const CoreIrInstruction &instruction) noexcept {
     }
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
     case CoreIrOpcode::Return:
         return CoreIrEffectInfo{CoreIrMemoryBehavior::None, true, false, false};
     }

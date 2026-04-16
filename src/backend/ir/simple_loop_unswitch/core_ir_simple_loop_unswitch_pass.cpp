@@ -427,6 +427,7 @@ bool instruction_is_condition_slice_cloneable(
     case CoreIrOpcode::Call:
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
     case CoreIrOpcode::Return:
         return false;
     }

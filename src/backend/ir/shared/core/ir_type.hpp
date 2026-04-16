@@ -139,12 +139,14 @@ class CoreIrArrayType final : public CoreIrType {
 class CoreIrStructType final : public CoreIrType {
   private:
     std::vector<const CoreIrType *> element_types_;
+    bool is_packed_ = false;
 
   public:
     CoreIrStructType() = default;
 
-    explicit CoreIrStructType(std::vector<const CoreIrType *> element_types)
-        : element_types_(std::move(element_types)) {}
+    explicit CoreIrStructType(std::vector<const CoreIrType *> element_types,
+                              bool is_packed = false)
+        : element_types_(std::move(element_types)), is_packed_(is_packed) {}
 
     CoreIrTypeKind get_kind() const noexcept override {
         return CoreIrTypeKind::Struct;
@@ -157,6 +159,10 @@ class CoreIrStructType final : public CoreIrType {
     void set_element_types(std::vector<const CoreIrType *> element_types) {
         element_types_ = std::move(element_types);
     }
+
+    bool get_is_packed() const noexcept { return is_packed_; }
+
+    void set_is_packed(bool is_packed) noexcept { is_packed_ = is_packed; }
 };
 
 class CoreIrFunctionType final : public CoreIrType {

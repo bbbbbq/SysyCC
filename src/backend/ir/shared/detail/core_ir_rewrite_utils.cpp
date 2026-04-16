@@ -241,6 +241,29 @@ void append_value_key(std::string &key, const CoreIrValue *value) {
         key += "];";
         return;
     }
+    if (const auto *constant_cast =
+            dynamic_cast<const CoreIrConstantCast *>(value);
+        constant_cast != nullptr) {
+        key += "ccast:";
+        append_type_key(key, constant_cast->get_type());
+        key += std::to_string(
+            static_cast<unsigned>(constant_cast->get_cast_kind()));
+        key.push_back(':');
+        append_value_key(key, constant_cast->get_operand());
+        key.push_back(';');
+        return;
+    }
+    if (const auto *block_address =
+            dynamic_cast<const CoreIrConstantBlockAddress *>(value);
+        block_address != nullptr) {
+        key += "cblockaddr:";
+        append_type_key(key, block_address->get_type());
+        key += block_address->get_function_name();
+        key.push_back(':');
+        key += block_address->get_block_name();
+        key.push_back(';');
+        return;
+    }
 
     key += "v:";
     key += std::to_string(reinterpret_cast<std::uintptr_t>(value));

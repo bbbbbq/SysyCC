@@ -77,6 +77,8 @@ bool emit_nonpromoted_store(AArch64MachineBlock &machine_block,
         AArch64VirtualReg source_address;
         if (!context.ensure_value_in_memory_address(machine_block, store.get_value(),
                                                     source_address)) {
+            context.report_error(
+                "failed to materialize aggregate store source for AArch64 lowering");
             return false;
         }
         AArch64VirtualReg destination_address =

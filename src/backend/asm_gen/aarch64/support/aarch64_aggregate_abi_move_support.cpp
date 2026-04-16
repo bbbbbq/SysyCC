@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 
@@ -40,7 +41,11 @@ std::size_t compute_call_stack_arg_bytes(const AArch64FunctionAbiInfo &abi_info)
 const CoreIrType *type_for_abi_location(const AArch64AbiLocation &location) {
     static CoreIrIntegerType i8_type(8);
     static CoreIrIntegerType i16_type(16);
+    static CoreIrIntegerType i24_type(24);
     static CoreIrIntegerType i32_type(32);
+    static CoreIrIntegerType i40_type(40);
+    static CoreIrIntegerType i48_type(48);
+    static CoreIrIntegerType i56_type(56);
     static CoreIrIntegerType i64_type(64);
     static CoreIrFloatType f16_type(CoreIrFloatKind::Float16);
     static CoreIrFloatType f32_type(CoreIrFloatKind::Float32);
@@ -57,16 +62,33 @@ const CoreIrType *type_for_abi_location(const AArch64AbiLocation &location) {
     case AArch64VirtualRegKind::Float128:
         return &f128_type;
     case AArch64VirtualRegKind::General64:
-        if (location.size >= 8) {
+        switch (location.size) {
+        case 1:
+            return &i8_type;
+        case 2:
+            return &i16_type;
+        case 3:
+            return &i24_type;
+        case 4:
+            return &i32_type;
+        case 5:
+            return &i40_type;
+        case 6:
+            return &i48_type;
+        case 7:
+            return &i56_type;
+        default:
             return &i64_type;
         }
-        [[fallthrough]];
     case AArch64VirtualRegKind::General32:
         if (location.size <= 1) {
             return &i8_type;
         }
         if (location.size <= 2) {
             return &i16_type;
+        }
+        if (location.size <= 3) {
+            return &i24_type;
         }
         if (location.size <= 4) {
             return &i32_type;
@@ -169,6 +191,25 @@ bool copy_aggregate_from_memory_to_assignment(
     }
 
     for (const AArch64AbiLocation &location : assignment.locations) {
+        if (location.kind == AArch64AbiLocationKind::Stack &&
+            stack_base_address != nullptr &&
+            location.size >= get_type_size(value_type)) {
+            AArch64VirtualReg destination_address =
+                context.create_pointer_virtual_reg(function);
+            machine_block.append_instruction(
+                AArch64MachineInstr("mov", {def_vreg_operand(destination_address),
+                                            use_vreg_operand(*stack_base_address)}));
+            if ((location.stack_offset != 0 &&
+                 !context.add_constant_offset(machine_block, destination_address,
+                                              static_cast<long long>(
+                                                  location.stack_offset),
+                                              function)) ||
+                !context.emit_memory_copy(machine_block, destination_address,
+                                          source_address, value_type, function)) {
+                return false;
+            }
+            continue;
+        }
         AArch64VirtualReg temp = function.create_virtual_reg(location.reg_kind);
         if (!context.append_load_from_address(machine_block,
                                               type_for_abi_location(location), temp,

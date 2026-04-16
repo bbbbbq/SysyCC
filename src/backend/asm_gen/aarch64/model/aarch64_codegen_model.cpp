@@ -132,6 +132,9 @@ classify_aarch64_machine_opcode(std::string_view mnemonic) noexcept {
     if (mnemonic == "bl") {
         return AArch64MachineOpcode::BranchLink;
     }
+    if (mnemonic == "br") {
+        return AArch64MachineOpcode::BranchRegister;
+    }
     if (mnemonic == "blr") {
         return AArch64MachineOpcode::BranchLinkRegister;
     }
@@ -252,6 +255,9 @@ classify_aarch64_machine_opcode(std::string_view mnemonic) noexcept {
     if (mnemonic == "fmul") {
         return AArch64MachineOpcode::FloatMul;
     }
+    if (mnemonic == "fmadd") {
+        return AArch64MachineOpcode::FloatMulAdd;
+    }
     if (mnemonic == "fdiv") {
         return AArch64MachineOpcode::FloatDiv;
     }
@@ -287,6 +293,8 @@ aarch64_machine_opcode_mnemonic(AArch64MachineOpcode opcode) noexcept {
         return "b";
     case AArch64MachineOpcode::BranchLink:
         return "bl";
+    case AArch64MachineOpcode::BranchRegister:
+        return "br";
     case AArch64MachineOpcode::BranchLinkRegister:
         return "blr";
     case AArch64MachineOpcode::CompareBranchZero:
@@ -365,6 +373,8 @@ aarch64_machine_opcode_mnemonic(AArch64MachineOpcode opcode) noexcept {
         return "fsub";
     case AArch64MachineOpcode::FloatMul:
         return "fmul";
+    case AArch64MachineOpcode::FloatMulAdd:
+        return "fmadd";
     case AArch64MachineOpcode::FloatDiv:
         return "fdiv";
     case AArch64MachineOpcode::FloatCompare:
@@ -403,6 +413,8 @@ describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept {
         AArch64MachineOpcode::Branch, "b", false, false, true};
     static const AArch64MachineOpcodeDescriptor kBranchLink{
         AArch64MachineOpcode::BranchLink, "bl", false, true, true};
+    static const AArch64MachineOpcodeDescriptor kBranchRegister{
+        AArch64MachineOpcode::BranchRegister, "br", false, false, true};
     static const AArch64MachineOpcodeDescriptor kBranchLinkRegister{
         AArch64MachineOpcode::BranchLinkRegister, "blr", false, true, true};
     static const AArch64MachineOpcodeDescriptor kBranchConditional{
@@ -483,6 +495,8 @@ describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept {
         AArch64MachineOpcode::FloatSub, "fsub", false, false, false};
     static const AArch64MachineOpcodeDescriptor kFloatMul{
         AArch64MachineOpcode::FloatMul, "fmul", false, false, false};
+    static const AArch64MachineOpcodeDescriptor kFloatMulAdd{
+        AArch64MachineOpcode::FloatMulAdd, "fmadd", false, false, false};
     static const AArch64MachineOpcodeDescriptor kFloatDiv{
         AArch64MachineOpcode::FloatDiv, "fdiv", false, false, false};
     static const AArch64MachineOpcodeDescriptor kFloatCompare{
@@ -509,6 +523,8 @@ describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept {
         return kBranch;
     case AArch64MachineOpcode::BranchLink:
         return kBranchLink;
+    case AArch64MachineOpcode::BranchRegister:
+        return kBranchRegister;
     case AArch64MachineOpcode::BranchLinkRegister:
         return kBranchLinkRegister;
     case AArch64MachineOpcode::BranchConditional:
@@ -589,6 +605,8 @@ describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept {
         return kFloatSub;
     case AArch64MachineOpcode::FloatMul:
         return kFloatMul;
+    case AArch64MachineOpcode::FloatMulAdd:
+        return kFloatMulAdd;
     case AArch64MachineOpcode::FloatDiv:
         return kFloatDiv;
     case AArch64MachineOpcode::FloatCompare:

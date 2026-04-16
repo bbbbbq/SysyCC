@@ -89,6 +89,20 @@ fp_binary_base(AArch64MachineOpcode opcode, AArch64VirtualRegKind kind) {
     return std::nullopt;
 }
 
+std::optional<std::uint32_t>
+fp_ternary_base(AArch64MachineOpcode opcode, AArch64VirtualRegKind kind) {
+    if (opcode != AArch64MachineOpcode::FloatMulAdd) {
+        return std::nullopt;
+    }
+    if (kind == AArch64VirtualRegKind::Float32) {
+        return 0x1F000000U;
+    }
+    if (kind == AArch64VirtualRegKind::Float64) {
+        return 0x1F400000U;
+    }
+    return std::nullopt;
+}
+
 std::optional<std::uint32_t> fcmp_base(AArch64VirtualRegKind kind) {
     switch (kind) {
     case AArch64VirtualRegKind::Float16:

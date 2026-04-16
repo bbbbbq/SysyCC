@@ -48,6 +48,9 @@ class AArch64PhiCopyLoweringContext {
     virtual bool materialize_value(AArch64MachineBlock &machine_block,
                                    const CoreIrValue *value,
                                    const AArch64VirtualReg &target_reg) = 0;
+    virtual bool materialize_noncanonical_value(
+        AArch64MachineBlock &machine_block, const CoreIrValue *value,
+        const AArch64VirtualReg &target_reg) = 0;
 };
 
 class CoreIrFunction;

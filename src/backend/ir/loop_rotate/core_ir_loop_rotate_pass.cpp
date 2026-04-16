@@ -83,6 +83,7 @@ bool is_cloneable_header_instruction(const CoreIrInstruction &instruction) {
     case CoreIrOpcode::Call:
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
     case CoreIrOpcode::Return:
         return false;
     }

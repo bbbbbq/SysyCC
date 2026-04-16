@@ -226,6 +226,17 @@ std::unique_ptr<CoreIrInstruction> clone_instruction_remapped(
         clone->set_source_span(jump.get_source_span());
         return clone;
     }
+    case CoreIrOpcode::IndirectJump: {
+        const auto &jump = static_cast<const CoreIrIndirectJumpInst &>(instruction);
+        std::vector<CoreIrBasicBlock *> targets;
+        for (CoreIrBasicBlock *target : jump.get_target_blocks()) {
+            targets.push_back(remap_block(target));
+        }
+        auto clone = std::make_unique<CoreIrIndirectJumpInst>(
+            jump.get_type(), remap(jump.get_address()), std::move(targets));
+        clone->set_source_span(jump.get_source_span());
+        return clone;
+    }
     case CoreIrOpcode::Return: {
         const auto &ret = static_cast<const CoreIrReturnInst &>(instruction);
         std::unique_ptr<CoreIrReturnInst> clone;

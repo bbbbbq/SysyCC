@@ -71,6 +71,7 @@ set(SYSYCC_AARCH64_CODEGEN_SOURCES
     src/backend/asm_gen/aarch64/support/aarch64_call_abi_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_call_return_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_binary_lowering_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_branch_instruction_encoding_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_cast_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_codegen_backend_bridge.cpp
     src/backend/asm_gen/aarch64/support/aarch64_compare_lowering_support.cpp
@@ -89,6 +90,7 @@ set(SYSYCC_AARCH64_CODEGEN_SOURCES
     src/backend/asm_gen/aarch64/support/aarch64_instruction_encoding_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_object_image_builder_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_memory_access_support.cpp
+    src/backend/asm_gen/aarch64/support/aarch64_memory_instruction_encoding_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_memory_instruction_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_memory_value_lowering_support.cpp
     src/backend/asm_gen/aarch64/support/aarch64_phi_lowering_support.cpp

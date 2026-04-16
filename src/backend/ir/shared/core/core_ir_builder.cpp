@@ -259,6 +259,61 @@ const SemanticType *get_union_carrier_semantic_type(const UnionSemanticType *typ
     return best_type;
 }
 
+std::size_t get_core_ir_default_alignment(const CoreIrType *type) {
+    if (type == nullptr) {
+        return 1;
+    }
+    switch (type->get_kind()) {
+    case CoreIrTypeKind::Integer: {
+        const auto bit_width =
+            static_cast<const CoreIrIntegerType *>(type)->get_bit_width();
+        if (bit_width <= 8) {
+            return 1;
+        }
+        if (bit_width <= 16) {
+            return 2;
+        }
+        if (bit_width <= 32) {
+            return 4;
+        }
+        return 8;
+    }
+    case CoreIrTypeKind::Float:
+        switch (static_cast<const CoreIrFloatType *>(type)->get_float_kind()) {
+        case CoreIrFloatKind::Float16:
+            return 2;
+        case CoreIrFloatKind::Float32:
+            return 4;
+        case CoreIrFloatKind::Float64:
+        case CoreIrFloatKind::Float128:
+            return 8;
+        }
+        return 8;
+    case CoreIrTypeKind::Pointer:
+        return 8;
+    case CoreIrTypeKind::Array:
+        return get_core_ir_default_alignment(
+            static_cast<const CoreIrArrayType *>(type)->get_element_type());
+    case CoreIrTypeKind::Struct: {
+        const auto *struct_type = static_cast<const CoreIrStructType *>(type);
+        if (struct_type->get_is_packed()) {
+            return 1;
+        }
+        std::size_t alignment = 1;
+        const auto &element_types = struct_type->get_element_types();
+        for (const CoreIrType *element_type : element_types) {
+            alignment =
+                std::max(alignment, get_core_ir_default_alignment(element_type));
+        }
+        return alignment;
+    }
+    case CoreIrTypeKind::Function:
+    case CoreIrTypeKind::Void:
+        return 8;
+    }
+    return 8;
+}
+
 std::size_t get_core_ir_type_size(const CoreIrType *type) {
     if (type == nullptr) {
         return 0;
@@ -288,10 +343,26 @@ std::size_t get_core_ir_type_size(const CoreIrType *type) {
                array_type->get_element_count();
     }
     case CoreIrTypeKind::Struct: {
+        const auto *struct_type = static_cast<const CoreIrStructType *>(type);
         std::size_t total_size = 0;
-        for (const CoreIrType *element_type :
-             static_cast<const CoreIrStructType *>(type)->get_element_types()) {
+        std::size_t max_alignment = 1;
+        for (const CoreIrType *element_type : struct_type->get_element_types()) {
+            const std::size_t element_alignment =
+                get_core_ir_default_alignment(element_type);
+            max_alignment = std::max(max_alignment, element_alignment);
+            if (!struct_type->get_is_packed()) {
+                const std::size_t remainder = total_size % element_alignment;
+                if (remainder != 0) {
+                    total_size += element_alignment - remainder;
+                }
+            }
             total_size += get_core_ir_type_size(element_type);
+        }
+        if (!struct_type->get_is_packed() && max_alignment > 1) {
+            const std::size_t remainder = total_size % max_alignment;
+            if (remainder != 0) {
+                total_size += max_alignment - remainder;
+            }
         }
         return total_size;
     }
@@ -386,9 +457,12 @@ class CoreIrBuildSession {
             return get_default_alignment(
                 static_cast<const CoreIrArrayType *>(type)->get_element_type());
         case CoreIrTypeKind::Struct: {
+            const auto *struct_type = static_cast<const CoreIrStructType *>(type);
+            if (struct_type->get_is_packed()) {
+                return 1;
+            }
             std::size_t alignment = 1;
-            const auto &element_types =
-                static_cast<const CoreIrStructType *>(type)->get_element_types();
+            const auto &element_types = struct_type->get_element_types();
             for (const CoreIrType *element_type : element_types) {
                 alignment = std::max(alignment, get_default_alignment(element_type));
             }
@@ -1882,10 +1956,13 @@ class CoreIrBuildSession {
                        static_cast<const CoreIrArrayType *>(lhs)->get_element_type(),
                        static_cast<const CoreIrArrayType *>(rhs)->get_element_type());
         case CoreIrTypeKind::Struct: {
-            const auto &lhs_elements =
-                static_cast<const CoreIrStructType *>(lhs)->get_element_types();
-            const auto &rhs_elements =
-                static_cast<const CoreIrStructType *>(rhs)->get_element_types();
+            const auto *lhs_struct = static_cast<const CoreIrStructType *>(lhs);
+            const auto *rhs_struct = static_cast<const CoreIrStructType *>(rhs);
+            if (lhs_struct->get_is_packed() != rhs_struct->get_is_packed()) {
+                return false;
+            }
+            const auto &lhs_elements = lhs_struct->get_element_types();
+            const auto &rhs_elements = rhs_struct->get_element_types();
             if (lhs_elements.size() != rhs_elements.size()) {
                 return false;
             }

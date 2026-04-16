@@ -9,6 +9,7 @@
 
 #include "backend/asm_gen/aarch64/model/aarch64_target_constraints.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_address_value_lowering_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_address_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_call_return_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_float_helper_lowering_support.hpp"
@@ -16,6 +17,8 @@
 #include "backend/asm_gen/aarch64/support/aarch64_scalar_instruction_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_value_conversion_support.hpp"
+#include "backend/ir/shared/core/ir_constant.hpp"
+#include "backend/ir/shared/core/ir_instruction.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
@@ -169,6 +172,13 @@ bool AArch64FunctionLoweringFacade::materialize_value(
                                        *this);
 }
 
+bool AArch64FunctionLoweringFacade::materialize_noncanonical_value(
+    AArch64MachineBlock &machine_block, const CoreIrValue *value,
+    const AArch64VirtualReg &target_reg) {
+    return services_.materialize_noncanonical_value(machine_block, value,
+                                                    target_reg, state_, *this);
+}
+
 void AArch64FunctionLoweringFacade::append_frame_address(
     AArch64MachineBlock &machine_block, const AArch64VirtualReg &target_reg,
     std::size_t offset, AArch64MachineFunction &function) {
@@ -234,9 +244,19 @@ bool AArch64FunctionLoweringFacade::ensure_value_in_memory_address(
     if (location == nullptr ||
         location->kind != AArch64ValueLocationKind::MemoryAddress ||
         !location->virtual_reg.is_valid()) {
-        report_error(
-            "missing canonical AArch64 aggregate memory location for Core IR "
-            "value");
+        std::string detail =
+            "missing canonical AArch64 aggregate memory location for Core IR value";
+        if (value != nullptr && !value->get_name().empty()) {
+            detail += " '" + value->get_name() + "'";
+        }
+        if (const auto *instruction =
+                dynamic_cast<const CoreIrInstruction *>(value);
+            instruction != nullptr) {
+            detail += " (opcode=" +
+                      std::to_string(static_cast<int>(instruction->get_opcode())) +
+                      ")";
+        }
+        report_error(detail);
         return false;
     }
     return materialize_canonical_memory_address(machine_block, value, out);
@@ -502,6 +522,21 @@ AArch64FunctionLoweringFacade::indirect_result_address() const {
     return state_.value_state.indirect_result_address;
 }
 
+AArch64VariadicVaListState
+AArch64FunctionLoweringFacade::variadic_va_list_state() const {
+    AArch64VariadicVaListState result;
+    const auto &frame_info = state_.machine_function->get_frame_info();
+    result.is_variadic_function =
+        frame_info.get_variadic_gpr_save_area_offset().has_value() ||
+        frame_info.get_variadic_fpr_save_area_offset().has_value();
+    result.incoming_stack_offset = frame_info.get_variadic_incoming_stack_offset();
+    result.named_gpr_slots = frame_info.get_variadic_named_gpr_slots();
+    result.named_fpr_slots = frame_info.get_variadic_named_fpr_slots();
+    result.gpr_save_area_offset = frame_info.get_variadic_gpr_save_area_offset();
+    result.fpr_save_area_offset = frame_info.get_variadic_fpr_save_area_offset();
+    return result;
+}
+
 void AArch64FunctionLoweringFacade::emit_debug_location(
     AArch64MachineBlock &machine_block, const SourceSpan &source_span,
     FunctionState &state) {
@@ -554,6 +589,14 @@ bool AArch64FunctionLoweringFacade::emit_compare(
                                             *state_.machine_function);
 }
 
+bool AArch64FunctionLoweringFacade::emit_select(
+    AArch64MachineBlock &machine_block, const CoreIrSelectInst &select,
+    const FunctionState &state) {
+    (void)state;
+    return sysycc::emit_select_instruction(machine_block, *this, select,
+                                           *state_.machine_function);
+}
+
 bool AArch64FunctionLoweringFacade::emit_cast(
     AArch64MachineBlock &machine_block, const CoreIrCastInst &cast,
     const FunctionState &state) {
@@ -589,6 +632,61 @@ bool AArch64FunctionLoweringFacade::emit_cond_jump(
         "b",
         {AArch64MachineOperand::label(resolve_branch_target_label(
             state_, current_block, cond_jump.get_false_block()))}));
+    return true;
+}
+
+bool AArch64FunctionLoweringFacade::emit_indirect_jump(
+    AArch64MachineBlock &machine_block, const CoreIrIndirectJumpInst &indirect_jump,
+    const FunctionState &state, const CoreIrBasicBlock *current_block) {
+    (void)state;
+    AArch64VirtualReg address_reg;
+    if (!ensure_value_in_vreg(machine_block, indirect_jump.get_address(),
+                              address_reg)) {
+        return false;
+    }
+
+    bool needs_dispatch_chain = false;
+    for (const CoreIrBasicBlock *target : indirect_jump.get_target_blocks()) {
+        if (target == nullptr) {
+            report_error("encountered null indirect branch target in the AArch64 native backend");
+            return false;
+        }
+        if (resolve_branch_target_label(state_, current_block, target) !=
+            block_label(target)) {
+            needs_dispatch_chain = true;
+            break;
+        }
+    }
+
+    if (!needs_dispatch_chain) {
+        machine_block.append_instruction(
+            AArch64MachineInstr("br",
+                                {AArch64MachineOperand::use_virtual_reg(address_reg)}));
+        return true;
+    }
+
+    for (const CoreIrBasicBlock *target : indirect_jump.get_target_blocks()) {
+        const std::string original_label = block_label(target);
+        const std::string lowered_label =
+            resolve_branch_target_label(state_, current_block, target);
+        const AArch64VirtualReg target_reg =
+            create_pointer_virtual_reg(*state_.machine_function);
+        if (!materialize_global_address(machine_block, *this, original_label, target_reg,
+                                        AArch64SymbolKind::Label)) {
+            return false;
+        }
+        machine_block.append_instruction(
+            AArch64MachineInstr("cmp", {AArch64MachineOperand::use_virtual_reg(address_reg),
+                                         AArch64MachineOperand::use_virtual_reg(target_reg)}));
+        machine_block.append_instruction(
+            AArch64MachineInstr("b.eq",
+                                {AArch64MachineOperand::label(lowered_label)}));
+    }
+
+    // LLVM indirectbr is undefined if the address does not match any listed target.
+    machine_block.append_instruction(
+        AArch64MachineInstr("br",
+                            {AArch64MachineOperand::use_virtual_reg(address_reg)}));
     return true;
 }
 

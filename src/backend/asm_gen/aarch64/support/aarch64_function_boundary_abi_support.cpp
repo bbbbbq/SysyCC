@@ -61,6 +61,8 @@ bool emit_function_return(AArch64MachineFunction &machine_function,
             AArch64VirtualReg return_address;
             if (!context.ensure_value_in_memory_address(
                     machine_block, return_inst.get_return_value(), return_address)) {
+                context.report_error(
+                    "failed to materialize aggregate return value for AArch64 function");
                 return false;
             }
             if (abi_info.return_value.is_indirect) {

@@ -57,6 +57,7 @@ bool instruction_is_inline_supported(const CoreIrInstruction &instruction) {
     case CoreIrOpcode::Store:
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
     case CoreIrOpcode::Return:
         return true;
     default:

@@ -2,6 +2,7 @@
 
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_value_conversion_support.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 
 namespace sysycc {
@@ -30,19 +31,129 @@ AArch64MachineOperand incoming_stack_memory_operand(std::size_t offset) {
         static_cast<long long>(offset));
 }
 
+std::size_t exact_scalar_memory_size(const CoreIrType *type) {
+    if (is_pointer_type(type)) {
+        return 8;
+    }
+    if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+        switch (float_type->get_float_kind()) {
+        case CoreIrFloatKind::Float16:
+            return 2;
+        case CoreIrFloatKind::Float32:
+            return 4;
+        case CoreIrFloatKind::Float64:
+            return 8;
+        case CoreIrFloatKind::Float128:
+            return 16;
+        }
+    }
+    const auto *integer_type = as_integer_type(type);
+    if (integer_type == nullptr) {
+        return get_storage_size(type);
+    }
+    const std::size_t bit_width = integer_type->get_bit_width();
+    return bit_width == 0 ? 0 : ((bit_width + 7U) / 8U);
+}
+
+bool requires_byte_precise_integer_access(const CoreIrType *type) {
+    if (as_integer_type(type) == nullptr) {
+        return false;
+    }
+    const std::size_t size = exact_scalar_memory_size(type);
+    return size == 3 || size == 5 || size == 6 || size == 7;
+}
+
+bool append_load_precise_integer(AArch64MachineBlock &machine_block,
+                                 AArch64MemoryAccessContext &context,
+                                 const CoreIrType *type,
+                                 const AArch64VirtualReg &target_reg,
+                                 const AArch64VirtualReg &address_reg,
+                                 std::size_t offset,
+                                 AArch64MachineFunction &function) {
+    static CoreIrIntegerType i8_type(8);
+    const std::size_t byte_count = exact_scalar_memory_size(type);
+    machine_block.append_instruction(AArch64MachineInstr(
+        "mov", {def_vreg_operand(target_reg),
+                zero_register_operand(target_reg.get_use_64bit())}));
+
+    for (std::size_t byte_index = 0; byte_index < byte_count; ++byte_index) {
+        const AArch64VirtualReg byte_reg =
+            function.create_virtual_reg(AArch64VirtualRegKind::General32);
+        if (!append_load_from_address(machine_block, context, &i8_type, byte_reg,
+                                      address_reg, offset + byte_index,
+                                      function)) {
+            return false;
+        }
+        const bool use_64bit_byte_view = target_reg.get_use_64bit();
+        if (byte_index != 0) {
+            machine_block.append_instruction(AArch64MachineInstr(
+                "lsl", {def_vreg_operand_as(byte_reg, use_64bit_byte_view),
+                        use_vreg_operand_as(byte_reg, use_64bit_byte_view),
+                        AArch64MachineOperand::immediate(
+                            "#" + std::to_string(byte_index * 8U))}));
+        }
+        machine_block.append_instruction(AArch64MachineInstr(
+            "orr", {def_vreg_operand(target_reg), use_vreg_operand(target_reg),
+                    use_vreg_operand_as(byte_reg, use_64bit_byte_view)}));
+    }
+    if (const auto *integer_type = as_integer_type(type); integer_type != nullptr &&
+        integer_type->get_is_signed()) {
+        apply_sign_extend_to_virtual_reg(machine_block, target_reg, type, type);
+    } else {
+        apply_zero_extend_to_virtual_reg(machine_block, target_reg, type, type);
+    }
+    return true;
+}
+
+bool append_store_precise_integer(AArch64MachineBlock &machine_block,
+                                  AArch64MemoryAccessContext &context,
+                                  const CoreIrType *type,
+                                  const AArch64VirtualReg &source_reg,
+                                  const AArch64VirtualReg &address_reg,
+                                  std::size_t offset,
+                                  AArch64MachineFunction &function) {
+    static CoreIrIntegerType i8_type(8);
+    const std::size_t byte_count = exact_scalar_memory_size(type);
+    const bool source_is_64bit = source_reg.get_use_64bit();
+
+    if (!append_memory_store(machine_block, context, &i8_type,
+                             use_vreg_operand_as(source_reg, false), address_reg,
+                             offset,
+                             function)) {
+        return false;
+    }
+
+    for (std::size_t byte_index = 1; byte_index < byte_count; ++byte_index) {
+        const AArch64VirtualReg shifted_reg =
+            function.create_virtual_reg(source_is_64bit
+                                            ? AArch64VirtualRegKind::General64
+                                            : AArch64VirtualRegKind::General32);
+        machine_block.append_instruction(AArch64MachineInstr(
+            "lsr", {def_vreg_operand(shifted_reg), use_vreg_operand(source_reg),
+                    AArch64MachineOperand::immediate(
+                        "#" + std::to_string(byte_index * 8U))}));
+        if (!append_memory_store(machine_block, context, &i8_type,
+                                 use_vreg_operand_as(shifted_reg, false), address_reg,
+                                 offset + byte_index, function)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 std::string load_mnemonic_for_type(const CoreIrType *type) {
     if (is_float_type(type)) {
         return "ldr";
     }
-    if (is_pointer_type(type) || get_storage_size(type) == 8) {
+    if (is_pointer_type(type) || exact_scalar_memory_size(type) == 8) {
         return "ldr";
     }
-    if (get_storage_size(type) == 2) {
+    if (exact_scalar_memory_size(type) == 2) {
         return "ldrh";
     }
-    if (get_storage_size(type) == 1) {
+    if (exact_scalar_memory_size(type) == 1) {
         return "ldrb";
     }
     return "ldr";
@@ -52,13 +163,13 @@ std::string store_mnemonic_for_type(const CoreIrType *type) {
     if (is_float_type(type)) {
         return "str";
     }
-    if (is_pointer_type(type) || get_storage_size(type) == 8) {
+    if (is_pointer_type(type) || exact_scalar_memory_size(type) == 8) {
         return "str";
     }
-    if (get_storage_size(type) == 2) {
+    if (exact_scalar_memory_size(type) == 2) {
         return "strh";
     }
-    if (get_storage_size(type) == 1) {
+    if (exact_scalar_memory_size(type) == 1) {
         return "strb";
     }
     return "str";
@@ -142,10 +253,17 @@ void append_load_from_frame(AArch64MachineBlock &machine_block,
                             const CoreIrType *type,
                             const AArch64VirtualReg &target_reg, std::size_t offset,
                             AArch64MachineFunction &function) {
+    if (requires_byte_precise_integer_access(type)) {
+        const AArch64VirtualReg address_reg = context.create_pointer_virtual_reg(function);
+        context.append_frame_address(machine_block, address_reg, offset, function);
+        append_load_from_address(machine_block, context, type, target_reg, address_reg, 0,
+                                 function);
+        return;
+    }
     std::string mnemonic = "ldur";
-    if (!is_float_type(type) && get_storage_size(type) == 2) {
+    if (!is_float_type(type) && exact_scalar_memory_size(type) == 2) {
         mnemonic = "ldurh";
-    } else if (!is_float_type(type) && get_storage_size(type) == 1) {
+    } else if (!is_float_type(type) && exact_scalar_memory_size(type) == 1) {
         mnemonic = "ldurb";
     }
     if (offset <= 255) {
@@ -167,10 +285,17 @@ void append_store_to_frame(AArch64MachineBlock &machine_block,
                            const CoreIrType *type,
                            const AArch64VirtualReg &source_reg, std::size_t offset,
                            AArch64MachineFunction &function) {
+    if (requires_byte_precise_integer_access(type)) {
+        const AArch64VirtualReg address_reg = context.create_pointer_virtual_reg(function);
+        context.append_frame_address(machine_block, address_reg, offset, function);
+        append_store_to_address(machine_block, context, type, source_reg, address_reg, 0,
+                                function);
+        return;
+    }
     std::string mnemonic = "stur";
-    if (!is_float_type(type) && get_storage_size(type) == 2) {
+    if (!is_float_type(type) && exact_scalar_memory_size(type) == 2) {
         mnemonic = "sturh";
-    } else if (!is_float_type(type) && get_storage_size(type) == 1) {
+    } else if (!is_float_type(type) && exact_scalar_memory_size(type) == 1) {
         mnemonic = "sturb";
     }
     if (offset <= 255) {
@@ -193,6 +318,19 @@ void append_load_from_incoming_stack_arg(AArch64MachineBlock &machine_block,
                                          const AArch64VirtualReg &target_reg,
                                          std::size_t offset,
                                          AArch64MachineFunction &function) {
+    if (requires_byte_precise_integer_access(type)) {
+        const AArch64VirtualReg address_reg = context.create_pointer_virtual_reg(function);
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov", {def_vreg_operand(address_reg),
+                    AArch64MachineOperand::physical_reg(
+                        static_cast<unsigned>(AArch64PhysicalReg::X29),
+                        AArch64VirtualRegKind::General64)}));
+        context.add_constant_offset(machine_block, address_reg,
+                                    static_cast<long long>(offset), function);
+        append_load_from_address(machine_block, context, type, target_reg, address_reg, 0,
+                                 function);
+        return;
+    }
     if (offset <= 4095) {
         machine_block.append_instruction(
             AArch64MachineInstr(load_mnemonic_for_type(type),
@@ -220,6 +358,10 @@ bool append_load_from_address(AArch64MachineBlock &machine_block,
                               const AArch64VirtualReg &address_reg,
                               std::size_t offset,
                               AArch64MachineFunction &function) {
+    if (requires_byte_precise_integer_access(type)) {
+        return append_load_precise_integer(machine_block, context, type, target_reg,
+                                           address_reg, offset, function);
+    }
     if (offset <= 4095) {
         machine_block.append_instruction(AArch64MachineInstr(
             load_mnemonic_for_type(type),
@@ -247,6 +389,10 @@ bool append_store_to_address(AArch64MachineBlock &machine_block,
                              const AArch64VirtualReg &address_reg,
                              std::size_t offset,
                              AArch64MachineFunction &function) {
+    if (requires_byte_precise_integer_access(type)) {
+        return append_store_precise_integer(machine_block, context, type, source_reg,
+                                            address_reg, offset, function);
+    }
     return append_memory_store(machine_block, context, type,
                                use_vreg_operand(source_reg),
                                address_reg, offset, function);

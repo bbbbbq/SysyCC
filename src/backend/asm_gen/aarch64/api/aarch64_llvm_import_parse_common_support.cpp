@@ -1,5 +1,6 @@
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_parse_common_support.hpp"
 
+#include <algorithm>
 #include <cctype>
 
 namespace sysycc {
@@ -30,8 +31,33 @@ bool llvm_import_is_identifier_char(char ch) {
 }
 
 std::string llvm_import_strip_comment(const std::string &line) {
-    const std::size_t comment_pos = line.find(';');
-    return llvm_import_trim_copy(line.substr(0, comment_pos));
+    bool in_quote = false;
+    bool quote_escape = false;
+    for (std::size_t index = 0; index < line.size(); ++index) {
+        const char ch = line[index];
+        if (in_quote) {
+            if (quote_escape) {
+                quote_escape = false;
+                continue;
+            }
+            if (ch == '\\') {
+                quote_escape = true;
+                continue;
+            }
+            if (ch == '"') {
+                in_quote = false;
+            }
+            continue;
+        }
+        if (ch == '"') {
+            in_quote = true;
+            continue;
+        }
+        if (ch == ';') {
+            return llvm_import_trim_copy(line.substr(0, index));
+        }
+    }
+    return llvm_import_trim_copy(line);
 }
 
 std::optional<std::string>
@@ -79,9 +105,29 @@ std::vector<std::string> llvm_import_split_top_level(const std::string &text,
     int brace_depth = 0;
     int paren_depth = 0;
     int angle_depth = 0;
+    bool in_quote = false;
+    bool quote_escape = false;
 
     for (std::size_t index = 0; index < text.size(); ++index) {
+        if (in_quote) {
+            if (quote_escape) {
+                quote_escape = false;
+                continue;
+            }
+            if (text[index] == '\\') {
+                quote_escape = true;
+                continue;
+            }
+            if (text[index] == '"') {
+                in_quote = false;
+            }
+            continue;
+        }
+
         switch (text[index]) {
+        case '"':
+            in_quote = true;
+            break;
         case '[':
             ++square_depth;
             break;
@@ -126,8 +172,27 @@ llvm_import_strip_trailing_alignment_suffix(const std::string &text) {
     std::size_t square_depth = 0;
     std::size_t brace_depth = 0;
     std::size_t paren_depth = 0;
+    bool in_quote = false;
+    bool quote_escape = false;
     for (std::size_t index = 0; index + 8 < text.size(); ++index) {
+        if (in_quote) {
+            if (quote_escape) {
+                quote_escape = false;
+                continue;
+            }
+            if (text[index] == '\\') {
+                quote_escape = true;
+                continue;
+            }
+            if (text[index] == '"') {
+                in_quote = false;
+            }
+            continue;
+        }
         switch (text[index]) {
+        case '"':
+            in_quote = true;
+            break;
         case '[':
             ++square_depth;
             break;
@@ -175,6 +240,25 @@ llvm_import_consume_type_token(const std::string &text, std::size_t &position) {
     }
     if (llvm_import_starts_with(std::string_view(text).substr(position), "ptr")) {
         position += 3;
+        const std::size_t after_ptr = position;
+        while (position < text.size() &&
+               std::isspace(static_cast<unsigned char>(text[position])) != 0) {
+            ++position;
+        }
+        if (llvm_import_starts_with(std::string_view(text).substr(position),
+                                    "addrspace(")) {
+            position += 10;
+            while (position < text.size() &&
+                   std::isdigit(static_cast<unsigned char>(text[position])) != 0) {
+                ++position;
+            }
+            if (position >= text.size() || text[position] != ')') {
+                return std::nullopt;
+            }
+            ++position;
+            return text.substr(start, position - start);
+        }
+        position = after_ptr;
         return text.substr(start, position - start);
     }
     if (llvm_import_starts_with(std::string_view(text).substr(position), "half")) {
@@ -259,6 +343,8 @@ bool llvm_import_is_modifier_token(const std::string &token) {
         "noalias",           "readonly",           "readnone",
         "writeonly",         "returned",           "signext",
         "zeroext",           "inreg",              "immarg",
+        "volatile",          "atomic",
+        "writable",          "dead_on_unwind",
         "swiftself",         "swifterror",         "sret",
         "byval",             "align",              "dereferenceable",
         "dereferenceable_or_null",                 "nonnull",
@@ -266,7 +352,8 @@ bool llvm_import_is_modifier_token(const std::string &token) {
         "tail",              "musttail",           "notail",
         "fast",              "coldcc",             "fastcc",
         "ccc",               "internal",           "private",
-        "external",          "weak",               "linkonce",
+        "external",          "extern_weak",        "weak",
+        "linkonce",
         "linkonce_odr",      "available_externally", "common",
         "comdat",            "any",                "hidden",
     };
@@ -284,9 +371,43 @@ bool llvm_import_is_modifier_token(const std::string &token) {
            llvm_import_starts_with(token, "dereferenceable_or_null(");
 }
 
+std::optional<std::size_t>
+llvm_import_consume_parenthesized_modifier_prefix(const std::string &text) {
+    static const std::vector<std::string> prefixes = {
+        "addrspace(", "byval(", "sret(", "dereferenceable(",
+        "dereferenceable_or_null(", "elementtype(",
+    };
+    for (const std::string &prefix : prefixes) {
+        if (!llvm_import_starts_with(text, prefix)) {
+            continue;
+        }
+        std::size_t position = prefix.size();
+        int depth = 1;
+        while (position < text.size() && depth > 0) {
+            if (text[position] == '(') {
+                ++depth;
+            } else if (text[position] == ')') {
+                --depth;
+            }
+            ++position;
+        }
+        if (depth == 0) {
+            return position;
+        }
+    }
+    return std::nullopt;
+}
+
 std::string llvm_import_strip_leading_modifiers(const std::string &text) {
     std::string current = llvm_import_trim_copy(text);
     while (!current.empty()) {
+        if (const auto parenthesized_modifier_end =
+                llvm_import_consume_parenthesized_modifier_prefix(current);
+            parenthesized_modifier_end.has_value()) {
+            current = llvm_import_trim_copy(
+                current.substr(*parenthesized_modifier_end));
+            continue;
+        }
         std::size_t token_end = 0;
         while (token_end < current.size() &&
                std::isspace(static_cast<unsigned char>(current[token_end])) == 0) {
@@ -297,6 +418,19 @@ std::string llvm_import_strip_leading_modifiers(const std::string &text) {
             break;
         }
         current = llvm_import_trim_copy(current.substr(token_end));
+        if (token == "align") {
+            std::size_t align_value_end = 0;
+            while (align_value_end < current.size() &&
+                   std::isspace(static_cast<unsigned char>(current[align_value_end])) == 0) {
+                ++align_value_end;
+            }
+            const std::string align_value = current.substr(0, align_value_end);
+            if (!align_value.empty() &&
+                std::all_of(align_value.begin(), align_value.end(),
+                            [](unsigned char ch) { return std::isdigit(ch) != 0; })) {
+                current = llvm_import_trim_copy(current.substr(align_value_end));
+            }
+        }
     }
     return current;
 }

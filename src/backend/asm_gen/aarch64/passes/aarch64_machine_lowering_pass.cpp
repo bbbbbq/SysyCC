@@ -459,6 +459,56 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         initialize_aarch64_function_frame_record(machine_function, frame_size);
     }
 
+    void reserve_variadic_va_list_support_areas(
+        const CoreIrFunction &function, const AArch64FunctionAbiInfo &abi_info,
+        AArch64MachineFunction &machine_function, std::size_t &current_offset) {
+        if (!function.get_is_variadic()) {
+            return;
+        }
+        unsigned named_gpr_slots = 0;
+        unsigned named_fpr_slots = 0;
+        std::size_t incoming_stack_offset = 16;
+        for (const AArch64AbiAssignment &assignment : abi_info.parameters) {
+            incoming_stack_offset =
+                std::max(incoming_stack_offset,
+                         assignment.locations.empty()
+                             ? incoming_stack_offset
+                             : assignment.locations.front().kind ==
+                                       AArch64AbiLocationKind::Stack
+                                   ? assignment.locations.front().stack_offset +
+                                         assignment.stack_size
+                                   : incoming_stack_offset);
+            for (const AArch64AbiLocation &location : assignment.locations) {
+                if (location.kind == AArch64AbiLocationKind::GeneralRegister) {
+                    named_gpr_slots = std::max(
+                        named_gpr_slots,
+                        location.physical_reg -
+                            static_cast<unsigned>(AArch64PhysicalReg::X0) + 1U);
+                } else if (location.kind ==
+                           AArch64AbiLocationKind::FloatingRegister) {
+                    named_fpr_slots = std::max(
+                        named_fpr_slots,
+                        location.physical_reg -
+                            static_cast<unsigned>(AArch64PhysicalReg::V0) + 1U);
+                }
+            }
+        }
+        current_offset = align_to(current_offset, 16);
+        current_offset += 8 * 8;
+        machine_function.get_frame_info().set_variadic_gpr_save_area_offset(
+            current_offset);
+        current_offset = align_to(current_offset, 16);
+        current_offset += 8 * 16;
+        machine_function.get_frame_info().set_variadic_fpr_save_area_offset(
+            current_offset);
+        machine_function.get_frame_info().set_variadic_incoming_stack_offset(
+            incoming_stack_offset);
+        machine_function.get_frame_info().set_variadic_named_gpr_slots(
+            named_gpr_slots);
+        machine_function.get_frame_info().set_variadic_named_fpr_slots(
+            named_fpr_slots);
+    }
+
     bool plan_function_stack_and_values(const CoreIrFunction &function,
                                         FunctionState &state,
                                         AArch64FunctionLoweringFacade &facade) {
@@ -476,6 +526,9 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         sysycc::seed_promoted_stack_slots(
             function, state.value_state.value_locations,
             state.value_state.promoted_stack_slots);
+        reserve_variadic_va_list_support_areas(function, state.call_state.abi_info,
+                                               *state.machine_function,
+                                               current_offset);
         finalize_function_frame_layout(*state.machine_function, current_offset);
         return true;
     }
@@ -485,6 +538,11 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
                                     AArch64FunctionLoweringFacade &facade) {
         block_labels_ =
             build_aarch64_function_block_labels(function, function.get_name());
+        for (const auto &[block, label] : block_labels_) {
+            (void)block;
+            record_symbol_definition(label, AArch64SymbolKind::Label,
+                                     AArch64SectionKind::Text, false);
+        }
         state.control_state.phi_edge_labels.clear();
         state.control_state.phi_edge_plans.clear();
         if (!sysycc::build_phi_edge_plans(function, facade,
@@ -546,6 +604,56 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
                 prologue_block, state.value_state.indirect_result_address,
                 static_cast<unsigned>(AArch64PhysicalReg::X8),
                 AArch64VirtualRegKind::General64);
+        }
+        if (function.get_is_variadic()) {
+            static CoreIrIntegerType i64_type(64);
+            static CoreIrFloatType f128_type(CoreIrFloatKind::Float128);
+            if (const auto gpr_offset =
+                    machine_function.get_frame_info()
+                        .get_variadic_gpr_save_area_offset();
+                gpr_offset.has_value()) {
+                const AArch64VirtualReg base =
+                    create_pointer_virtual_reg(machine_function);
+                append_frame_address(prologue_block, base, *gpr_offset,
+                                     machine_function);
+                for (unsigned index = 0; index < 8; ++index) {
+                    const AArch64VirtualReg temp =
+                        machine_function.create_virtual_reg(
+                            AArch64VirtualRegKind::General64);
+                    append_copy_from_physical_reg(
+                        prologue_block, temp,
+                        static_cast<unsigned>(AArch64PhysicalReg::X0) + index,
+                        AArch64VirtualRegKind::General64);
+                    if (!facade.append_store_to_address(
+                            prologue_block, &i64_type, temp, base, index * 8,
+                            machine_function)) {
+                        return false;
+                    }
+                }
+            }
+            if (const auto fpr_offset =
+                    machine_function.get_frame_info()
+                        .get_variadic_fpr_save_area_offset();
+                fpr_offset.has_value()) {
+                const AArch64VirtualReg base =
+                    create_pointer_virtual_reg(machine_function);
+                append_frame_address(prologue_block, base, *fpr_offset,
+                                     machine_function);
+                for (unsigned index = 0; index < 8; ++index) {
+                    const AArch64VirtualReg temp =
+                        machine_function.create_virtual_reg(
+                            AArch64VirtualRegKind::Float128);
+                    append_copy_from_physical_reg(
+                        prologue_block, temp,
+                        static_cast<unsigned>(AArch64PhysicalReg::V0) + index,
+                        AArch64VirtualRegKind::Float128);
+                    if (!facade.append_store_to_address(
+                            prologue_block, &f128_type, temp, base, index * 16,
+                            machine_function)) {
+                        return false;
+                    }
+                }
+            }
         }
         return lower_function_entry_parameters(prologue_block, function,
                                                state.call_state.abi_info,

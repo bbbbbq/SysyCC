@@ -2,6 +2,7 @@
 
 #include "backend/asm_gen/aarch64/support/aarch64_address_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -12,6 +13,129 @@
 #include "backend/ir/shared/core/ir_type.hpp"
 
 namespace sysycc {
+
+namespace {
+
+bool materialize_constant_address(AArch64MachineBlock &machine_block,
+                                  AArch64ValueMaterializationContext &context,
+                                  const CoreIrConstant *constant,
+                                  const AArch64VirtualReg &target_reg,
+                                  AArch64MachineFunction &function) {
+    if (const auto *global_address =
+            dynamic_cast<const CoreIrConstantGlobalAddress *>(constant);
+        global_address != nullptr) {
+        if (global_address->get_global() != nullptr) {
+            return materialize_global_address(machine_block, context,
+                                              global_address->get_global()->get_name(),
+                                              target_reg, AArch64SymbolKind::Object);
+        }
+        if (global_address->get_function() != nullptr) {
+            return materialize_global_address(machine_block, context,
+                                              global_address->get_function()->get_name(),
+                                              target_reg,
+                                              AArch64SymbolKind::Function);
+        }
+        return false;
+    }
+    if (const auto *block_address =
+            dynamic_cast<const CoreIrConstantBlockAddress *>(constant);
+        block_address != nullptr) {
+        return materialize_global_address(
+            machine_block, context,
+            make_aarch64_function_block_label(block_address->get_function_name(),
+                                              block_address->get_block_name()),
+            target_reg, AArch64SymbolKind::Label);
+    }
+    if (const auto *gep_constant =
+            dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
+        gep_constant != nullptr) {
+        const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
+            gep_constant->get_base()->get_type());
+        if (base_pointer_type == nullptr) {
+            context.report_error(
+                "unsupported constant gep base in AArch64 native backend");
+            return false;
+        }
+        return materialize_gep_value(
+            machine_block, context, gep_constant->get_base(),
+            base_pointer_type->get_pointee_type(), gep_constant->get_indices().size(),
+            [&gep_constant](std::size_t index) -> CoreIrValue * {
+                return const_cast<CoreIrConstant *>(gep_constant->get_indices()[index]);
+            },
+            target_reg, function);
+    }
+    if (const auto *cast_constant = dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast_constant != nullptr &&
+        cast_constant->get_cast_kind() == CoreIrCastKind::IntToPtr) {
+        if (const auto *int_constant =
+                dynamic_cast<const CoreIrConstantInt *>(cast_constant->get_operand());
+            int_constant != nullptr) {
+            return materialize_integer_constant(machine_block, context,
+                                                cast_constant->get_type(),
+                                                int_constant->get_value(), target_reg);
+        }
+        if (const auto *nested_cast =
+                dynamic_cast<const CoreIrConstantCast *>(cast_constant->get_operand());
+            nested_cast != nullptr &&
+            nested_cast->get_cast_kind() == CoreIrCastKind::PtrToInt) {
+            return materialize_constant_address(machine_block, context,
+                                                nested_cast->get_operand(), target_reg,
+                                                function);
+        }
+    }
+    return false;
+}
+
+bool materialize_constant_cast(AArch64MachineBlock &machine_block,
+                               AArch64ValueMaterializationContext &context,
+                               const CoreIrConstantCast &cast_constant,
+                               const AArch64VirtualReg &target_reg,
+                               AArch64MachineFunction &function) {
+    switch (cast_constant.get_cast_kind()) {
+    case CoreIrCastKind::IntToPtr:
+        return materialize_constant_address(machine_block, context, &cast_constant,
+                                            target_reg, function);
+    case CoreIrCastKind::PtrToInt: {
+        if (dynamic_cast<const CoreIrConstantNull *>(cast_constant.get_operand()) !=
+                nullptr ||
+            dynamic_cast<const CoreIrConstantZeroInitializer *>(
+                cast_constant.get_operand()) != nullptr) {
+            return materialize_integer_constant(machine_block, context,
+                                                cast_constant.get_type(), 0,
+                                                target_reg);
+        }
+        const auto *integer_type = as_integer_type(cast_constant.get_type());
+        if (integer_type == nullptr || integer_type->get_bit_width() == 0 ||
+            integer_type->get_bit_width() > 64) {
+            context.report_error(
+                "unsupported ptrtoint constant width in AArch64 native backend");
+            return false;
+        }
+        if (integer_type->get_bit_width() == 64) {
+            return materialize_constant_address(machine_block, context,
+                                                cast_constant.get_operand(),
+                                                target_reg, function);
+        }
+        const AArch64VirtualReg temp_address =
+            function.create_virtual_reg(AArch64VirtualRegKind::General64);
+        if (!materialize_constant_address(machine_block, context,
+                                          cast_constant.get_operand(), temp_address,
+                                          function)) {
+            return false;
+        }
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov", {def_vreg_operand_as(target_reg, false),
+                    use_vreg_operand_as(temp_address, false)}));
+        context.apply_truncate_to_virtual_reg(machine_block, target_reg,
+                                              cast_constant.get_type());
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+} // namespace
 
 bool materialize_noncanonical_value(AArch64MachineBlock &machine_block,
                                     AArch64ValueMaterializationContext &context,
@@ -40,28 +164,19 @@ bool materialize_noncanonical_value(AArch64MachineBlock &machine_block,
             {def_vreg_operand(target_reg), zero_register_operand(target_reg.get_use_64bit())}));
         return true;
     }
-    if (const auto *global_address =
-            dynamic_cast<const CoreIrConstantGlobalAddress *>(value);
-        global_address != nullptr) {
-        return materialize_global_address(machine_block, context,
-                                          global_address->get_global()->get_name(),
-                                          target_reg, AArch64SymbolKind::Object);
-    }
-    if (const auto *gep_constant = dynamic_cast<const CoreIrConstantGetElementPtr *>(value);
-        gep_constant != nullptr) {
-        const auto *base_pointer_type = dynamic_cast<const CoreIrPointerType *>(
-            gep_constant->get_base()->get_type());
-        if (base_pointer_type == nullptr) {
-            context.report_error("unsupported constant gep base in AArch64 native backend");
-            return false;
+    if (const auto *constant = dynamic_cast<const CoreIrConstant *>(value);
+        constant != nullptr) {
+        if (materialize_constant_address(machine_block, context, constant, target_reg,
+                                         function)) {
+            return true;
         }
-        return materialize_gep_value(
-            machine_block, context, gep_constant->get_base(),
-            base_pointer_type->get_pointee_type(), gep_constant->get_indices().size(),
-            [&gep_constant](std::size_t index) -> CoreIrValue * {
-                return const_cast<CoreIrConstant *>(gep_constant->get_indices()[index]);
-            },
-            target_reg, function);
+    }
+    if (const auto *cast_constant = dynamic_cast<const CoreIrConstantCast *>(value);
+        cast_constant != nullptr) {
+        if (materialize_constant_cast(machine_block, context, *cast_constant,
+                                      target_reg, function)) {
+            return true;
+        }
     }
     if (const auto *address_of_stack_slot =
             dynamic_cast<const CoreIrAddressOfStackSlotInst *>(value);

@@ -32,6 +32,7 @@ enum class CoreIrOpcode : unsigned char {
     Call,
     Jump,
     CondJump,
+    IndirectJump,
     Return,
 };
 
@@ -649,6 +650,7 @@ class CoreIrCallInst final : public CoreIrInstruction {
     CoreIrValue *callee_value_ = nullptr;
     const CoreIrFunctionType *callee_type_ = nullptr;
     std::size_t argument_begin_index_ = 0;
+    std::vector<bool> variadic_even_gpr_pair_hints_;
 
   public:
     CoreIrCallInst(const CoreIrType *type, std::string name,
@@ -657,7 +659,8 @@ class CoreIrCallInst final : public CoreIrInstruction {
                    std::vector<CoreIrValue *> arguments)
         : CoreIrInstruction(CoreIrOpcode::Call, type, std::move(name)),
           callee_name_(std::move(callee_name)), callee_type_(callee_type),
-          argument_begin_index_(0) {
+          argument_begin_index_(0),
+          variadic_even_gpr_pair_hints_(arguments.size(), false) {
         for (CoreIrValue *argument : arguments) {
             append_operand(argument);
         }
@@ -669,7 +672,8 @@ class CoreIrCallInst final : public CoreIrInstruction {
                    std::vector<CoreIrValue *> arguments)
         : CoreIrInstruction(CoreIrOpcode::Call, type, std::move(name)),
           callee_value_(callee_value), callee_type_(callee_type),
-          argument_begin_index_(1) {
+          argument_begin_index_(1),
+          variadic_even_gpr_pair_hints_(arguments.size(), false) {
         append_operand(callee_value);
         for (CoreIrValue *argument : arguments) {
             append_operand(argument);
@@ -744,6 +748,19 @@ class CoreIrCallInst final : public CoreIrInstruction {
         set_operand(argument_begin_index_ + index, value);
     }
 
+    void set_argument_requires_even_gpr_pair(std::size_t index,
+                                             bool value = true) {
+        if (index >= variadic_even_gpr_pair_hints_.size()) {
+            variadic_even_gpr_pair_hints_.resize(index + 1, false);
+        }
+        variadic_even_gpr_pair_hints_[index] = value;
+    }
+
+    bool get_argument_requires_even_gpr_pair(std::size_t index) const noexcept {
+        return index < variadic_even_gpr_pair_hints_.size() &&
+               variadic_even_gpr_pair_hints_[index];
+    }
+
     bool get_has_side_effect() const noexcept override { return true; }
 
     bool get_is_terminator() const noexcept override { return false; }
@@ -800,6 +817,35 @@ class CoreIrCondJumpInst final : public CoreIrInstruction {
 
     void set_false_block(CoreIrBasicBlock *false_block) noexcept {
         false_block_ = false_block;
+    }
+
+    bool get_has_side_effect() const noexcept override { return true; }
+
+    bool get_is_terminator() const noexcept override { return true; }
+};
+
+class CoreIrIndirectJumpInst final : public CoreIrInstruction {
+  private:
+    std::vector<CoreIrBasicBlock *> target_blocks_;
+
+  public:
+    CoreIrIndirectJumpInst(const CoreIrType *void_type, CoreIrValue *address,
+                           std::vector<CoreIrBasicBlock *> target_blocks)
+        : CoreIrInstruction(CoreIrOpcode::IndirectJump, void_type),
+          target_blocks_(std::move(target_blocks)) {
+        append_operand(address);
+    }
+
+    CoreIrValue *get_address() const noexcept {
+        return get_operands().empty() ? nullptr : get_operands()[0];
+    }
+
+    const std::vector<CoreIrBasicBlock *> &get_target_blocks() const noexcept {
+        return target_blocks_;
+    }
+
+    void set_target_blocks(std::vector<CoreIrBasicBlock *> target_blocks) {
+        target_blocks_ = std::move(target_blocks);
     }
 
     bool get_has_side_effect() const noexcept override { return true; }

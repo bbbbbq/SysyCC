@@ -15,17 +15,19 @@ class CoreIrGlobal {
     const CoreIrConstant *initializer_ = nullptr;
     bool is_internal_linkage_ = false;
     bool is_constant_ = false;
+    bool is_external_declaration_ = false;
     CoreIrModule *parent_ = nullptr;
 
   public:
     CoreIrGlobal(std::string name, const CoreIrType *type,
                  const CoreIrConstant *initializer, bool is_internal_linkage,
-                 bool is_constant)
+                 bool is_constant, bool is_external_declaration = false)
         : name_(std::move(name)),
           type_(type),
           initializer_(initializer),
           is_internal_linkage_(is_internal_linkage),
-          is_constant_(is_constant) {}
+          is_constant_(is_constant),
+          is_external_declaration_(is_external_declaration) {}
 
     const std::string &get_name() const noexcept { return name_; }
 
@@ -47,9 +49,21 @@ class CoreIrGlobal {
         return is_internal_linkage_;
     }
 
+    void set_is_internal_linkage(bool is_internal_linkage) noexcept {
+        is_internal_linkage_ = is_internal_linkage;
+    }
+
     bool get_is_constant() const noexcept { return is_constant_; }
 
     void set_is_constant(bool is_constant) noexcept { is_constant_ = is_constant; }
+
+    bool get_is_external_declaration() const noexcept {
+        return is_external_declaration_;
+    }
+
+    void set_is_external_declaration(bool is_external_declaration) noexcept {
+        is_external_declaration_ = is_external_declaration;
+    }
 };
 
 } // namespace sysycc

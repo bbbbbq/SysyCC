@@ -12,10 +12,11 @@
 #include "backend/asm_gen/aarch64/passes/aarch64_spill_rewrite_pass.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_backend_context.hpp"
 #include "backend/asm_gen/asm_result.hpp"
+#include "common/diagnostic/diagnostic.hpp"
+#include "common/diagnostic/diagnostic_engine.hpp"
 
 namespace sysycc {
 
-class DiagnosticEngine;
 class CoreIrModule;
 
 class AArch64BackendPipeline {
@@ -89,10 +90,25 @@ class AArch64BackendPipeline {
 
     bool build_and_finalize_module(AArch64CodegenContext &codegen_context) const {
         if (!build_module(codegen_context)) {
+            if (!codegen_context.diagnostic_engine->has_error()) {
+                codegen_context.diagnostic_engine->add_error(
+                    DiagnosticStage::Compiler,
+                    "AArch64 backend machine lowering failed without emitting a "
+                    "specific diagnostic");
+            }
             return false;
         }
-        return finalize_module(codegen_context.machine_module,
-                               *codegen_context.diagnostic_engine);
+        if (!finalize_module(codegen_context.machine_module,
+                             *codegen_context.diagnostic_engine)) {
+            if (!codegen_context.diagnostic_engine->has_error()) {
+                codegen_context.diagnostic_engine->add_error(
+                    DiagnosticStage::Compiler,
+                    "AArch64 backend finalization failed without emitting a "
+                    "specific diagnostic");
+            }
+            return false;
+        }
+        return true;
     }
 
     std::unique_ptr<AsmResult>

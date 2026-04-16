@@ -174,7 +174,9 @@ reap_sysycc_test_process_group() {
         return 0
     fi
 
-    kill -TERM -- "-${pgid}" 2>/dev/null || true
+    if ! kill -TERM -- "-${pgid}" 2>/dev/null; then
+        return 0
+    fi
     sleep 0.2
     kill -KILL -- "-${pgid}" 2>/dev/null || true
 }
@@ -654,6 +656,157 @@ find_qemu_aarch64() {
     command -v qemu-aarch64
 }
 
+find_aarch64_docker_runtime_image() {
+    local candidate=""
+
+    command -v docker >/dev/null 2>&1 || return 1
+
+    if [[ -n "${SYSYCC_AARCH64_DOCKER_IMAGE:-}" ]]; then
+        printf '%s\n' "${SYSYCC_AARCH64_DOCKER_IMAGE}"
+        return 0
+    fi
+
+    for candidate in \
+        ubuntu:24.04 \
+        ubuntu:22.04 \
+        debian:bookworm-slim; do
+        if docker image inspect "${candidate}" >/dev/null 2>&1; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+        if docker image inspect "docker.io/library/${candidate}" >/dev/null 2>&1; then
+            printf '%s\n' "docker.io/library/${candidate}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+have_aarch64_docker_runtime() {
+    find_aarch64_docker_runtime_image >/dev/null 2>&1
+}
+
+run_aarch64_binary_via_docker_runtime_args() {
+    local input_binary="$1"
+    local sysroot="$2"
+    local stdin_payload="${3:-}"
+    shift 3
+    local runtime_args=("$@")
+
+    local image=""
+    local binary_abs=""
+    local binary_dir=""
+    local binary_name=""
+    local docker_cmd=()
+
+    image="$(find_aarch64_docker_runtime_image 2>/dev/null || true)"
+    if [[ -z "${image}" ]]; then
+        return 125
+    fi
+
+    binary_abs="$(cd "$(dirname "${input_binary}")" && pwd)/$(basename "${input_binary}")"
+    binary_dir="$(dirname "${binary_abs}")"
+    binary_name="$(basename "${binary_abs}")"
+    : "${sysroot}"
+
+    if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+        docker_cmd=(
+            docker run --rm
+            --platform linux/arm64
+            -v "${binary_dir}:/work:ro"
+            -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}"
+            "${image}"
+            /bin/sh -lc
+            'exec "${SYSYCC_AARCH64_BINARY}"'
+        )
+    else
+        docker_cmd=(
+            docker run --rm
+            --platform linux/arm64
+            -v "${binary_dir}:/work:ro"
+            -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}"
+            "${image}"
+            /bin/sh -lc
+            'exec "${SYSYCC_AARCH64_BINARY}" "$@"'
+            sysycc-aarch64-runtime
+            "${runtime_args[@]}"
+        )
+    fi
+
+    if [[ -n "${stdin_payload}" ]]; then
+        if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+            printf '%s' "${stdin_payload}" | docker run --rm -i \
+                --platform linux/arm64 \
+                -v "${binary_dir}:/work:ro" \
+                -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}" \
+                "${image}" /bin/sh -lc 'exec "${SYSYCC_AARCH64_BINARY}"'
+        else
+            printf '%s' "${stdin_payload}" | docker run --rm -i \
+                --platform linux/arm64 \
+                -v "${binary_dir}:/work:ro" \
+                -e "SYSYCC_AARCH64_BINARY=/work/${binary_name}" \
+                "${image}" /bin/sh -lc 'exec "${SYSYCC_AARCH64_BINARY}" "$@"' \
+                sysycc-aarch64-runtime "${runtime_args[@]}"
+        fi
+        return
+    fi
+    "${docker_cmd[@]}"
+}
+
+run_aarch64_binary_via_docker_runtime() {
+    run_aarch64_binary_via_docker_runtime_args "$1" "$2" "${3:-}"
+}
+
+have_aarch64_binary_runtime() {
+    find_qemu_aarch64 >/dev/null 2>&1 || have_aarch64_docker_runtime
+}
+
+run_aarch64_binary_with_available_runtime_args() {
+    local input_binary="$1"
+    local sysroot="$2"
+    local stdin_payload="${3:-}"
+    shift 3
+    local runtime_args=("$@")
+    local qemu=""
+
+    qemu="$(find_qemu_aarch64 2>/dev/null || true)"
+    if [[ -n "${qemu}" ]]; then
+        if [[ -n "${stdin_payload}" ]]; then
+            if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+                printf '%s' "${stdin_payload}" | \
+                    QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" \
+                        "${input_binary}"
+            else
+                printf '%s' "${stdin_payload}" | \
+                    QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" \
+                        "${input_binary}" "${runtime_args[@]}"
+            fi
+            return
+        fi
+        if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+            QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" \
+                "${input_binary}"
+        else
+            QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" \
+                "${input_binary}" "${runtime_args[@]}"
+        fi
+        return
+    fi
+
+    if [[ "${#runtime_args[@]}" -eq 0 ]]; then
+        run_aarch64_binary_via_docker_runtime_args "${input_binary}" "${sysroot}" \
+            "${stdin_payload}"
+    else
+        run_aarch64_binary_via_docker_runtime_args "${input_binary}" "${sysroot}" \
+            "${stdin_payload}" "${runtime_args[@]}"
+    fi
+}
+
+run_aarch64_binary_with_available_runtime() {
+    run_aarch64_binary_with_available_runtime_args "$1" "$2" "${3:-}"
+}
+
 run_aarch64_cc() {
     local cc="$1"
     shift
@@ -720,22 +873,18 @@ run_aarch64_native_smoke_if_available() {
     local input_binary="$1"
     local expected_output="$2"
     local input_payload="${3:-}"
-    local qemu=""
     local sysroot=""
     local output=""
 
-    qemu="$(find_qemu_aarch64 2>/dev/null || true)"
     sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
-    if [[ -z "${qemu}" ]] || [[ -z "${sysroot}" ]]; then
+    if [[ -z "${sysroot}" ]]; then
+        return 125
+    fi
+    if ! have_aarch64_binary_runtime; then
         return 125
     fi
 
-    if [[ -n "${input_payload}" ]]; then
-        output="$(printf '%s' "${input_payload}" | \
-            QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${input_binary}")"
-    else
-        output="$(QEMU_LD_PREFIX="${sysroot}" "${qemu}" -L "${sysroot}" "${input_binary}")"
-    fi
+    output="$(run_aarch64_binary_with_available_runtime "${input_binary}" "${sysroot}" "${input_payload}")"
 
     if [[ "${output}" != "${expected_output}" ]]; then
         echo "unexpected AArch64 smoke output: expected '${expected_output}', got '${output}'" >&2

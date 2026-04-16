@@ -227,6 +227,31 @@ void verify_instruction_references(CoreIrVerifyResult &result,
         }
         return;
     }
+    case CoreIrOpcode::IndirectJump: {
+        const auto &jump =
+            static_cast<const CoreIrIndirectJumpInst &>(instruction);
+        if (jump.get_address() == nullptr ||
+            jump.get_address()->get_type() == nullptr ||
+            jump.get_address()->get_type()->get_kind() != CoreIrTypeKind::Pointer) {
+            add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
+                      "indirect jump address must be a pointer value",
+                      &function, instruction.get_parent(), &instruction);
+        }
+        if (jump.get_target_blocks().empty()) {
+            add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
+                      "indirect jump must list at least one possible target",
+                      &function, instruction.get_parent(), &instruction);
+        }
+        for (CoreIrBasicBlock *target : jump.get_target_blocks()) {
+            if (target == nullptr || target->get_parent() != &function) {
+                add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
+                          "indirect jump target does not belong to the current function",
+                          &function, instruction.get_parent(), &instruction);
+                break;
+            }
+        }
+        return;
+    }
     }
 }
 

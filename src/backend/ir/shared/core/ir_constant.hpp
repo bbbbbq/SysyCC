@@ -11,6 +11,7 @@ namespace sysycc {
 class CoreIrGlobal;
 class CoreIrFunction;
 class CoreIrContext;
+enum class CoreIrCastKind : unsigned char;
 
 class CoreIrConstant : public CoreIrValue {
   private:
@@ -121,6 +122,36 @@ class CoreIrConstantGetElementPtr final : public CoreIrConstant {
     const std::vector<const CoreIrConstant *> &get_indices() const noexcept {
         return indices_;
     }
+};
+
+class CoreIrConstantCast final : public CoreIrConstant {
+  private:
+    CoreIrCastKind cast_kind_;
+    const CoreIrConstant *operand_ = nullptr;
+
+  public:
+    CoreIrConstantCast(const CoreIrType *type, CoreIrCastKind cast_kind,
+                       const CoreIrConstant *operand)
+        : CoreIrConstant(type), cast_kind_(cast_kind), operand_(operand) {}
+
+    CoreIrCastKind get_cast_kind() const noexcept { return cast_kind_; }
+    const CoreIrConstant *get_operand() const noexcept { return operand_; }
+};
+
+class CoreIrConstantBlockAddress final : public CoreIrConstant {
+  private:
+    std::string function_name_;
+    std::string block_name_;
+
+  public:
+    CoreIrConstantBlockAddress(const CoreIrType *type, std::string function_name,
+                               std::string block_name)
+        : CoreIrConstant(type),
+          function_name_(std::move(function_name)),
+          block_name_(std::move(block_name)) {}
+
+    const std::string &get_function_name() const noexcept { return function_name_; }
+    const std::string &get_block_name() const noexcept { return block_name_; }
 };
 
 } // namespace sysycc

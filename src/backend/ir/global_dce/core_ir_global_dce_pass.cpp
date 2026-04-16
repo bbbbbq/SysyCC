@@ -24,7 +24,8 @@ PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name)
 }
 
 void collect_constant_references(
-    const CoreIrConstant *constant, std::vector<CoreIrFunction *> &functions,
+    const CoreIrModule *module, const CoreIrConstant *constant,
+    std::vector<CoreIrFunction *> &functions,
     std::vector<CoreIrGlobal *> &globals) {
     if (constant == nullptr) {
         return;
@@ -44,16 +45,32 @@ void collect_constant_references(
             dynamic_cast<const CoreIrConstantAggregate *>(constant);
         aggregate != nullptr) {
         for (const CoreIrConstant *element : aggregate->get_elements()) {
-            collect_constant_references(element, functions, globals);
+            collect_constant_references(module, element, functions, globals);
         }
         return;
     }
     if (const auto *gep =
             dynamic_cast<const CoreIrConstantGetElementPtr *>(constant);
         gep != nullptr) {
-        collect_constant_references(gep->get_base(), functions, globals);
+        collect_constant_references(module, gep->get_base(), functions, globals);
         for (const CoreIrConstant *index : gep->get_indices()) {
-            collect_constant_references(index, functions, globals);
+            collect_constant_references(module, index, functions, globals);
+        }
+        return;
+    }
+    if (const auto *cast =
+            dynamic_cast<const CoreIrConstantCast *>(constant);
+        cast != nullptr) {
+        collect_constant_references(module, cast->get_operand(), functions, globals);
+        return;
+    }
+    if (const auto *block_address =
+            dynamic_cast<const CoreIrConstantBlockAddress *>(constant);
+        block_address != nullptr && module != nullptr) {
+        if (CoreIrFunction *function =
+                module->find_function(block_address->get_function_name());
+            function != nullptr) {
+            functions.push_back(function);
         }
     }
 }
@@ -161,7 +178,8 @@ PassResult CoreIrGlobalDcePass::Run(CompilerContext &context) {
             global_worklist.pop_back();
             std::vector<CoreIrFunction *> referenced_functions;
             std::vector<CoreIrGlobal *> referenced_globals;
-            collect_constant_references(global->get_initializer(), referenced_functions,
+            collect_constant_references(module, global->get_initializer(),
+                                        referenced_functions,
                                         referenced_globals);
             for (CoreIrFunction *referenced : referenced_functions) {
                 if (referenced != nullptr &&
