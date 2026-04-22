@@ -72,7 +72,9 @@ actual_path = Path(sys.argv[2])
 expected = expected_path.read_text(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
 actual = actual_path.read_text(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
 
-# Treat a final trailing newline difference as formatting-only noise.
+# ARM suite `.out` files are inconsistent about the final newline. Treat a
+# trailing newline-only difference as formatting noise so we only flag semantic
+# output mismatches.
 expected_compare = expected.rstrip("\n")
 actual_compare = actual.rstrip("\n")
 
