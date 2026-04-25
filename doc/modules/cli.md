@@ -13,7 +13,7 @@ The CLI module converts `argv` into a compiler configuration object.
 
 - parse command line flags
 - normalize public GCC-like driver actions such as `-E`, `-fsyntax-only`,
-  `-S`, `-c`, single-input full-compile linking, `-g`, and `-S -emit-llvm`
+  `-S`, `-c`, full-compile linking, `-g`, and `-S -emit-llvm`
 - parse public optimization switches such as `-O0` and `-O1`
 - record input and output file paths
 - collect include search directories from `-I`
@@ -64,8 +64,8 @@ Output:
   - `-fsyntax-only` stops after semantic analysis
   - `-S` emits native assembly
   - `-c` emits a native ELF object file
-  - bare single-input invocations lower to LLVM IR and then call a host
-    `clang`/`cc` driver to produce an executable
+  - bare full-compile invocations lower source inputs to LLVM IR and then call
+    a host `clang`/`cc` driver to produce an executable
   - link-only invocations with positional `.o`/`.a`/`.so`/`.dylib` inputs call
     that same host link driver directly
   - `-g` forwards a native debug-info request
@@ -92,16 +92,18 @@ Output:
   scanner after SysyCC compilation succeeds. The driver tries `clang`, then
   `cc`, and `SYSYCC_HOST_CC` can override that probe order when integration
   needs a fixed host compiler path.
-- Bare single-input public driver invocations no longer stop at an explicit
-  linking-not-supported diagnostic. The current full-compile path lowers to
-  LLVM IR and then shells out to a host `clang`/`cc` driver for the final
-  compile+link step, with `a.out` as the default executable path when `-o` is
-  omitted.
-- That new full-compile path is intentionally narrow for now: it is single
-  source-input only, it can also collect extra positional linker inputs plus
-  `-pthread`, `-L`, `-l`, and `-Wl,...` for the external host link driver, and
-  the native AArch64/RISC-V object-emission paths still remain the public
-  `-c`/`-S` workflows.
+- Bare public driver invocations no longer stop at an explicit
+  linking-not-supported diagnostic. The current full-compile path lowers one
+  or more source inputs to temporary LLVM IR files and then shells out to a
+  host `clang`/`cc` driver for the final compile+link step, with `a.out` as the
+  default executable path when `-o` is omitted.
+- That full-compile path can collect multiple source inputs, extra positional
+  linker inputs, `-pthread`, `-L`, `-l`, and `-Wl,...` for the external host
+  link driver. The native AArch64/RISC-V object-emission paths still remain the
+  public `-c`/`-S` workflows.
+- Multi-source `-c`, `-S`, `-E`, and `-fsyntax-only` invocations are not yet
+  supported. Multi-source `-MD`/`-MMD` depfile generation is also rejected
+  until the driver has a defined depfile merge strategy.
 - Multi-source final linking of SysyCC-native AArch64 objects is still not the
   stabilized mainline path; build systems should currently drive SysyCC one
   source at a time through `-c` and then use the external-link skeleton only
@@ -162,6 +164,20 @@ Output:
 - `-v` now prints version plus the effective driver/language/include
   configuration and optimization level, then continues compiling, while
   `--version` exits immediately.
+
+## Driver Input Support Matrix
+
+| Invocation shape | Status | Current behavior |
+| --- | --- | --- |
+| `source.c -o app` | supported | Lowers one source to LLVM IR and links through the host C driver. |
+| `main.c helper.c -o app` | supported | Lowers each source with an isolated compiler context, then links all temporary LLVM IR files together. |
+| `main.c helper.o -o app` | supported | Lowers the source to LLVM IR and forwards the object to the host link step after resetting `-x none`. |
+| `main.c libhelper.a -o app` | supported | Lowers the source to LLVM IR and forwards the archive to the host link step. |
+| `helper.o libhelper.a -o app` | supported | Runs link-only mode through the host C driver. |
+| `-c a.c` | supported | Emits one native object through the selected native backend. |
+| `-c a.c b.c` | unsupported | Rejected with a stable diagnostic; compile sources separately for now. |
+| `-S a.c b.c`, `-E a.c b.c`, `-fsyntax-only a.c b.c` | unsupported | Rejected with a multiple-input diagnostic. |
+| `-MD/-MMD main.c helper.c -o app` | unsupported | Rejected because multi-source depfile merging is not defined yet. |
 
 ## GCC-like Build Compatibility Matrix
 

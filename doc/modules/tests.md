@@ -156,8 +156,13 @@ includes:
 - CLI coverage for single-input full-compile external linking plus link-only
   host-object passthrough through `-L/-l/-pthread/-Wl,...`
 - compiler-stage coverage for small Make/Ninja projects invoking
-  `build/compiler` with `-I`, `-D`, `-o`, one C source, and an external `.o`
-  linker input.
+  `build/compiler` with `-I`, `-D`, `-o`, one C source plus an external `.o`
+  linker input, and direct multi-source full-compile linking.
+- compiler-stage coverage for the real-project driver path now includes
+  `main.c helper.c -o app`, `main.c helper.o -o app`,
+  `main.c libhelper.a -o app`, and stable diagnostics for unsupported
+  multi-source `-c` and
+  `-MD`/`-MMD` forms.
 - run-stage build-system coverage for multi-file Make and CMake+Ninja
   compile-only static-library builds plus depfile-driven incremental rebuild
   selection
