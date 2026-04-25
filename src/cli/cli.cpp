@@ -321,6 +321,7 @@ bool Cli::finalize_driver_mode() {
 
 bool Cli::finalize_inputs() {
     input_file_.clear();
+    source_input_files_.clear();
     linker_input_files_.clear();
     link_only_ = false;
 
@@ -335,10 +336,6 @@ bool Cli::finalize_inputs() {
     }
 
     if (driver_action_ == sysycc::DriverAction::FullCompile) {
-        if (source_inputs.size() > 1) {
-            emit_error("multiple source inputs are not yet supported; compile sources separately and link the resulting objects");
-            return false;
-        }
         if (source_inputs.empty()) {
             if (link_inputs.empty()) {
                 emit_error("missing input file");
@@ -352,8 +349,14 @@ bool Cli::finalize_inputs() {
             link_only_ = true;
             return true;
         }
+        if (source_inputs.size() > 1 &&
+            depfile_mode_ != sysycc::DepfileMode::None) {
+            emit_error("dependency generation with multiple source inputs is not supported yet; compile sources separately");
+            return false;
+        }
 
-        input_file_ = std::move(source_inputs.front());
+        input_file_ = source_inputs.front();
+        source_input_files_ = std::move(source_inputs);
         linker_input_files_ = std::move(link_inputs);
         return true;
     }
@@ -367,12 +370,17 @@ bool Cli::finalize_inputs() {
         return false;
     }
     if (source_inputs.size() > 1) {
+        if (driver_action_ == sysycc::DriverAction::CompileOnly) {
+            emit_error("multiple source inputs with -c are not supported yet; compile sources separately");
+            return false;
+        }
         emit_error("multiple input files are not yet supported: '" +
                    source_inputs.back() + "'");
         return false;
     }
 
-    input_file_ = std::move(source_inputs.front());
+    input_file_ = source_inputs.front();
+    source_input_files_ = std::move(source_inputs);
     return true;
 }
 
@@ -380,6 +388,7 @@ void Cli::Run(int argc, char *argv[]) {
     program_name_ = detect_program_name(argc > 0 ? argv[0] : nullptr);
     positional_inputs_.clear();
     input_file_.clear();
+    source_input_files_.clear();
     linker_input_files_.clear();
     link_only_ = false;
     output_file_.clear();

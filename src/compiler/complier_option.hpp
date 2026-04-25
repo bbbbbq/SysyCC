@@ -153,6 +153,7 @@ class CommandLineMacroOption {
 class ComplierOption {
   private:
     std::string input_file_;
+    std::vector<std::string> source_input_files_;
     std::vector<std::string> linker_input_files_;
     bool link_only_ = false;
     std::string output_file_;
@@ -202,6 +203,14 @@ class ComplierOption {
 
     void set_input_file(std::string input_file) {
         input_file_ = std::move(input_file);
+    }
+
+    const std::vector<std::string> &get_source_input_files() const noexcept {
+        return source_input_files_;
+    }
+
+    void set_source_input_files(std::vector<std::string> source_input_files) {
+        source_input_files_ = std::move(source_input_files);
     }
 
     const std::vector<std::string> &get_linker_input_files() const noexcept {

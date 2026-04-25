@@ -337,17 +337,20 @@ bool create_temporary_llvm_ir_file(const std::string &llvm_ir_text,
 }
 
 std::vector<std::string> build_full_compile_link_arguments(
-    const ComplierOption &option, const std::string &llvm_ir_file,
+    const ComplierOption &option,
+    const std::vector<std::string> &llvm_ir_files,
     const std::string &output_file) {
     std::vector<std::string> arguments;
     if (option.get_backend_options().get_debug_info()) {
         arguments.push_back("-g");
     }
-    if (!llvm_ir_file.empty()) {
+    for (const std::string &llvm_ir_file : llvm_ir_files) {
         arguments.push_back("-Wno-override-module");
         arguments.push_back("-x");
         arguments.push_back("ir");
         arguments.push_back(llvm_ir_file);
+    }
+    if (!llvm_ir_files.empty() && !option.get_linker_input_files().empty()) {
         arguments.push_back("-x");
         arguments.push_back("none");
     }
@@ -372,6 +375,80 @@ std::vector<std::string> build_full_compile_link_arguments(
     arguments.push_back("-o");
     arguments.push_back(output_file);
     return arguments;
+}
+
+std::vector<std::string> effective_source_input_files(
+    const ComplierOption &option) {
+    if (!option.get_source_input_files().empty()) {
+        return option.get_source_input_files();
+    }
+    if (!option.get_link_only() && !option.get_input_file().empty()) {
+        return {option.get_input_file()};
+    }
+    return {};
+}
+
+bool compile_source_to_temporary_llvm_ir(const ComplierOption &option,
+                                         const std::string &source_file,
+                                         TemporaryFile &temporary_file,
+                                         CompilerContext &parent_context,
+                                         std::string &error_message) {
+    ComplierOption source_option = option;
+    source_option.set_input_file(source_file);
+    source_option.set_source_input_files({source_file});
+    source_option.set_linker_input_files({});
+    source_option.set_link_only(false);
+    source_option.set_output_file("");
+    source_option.set_depfile_mode(DepfileMode::None);
+    source_option.set_depfile_output_file("");
+    source_option.set_depfile_targets({});
+    source_option.set_depfile_add_phony_targets(false);
+    source_option.set_driver_action(DriverAction::EmitLlvmIr);
+    source_option.set_emit_asm(false);
+    source_option.set_emit_object(false);
+    source_option.set_stop_after_stage(StopAfterStage::IR);
+
+    BackendOptions backend_options = source_option.get_backend_options();
+    backend_options.set_backend_kind(BackendKind::LlvmIr);
+    backend_options.set_target_triple("");
+    backend_options.set_output_file("");
+    source_option.set_backend_options(std::move(backend_options));
+
+    Complier source_complier(std::move(source_option));
+    PassResult compile_result = source_complier.Run();
+    const DiagnosticEngine &source_diagnostic_engine =
+        source_complier.get_context().get_diagnostic_engine();
+    for (const Diagnostic &diagnostic :
+         source_diagnostic_engine.get_diagnostics()) {
+        parent_context.get_diagnostic_engine().add_diagnostic(diagnostic);
+    }
+
+    if (!compile_result.ok) {
+        error_message = "failed to compile source input '" + source_file +
+                        "': " + compile_result.message;
+        if (source_diagnostic_engine.get_diagnostics().empty()) {
+            parent_context.get_diagnostic_engine().add_error(
+                DiagnosticStage::Compiler, error_message);
+        }
+        return false;
+    }
+
+    const IRResult *ir_result = source_complier.get_context().get_ir_result();
+    if (ir_result == nullptr) {
+        error_message = "missing LLVM IR output for source input '" +
+                        source_file + "'";
+        parent_context.get_diagnostic_engine().add_error(
+            DiagnosticStage::Compiler, error_message);
+        return false;
+    }
+
+    if (!create_temporary_llvm_ir_file(ir_result->get_text(), temporary_file,
+                                       error_message)) {
+        parent_context.get_diagnostic_engine().add_error(
+            DiagnosticStage::Compiler, error_message);
+        return false;
+    }
+    return true;
 }
 
 PassResult maybe_link_full_compile(const ComplierOption &option,
@@ -405,30 +482,54 @@ PassResult maybe_link_full_compile(const ComplierOption &option,
         }
     }
 
-    TemporaryFile temporary_llvm_ir_file;
-    std::string temp_file_error;
-    std::string llvm_ir_file_path;
+    std::vector<TemporaryFile> temporary_llvm_ir_files;
+    std::vector<std::string> llvm_ir_file_paths;
     if (!option.get_link_only()) {
-        const IRResult *ir_result = context.get_ir_result();
-        if (ir_result == nullptr) {
-            const std::string message = "missing LLVM IR output for full compile";
-            context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
-                                                      message);
-            return PassResult::Failure(message);
-        }
+        const std::vector<std::string> source_input_files =
+            effective_source_input_files(option);
+        if (source_input_files.size() > 1) {
+            temporary_llvm_ir_files.reserve(source_input_files.size());
+            llvm_ir_file_paths.reserve(source_input_files.size());
+            for (const std::string &source_file : source_input_files) {
+                TemporaryFile temporary_llvm_ir_file;
+                std::string temp_file_error;
+                if (!compile_source_to_temporary_llvm_ir(
+                        option, source_file, temporary_llvm_ir_file, context,
+                        temp_file_error)) {
+                    return PassResult::Failure(temp_file_error);
+                }
+                llvm_ir_file_paths.push_back(
+                    temporary_llvm_ir_file.path.string());
+                temporary_llvm_ir_files.push_back(
+                    std::move(temporary_llvm_ir_file));
+            }
+        } else {
+            const IRResult *ir_result = context.get_ir_result();
+            if (ir_result == nullptr) {
+                const std::string message =
+                    "missing LLVM IR output for full compile";
+                context.get_diagnostic_engine().add_error(
+                    DiagnosticStage::Compiler, message);
+                return PassResult::Failure(message);
+            }
 
-        if (!create_temporary_llvm_ir_file(ir_result->get_text(),
-                                           temporary_llvm_ir_file,
-                                           temp_file_error)) {
-            context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
-                                                      temp_file_error);
-            return PassResult::Failure(temp_file_error);
+            TemporaryFile temporary_llvm_ir_file;
+            std::string temp_file_error;
+            if (!create_temporary_llvm_ir_file(ir_result->get_text(),
+                                               temporary_llvm_ir_file,
+                                               temp_file_error)) {
+                context.get_diagnostic_engine().add_error(
+                    DiagnosticStage::Compiler, temp_file_error);
+                return PassResult::Failure(temp_file_error);
+            }
+            llvm_ir_file_paths.push_back(temporary_llvm_ir_file.path.string());
+            temporary_llvm_ir_files.push_back(std::move(temporary_llvm_ir_file));
         }
-        llvm_ir_file_path = temporary_llvm_ir_file.path.string();
     }
 
     const std::vector<std::string> arguments =
-        build_full_compile_link_arguments(option, llvm_ir_file_path, output_file);
+        build_full_compile_link_arguments(option, llvm_ir_file_paths,
+                                          output_file);
     std::string last_failure_message;
     for (const std::string &program : host_c_driver_candidates()) {
         const SubprocessResult result = run_subprocess(program, arguments);
@@ -716,12 +817,28 @@ PassResult Complier::validate_backend_configuration() {
 }
 
 PassResult Complier::validate_driver_configuration() {
+    const std::vector<std::string> source_input_files =
+        effective_source_input_files(option_);
     switch (option_.get_driver_action()) {
     case DriverAction::InternalPipeline:
         return PassResult::Success();
     case DriverAction::FullCompile:
+        if (source_input_files.size() > 1 && option_.get_generate_depfile()) {
+            const std::string message =
+                "dependency generation with multiple source inputs is not supported yet; compile sources separately";
+            context_.get_diagnostic_engine().add_error(
+                DiagnosticStage::Compiler, message);
+            return PassResult::Failure(message);
+        }
         return PassResult::Success();
     case DriverAction::CompileOnly:
+        if (source_input_files.size() > 1) {
+            const std::string message =
+                "multiple source inputs with -c are not supported yet; compile sources separately";
+            context_.get_diagnostic_engine().add_error(
+                DiagnosticStage::Compiler, message);
+            return PassResult::Failure(message);
+        }
         return PassResult::Success();
     case DriverAction::PreprocessOnly:
     case DriverAction::SyntaxOnly:
@@ -763,6 +880,10 @@ PassResult Complier::Run() {
         return backend_validation_result;
     }
     if (option_.get_link_only()) {
+        return maybe_link_full_compile(option_, context_);
+    }
+    if (option_.get_driver_action() == DriverAction::FullCompile &&
+        effective_source_input_files(option_).size() > 1) {
         return maybe_link_full_compile(option_, context_);
     }
     InitializePasses();

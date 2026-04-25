@@ -14,6 +14,7 @@ class Cli {
     std::string program_name_ = "compiler";
     std::vector<std::string> positional_inputs_;
     std::string input_file_;
+    std::vector<std::string> source_input_files_;
     std::vector<std::string> linker_input_files_;
     bool link_only_ = false;
     std::string output_file_;
@@ -149,6 +150,7 @@ class Cli {
 
     void set_compiler_option(sysycc::ComplierOption &option) const {
         option.set_input_file(input_file_);
+        option.set_source_input_files(source_input_files_);
         option.set_linker_input_files(linker_input_files_);
         option.set_link_only(link_only_);
         option.set_output_file(output_file_);
