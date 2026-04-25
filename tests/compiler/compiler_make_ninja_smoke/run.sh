@@ -28,8 +28,14 @@ cat >"${INCLUDE_DIR}/project_config.h" <<'EOF'
 EOF
 
 cat >"${SOURCE_DIR}/helper.c" <<'EOF'
+#include "project_config.h"
+
+#ifndef PROJECT_OFFSET
+#error PROJECT_OFFSET must be provided by the build system
+#endif
+
 int helper_add(int lhs, int rhs) {
-    return lhs + rhs;
+    return lhs + rhs + PROJECT_OFFSET - PROJECT_OFFSET;
 }
 EOF
 
@@ -53,36 +59,45 @@ HOST_CC := ${HOST_CC}
 SRC_DIR := ${SOURCE_DIR}
 INCLUDE_DIR := ${INCLUDE_DIR}
 
-all: app
+all: app app-multisource
 
 helper.o: \$(SRC_DIR)/helper.c
-	\$(HOST_CC) -c \$< -o \$@
+	\$(HOST_CC) -I\$(INCLUDE_DIR) -DPROJECT_OFFSET=2 -c \$< -o \$@
 
 app: \$(SRC_DIR)/main.c helper.o
 	\$(SYSYCC) -I\$(INCLUDE_DIR) -DPROJECT_OFFSET=2 \$< helper.o -o \$@
 
+app-multisource: \$(SRC_DIR)/main.c \$(SRC_DIR)/helper.c
+	\$(SYSYCC) -I\$(INCLUDE_DIR) -DPROJECT_OFFSET=2 \$^ -o \$@
+
 clean:
-	rm -f app helper.o
+	rm -f app app-multisource helper.o
 EOF
 
 make -C "${MAKE_BUILD_DIR}" all
 "${MAKE_BUILD_DIR}/app"
+"${MAKE_BUILD_DIR}/app-multisource"
 
 if command -v ninja >/dev/null 2>&1; then
     cat >"${NINJA_BUILD_DIR}/build.ninja" <<EOF
 rule host_cc
-  command = ${HOST_CC} -c \$in -o \$out
+  command = ${HOST_CC} -I${INCLUDE_DIR} -DPROJECT_OFFSET=2 -c \$in -o \$out
 
 rule sysycc_link
   command = ${BUILD_DIR}/compiler -I${INCLUDE_DIR} -DPROJECT_OFFSET=2 \$in -o \$out
 
+rule sysycc_link_multisource
+  command = ${BUILD_DIR}/compiler -I${INCLUDE_DIR} -DPROJECT_OFFSET=2 \$in -o \$out
+
 build helper.o: host_cc ${SOURCE_DIR}/helper.c
 build app: sysycc_link ${SOURCE_DIR}/main.c helper.o
+build app-multisource: sysycc_link_multisource ${SOURCE_DIR}/main.c ${SOURCE_DIR}/helper.c
 
-default app
+default app app-multisource
 EOF
     ninja -C "${NINJA_BUILD_DIR}"
     "${NINJA_BUILD_DIR}/app"
+    "${NINJA_BUILD_DIR}/app-multisource"
 fi
 
-echo "verified: make/ninja can invoke SysyCC with -I/-D/-o and external object linking"
+echo "verified: make/ninja can invoke SysyCC with -I/-D/-o, external objects, and direct multisource linking"
