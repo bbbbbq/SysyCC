@@ -19,4 +19,11 @@ assert_compiler_fails_with_message \
     "${INPUT_FILE_B}" \
     "multiple input files are not yet supported"
 
-echo "verified: gcc-like CLI rejects multiple input files with a driver error"
+assert_compiler_fails_with_message \
+    "${BUILD_DIR}/compiler" \
+    -c \
+    "${INPUT_FILE_A}" \
+    "${INPUT_FILE_B}" \
+    "multiple source inputs with -c are not supported yet; compile sources separately"
+
+echo "verified: gcc-like CLI rejects unsupported non-linking multisource modes with driver errors"
