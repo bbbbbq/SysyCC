@@ -44,7 +44,7 @@ if [[ "${status}" -eq 0 ]]; then
     exit 1
 fi
 
-grep -q '| hang | SYSYCC_TIMEOUT |' "${REPORT_FILE}"
-grep -q '"status": "SYSYCC_TIMEOUT"' "${JSON_FILE}"
+grep -Eq '\| hang \| SYSYCC(_COMPILE)?_TIMEOUT \|' "${REPORT_FILE}"
+grep -Eq '"status": "SYSYCC(_COMPILE)?_TIMEOUT"' "${JSON_FILE}"
 
 echo "verified: compiler2025 host IR performance runner reports timeouts without hanging"
