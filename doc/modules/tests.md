@@ -81,7 +81,11 @@ imported cases with a clean `PASS` manifest.
 It also ships a smaller `smoke/run.sh` fast lane backed by a curated
 25-case `smoke_manifest.txt`, so day-to-day backend work can exercise the main
 correctness surfaces without paying the cost of the full imported sweep. The
-shared `tests/run_all.sh` discovery now includes only that smoke lane for the
+smoke entry point compiles PolyBench cases with `SMALL_DATASET` because the
+default upstream `LARGE_DATASET` `gemm.c` run is qemu-timeout-sensitive in the
+fast lane even though it matches the Clang baseline; the full imported sweep
+leaves the dataset override unset and retains the large-input coverage.
+The shared `tests/run_all.sh` discovery now includes only that smoke lane for the
 `aarch64_backend_single_source` stage; the full 1770-case imported sweep is an
 explicit opt-in entry through `tests/aarch64_backend_single_source/imported_suite/run.sh`.
 That smoke lane now also includes two direct native object gates through the
@@ -137,6 +141,13 @@ includes:
 - CLI coverage for depfile emission through
   `-MD/-MMD/-MF/-MT/-MQ/-MP`, including system-header inclusion/exclusion and
   explicit failure coverage for companion flags used without `-MD`/`-MMD`
+- CLI depfile coverage also checks make-escaped default targets for object
+  paths containing spaces and verifies `-MP` phony header entries for both
+  local and system-header dependencies where applicable.
+- CLI depfile matrix coverage now checks `-MT` versus `-MQ` target spelling,
+  ordered mixed target lists, nested relative `-MF` output paths, absolute
+  `-MF` output paths, `-MD` system-header inclusion, and `-MMD`
+  system-header exclusion.
 - CLI coverage for GCC-like driver compatibility buckets, including supported
   `-x c`, safe-ignore build flags such as `-pipe` and `-Winvalid-pch`, and
   explicit failure coverage for unsupported `-x` modes
@@ -291,6 +302,18 @@ includes:
 The current standard-header compatibility state is tracked explicitly instead
 of being inferred from larger suites.
 
+`tests/semantic/semantic_standard_headers_first_batch_smoke` is the aggregate
+front-end gate for the first system-header batch. It includes `stdlib.h`,
+`string.h`, `stddef.h`, `assert.h`, `ctype.h`, and `float.h` together and
+stops after semantic analysis so failures remain attributable to the
+front-end/header compatibility layer rather than backend lowering.
+
+`tests/semantic/semantic_standard_headers_second_batch_smoke` is the aggregate
+front-end gate for the second system-header batch. It includes `stdbool.h`,
+`stdint.h`, `limits.h`, and `errno.h` together and also stops after semantic
+analysis. The per-header attribution map lives in
+`tests/semantic/semantic_standard_headers_matrix/README.md`.
+
 ### Stable Support
 
 | Header | Targeted coverage | Notes |
@@ -299,10 +322,14 @@ of being inferred from larger suites.
 | `string.h` | `tests/semantic/semantic_string_h_smoke`, `tests/run/run_string_h_memcpy_builtin_bug` | Covers `memcpy` declarations and the builtin-backed expansion path used by host headers. |
 | `ctype.h` | `tests/semantic/semantic_ctype_h_smoke`, `tests/run/run_ctype_h_isdigit_header_bug` | Covers `isdigit` macro/function entry through the real header path. |
 | `assert.h` | `tests/semantic/semantic_assert_h_smoke`, `tests/run/run_assert_h_builtin_macro_bug` | Covers assert-macro expansion through the builtin macro surface accepted by the frontend. |
-| `stddef.h` | `tests/semantic/semantic_stddef_h_smoke`, `tests/run/run_stddef_h_ptrdiff_builtin_bug`, `tests/semantic/semantic_system_header_builtin_type_macros` | Covers `ptrdiff_t`, `size_t`, and builtin type-macro typedef chains. |
+| `stddef.h` | `tests/semantic/semantic_stddef_h_smoke`, `tests/run/run_stddef_h_ptrdiff_builtin_bug`, `tests/semantic/semantic_system_header_builtin_type_macros` | Covers `ptrdiff_t`, `size_t`, `NULL`, and builtin type-macro typedef chains. |
 | `time.h` | `tests/semantic/semantic_time_h_smoke`, `tests/run/run_time_h_timezone_asm_bug` | Covers `time_t`, `struct tm`, and asm-labeled timezone declarations. |
 | `float.h` | `tests/semantic/semantic_float_h_smoke`, `tests/run/run_float_h_builtin_macro_bug` | Covers `FLT_RADIX`, `DBL_MANT_DIG`, and the predefined floating builtin macro surface used by host wrappers. |
 | `stdalign.h` | `tests/semantic/semantic_stdalign_h_smoke`, `tests/run/run_stdalign_h_alignas_bug` | Covers `alignas(...)` expansion to `_Alignas(...)` on declarations and fields. |
+| `stdbool.h` | `tests/semantic/semantic_stdbool_h_smoke`, `tests/semantic/semantic_standard_headers_second_batch_smoke` | Covers `bool`, `true`, and `false` through `_Bool` bootstrap typing at semantic stage. |
+| `stdint.h` | `tests/semantic/semantic_stdint_h_smoke`, `tests/semantic/semantic_standard_headers_second_batch_smoke` | Covers `int32_t`, `uint64_t`, `intptr_t`, and `uintptr_t` typedef chains. |
+| `limits.h` | `tests/semantic/semantic_limits_h_smoke`, `tests/semantic/semantic_standard_headers_second_batch_smoke` | Covers `INT_MAX` and `CHAR_BIT` macro expansion at semantic stage. |
+| `errno.h` | `tests/semantic/semantic_errno_h_smoke`, `tests/semantic/semantic_standard_headers_second_batch_smoke` | Covers `errno` macro/declaration path plus `EINVAL` and `EDOM`. |
 
 ### Partial Support
 
@@ -630,6 +657,8 @@ Semantic-analysis regressions, including:
 - `_Float16` cast-expression semantic acceptance
 - bootstrap typedef-name semantic resolution for system-header aliases such as
   `size_t`, `ptrdiff_t`, and `va_list`
+- aggregate first-batch host-header semantic smoke coverage through
+  `tests/semantic/semantic_standard_headers_first_batch_smoke`
 - dedicated host-header semantic smoke coverage for `stdlib.h`, `string.h`,
   `math.h`, `ctype.h`, `assert.h`, `stddef.h`, `time.h`, `float.h`, and
   `stdalign.h`
@@ -828,6 +857,7 @@ Representative paths:
 - [tests/run/run_volatile_struct_member_address_initializer](/Users/caojunze424/code/SysyCC/tests/run/run_volatile_struct_member_address_initializer)
 - [tests/run/run_unsigned_bit_field_integer_promotion](/Users/caojunze424/code/SysyCC/tests/run/run_unsigned_bit_field_integer_promotion)
 - [tests/run/run_make_multifile_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_make_multifile_smoke)
+- [tests/cli/cli_depfile_matrix](/Users/caojunze424/code/SysyCC/tests/cli/cli_depfile_matrix)
 - [tests/run/run_depfile_incremental_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_depfile_incremental_smoke)
 - [tests/run/run_cmake_ninja_multifile_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_cmake_ninja_multifile_smoke)
 - [tests/run/support/runtime_stub.c](/Users/caojunze424/code/SysyCC/tests/run/support/runtime_stub.c)

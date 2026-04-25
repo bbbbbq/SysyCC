@@ -75,5 +75,8 @@ Generated lexer outputs live under the active build tree:
   block; identifier-like lexemes now flow through runtime keyword
   classification so default C99/GNU/builtin-type dialect packs and test-only
   custom registries use the same path.
+- `_Alignas` is emitted directly as the parser `ALIGNAS` token so
+  `stdalign.h` macro expansions can be accepted without requiring a separate
+  token-stream enum entry.
 - The lexer pass disables scanner-side parse-tree terminal-node creation during
   lex-only runs.

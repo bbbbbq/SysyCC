@@ -142,7 +142,9 @@ Generated parser outputs live under the active build tree:
   pointer-width aliases such as `uint32_t`, `int32_t`, `uint64_t`, `intptr_t`,
   and `uintptr_t` as `TYPE_NAME` tokens before user parsing so system-header
   typedef chains can be recognized without a prior in-translation-unit
-  bootstrap header
+  bootstrap header; the same bootstrap inventory now includes `_Bool`, which
+  lets `stdbool.h` macro-expanded `bool` declarations flow through the
+  ordinary typedef-name parser path
 - seed compiler builtin type-macro spellings such as `__PTRDIFF_TYPE__`,
   `__SIZE_TYPE__`, `__INTMAX_TYPE__`, `__UINTMAX_TYPE__`, `__WCHAR_TYPE__`,
   and `__WINT_TYPE__`, plus compatibility builtin names such as `__uint128_t`,

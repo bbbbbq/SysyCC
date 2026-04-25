@@ -24,7 +24,7 @@ done < <(find "${BUILD_DIR}/CMakeFiles/SysyCC.dir" -name '*.o' ! -name 'main.cpp
 clang++ -std=c++17 -I"${GENERATED_DIR}" -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
     "${OBJECT_FILES[@]}" \
-    -L"${BUILD_DIR}" -lsysycc_aarch64_codegen \
+    -L"${BUILD_DIR}" -lsysycc_aarch64_codegen -lsysycc_riscv64_codegen \
     -Wl,-rpath,"${BUILD_DIR}" \
     -o "${TEST_BINARY}"
 

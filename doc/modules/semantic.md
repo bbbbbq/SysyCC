@@ -99,6 +99,9 @@ The current implementation has a first batch of real semantic rules:
   `uintptr_t` are preinstalled as `TypedefName` symbols so system-header
   typedef chains resolve through the same semantic path as user-authored
   aliases
+- `_Bool` is also preinstalled through the same bootstrap typedef inventory, so
+  `stdbool.h` macro-expanded `bool`, `true`, and `false` declarations can clear
+  semantic analysis without needing a separate parser token family yet
 - bootstrap typedef coverage now also includes compiler builtin type-macro
   spellings such as `__PTRDIFF_TYPE__`, `__SIZE_TYPE__`, `__INTMAX_TYPE__`,
   `__UINTMAX_TYPE__`, `__WCHAR_TYPE__`, and `__WINT_TYPE__`, plus
@@ -107,8 +110,9 @@ The current implementation has a first batch of real semantic rules:
   headers
 - dedicated semantic smoke coverage now exercises real host-header includes
   for `stdlib.h`, `string.h`, `math.h`, `ctype.h`, `assert.h`, `stddef.h`,
-  `time.h`, `float.h`, and `stdalign.h`, so header-chain regressions can be
-  localized before they reach the larger runtime suite
+  `time.h`, `float.h`, `stdalign.h`, `stdbool.h`, `stdint.h`, `limits.h`, and
+  `errno.h`, so header-chain regressions can be localized before they reach
+  the larger runtime suite
 - function-pointer declaration types now resolve through
   `PointerSemanticType(FunctionSemanticType(...))` when parser lowering sees
   grouped declarators such as `void (*routine)(void *)`

@@ -75,6 +75,16 @@ Output:
 - `-MF` overrides the depfile path, `-MT` and `-MQ` override depfile target
   names, and `-MP` adds phony header targets for deleted-header-safe
   incremental rebuilds.
+- `-MT` target strings are forwarded to the dependency scanner without
+  additional make escaping, while `-MQ` requests make-escaped spelling. Multiple
+  `-MT` and `-MQ` options are preserved in command-line order so build-system
+  generated depfiles can name several outputs deterministically.
+- `-MF` accepts joined or separate arguments and can name nested relative paths
+  or absolute paths. The compiler creates missing depfile parent directories
+  after the SysyCC compilation step succeeds.
+- When no explicit `-MT` or `-MQ` is provided, the driver passes the primary
+  output path as a make-quoted default depfile target, so object paths with
+  spaces remain usable in Make/Ninja depfiles.
 - `-MF`, `-MT`, `-MQ`, and `-MP` currently require `-MD` or `-MMD`, and
   dependency generation is only accepted on output-producing public driver
   actions such as `-c`, `-S`, `-S -emit-llvm`, and single-source full compile.
