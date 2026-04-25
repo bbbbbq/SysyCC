@@ -48,9 +48,10 @@ tests/
 
 Each concrete case lives under `tests/<stage>/<case>/` and contains:
 
-- one or more `.sy` inputs
+- one or more `.sy` or `.c` inputs
 - an executable `run.sh`
-- any stage-specific helper files such as local headers
+- any stage-specific helper files such as local headers, `Makefile` fixtures,
+  or `CMakeLists.txt` project templates
 
 The shared [tests/test_helpers.sh](/Users/caojunze424/code/SysyCC/tests/test_helpers.sh)
 now also does three important pieces of resource coordination for local runs:
@@ -109,6 +110,17 @@ current scripts cover:
 Recent end-to-end coverage that now matters for the shared SysY22/C goal
 includes:
 
+- CLI coverage for depfile emission through
+  `-MD/-MMD/-MF/-MT/-MQ/-MP`, including system-header inclusion/exclusion and
+  explicit failure coverage for companion flags used without `-MD`/`-MMD`
+- CLI coverage for GCC-like driver compatibility buckets, including supported
+  `-x c`, safe-ignore build flags such as `-pipe` and `-Winvalid-pch`, and
+  explicit failure coverage for unsupported `-x` modes
+- CLI coverage for single-input full-compile external linking plus link-only
+  host-object passthrough through `-L/-l/-pthread/-Wl,...`
+- run-stage build-system coverage for multi-file Make and CMake+Ninja
+  compile-only static-library builds plus depfile-driven incremental rebuild
+  selection
 - parser/AST/semantic/IR/runtime coverage for compound assignments
 - parser/AST/semantic/IR/runtime coverage for the comma operator
 - parser/AST/semantic coverage for `struct` bit-field declarators
@@ -742,6 +754,10 @@ runtime stub, feed stdin, and compare stdout, including:
 - unary bitwise-not runtime parity for `long long` operands
 - `volatile struct` member address initializers that must lower through
   constant-address global initialization and runtime loads
+- project-level build-system integration through small Make and CMake+Ninja
+  static-library builds driven by `CC=.../compiler`
+- depfile-driven incremental rebuild selection, including no-op second builds
+  and selective recompilation after private-header edits
 - fixed-size scalarized data-structure scenarios such as:
   - stack / queue / deque
   - ring buffer
@@ -779,11 +795,17 @@ Representative paths:
 - [tests/run/run_incompatible_pointer_return](/Users/caojunze424/code/SysyCC/tests/run/run_incompatible_pointer_return)
 - [tests/run/run_volatile_struct_member_address_initializer](/Users/caojunze424/code/SysyCC/tests/run/run_volatile_struct_member_address_initializer)
 - [tests/run/run_unsigned_bit_field_integer_promotion](/Users/caojunze424/code/SysyCC/tests/run/run_unsigned_bit_field_integer_promotion)
+- [tests/run/run_make_multifile_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_make_multifile_smoke)
+- [tests/run/run_depfile_incremental_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_depfile_incremental_smoke)
+- [tests/run/run_cmake_ninja_multifile_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_cmake_ninja_multifile_smoke)
 - [tests/run/support/runtime_stub.c](/Users/caojunze424/code/SysyCC/tests/run/support/runtime_stub.c)
 
 Each runtime case also maintains its own `build/` directory under
 `tests/run/<case>/build/`, where the case stores copied frontend artifacts,
 the emitted LLVM IR used for host compilation, and the final linked executable.
+The driver/build-system smoke cases intentionally stop at `.o`/`.a` outputs
+when needed, because final host-executable linking for SysyCC-generated
+AArch64 objects is still waiting on the native object path to stabilize.
 
 ### `tests/fuzz/`
 

@@ -189,9 +189,38 @@ std::optional<std::string> parse_warning_option_name(
     return option_name;
 }
 
+std::string lowercase_copy(std::string text) {
+    for (char &ch : text) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return text;
+}
+
+bool is_linker_input_file_path(const std::string &path) {
+    const std::string extension =
+        lowercase_copy(std::filesystem::path(path).extension().string());
+    return extension == ".o" || extension == ".obj" || extension == ".a" ||
+           extension == ".so" || extension == ".dylib" || extension == ".lo";
+}
+
 } // namespace
 
 bool Cli::finalize_driver_mode() {
+    if (depfile_mode_ == sysycc::DepfileMode::None &&
+        !depfile_output_file_.empty()) {
+        emit_error("'-MF' requires '-MD' or '-MMD'");
+        return false;
+    }
+    if (depfile_mode_ == sysycc::DepfileMode::None &&
+        !depfile_targets_.empty()) {
+        emit_error("'-MT' and '-MQ' require '-MD' or '-MMD'");
+        return false;
+    }
+    if (depfile_mode_ == sysycc::DepfileMode::None && depfile_add_phony_targets_) {
+        emit_error("'-MP' requires '-MD' or '-MMD'");
+        return false;
+    }
+
     if (request_emit_llvm_ && !request_emit_assembly_) {
         emit_error("'-emit-llvm' requires '-S'");
         return false;
@@ -231,9 +260,15 @@ bool Cli::finalize_driver_mode() {
             driver_action_ = sysycc::DriverAction::InternalPipeline;
         } else {
             driver_action_ = sysycc::DriverAction::FullCompile;
-            emit_error("linking is not supported yet; use -E, -fsyntax-only, -c, -S, or -S -emit-llvm");
-            return false;
         }
+    }
+
+    if (depfile_mode_ != sysycc::DepfileMode::None &&
+        (driver_action_ == sysycc::DriverAction::PreprocessOnly ||
+         driver_action_ == sysycc::DriverAction::SyntaxOnly ||
+         driver_action_ == sysycc::DriverAction::InternalPipeline)) {
+        emit_error("dependency generation is only supported with output-producing driver actions such as -c, -S, or full-compile linking");
+        return false;
     }
 
     if (!explicit_optimization_level_ &&
@@ -284,14 +319,82 @@ bool Cli::finalize_driver_mode() {
     return true;
 }
 
+bool Cli::finalize_inputs() {
+    input_file_.clear();
+    linker_input_files_.clear();
+    link_only_ = false;
+
+    std::vector<std::string> source_inputs;
+    std::vector<std::string> link_inputs;
+    for (const std::string &input : positional_inputs_) {
+        if (!force_c_input_language_ && is_linker_input_file_path(input)) {
+            link_inputs.push_back(input);
+        } else {
+            source_inputs.push_back(input);
+        }
+    }
+
+    if (driver_action_ == sysycc::DriverAction::FullCompile) {
+        if (source_inputs.size() > 1) {
+            emit_error("multiple source inputs are not yet supported; compile sources separately and link the resulting objects");
+            return false;
+        }
+        if (source_inputs.empty()) {
+            if (link_inputs.empty()) {
+                emit_error("missing input file");
+                return false;
+            }
+            if (depfile_mode_ != sysycc::DepfileMode::None) {
+                emit_error("dependency generation requires a source input in the current invocation");
+                return false;
+            }
+            linker_input_files_ = std::move(link_inputs);
+            link_only_ = true;
+            return true;
+        }
+
+        input_file_ = std::move(source_inputs.front());
+        linker_input_files_ = std::move(link_inputs);
+        return true;
+    }
+
+    if (!link_inputs.empty()) {
+        emit_error("linker input files are only supported during full-compile linking");
+        return false;
+    }
+    if (source_inputs.empty()) {
+        emit_error("missing input file");
+        return false;
+    }
+    if (source_inputs.size() > 1) {
+        emit_error("multiple input files are not yet supported: '" +
+                   source_inputs.back() + "'");
+        return false;
+    }
+
+    input_file_ = std::move(source_inputs.front());
+    return true;
+}
+
 void Cli::Run(int argc, char *argv[]) {
     program_name_ = detect_program_name(argc > 0 ? argv[0] : nullptr);
+    positional_inputs_.clear();
     input_file_.clear();
+    linker_input_files_.clear();
+    link_only_ = false;
     output_file_.clear();
+    depfile_mode_ = sysycc::DepfileMode::None;
+    depfile_output_file_.clear();
+    depfile_targets_.clear();
+    depfile_add_phony_targets_ = false;
     include_directories_.clear();
     system_include_directories_.clear();
     command_line_macro_options_.clear();
     forced_include_files_.clear();
+    linker_search_directories_.clear();
+    linker_libraries_.clear();
+    linker_passthrough_arguments_.clear();
+    link_with_pthread_ = false;
     no_stdinc_ = false;
     dump_tokens_ = false;
     dump_parse_ = false;
@@ -314,6 +417,7 @@ void Cli::Run(int argc, char *argv[]) {
     backend_kind_ = sysycc::BackendKind::LlvmIr;
     explicit_backend_ = false;
     target_triple_.clear();
+    force_c_input_language_ = false;
     request_preprocess_only_ = false;
     request_syntax_only_ = false;
     request_emit_assembly_ = false;
@@ -383,6 +487,55 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
+        if (arg == "-x" || (arg.size() > 2 && arg.rfind("-x", 0) == 0)) {
+            const std::string language_name =
+                arg == "-x" ? (i + 1 < argc ? argv[++i] : std::string())
+                            : arg.substr(2);
+            if (language_name.empty()) {
+                emit_error("missing argument to '-x'");
+                return;
+            }
+            if (language_name != "c") {
+                emit_error("argument to '-x' is not supported: '" +
+                           language_name + "'");
+                return;
+            }
+            force_c_input_language_ = true;
+            continue;
+        }
+
+        if (arg == "-pipe" || arg == "-ffunction-sections" ||
+            arg == "-fdata-sections" || arg == "-fno-common" ||
+            arg == "-Winvalid-pch" || arg == "-fvisibility=hidden") {
+            continue;
+        }
+
+        if (arg == "-arch") {
+            const std::string arch_name =
+                i + 1 < argc ? std::string(argv[++i]) : std::string();
+            if (arch_name.empty()) {
+                emit_error("missing argument to '-arch'");
+                return;
+            }
+            if (arch_name != "arm64" && arch_name != "aarch64") {
+                emit_error("argument to '-arch' is not supported: '" +
+                           arch_name + "'");
+                return;
+            }
+            continue;
+        }
+
+        if (arg.rfind("-fvisibility=", 0) == 0) {
+            const std::string visibility_mode =
+                arg.substr(std::string("-fvisibility=").size());
+            if (visibility_mode != "hidden") {
+                emit_error("argument to '-fvisibility=' is not supported: '" +
+                           visibility_mode + "'");
+                return;
+            }
+            continue;
+        }
+
         if (arg == "-fPIC") {
             request_position_independent_ = true;
             continue;
@@ -390,6 +543,61 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-g") {
             request_debug_info_ = true;
+            continue;
+        }
+
+        if (arg == "-pthread") {
+            link_with_pthread_ = true;
+            continue;
+        }
+
+        if (arg == "-MD") {
+            depfile_mode_ = sysycc::DepfileMode::MD;
+            continue;
+        }
+
+        if (arg == "-MMD") {
+            depfile_mode_ = sysycc::DepfileMode::MMD;
+            continue;
+        }
+
+        if (arg == "-MP") {
+            depfile_add_phony_targets_ = true;
+            continue;
+        }
+
+        if (arg == "-MF" || (arg.size() > 3 && arg.rfind("-MF", 0) == 0)) {
+            depfile_output_file_ =
+                arg == "-MF" ? (i + 1 < argc ? argv[++i] : std::string())
+                             : arg.substr(3);
+            if (depfile_output_file_.empty()) {
+                emit_error("missing argument to '-MF'");
+                return;
+            }
+            continue;
+        }
+
+        if (arg == "-MT" || (arg.size() > 3 && arg.rfind("-MT", 0) == 0)) {
+            const std::string dep_target =
+                arg == "-MT" ? (i + 1 < argc ? argv[++i] : std::string())
+                             : arg.substr(3);
+            if (dep_target.empty()) {
+                emit_error("missing argument to '-MT'");
+                return;
+            }
+            depfile_targets_.emplace_back(dep_target, false);
+            continue;
+        }
+
+        if (arg == "-MQ" || (arg.size() > 3 && arg.rfind("-MQ", 0) == 0)) {
+            const std::string dep_target =
+                arg == "-MQ" ? (i + 1 < argc ? argv[++i] : std::string())
+                             : arg.substr(3);
+            if (dep_target.empty()) {
+                emit_error("missing argument to '-MQ'");
+                return;
+            }
+            depfile_targets_.emplace_back(dep_target, true);
             continue;
         }
 
@@ -632,6 +840,39 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
+        if (arg == "-L" || (arg.size() > 2 && arg.rfind("-L", 0) == 0)) {
+            const std::string search_directory =
+                arg == "-L" ? (i + 1 < argc ? argv[++i] : std::string())
+                            : arg.substr(2);
+            if (search_directory.empty()) {
+                emit_error("missing argument to '-L'");
+                return;
+            }
+            linker_search_directories_.push_back(search_directory);
+            continue;
+        }
+
+        if (arg == "-l" || (arg.size() > 2 && arg.rfind("-l", 0) == 0)) {
+            const std::string library_name =
+                arg == "-l" ? (i + 1 < argc ? argv[++i] : std::string())
+                            : arg.substr(2);
+            if (library_name.empty()) {
+                emit_error("missing argument to '-l'");
+                return;
+            }
+            linker_libraries_.push_back(library_name);
+            continue;
+        }
+
+        if (arg.rfind("-Wl,", 0) == 0) {
+            if (arg.size() <= std::string("-Wl,").size()) {
+                emit_error("missing argument to '-Wl,'");
+                return;
+            }
+            linker_passthrough_arguments_.push_back(arg);
+            continue;
+        }
+
         if (arg.size() > 2 && arg.rfind("-I", 0) == 0) {
             include_directories_.push_back(arg.substr(2));
             continue;
@@ -736,20 +977,19 @@ void Cli::Run(int argc, char *argv[]) {
             return;
         }
 
-        if (input_file_.empty()) {
-            input_file_ = arg;
-            continue;
-        }
-
-        emit_error("multiple input files are not yet supported: '" + arg + "'");
-        return;
+        positional_inputs_.push_back(arg);
     }
 
-    if (input_file_.empty()) {
+    if (positional_inputs_.empty()) {
         emit_error("missing input file");
         return;
     }
 
-    finalize_driver_mode();
+    if (!finalize_driver_mode()) {
+        return;
+    }
+    if (!finalize_inputs()) {
+        return;
+    }
 }
 } // namespace ClI

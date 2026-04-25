@@ -12,12 +12,23 @@ namespace ClI {
 class Cli {
   private:
     std::string program_name_ = "compiler";
+    std::vector<std::string> positional_inputs_;
     std::string input_file_;
+    std::vector<std::string> linker_input_files_;
+    bool link_only_ = false;
     std::string output_file_;
+    sysycc::DepfileMode depfile_mode_ = sysycc::DepfileMode::None;
+    std::string depfile_output_file_;
+    std::vector<sysycc::DepfileTargetOption> depfile_targets_;
+    bool depfile_add_phony_targets_ = false;
     std::vector<std::string> include_directories_;
     std::vector<std::string> system_include_directories_;
     std::vector<sysycc::CommandLineMacroOption> command_line_macro_options_;
     std::vector<std::string> forced_include_files_;
+    std::vector<std::string> linker_search_directories_;
+    std::vector<std::string> linker_libraries_;
+    std::vector<std::string> linker_passthrough_arguments_;
+    bool link_with_pthread_ = false;
     bool no_stdinc_ = false;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
@@ -41,6 +52,7 @@ class Cli {
     sysycc::BackendKind backend_kind_ = sysycc::BackendKind::LlvmIr;
     bool explicit_backend_ = false;
     std::string target_triple_;
+    bool force_c_input_language_ = false;
     bool request_preprocess_only_ = false;
     bool request_syntax_only_ = false;
     bool request_emit_assembly_ = false;
@@ -59,13 +71,17 @@ class Cli {
     }
 
     bool finalize_driver_mode();
+    bool finalize_inputs();
 
   public:
     void Run(int argc, char *argv[]);
     bool get_is_help() const noexcept { return is_help_; }
     bool get_is_version() const noexcept { return is_version_; }
     bool get_has_error() const noexcept { return has_error_; }
-    bool has_input_file() const noexcept { return !input_file_.empty(); }
+    bool has_input_file() const noexcept {
+        return !input_file_.empty() || !linker_input_files_.empty() ||
+               !positional_inputs_.empty();
+    }
     const std::string &get_program_name() const noexcept { return program_name_; }
     const std::string &get_version() const noexcept { return version_; }
 
@@ -79,11 +95,28 @@ class Cli {
                   << "  -O0                Disable optional Core IR optimization passes\n"
                   << "  -O1                Enable current Core IR optimization passes\n"
                   << "  -c                 Emit object output\n"
+                  << "  -x c               Force C input language for following inputs\n"
+                  << "  -pipe              Accepted for GCC-like build compatibility; ignored\n"
                   << "  -fPIC              Emit position-independent native code\n"
                   << "  -g                 Forward debug-info requests to native backends\n"
+                  << "  -MD                Write a depfile including system headers\n"
+                  << "  -MMD               Write a depfile excluding system headers\n"
+                  << "  -MF <file>         Write the depfile to <file> (requires -MD/-MMD)\n"
+                  << "  -MT <target>       Override depfile target name\n"
+                  << "  -MQ <target>       Override depfile target name with Make quoting\n"
+                  << "  -MP                Add phony header targets to the depfile (requires -MD/-MMD)\n"
                   << "  -I<dir>            Add include search directory\n"
                   << "  -I <dir>           Add include search directory\n"
                   << "  -isystem <dir>     Add system include search directory\n"
+                  << "  -L<dir>            Add a linker search directory for full-compile linking\n"
+                  << "  -l<name>           Link a library during full-compile linking\n"
+                  << "  -Wl,<arg>          Pass an argument through to the external linker driver\n"
+                  << "  -pthread           Preserve pthread linkage intent for full-compile linking\n"
+                  << "  -ffunction-sections Accepted for GCC-like build compatibility; ignored\n"
+                  << "  -fdata-sections    Accepted for GCC-like build compatibility; ignored\n"
+                  << "  -fno-common        Accepted for GCC-like build compatibility; ignored\n"
+                  << "  -fvisibility=hidden Accepted for GCC-like build compatibility; ignored\n"
+                  << "  -Winvalid-pch      Accepted for GCC-like build compatibility; ignored\n"
                   << "  -D<name>[=value]   Define a preprocessor macro\n"
                   << "  -D <name>[=value]  Define a preprocessor macro\n"
                   << "  -U<name>           Undefine a preprocessor macro\n"
@@ -116,7 +149,13 @@ class Cli {
 
     void set_compiler_option(sysycc::ComplierOption &option) const {
         option.set_input_file(input_file_);
+        option.set_linker_input_files(linker_input_files_);
+        option.set_link_only(link_only_);
         option.set_output_file(output_file_);
+        option.set_depfile_mode(depfile_mode_);
+        option.set_depfile_output_file(depfile_output_file_);
+        option.set_depfile_targets(depfile_targets_);
+        option.set_depfile_add_phony_targets(depfile_add_phony_targets_);
         option.set_include_directories(include_directories_);
         std::vector<std::string> merged_system_include_directories;
         if (!no_stdinc_) {
@@ -131,6 +170,10 @@ class Cli {
             std::move(merged_system_include_directories));
         option.set_command_line_macro_options(command_line_macro_options_);
         option.set_forced_include_files(forced_include_files_);
+        option.set_linker_search_directories(linker_search_directories_);
+        option.set_linker_libraries(linker_libraries_);
+        option.set_linker_passthrough_arguments(linker_passthrough_arguments_);
+        option.set_link_with_pthread(link_with_pthread_);
         option.set_no_stdinc(no_stdinc_);
         option.set_dump_tokens(dump_tokens_);
         option.set_dump_parse(dump_parse_);

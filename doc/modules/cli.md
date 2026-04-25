@@ -13,13 +13,18 @@ The CLI module converts `argv` into a compiler configuration object.
 
 - parse command line flags
 - normalize public GCC-like driver actions such as `-E`, `-fsyntax-only`,
-  `-S`, `-c`, `-g`, and `-S -emit-llvm`
+  `-S`, `-c`, single-input full-compile linking, `-g`, and `-S -emit-llvm`
 - parse public optimization switches such as `-O0` and `-O1`
 - record input and output file paths
 - collect include search directories from `-I`
 - collect system include search directories from `-isystem`
 - collect command-line macro and forced-include inputs from `-D`, `-U`, and
   `-include`
+- collect depfile controls from `-MD`, `-MMD`, `-MF`, `-MT`, `-MQ`, and `-MP`
+- collect external-link passthrough state from `-pthread`, `-L`, `-l`, and
+  `-Wl,...`
+- classify common GCC-like build flags into supported, safe-ignore,
+  pass-through, or explicit-error behavior
 - control default system header lookup via `-nostdinc`
 - map dialect-selection flags into compiler configuration
 - map `-std=...` and `-f...` extension toggles into effective dialect settings
@@ -59,11 +64,38 @@ Output:
   - `-fsyntax-only` stops after semantic analysis
   - `-S` emits native assembly
   - `-c` emits a native ELF object file
+  - bare single-input invocations lower to LLVM IR and then call a host
+    `clang`/`cc` driver to produce an executable
+  - link-only invocations with positional `.o`/`.a`/`.so`/`.dylib` inputs call
+    that same host link driver directly
   - `-g` forwards a native debug-info request
   - `-S -emit-llvm` emits LLVM IR
-- Bare `sysycc input.sy` still fails with an explicit linking-not-supported
-  diagnostic, but `-c` is now a supported compile-only object-emission path for
-  the native backends.
+- `-MD` now requests a depfile for the primary output including system headers,
+  while `-MMD` excludes system headers.
+- `-MF` overrides the depfile path, `-MT` and `-MQ` override depfile target
+  names, and `-MP` adds phony header targets for deleted-header-safe
+  incremental rebuilds.
+- `-MF`, `-MT`, `-MQ`, and `-MP` currently require `-MD` or `-MMD`, and
+  dependency generation is only accepted on output-producing public driver
+  actions such as `-c`, `-S`, `-S -emit-llvm`, and single-source full compile.
+- Depfile generation is handled in the driver by invoking a host dependency
+  scanner after SysyCC compilation succeeds. The driver tries `clang`, then
+  `cc`, and `SYSYCC_HOST_CC` can override that probe order when integration
+  needs a fixed host compiler path.
+- Bare single-input public driver invocations no longer stop at an explicit
+  linking-not-supported diagnostic. The current full-compile path lowers to
+  LLVM IR and then shells out to a host `clang`/`cc` driver for the final
+  compile+link step, with `a.out` as the default executable path when `-o` is
+  omitted.
+- That new full-compile path is intentionally narrow for now: it is single
+  source-input only, it can also collect extra positional linker inputs plus
+  `-pthread`, `-L`, `-l`, and `-Wl,...` for the external host link driver, and
+  the native AArch64/RISC-V object-emission paths still remain the public
+  `-c`/`-S` workflows.
+- Multi-source final linking of SysyCC-native AArch64 objects is still not the
+  stabilized mainline path; build systems should currently drive SysyCC one
+  source at a time through `-c` and then use the external-link skeleton only
+  when the resulting objects are host-linkable for the active environment.
 - `-O0` keeps the minimum Core IR pipeline required by later lowering, while
   `-O1` additionally enables the current Core IR optimization batch:
   canonicalization, constant folding, and dead-code elimination.
@@ -120,3 +152,19 @@ Output:
 - `-v` now prints version plus the effective driver/language/include
   configuration and optimization level, then continues compiling, while
   `--version` exits immediately.
+
+## GCC-like Build Compatibility Matrix
+
+| Flag(s) | Status | Current behavior |
+| --- | --- | --- |
+| `-x c` | supported | Forces C parsing for following inputs, including non-`.c` file names. |
+| `-MD` | supported | Emits a depfile that includes system headers. |
+| `-MMD` | supported | Emits a depfile that excludes system headers. |
+| `-MF`, `-MT`, `-MQ`, `-MP` | supported with `-MD`/`-MMD` | Override depfile path or target spelling and optionally add phony header targets. |
+| `-fPIC`, `-g` | supported | Forwarded into backend/driver state for native output or full-compile linking. |
+| `-pipe`, `-ffunction-sections`, `-fdata-sections`, `-fno-common`, `-fvisibility=hidden`, `-Winvalid-pch`, `-arch arm64`, `-arch aarch64` | safe ignore | Accepted for build-system compatibility without changing the current output mode. |
+| `-pthread`, `-L`, `-l`, `-Wl,...` | pass through | Stored on [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp) and forwarded to the external host link driver when a link stage runs. |
+| unsupported `-x <lang>` | explicit error | Only `-x c` is currently accepted. |
+| unsupported `-arch <arch>` | explicit error | Only `arm64` and `aarch64` are accepted as compatibility spellings. |
+| unsupported `-fvisibility=<mode>` | explicit error | Only `hidden` is currently accepted as a safe-ignore compatibility flag. |
+| unknown flags | explicit error | The driver does not silently swallow unclassified options. |
