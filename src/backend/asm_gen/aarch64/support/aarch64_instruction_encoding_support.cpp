@@ -323,6 +323,96 @@ std::uint32_t encode_logical_register_word(std::uint32_t base, unsigned rd,
            ((amount & 0x3fU) << 10) | ((rn & 0x1fU) << 5) | (rd & 0x1fU);
 }
 
+struct EncodedLogicalImmediate {
+    unsigned n = 0;
+    unsigned immr = 0;
+    unsigned imms = 0;
+};
+
+std::uint64_t mask_for_width(unsigned width) {
+    if (width >= 64) {
+        return ~0ULL;
+    }
+    return (1ULL << width) - 1ULL;
+}
+
+std::uint64_t rotate_right_within_width(std::uint64_t value, unsigned amount,
+                                        unsigned width) {
+    const std::uint64_t mask = mask_for_width(width);
+    value &= mask;
+    amount %= width;
+    if (amount == 0) {
+        return value;
+    }
+    return ((value >> amount) | (value << (width - amount))) & mask;
+}
+
+std::uint64_t replicate_within_width(std::uint64_t value, unsigned pattern_width,
+                                     unsigned width) {
+    const std::uint64_t pattern_mask = mask_for_width(pattern_width);
+    std::uint64_t replicated = 0;
+    for (unsigned offset = 0; offset < width; offset += pattern_width) {
+        replicated |= (value & pattern_mask) << offset;
+    }
+    return replicated & mask_for_width(width);
+}
+
+std::optional<EncodedLogicalImmediate>
+encode_logical_immediate_fields(std::uint64_t immediate, unsigned width) {
+    if (width != 32 && width != 64) {
+        return std::nullopt;
+    }
+
+    const std::uint64_t width_mask = mask_for_width(width);
+    immediate &= width_mask;
+    if (immediate == 0 || immediate == width_mask) {
+        return std::nullopt;
+    }
+
+    for (unsigned pattern_width = 2; pattern_width <= width; pattern_width <<= 1U) {
+        const std::uint64_t pattern_mask = mask_for_width(pattern_width);
+        const std::uint64_t pattern = immediate & pattern_mask;
+        if (replicate_within_width(pattern, pattern_width, width) != immediate) {
+            continue;
+        }
+
+        for (unsigned ones_count = 1; ones_count < pattern_width; ++ones_count) {
+            const std::uint64_t ones_pattern =
+                mask_for_width(ones_count) & pattern_mask;
+            for (unsigned rotation = 0; rotation < pattern_width; ++rotation) {
+                if (rotate_right_within_width(ones_pattern, rotation,
+                                              pattern_width) != pattern) {
+                    continue;
+                }
+
+                EncodedLogicalImmediate encoded;
+                encoded.n = pattern_width == 64 ? 1U : 0U;
+                encoded.immr = rotation & 0x3fU;
+                encoded.imms =
+                    (static_cast<unsigned>(-(static_cast<int>(pattern_width) << 1)) |
+                     (ones_count - 1U)) &
+                    0x3fU;
+                return encoded;
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::uint32_t encode_logical_immediate_word(std::uint32_t base, unsigned rd,
+                                            unsigned rn,
+                                            const EncodedLogicalImmediate &imm) {
+    return base | ((imm.n & 0x1U) << 22) | ((imm.immr & 0x3fU) << 16) |
+           ((imm.imms & 0x3fU) << 10) | ((rn & 0x1fU) << 5) | (rd & 0x1fU);
+}
+
+std::uint32_t encode_bitfield_word(std::uint32_t base, unsigned rd, unsigned rn,
+                                   unsigned immr, unsigned imms) {
+    return base | ((immr & 0x3fU) << 16) | ((imms & 0x3fU) << 10) |
+           ((rn & 0x1fU) << 5) | (rd & 0x1fU);
+}
+
 std::uint32_t encode_wide_move_word(std::uint32_t base, unsigned rd,
                                     unsigned imm16, unsigned hw) {
     return base | ((hw & 0x3U) << 21) | ((imm16 & 0xffffU) << 5) |
@@ -583,10 +673,33 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             operands[0], function, false, false, diagnostic_engine, mnemonic + " dst");
         const auto rn = resolve_general_reg_operand(
             operands[1], function, false, true, diagnostic_engine, mnemonic + " lhs");
+        if (!rd.has_value() || !rn.has_value() || rd->use_64bit != rn->use_64bit) {
+            return std::nullopt;
+        }
+        if (const auto imm = parse_operand_immediate(operands[2]); imm.has_value()) {
+            if (operands.size() != 3) {
+                return unsupported("logical immediate shift");
+            }
+            const std::optional<EncodedLogicalImmediate> encoded_imm =
+                encode_logical_immediate_fields(
+                    static_cast<std::uint64_t>(*imm),
+                    rd->use_64bit ? 64U : 32U);
+            if (!encoded_imm.has_value()) {
+                return unsupported("logical immediate");
+            }
+            std::uint32_t base = rd->use_64bit ? 0x92000000U : 0x12000000U;
+            if (opcode == AArch64MachineOpcode::Orr) {
+                base = rd->use_64bit ? 0xB2000000U : 0x32000000U;
+            } else if (opcode == AArch64MachineOpcode::Eor) {
+                base = rd->use_64bit ? 0xD2000000U : 0x52000000U;
+            }
+            encoded.word = encode_logical_immediate_word(base, rd->code, rn->code,
+                                                         *encoded_imm);
+            return encoded;
+        }
         const auto rm = resolve_general_reg_operand(
             operands[2], function, false, false, diagnostic_engine, mnemonic + " rhs");
-        if (!rd.has_value() || !rn.has_value() || !rm.has_value() ||
-            rd->use_64bit != rn->use_64bit || rd->use_64bit != rm->use_64bit) {
+        if (!rm.has_value() || rd->use_64bit != rm->use_64bit) {
             return std::nullopt;
         }
         unsigned shift_type = 0;
@@ -609,6 +722,60 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         encoded.word =
             encode_logical_register_word(base, rd->code, rn->code, rm->code,
                                          shift_type, amount);
+        return encoded;
+    }
+
+    if (mnemonic == "uxtb" || mnemonic == "uxth" || mnemonic == "sxtb" ||
+        mnemonic == "sxth" || mnemonic == "sxtw" || mnemonic == "ubfx" ||
+        mnemonic == "sbfx") {
+        if ((mnemonic == "uxtb" || mnemonic == "uxth" || mnemonic == "sxtb" ||
+             mnemonic == "sxth" || mnemonic == "sxtw") &&
+            operands.size() != 2) {
+            return unsupported("extend operand shape");
+        }
+        if ((mnemonic == "ubfx" || mnemonic == "sbfx") && operands.size() != 4) {
+            return unsupported("bitfield operand shape");
+        }
+
+        const auto rd = resolve_general_reg_operand(
+            operands[0], function, false, false, diagnostic_engine, mnemonic + " dst");
+        const auto rn = resolve_general_reg_operand(
+            operands[1], function, false, false, diagnostic_engine, mnemonic + " src");
+        if (!rd.has_value() || !rn.has_value()) {
+            return std::nullopt;
+        }
+
+        unsigned immr = 0;
+        unsigned imms = 0;
+        if (mnemonic == "uxtb" || mnemonic == "sxtb") {
+            imms = 7;
+        } else if (mnemonic == "uxth" || mnemonic == "sxth") {
+            imms = 15;
+        } else if (mnemonic == "sxtw") {
+            if (!rd->use_64bit) {
+                return unsupported("sxtw requires an x-register destination");
+            }
+            imms = 31;
+        } else {
+            const auto lsb = parse_operand_immediate(operands[2]);
+            const auto width = parse_operand_immediate(operands[3]);
+            const unsigned register_width = rd->use_64bit ? 64U : 32U;
+            if (!lsb.has_value() || !width.has_value() || *lsb < 0 || *width <= 0 ||
+                *lsb >= static_cast<long long>(register_width) ||
+                *width > static_cast<long long>(register_width) ||
+                (*lsb + *width) > static_cast<long long>(register_width)) {
+                return unsupported("bitfield immediate range");
+            }
+            immr = static_cast<unsigned>(*lsb);
+            imms = static_cast<unsigned>(*lsb + *width - 1);
+        }
+
+        const std::uint32_t base =
+            (mnemonic == "uxtb" || mnemonic == "uxth" || mnemonic == "ubfx")
+                ? (rd->use_64bit ? 0xD3400000U : 0x53000000U)
+                : (rd->use_64bit ? 0x93400000U : 0x13000000U);
+        encoded.word =
+            encode_bitfield_word(base, rd->code, rn->code, immr, imms);
         return encoded;
     }
 

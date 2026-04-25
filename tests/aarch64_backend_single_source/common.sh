@@ -6,6 +6,37 @@ SINGLE_SOURCE_EXTRA_INCLUDE_DIRS=()
 SINGLE_SOURCE_EXTRA_CFLAGS=()
 SINGLE_SOURCE_EXTRA_COMPANION_SOURCES=()
 
+single_source_uses_direct_object_path() {
+    local source_rel="$1"
+
+    case "${source_rel}" in
+        "SingleSource/Regression/C/globalrefs.c"|"SingleSource/Regression/C/gcc-c-torture/execute/medce-1.c")
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+single_source_object_relocation_pattern() {
+    local source_rel="$1"
+
+    case "${source_rel}" in
+        "SingleSource/Regression/C/globalrefs.c")
+            printf '%s\n' 'TestArrayPtr|TestArray|Aptr|Yptr|NextPtr|printf'
+            return 0
+            ;;
+        "SingleSource/Regression/C/gcc-c-torture/execute/medce-1.c")
+            printf '%s\n' 'ok|bar|foo|link_error|abort'
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 single_source_stage_root() {
     cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
 }
@@ -1320,6 +1351,8 @@ run_single_source_snapshot_case() {
     local companion_case_id=""
     local companion_object=""
     local include_dir=""
+    local use_direct_object_path=0
+    local object_relocation_pattern=""
 
     case_id="$(single_source_case_id "${source_rel}")"
     source_file="${stage_root}/upstream/${source_rel}"
@@ -1357,6 +1390,12 @@ run_single_source_snapshot_case() {
         [[ -z "${companion_source}" ]] && continue
         companion_sources+=("${stage_root}/upstream/${companion_source}")
     done
+    if single_source_uses_direct_object_path "${source_rel}"; then
+        use_direct_object_path=1
+        object_relocation_pattern="$(
+            single_source_object_relocation_pattern "${source_rel}" 2>/dev/null || true
+        )"
+    fi
 
     {
         echo "==> Running ${source_rel}"
@@ -1377,9 +1416,6 @@ run_single_source_snapshot_case() {
             "${prepared_source_file}" \
             -o "${ll_file}" || return 1
         assert_file_nonempty "${ll_file}" || return 1
-
-        "${build_dir}/sysycc-aarch64c" -S "${ll_file}" -o "${sysycc_asm_file}" || return 1
-        assert_file_nonempty "${sysycc_asm_file}" || return 1
 
         "${host_clang}" \
             --target=aarch64-unknown-linux-gnu \
@@ -1413,8 +1449,20 @@ run_single_source_snapshot_case() {
             sysycc_link_objects+=("${companion_object}")
         done
 
-        run_aarch64_cc "${aarch64_cc}" -c "${sysycc_asm_file}" -o "${sysycc_obj_file}" || return 1
-        assert_file_nonempty "${sysycc_obj_file}" || return 1
+        if [[ "${use_direct_object_path}" -eq 1 ]]; then
+            echo "==> Direct object smoke lane for ${source_rel}"
+            "${build_dir}/sysycc-aarch64c" -c -fPIC "${ll_file}" -o "${sysycc_obj_file}" || return 1
+            assert_file_nonempty "${sysycc_obj_file}" || return 1
+            if [[ -n "${object_relocation_pattern}" ]]; then
+                assert_aarch64_relocations "${sysycc_obj_file}" \
+                    "${object_relocation_pattern}" || return 1
+            fi
+        else
+            "${build_dir}/sysycc-aarch64c" -S "${ll_file}" -o "${sysycc_asm_file}" || return 1
+            assert_file_nonempty "${sysycc_asm_file}" || return 1
+            run_aarch64_cc "${aarch64_cc}" -c "${sysycc_asm_file}" -o "${sysycc_obj_file}" || return 1
+            assert_file_nonempty "${sysycc_obj_file}" || return 1
+        fi
 
         run_aarch64_cc "${aarch64_cc}" "${clang_link_objects[@]}" -lm -o "${clang_bin}" || return 1
         assert_file_nonempty "${clang_bin}" || return 1

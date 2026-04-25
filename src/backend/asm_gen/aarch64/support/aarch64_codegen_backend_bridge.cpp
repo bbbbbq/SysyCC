@@ -57,6 +57,15 @@ AArch64CodegenDiagnostic make_error_diagnostic(std::string stage_name,
     return diagnostic;
 }
 
+AArch64CodegenDiagnostic make_note_diagnostic(std::string stage_name,
+                                              std::string message) {
+    AArch64CodegenDiagnostic diagnostic;
+    diagnostic.severity = AArch64CodegenDiagnosticSeverity::Note;
+    diagnostic.stage_name = std::move(stage_name);
+    diagnostic.message = std::move(message);
+    return diagnostic;
+}
+
 AArch64CodegenDiagnosticSeverity map_diagnostic_severity(
     DiagnosticLevel level) {
     switch (level) {
@@ -96,6 +105,59 @@ bool has_error_diagnostics(
         }
     }
     return false;
+}
+
+std::size_t count_machine_blocks(const AArch64MachineModule &machine_module) {
+    std::size_t blocks = 0;
+    for (const AArch64MachineFunction &function : machine_module.get_functions()) {
+        blocks += function.get_blocks().size();
+    }
+    return blocks;
+}
+
+std::size_t count_machine_instructions(const AArch64MachineModule &machine_module) {
+    std::size_t instructions = 0;
+    for (const AArch64MachineFunction &function : machine_module.get_functions()) {
+        for (const AArch64MachineBlock &block : function.get_blocks()) {
+            instructions += block.get_instructions().size();
+        }
+    }
+    return instructions;
+}
+
+std::size_t count_object_relocations(const AArch64ObjectModule &object_module) {
+    std::size_t relocations = 0;
+    for (const AArch64DataObject &data_object : object_module.get_data_objects()) {
+        for (const AArch64DataFragment &fragment : data_object.get_fragments()) {
+            relocations += fragment.get_relocations().size();
+        }
+    }
+    return relocations;
+}
+
+std::string summarize_object_pipeline_state(
+    const AArch64MachineModule &machine_module,
+    const AArch64ObjectModule &object_module,
+    const BackendOptions &backend_options,
+    const std::filesystem::path &object_path = {}) {
+    std::string summary = "target='" + backend_options.get_target_triple() + "'";
+    summary += ", pic=";
+    summary += backend_options.get_position_independent() ? "on" : "off";
+    summary += ", debug=";
+    summary += backend_options.get_debug_info() ? "on" : "off";
+    summary += ", functions=" + std::to_string(machine_module.get_functions().size());
+    summary += ", blocks=" + std::to_string(count_machine_blocks(machine_module));
+    summary +=
+        ", instructions=" + std::to_string(count_machine_instructions(machine_module));
+    summary +=
+        ", data_objects=" + std::to_string(object_module.get_data_objects().size());
+    summary +=
+        ", data_relocations=" + std::to_string(count_object_relocations(object_module));
+    summary += ", symbols=" + std::to_string(object_module.get_symbols().size());
+    if (!object_path.empty()) {
+        summary += ", temp_object='" + object_path.string() + "'";
+    }
+    return summary;
 }
 
 BackendOptions make_backend_options(const AArch64CodegenFileRequest &request,
@@ -180,6 +242,8 @@ AArch64ObjectCompileResult emit_module_to_object(
     const AArch64CodegenFileRequest &request) {
     DiagnosticEngine diagnostics;
     AArch64ObjectCompileResult result;
+    const BackendOptions backend_options =
+        make_backend_options(request, imported.source_target_triple);
     for (const std::string &module_asm_line : imported.module_asm_lines) {
         if (!is_benign_module_asm_line(module_asm_line)) {
             result.status = AArch64CodegenStatus::UnsupportedInputFormat;
@@ -196,15 +260,21 @@ AArch64ObjectCompileResult emit_module_to_object(
     AArch64ObjectModule object_module;
     AArch64BackendPipeline pipeline;
     if (!pipeline.build_and_finalize_module(
-            *imported.module,
-            make_backend_options(request, imported.source_target_triple),
-            diagnostics, asm_module, machine_module, object_module)) {
+            *imported.module, backend_options, diagnostics, asm_module, machine_module,
+            object_module)) {
         append_backend_diagnostics(diagnostics, result.diagnostics);
+        result.diagnostics.push_back(make_note_diagnostic(
+            "aarch64-object-pipeline",
+            "AArch64 object pipeline state after machine lowering/ABI finalization "
+            "failure: " +
+                summarize_object_pipeline_state(machine_module, object_module,
+                                                backend_options)));
         result.status = AArch64CodegenStatus::Failure;
         if (result.diagnostics.empty()) {
             result.diagnostics.push_back(make_error_diagnostic(
-                "aarch64-backend",
-                "failed to lower the restricted LLVM IR module into the native AArch64 backend"));
+                "aarch64-machine-pipeline",
+                "failed to lower the restricted LLVM IR module into finalized "
+                "native AArch64 machine/object state"));
         }
         return result;
     }
@@ -218,18 +288,22 @@ AArch64ObjectCompileResult emit_module_to_object(
     }
 
     std::unique_ptr<ObjectResult> object_result = pipeline.emit_object_result(
-        machine_module, object_module,
-        make_backend_options(request, imported.source_target_triple), object_path,
-        diagnostics);
+        machine_module, object_module, backend_options, object_path, diagnostics);
     append_backend_diagnostics(diagnostics, result.diagnostics);
     std::error_code remove_error;
     std::filesystem::remove(object_path, remove_error);
     if (object_result == nullptr || diagnostics.has_error()) {
+        result.diagnostics.push_back(make_note_diagnostic(
+            "aarch64-object-emission",
+            "AArch64 object emission state after writer/readback failure: " +
+                summarize_object_pipeline_state(machine_module, object_module,
+                                                backend_options, object_path)));
         result.status = AArch64CodegenStatus::Failure;
         if (result.diagnostics.empty()) {
             result.diagnostics.push_back(make_error_diagnostic(
-                "aarch64-backend",
-                "failed to emit a native AArch64 object file from the restricted LLVM IR module"));
+                "aarch64-object-emission",
+                "failed to emit a native AArch64 object file from the restricted "
+                "LLVM IR module during object writer/readback"));
         }
         return result;
     }

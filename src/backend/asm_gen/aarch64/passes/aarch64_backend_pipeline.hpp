@@ -69,9 +69,23 @@ class AArch64BackendPipeline {
     bool finalize_function(AArch64MachineFunction &function,
                            DiagnosticEngine &diagnostic_engine) const {
         if (!register_allocation_pass_.run(function, diagnostic_engine)) {
+            if (!diagnostic_engine.has_error()) {
+                diagnostic_engine.add_error(
+                    DiagnosticStage::Compiler,
+                    "AArch64 backend register allocation failed for function '" +
+                        function.get_name() +
+                        "' without emitting a specific diagnostic");
+            }
             return false;
         }
         if (!spill_rewrite_pass_.run(function, diagnostic_engine)) {
+            if (!diagnostic_engine.has_error()) {
+                diagnostic_engine.add_error(
+                    DiagnosticStage::Compiler,
+                    "AArch64 backend spill rewrite failed for function '" +
+                        function.get_name() +
+                        "' without emitting a specific diagnostic");
+            }
             return false;
         }
         frame_finalize_pass_.run(function);
@@ -93,7 +107,8 @@ class AArch64BackendPipeline {
             if (!codegen_context.diagnostic_engine->has_error()) {
                 codegen_context.diagnostic_engine->add_error(
                     DiagnosticStage::Compiler,
-                    "AArch64 backend machine lowering failed without emitting a "
+                    "AArch64 backend machine lowering stage failed before "
+                    "register allocation/object emission without emitting a "
                     "specific diagnostic");
             }
             return false;
@@ -103,8 +118,9 @@ class AArch64BackendPipeline {
             if (!codegen_context.diagnostic_engine->has_error()) {
                 codegen_context.diagnostic_engine->add_error(
                     DiagnosticStage::Compiler,
-                    "AArch64 backend finalization failed without emitting a "
-                    "specific diagnostic");
+                    "AArch64 backend finalize stage failed during register "
+                    "allocation/spill rewrite/frame finalization without "
+                    "emitting a specific diagnostic");
             }
             return false;
         }

@@ -79,11 +79,30 @@ That imported suite is manifest-driven, records per-case logs under
 `tests/aarch64_backend_single_source/common.sh`, and currently tracks `1770`
 imported cases with a clean `PASS` manifest.
 It also ships a smaller `smoke/run.sh` fast lane backed by a curated
-24-case `smoke_manifest.txt`, so day-to-day backend work can exercise the main
+25-case `smoke_manifest.txt`, so day-to-day backend work can exercise the main
 correctness surfaces without paying the cost of the full imported sweep. The
 shared `tests/run_all.sh` discovery now includes only that smoke lane for the
 `aarch64_backend_single_source` stage; the full 1770-case imported sweep is an
 explicit opt-in entry through `tests/aarch64_backend_single_source/imported_suite/run.sh`.
+That smoke lane now also includes two direct native object gates through the
+existing `globalrefs.c` and `gcc-c-torture/execute/medce-1.c` cases, which are
+compiled as
+`clang -> .ll -> sysycc-aarch64c -c -fPIC -> .o -> link/run` instead of always
+round-tripping through emitted assembly.
+
+For direct object/link closure work, the `run` stage now also includes
+an AArch64 multi-object matrix:
+
+- `run_aarch64_multi_object_func_call` for cross-object function-call ABI
+- `run_aarch64_multi_object_global_data` for external global read/write
+- `run_aarch64_multi_object_const_rodata` for exported constants/string rodata
+- `run_aarch64_multi_object_link_smoke` for mixed code/data plus address-taking
+
+Each case compiles two separate C sources to LLVM IR with host `clang`, emits
+two native AArch64 `.o` files through `sysycc-aarch64c -c -fPIC`, inspects the
+key relocation records for the cross-object references, then externally links
+and runs the resulting executable through qemu-user or the Docker AArch64
+runtime.
 
 `tests/compiler2025/` holds larger external-suite entry points that sit beside,
 rather than inside, the regular `tests/<stage>/<case>/run.sh` tree. The
@@ -106,6 +125,11 @@ current scripts cover:
   functional/performance runners, so the larger compiler2025 suites can be
   executed inside the repository Docker image instead of depending on the host
   toolchain layout
+- lightweight AArch64 object/link preflights inside both
+  `run_arm_functional.sh` and `run_arm_performance.sh`, each emitting two PIC
+  objects through `sysycc-aarch64c -c -fPIC`, checking cross-object
+  relocations, externally linking them, and running the resulting binary before
+  the main suite loop starts when the local AArch64 runtime stack is available
 
 Recent end-to-end coverage that now matters for the shared SysY22/C goal
 includes:
@@ -253,6 +277,14 @@ includes:
   `fmul`, and `fdiv`
 - staged Core-IR-to-AArch64 placeholder coverage for the current
   not-yet-implemented ARM backend contract
+- AArch64 object/link smoke coverage for a two-source
+  `clang -> .ll -> sysycc-aarch64c -c -fPIC -> multi-.o -> external link/run`
+  closure, now split into dedicated function-call, global-data, const/rodata,
+  and mixed code/data/address-taking regressions with relocation inspection
+- AArch64 single-source object smoke coverage for a direct
+  `clang -> .ll -> sysycc-aarch64c -c -fPIC -> .o -> external link/run`
+  lane inside the imported `llvm-test-suite/SingleSource` smoke gate, now
+  exercised by both `globalrefs.c` and `medce-1.c`
 
 ## System-Header Compatibility Matrix
 

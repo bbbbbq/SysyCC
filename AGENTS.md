@@ -28,6 +28,83 @@ main
 - 以前端方言能力、语义模型、Core IR 管线和后端 Lowering 为主线持续演进。
 - 保持文档、测试和实现同步。
 
+### 1.1 当前阶段主线目标
+
+当前阶段目标不是继续铺宽功能面，而是把 SysyCC 从“能产出汇编”推进到“能编译真实工程”。
+
+- 让 SysyCC 能被小型/中型 C 工程通过 `make` / `ninja` / `cmake` 调用。
+- 主战平台只做 AArch64；RISC-V 在本阶段只保不回退，不做主线开发。
+- 该目标优先级高于 IR 新优化、高于新语法特性、高于第二后端扩张。
+
+### 1.2 当前阶段全局协作规则
+
+- 只修改自己被授权的模块范围，不得跨边界“顺手修”。
+- 任何行为变化必须补测试。
+- 任何接口变化必须写清楚对接需求。
+- 小步提交，优先做可合并的小闭环。
+- 如果发现问题落在别人的模块，不要直接改，先记录为“接口请求”或“阻塞项”。
+
+### 1.3 AArch64 对象文件 / 链接闭环负责人
+
+如果任务被明确分配为 SysyCC 的 AArch64 对象文件 / 链接闭环负责人，则该角色的唯一目标是：把 AArch64 路径从“能产出 `.s`”推进到“能稳定产出 `.o`，并能被外部工具链链接成可执行文件”。
+
+主职责：
+
+- 提升 AArch64 object emission 稳定性。
+- 补齐多文件链接所需的 ABI / relocation / PIC / external symbol 兼容。
+- 提升 AArch64 多目标文件链接后的可运行性。
+- 不负责 driver 参数解析，不负责系统头兼容。
+
+允许修改的模块范围：
+
+- `src/backend/asm_gen/aarch64/**`
+- `src/backend/asm_gen/asm_result.hpp`
+- `src/backend/asm_gen/object_result.hpp`
+- `src/backend/asm_gen/backend_options.hpp`
+- `src/backend/asm_gen/backend_kind.hpp`
+- `tests/aarch64_backend_single_source/**`
+- `tests/compiler2025/run_arm_*.sh`
+- `tests/run/**` 中与 AArch64 object/link smoke 直接相关的新增用例
+- `doc/modules/ir.md`
+- `doc/modules/tests.md`
+- `doc/modules/aarch64-llvm-backend-plan.md`
+- `doc/README.md`
+
+禁止修改的模块范围：
+
+- `src/cli/**`
+- `src/compiler/complier.cpp`
+- `src/frontend/**`
+- `src/backend/ir/**`，除非是极窄的 backend bridge 必要改动
+- `Makefile` 中与 driver / build-system 相关的逻辑
+
+当前背景：
+
+- AArch64 backend pipeline 已经分为 machine lowering / regalloc / spill rewrite / frame finalize / emission。
+- 当前目标不是继续扩第二后端，而是先把 AArch64 真正做成可链接、可运行的主线。
+- 该负责人不负责让真实工程“能被构建系统调用”，只负责让 AArch64 产物质量足够支撑这件事。
+
+第一阶段任务：
+
+- 稳定 `.o` 产物输出。
+- 跑通多 `.o` 文件外部链接 smoke。
+- 优先补 external symbol、call ABI、PIC、relocation、frame/unwind 高频问题。
+- 把 AArch64 imported single-source smoke 维持为主门禁。
+- 新增至少一个“多源文件 -> 多 `.o` -> 外部链接 -> qemu/运行验证”的 regression。
+
+验收标准：
+
+- SysyCC 产出的多个 AArch64 `.o` 能被外部 `clang` / `ld` 正常链接。
+- 多文件函数调用、外部符号引用、静态数据访问不出现系统性 ABI 问题。
+- 现有 AArch64 single-source smoke 不回退。
+- object/link 相关失败有稳定复现和回归用例。
+
+输出要求：
+
+- 不要改 driver，不要改前端。
+- 若需要 driver 提供额外输入参数，只提交“接口请求清单”。
+- 优先修复 link blockers，而不是继续扩展非关键指令能力。
+
 ## 2. 文档目录结构
 
 本项目文档目录实际使用 `doc/`，不是 `docs/`。编写和更新文档时应遵循当前结构：
@@ -36,6 +113,7 @@ main
 doc/
 ├── README.md
 └── modules/
+    ├── aarch64-llvm-backend-plan.md
     ├── ast.md
     ├── attribute.md
     ├── class-relationships.md

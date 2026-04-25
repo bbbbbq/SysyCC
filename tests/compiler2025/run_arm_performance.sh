@@ -41,6 +41,109 @@ Examples:
 EOF
 }
 
+run_aarch64_object_smoke_preflight() {
+    local smoke_dir="${CASE_BUILD_ROOT_BASE}/object_smoke"
+    local main_source="${smoke_dir}/object_smoke_main.c"
+    local helper_source="${smoke_dir}/object_smoke_helper.c"
+    local main_ll="${smoke_dir}/object_smoke_main.ll"
+    local helper_ll="${smoke_dir}/object_smoke_helper.ll"
+    local main_object="${smoke_dir}/object_smoke_main.o"
+    local helper_object="${smoke_dir}/object_smoke_helper.o"
+    local program_binary="${smoke_dir}/object_smoke.bin"
+    local host_clang="${SYSYCC_HOST_CLANG:-$(command -v clang 2>/dev/null || true)}"
+    local aarch64_codegen_bin="${BUILD_DIR}/sysycc-aarch64c"
+    local aarch64_cc=""
+    local sysroot=""
+    local program_output=""
+
+    aarch64_cc="$(find_aarch64_cc 2>/dev/null || true)"
+    sysroot="$(find_aarch64_sysroot 2>/dev/null || true)"
+
+    if [[ -z "${host_clang}" || ! -x "${aarch64_codegen_bin}" ||
+        -z "${aarch64_cc}" || -z "${sysroot}" ]]; then
+        echo "==> [arm-performance/object-smoke] skipped: missing AArch64 object smoke toolchain"
+        return 0
+    fi
+    if ! have_aarch64_binary_runtime; then
+        echo "==> [arm-performance/object-smoke] skipped: missing AArch64 runtime"
+        return 0
+    fi
+
+    mkdir -p "${smoke_dir}"
+    cat >"${main_source}" <<'EOF'
+extern void abort(void);
+extern int helper(int value);
+extern int shared_counter;
+
+int main(void) {
+    if (helper(17) != 18) {
+        abort();
+    }
+    if (shared_counter != 18) {
+        abort();
+    }
+    return 0;
+}
+EOF
+    cat >"${helper_source}" <<'EOF'
+int shared_counter = 0;
+
+int helper(int value) {
+    shared_counter = value + 1;
+    return shared_counter;
+}
+EOF
+
+    "${host_clang}" \
+        --target=aarch64-unknown-linux-gnu \
+        --sysroot="${sysroot}" \
+        -std=gnu11 \
+        -S -emit-llvm -O0 \
+        -Xclang -disable-O0-optnone \
+        -fno-stack-protector \
+        -fno-unwind-tables \
+        -fno-asynchronous-unwind-tables \
+        -fno-builtin \
+        "${main_source}" \
+        -o "${main_ll}"
+    "${host_clang}" \
+        --target=aarch64-unknown-linux-gnu \
+        --sysroot="${sysroot}" \
+        -std=gnu11 \
+        -S -emit-llvm -O0 \
+        -Xclang -disable-O0-optnone \
+        -fno-stack-protector \
+        -fno-unwind-tables \
+        -fno-asynchronous-unwind-tables \
+        -fno-builtin \
+        "${helper_source}" \
+        -o "${helper_ll}"
+
+    assert_file_nonempty "${main_ll}"
+    assert_file_nonempty "${helper_ll}"
+
+    "${aarch64_codegen_bin}" -c -fPIC "${main_ll}" -o "${main_object}"
+    "${aarch64_codegen_bin}" -c -fPIC "${helper_ll}" -o "${helper_object}"
+
+    assert_file_nonempty "${main_object}"
+    assert_file_nonempty "${helper_object}"
+    assert_aarch64_relocations "${main_object}" 'helper|shared_counter'
+
+    run_aarch64_cc "${aarch64_cc}" "${main_object}" "${helper_object}" \
+        -o "${program_binary}"
+    assert_file_nonempty "${program_binary}"
+
+    program_output="$(
+        run_aarch64_binary_with_available_runtime "${program_binary}" "${sysroot}"
+    )"
+    if [[ -n "${program_output}" ]]; then
+        echo "[FAIL] arm-performance/object-smoke: unexpected runtime output '${program_output}'" >&2
+        return 1
+    fi
+
+    echo "verified: compiler2025 ARM performance preflight emits PIC objects, links, and runs"
+}
+
 append_result_row() {
     local case_name="$1"
     local status="$2"
@@ -236,6 +339,7 @@ fi
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 mkdir -p "${CASE_BUILD_ROOT_BASE}"
+run_aarch64_object_smoke_preflight
 compiler2025_prepare_compiler_snapshot \
     "${COMPILER_BIN}" "${IR_OUTPUT_DIR}" \
     "${CASE_BUILD_ROOT_BASE}/toolchain_snapshot"
