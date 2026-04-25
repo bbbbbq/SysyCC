@@ -18,7 +18,13 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
-"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-ir
+if [[ -n "${SYSYCC_RUN_COMPILER_FLAGS:-}" ]]; then
+    COMPILER_FLAGS=()
+    read -r -a COMPILER_FLAGS <<<"${SYSYCC_RUN_COMPILER_FLAGS}"
+    "${BUILD_DIR}/SysyCC" "${COMPILER_FLAGS[@]}" "${INPUT_FILE}" --dump-ir
+else
+    "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-ir
+fi
 
 assert_file_nonempty "${IR_FILE}"
 build_and_link_ir_executable "${IR_FILE}" \

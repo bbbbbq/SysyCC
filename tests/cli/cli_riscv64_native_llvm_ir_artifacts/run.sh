@@ -19,6 +19,11 @@ mkdir -p "${CASE_BUILD_DIR}"
 rm -f "${LL_FILE}" "${BC_FILE}" "${OBJECT_FILE}"
 SYSYCC_BIN="$(get_real_sysycc_binary_path "${BUILD_DIR}")"
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "skipped: macOS dyld interposes LLVM symbols across the in-process AArch64/RISC-V codegen dylibs; standalone sysycc-riscv64c remains covered by cli_riscv64c_public_driver"
+    exit 0
+fi
+
 PATH="" \
     "${SYSYCC_BIN}" \
     -c \
