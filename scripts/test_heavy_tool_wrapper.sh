@@ -86,7 +86,7 @@ cleanup() {
     fi
 
     if [[ -n "${slot_dir}" ]]; then
-        rm -rf "${slot_dir}"
+        rm -rf "${slot_dir}" 2>/dev/null || true
     fi
 }
 
@@ -100,12 +100,12 @@ prune_stale_slots() {
 
         owner_pid="$(cat "${candidate_dir}/pid" 2>/dev/null || true)"
         if [[ -z "${owner_pid}" ]]; then
-            rm -rf "${candidate_dir}"
+            rm -rf "${candidate_dir}" 2>/dev/null || true
             continue
         fi
 
         if ! kill -0 "${owner_pid}" 2>/dev/null; then
-            rm -rf "${candidate_dir}"
+            rm -rf "${candidate_dir}" 2>/dev/null || true
         fi
     done
 }
@@ -118,18 +118,21 @@ while [[ -z "${slot_dir}" ]]; do
     for slot in $(seq 1 "${max_jobs}"); do
         local_dir="${lock_root}/slot.${slot}"
         if mkdir "${local_dir}" 2>/dev/null; then
-            printf '%s\n' "${BASHPID:-$$}" >"${local_dir}/pid"
-            slot_dir="${local_dir}"
-            break
+            if printf '%s\n' "${BASHPID:-$$}" >"${local_dir}/pid" 2>/dev/null; then
+                slot_dir="${local_dir}"
+                break
+            fi
+            rm -rf "${local_dir}" 2>/dev/null || true
+            continue
         fi
 
         owner_pid="$(cat "${local_dir}/pid" 2>/dev/null || true)"
         if [[ -z "${owner_pid}" ]]; then
-            rm -rf "${local_dir}"
+            rm -rf "${local_dir}" 2>/dev/null || true
             continue
         fi
         if ! kill -0 "${owner_pid}" 2>/dev/null; then
-            rm -rf "${local_dir}"
+            rm -rf "${local_dir}" 2>/dev/null || true
         fi
     done
 
