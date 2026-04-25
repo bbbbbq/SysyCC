@@ -25,7 +25,7 @@ struct BuiltinTypedefInventoryEntry {
     BuiltinTypedefGroup group;
 };
 
-inline constexpr std::array<BuiltinTypedefInventoryEntry, 34>
+inline constexpr std::array<BuiltinTypedefInventoryEntry, 46>
     kBuiltinTypedefInventory = {{
         {"int8_t", BuiltinTypedefGroup::SignedChar},
         {"uint8_t", BuiltinTypedefGroup::UnsignedChar},
@@ -43,10 +43,20 @@ inline constexpr std::array<BuiltinTypedefInventoryEntry, 34>
         {"uint64_t", BuiltinTypedefGroup::UnsignedLongLong},
         {"__int64_t", BuiltinTypedefGroup::LongLong},
         {"__uint64_t", BuiltinTypedefGroup::UnsignedLongLong},
+        {"__int128_t", BuiltinTypedefGroup::LongLong},
+        {"__uint128_t", BuiltinTypedefGroup::UnsignedLongLong},
         {"intptr_t", BuiltinTypedefGroup::Long},
         {"uintptr_t", BuiltinTypedefGroup::UnsignedLong},
+        {"__INTPTR_TYPE__", BuiltinTypedefGroup::Long},
+        {"__UINTPTR_TYPE__", BuiltinTypedefGroup::UnsignedLong},
         {"ptrdiff_t", BuiltinTypedefGroup::Long},
+        {"__PTRDIFF_TYPE__", BuiltinTypedefGroup::Long},
         {"size_t", BuiltinTypedefGroup::UnsignedLong},
+        {"__SIZE_TYPE__", BuiltinTypedefGroup::UnsignedLong},
+        {"intmax_t", BuiltinTypedefGroup::Long},
+        {"uintmax_t", BuiltinTypedefGroup::UnsignedLong},
+        {"__INTMAX_TYPE__", BuiltinTypedefGroup::Long},
+        {"__UINTMAX_TYPE__", BuiltinTypedefGroup::UnsignedLong},
         {"__darwin_intptr_t", BuiltinTypedefGroup::Long},
         {"__darwin_natural_t", BuiltinTypedefGroup::UnsignedInt},
         {"__darwin_ptrdiff_t", BuiltinTypedefGroup::Long},
@@ -55,6 +65,8 @@ inline constexpr std::array<BuiltinTypedefInventoryEntry, 34>
         {"__builtin_va_list", BuiltinTypedefGroup::VaList},
         {"__darwin_va_list", BuiltinTypedefGroup::VaList},
         {"wchar_t", BuiltinTypedefGroup::Int},
+        {"__WCHAR_TYPE__", BuiltinTypedefGroup::Int},
+        {"__WINT_TYPE__", BuiltinTypedefGroup::Int},
         {"__darwin_ct_rune_t", BuiltinTypedefGroup::Int},
         {"__darwin_wchar_t", BuiltinTypedefGroup::Int},
         {"__darwin_rune_t", BuiltinTypedefGroup::Int},
