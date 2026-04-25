@@ -25,7 +25,7 @@ doc/
     ├── tests.md
     └── legacy-pass.md
 ```
-Tests now live inside stage-specific case directories under `tests/<stage>/<case>/`, each bundling the `.sy` input and an executable `run.sh`.
+Tests now live inside stage-specific case directories under `tests/<stage>/<case>/`, each bundling the source fixture set (`.sy`, `.c`, local headers, build-system fixtures, and similar inputs as needed) plus an executable `run.sh`.
 The test tree now also includes [tests/dialects](/Users/caojunze424/code/SysyCC/tests/dialects) for small architecture-focused regressions around the shared dialect manager and registry behavior.
 The runtime stage additionally provides `tests/run/support/runtime_stub.c` so execution-oriented cases can compile emitted LLVM IR and validate stdin/stdout behavior across direct I/O, loops, `switch`, short-circuit control flow, and a growing set of scalarized data-structure scenarios such as stacks, queues, ring buffers, linked-list traversal, BST lookup, and map-style dispatch.
 Each runtime case stores copied intermediate artifacts and the final linked test executable under `tests/run/<case>/build/`.
@@ -149,6 +149,31 @@ repository transitions toward the public driver name.
   set per invocation, including strict C99 mode and explicit GNU/Clang/
   builtin-type pack toggles.
 - The CLI can collect `-I` include directories and `-isystem` system include directories into compiler options and the preprocess stage now consumes them for include-path resolution.
+- The public driver now accepts
+  `-MD/-MMD/-MF/-MT/-MQ/-MP` so compile-only, assembly, LLVM-IR emission, and
+  single-source full-compile paths can emit build-system-friendly depfiles.
+  `-MD` keeps system headers, `-MMD` drops them, and the current driver
+  implements that behavior by delegating dependency scanning to a host
+  `clang`/`cc` executable after SysyCC compilation succeeds.
+- The public driver now classifies common GCC-like build flags instead of
+  failing randomly: `-x c`, depfile controls, `-fPIC`, and `-g` are supported;
+  `-pipe`, `-ffunction-sections`, `-fdata-sections`, `-fno-common`,
+  `-fvisibility=hidden`, `-Winvalid-pch`, and `-arch arm64|aarch64` are
+  safe-ignore compatibility flags; `-pthread`, `-L`, `-l`, and `-Wl,...` are
+  collected for external link passthrough; unsupported variants still fail
+  with explicit diagnostics.
+- The public driver now supports a narrow external-link skeleton again: a
+  single source input can lower through the existing LLVM IR path and then
+  invoke a host `clang`/`cc` driver for final linking, and link-only
+  invocations can forward host `.o`/`.a`/`.so` inputs plus stored linker
+  flags to that same external driver.
+- Small multi-file Make and CMake+Ninja smoke projects now build through
+  SysyCC compile-only/static-library flows, stay no-op on a second build, and
+  selectively rebuild only the affected object after a header change.
+- Final multi-object host linking for SysyCC-generated AArch64 objects is
+  still not the stabilized mainline path; the current project-integration
+  smoke coverage therefore stops at compile-only/static-library artifacts when
+  needed.
 - The top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now provides `make test-tier1`, `make test-tier2`, `make test-full`, `make test-aarch64-ll`, `make test-aarch64-single-source`, `make test-aarch64-single-source-smoke`, `make test-aarch64-single-source-full`, and `make check`, with `make test` aliased to the tier-1 fast lane.
 - The static-check pipeline excludes generated parser headers from blocking `clang-tidy` diagnostics and keeps `cppcheck` focused on warning/performance/portability findings.
 - Token dumps are written to `build/intermediate_results/*.tokens.txt`.
