@@ -1,6 +1,6 @@
 # expectation|c_std|source_rel|argv_text|xfail_substring
 PASS|gnu11|SingleSource/Benchmarks/Shootout/hello.c|-|-
-PASS|gnu11|SingleSource/Benchmarks/Shootout/matrix.c|-|-
+PASS|gnu11|SingleSource/Benchmarks/Shootout/matrix.c|1|-
 PASS|gnu11|SingleSource/Benchmarks/BenchmarkGame/fannkuch.c|7|-
 PASS|gnu89|SingleSource/Benchmarks/Misc/flops.c|-|-
 PASS|gnu89|SingleSource/Benchmarks/Misc/perlin.c|-|-

@@ -6,7 +6,7 @@ from vendored `llvm-test-suite/SingleSource` cases.
 ## Main Entry Points
 
 - `smoke/run.sh`
-  Runs a curated 24-case fast lane that covers the main backend risk areas
+  Runs a curated 25-case fast lane that covers the main backend risk areas
   without paying for the full imported sweep.
 - `imported_suite/run.sh`
   Runs the imported manifest end-to-end:
@@ -62,7 +62,10 @@ directly. Output is prefixed with `[current/total]` progress.
 - Each line records:
   `EXPECTATION|c_std|source_rel|argv_text|xfail_reason`
 - `smoke_manifest.txt` is the fast-lane subset used by `smoke/run.sh`.
-- Current smoke status is `24` representative cases, all passing.
+- Current smoke status is `25` representative cases, all passing.
+- The smoke entry point compiles PolyBench cases with `SMALL_DATASET` by
+  default so qemu runtime stays below the fast-lane timeout. The full imported
+  suite does not set this override and keeps upstream default dataset sizes.
 
 ## Case Preparation
 
@@ -88,6 +91,9 @@ Prepared sources are emitted into
   Reuse the existing `build/` tree instead of rebuilding first.
 - `SYSYCC_AARCH64_SINGLE_SOURCE_RUN_TIMEOUT_SECONDS`
   Override runtime timeout used for AArch64 execution.
+- `SYSYCC_AARCH64_SINGLE_SOURCE_POLYBENCH_DATASET`
+  Override the PolyBench dataset macro for the current invocation. The smoke
+  lane defaults this to `SMALL_DATASET`; the full imported lane leaves it unset.
 - `SYSYCC_HOST_CLANG`
   Override the host clang binary used to emit `.ll`.
 - `SYSYCC_AARCH64_CC`

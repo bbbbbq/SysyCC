@@ -111,6 +111,22 @@ populate_single_source_case_support() {
     if [[ "${source_rel#SingleSource/Benchmarks/Polybench/}" != "${source_rel}" ]]; then
         single_source_append_unique_path SINGLE_SOURCE_EXTRA_INCLUDE_DIRS \
             "${stage_root}/upstream/SingleSource/Benchmarks/Polybench/utilities"
+        if [[ -n "${SYSYCC_AARCH64_SINGLE_SOURCE_POLYBENCH_DATASET:-}" ]]; then
+            single_source_append_unique_path SINGLE_SOURCE_EXTRA_CFLAGS \
+                "-UMINI_DATASET"
+            single_source_append_unique_path SINGLE_SOURCE_EXTRA_CFLAGS \
+                "-USMALL_DATASET"
+            single_source_append_unique_path SINGLE_SOURCE_EXTRA_CFLAGS \
+                "-UMEDIUM_DATASET"
+            single_source_append_unique_path SINGLE_SOURCE_EXTRA_CFLAGS \
+                "-ULARGE_DATASET"
+            single_source_append_unique_path SINGLE_SOURCE_EXTRA_CFLAGS \
+                "-UEXTRALARGE_DATASET"
+            single_source_append_unique_path SINGLE_SOURCE_EXTRA_CFLAGS \
+                "-U${SYSYCC_AARCH64_SINGLE_SOURCE_POLYBENCH_DATASET}"
+            single_source_append_unique_path SINGLE_SOURCE_EXTRA_CFLAGS \
+                "-D${SYSYCC_AARCH64_SINGLE_SOURCE_POLYBENCH_DATASET}"
+        fi
         single_source_append_unique_path SINGLE_SOURCE_EXTRA_CFLAGS \
             "-DPOLYBENCH_DUMP_ARRAYS"
         single_source_append_unique_path SINGLE_SOURCE_EXTRA_CFLAGS \
