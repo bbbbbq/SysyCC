@@ -1,0 +1,10 @@
+#include <stdlib.h>
+
+int main(void) {
+    size_t count = sizeof(int) * 2;
+    void *buffer = malloc(count);
+    if (buffer != (void *)0) {
+        free(buffer);
+    }
+    return 0;
+}

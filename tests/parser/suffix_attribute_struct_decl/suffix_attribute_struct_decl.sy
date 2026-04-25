@@ -1,0 +1,5 @@
+struct Padded {
+    char bytes[4];
+} __attribute__((aligned(4)));
+
+int main(void) { return 0; }
