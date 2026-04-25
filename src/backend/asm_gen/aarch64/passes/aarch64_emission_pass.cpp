@@ -20,6 +20,54 @@ struct AsmPrintOptions {
     bool force_global_function_symbols = false;
 };
 
+std::size_t count_machine_blocks(const AArch64MachineModule &machine_module) {
+    std::size_t blocks = 0;
+    for (const AArch64MachineFunction &function : machine_module.get_functions()) {
+        blocks += function.get_blocks().size();
+    }
+    return blocks;
+}
+
+std::size_t count_machine_instructions(const AArch64MachineModule &machine_module) {
+    std::size_t instructions = 0;
+    for (const AArch64MachineFunction &function : machine_module.get_functions()) {
+        for (const AArch64MachineBlock &block : function.get_blocks()) {
+            instructions += block.get_instructions().size();
+        }
+    }
+    return instructions;
+}
+
+std::size_t count_object_relocations(const AArch64ObjectModule &object_module) {
+    std::size_t relocations = 0;
+    for (const AArch64DataObject &data_object : object_module.get_data_objects()) {
+        for (const AArch64DataFragment &fragment : data_object.get_fragments()) {
+            relocations += fragment.get_relocations().size();
+        }
+    }
+    return relocations;
+}
+
+std::string summarize_object_emission_input(
+    const AArch64MachineModule &machine_module,
+    const AArch64ObjectModule &object_module,
+    const BackendOptions &backend_options,
+    const std::filesystem::path &object_file) {
+    std::ostringstream summary;
+    summary << "AArch64 object emission input summary: output='" << object_file.string()
+            << "', target='" << backend_options.get_target_triple() << "', pic="
+            << (backend_options.get_position_independent() ? "on" : "off")
+            << ", debug=" << (backend_options.get_debug_info() ? "on" : "off")
+            << ", functions=" << machine_module.get_functions().size()
+            << ", blocks=" << count_machine_blocks(machine_module)
+            << ", instructions=" << count_machine_instructions(machine_module)
+            << ", data_objects=" << object_module.get_data_objects().size()
+            << ", data_relocations=" << count_object_relocations(object_module)
+            << ", symbols=" << object_module.get_symbols().size()
+            << ", debug_files=" << object_module.get_debug_file_entries().size();
+    return summary.str();
+}
+
 const char *arch_directive(AArch64AsmArchProfile arch_profile) {
     switch (arch_profile) {
     case AArch64AsmArchProfile::Armv82AWithFp16:
@@ -222,7 +270,6 @@ std::unique_ptr<ObjectResult> AArch64EmissionPass::emit_object_result(
     const BackendOptions &backend_options,
     const std::filesystem::path &object_file,
     DiagnosticEngine &diagnostic_engine) const {
-    (void)backend_options;
     if (object_file.has_parent_path()) {
         std::filesystem::create_directories(object_file.parent_path());
     }
@@ -232,13 +279,29 @@ std::unique_ptr<ObjectResult> AArch64EmissionPass::emit_object_result(
             AArch64ElfObjectWriterOptions{
                 .force_defined_symbols_global = false},
             diagnostic_engine)) {
+        if (!diagnostic_engine.has_error()) {
+            diagnostic_engine.add_error(
+                DiagnosticStage::Compiler,
+                "AArch64 object writer failed without emitting a specific "
+                "diagnostic");
+        }
+        diagnostic_engine.add_note(
+            DiagnosticStage::Compiler,
+            summarize_object_emission_input(machine_module, object_module,
+                                            backend_options, object_file));
         return nullptr;
     }
 
     std::vector<std::uint8_t> object_bytes;
     if (!read_binary_file(object_file, object_bytes)) {
-        diagnostic_engine.add_error(DiagnosticStage::Compiler,
-                                    "failed to read native AArch64 object output");
+        diagnostic_engine.add_error(
+            DiagnosticStage::Compiler,
+            "AArch64 object readback failed after a successful object writer pass: '" +
+                object_file.string() + "'");
+        diagnostic_engine.add_note(
+            DiagnosticStage::Compiler,
+            summarize_object_emission_input(machine_module, object_module,
+                                            backend_options, object_file));
         return nullptr;
     }
     return std::make_unique<ObjectResult>(ObjectTargetKind::ElfAArch64,

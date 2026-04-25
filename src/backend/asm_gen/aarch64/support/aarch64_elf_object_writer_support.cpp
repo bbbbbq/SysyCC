@@ -23,6 +23,30 @@ namespace sysycc {
 
 namespace {
 
+std::size_t count_pending_relocations(const std::vector<SectionImage> &sections) {
+    std::size_t relocations = 0;
+    for (const SectionImage &section : sections) {
+        relocations += section.relocations.size();
+    }
+    return relocations;
+}
+
+void append_object_writer_state_note(DiagnosticEngine &diagnostic_engine,
+                                     const AArch64MachineModule &machine_module,
+                                     const AArch64ObjectModule &object_module,
+                                     const std::vector<SectionImage> &sections,
+                                     const char *context) {
+    diagnostic_engine.add_note(
+        DiagnosticStage::Compiler,
+        std::string(context) + ": functions=" +
+            std::to_string(machine_module.get_functions().size()) +
+            ", data_objects=" +
+            std::to_string(object_module.get_data_objects().size()) +
+            ", symbols=" + std::to_string(object_module.get_symbols().size()) +
+            ", sections=" + std::to_string(sections.size()) +
+            ", relocations=" + std::to_string(count_pending_relocations(sections)));
+}
+
 bool build_text_section_image(
     const AArch64MachineModule &machine_module, std::vector<SectionImage> &sections,
     std::unordered_map<std::string, DefinedSymbol> &defined_symbols,
@@ -92,6 +116,9 @@ bool write_aarch64_elf_object(
                                       scanned_functions, sections) ||
         !build_debug_line_section_image(machine_module, object_module,
                                         scanned_functions, sections)) {
+        append_object_writer_state_note(
+            diagnostic_engine, machine_module, object_module, sections,
+            "AArch64 object writer state after section image construction failure");
         return false;
     }
 
@@ -99,6 +126,9 @@ bool write_aarch64_elf_object(
         diagnostic_engine.add_error(
             DiagnosticStage::Compiler,
             "AArch64 direct object writer received an empty module");
+        append_object_writer_state_note(
+            diagnostic_engine, machine_module, object_module, sections,
+            "AArch64 object writer state for empty module");
         return false;
     }
 
@@ -115,6 +145,9 @@ bool write_aarch64_elf_object(
         diagnostic_engine.add_error(
             DiagnosticStage::Compiler,
             "failed to build the native AArch64 object symbol table");
+        append_object_writer_state_note(
+            diagnostic_engine, machine_module, object_module, sections,
+            "AArch64 object writer state after symbol table failure");
         return false;
     }
 
