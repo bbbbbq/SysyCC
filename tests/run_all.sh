@@ -31,7 +31,7 @@ source "${SCRIPT_DIR}/test_helpers.sh"
 initialize_sysycc_test_session
 
 layer_one_stage_names() {
-    printf '%s\n' run cli dialects
+    printf '%s\n' run cli dialects compiler ir
 }
 
 discovered_stage_names() {
@@ -148,7 +148,7 @@ is_layer_one_stage() {
     local stage_name="$1"
 
     case "${stage_name}" in
-        run|cli|dialects)
+        run|cli|dialects|compiler)
             return 0
             ;;
         *)
@@ -157,8 +157,27 @@ is_layer_one_stage() {
     esac
 }
 
-should_include_stage() {
+is_layer_one_case() {
     local stage_name="$1"
+    local test_name="$2"
+
+    if is_layer_one_stage "${stage_name}"; then
+        return 0
+    fi
+
+    case "${stage_name}/${test_name}" in
+        ir/ir_core_loop_idiom|ir/ir_top_level_pass_pipeline_llvm)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+should_include_case() {
+    local stage_name="$1"
+    local test_name="$2"
 
     if [[ "${#EXPLICIT_STAGES[@]}" -ne 0 ]]; then
         stage_matches_any "${stage_name}" "${EXPLICIT_STAGES[@]}"
@@ -167,10 +186,10 @@ should_include_stage() {
 
     case "${SELECTED_LAYER}" in
         tier1)
-            is_layer_one_stage "${stage_name}"
+            is_layer_one_case "${stage_name}" "${test_name}"
             ;;
         tier2)
-            if is_layer_one_stage "${stage_name}"; then
+            if is_layer_one_case "${stage_name}" "${test_name}"; then
                 return 1
             fi
             return 0
@@ -344,7 +363,7 @@ discover_tests() {
             [[ "${test_name}" == "imported_suite" ]]; then
             continue
         fi
-        if ! should_include_stage "${stage_name}"; then
+        if ! should_include_case "${stage_name}" "${test_name}"; then
             continue
         fi
         display_name="${stage_name}/${test_name}"
