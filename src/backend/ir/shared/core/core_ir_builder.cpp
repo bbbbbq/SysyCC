@@ -2809,6 +2809,7 @@ class CoreIrBuildSession {
                 void_type_, true_value, result_slot);
             true_store->set_source_span(expr.get_true_expr()->get_source_span());
         }
+        CoreIrBasicBlock *true_incoming_block = current_block_;
         emit_jump_to(end_block, expr.get_true_expr()->get_source_span());
 
         current_block_ = false_block;
@@ -2836,6 +2837,7 @@ class CoreIrBuildSession {
                     void_type_, false_value, result_slot);
             false_store->set_source_span(expr.get_false_expr()->get_source_span());
         }
+        CoreIrBasicBlock *false_incoming_block = current_block_;
         emit_jump_to(end_block, expr.get_false_expr()->get_source_span());
 
         current_block_ = end_block;
@@ -2850,8 +2852,8 @@ class CoreIrBuildSession {
         }
         auto *phi = current_block_->create_instruction<CoreIrPhiInst>(
             result_type, next_temp_name());
-        phi->add_incoming(true_block, true_value);
-        phi->add_incoming(false_block, false_value);
+        phi->add_incoming(true_incoming_block, true_value);
+        phi->add_incoming(false_incoming_block, false_value);
         phi->set_source_span(expr.get_source_span());
         return phi;
     }

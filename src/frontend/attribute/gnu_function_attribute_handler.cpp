@@ -40,10 +40,6 @@ GnuFunctionAttributeHandler::analyze_function_attributes(
     bool has_always_inline = false;
     for (const ParsedAttribute &attribute :
          function_decl->get_attributes().get_attributes()) {
-        if (is_ignored_system_header_attribute(attribute, semantic_context)) {
-            continue;
-        }
-
         if (attribute.get_name() == "__always_inline__") {
             if (!attribute.get_arguments().empty()) {
                 add_error(semantic_context,
@@ -55,6 +51,10 @@ GnuFunctionAttributeHandler::analyze_function_attributes(
                 attributes.push_back(SemanticFunctionAttribute::AlwaysInline);
                 has_always_inline = true;
             }
+            continue;
+        }
+
+        if (is_ignored_system_header_attribute(attribute, semantic_context)) {
             continue;
         }
 

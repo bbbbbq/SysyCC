@@ -339,6 +339,63 @@ bool repair_phi_external_uses(const CoreIrLoopInfo &loop,
     return true;
 }
 
+bool header_phis_have_external_uses(
+    const CoreIrLoopInfo &loop, const std::vector<HeaderPhiInfo> &header_phis) {
+    for (const HeaderPhiInfo &info : header_phis) {
+        if (info.phi == nullptr) {
+            continue;
+        }
+        for (const CoreIrUse &use : info.phi->get_uses()) {
+            if (!loop_contains_block(loop, get_use_location_block(use))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+std::vector<CoreIrBasicBlock *>
+collect_predecessors_by_scanning_function(CoreIrBasicBlock *target) {
+    std::vector<CoreIrBasicBlock *> predecessors;
+    if (target == nullptr || target->get_parent() == nullptr) {
+        return predecessors;
+    }
+
+    for (const auto &block_ptr : target->get_parent()->get_basic_blocks()) {
+        CoreIrBasicBlock *block = block_ptr.get();
+        if (block == nullptr || block->get_instructions().empty()) {
+            continue;
+        }
+
+        CoreIrInstruction *terminator = block->get_instructions().back().get();
+        auto append_predecessor = [&](CoreIrBasicBlock *successor) {
+            if (successor == target &&
+                std::find(predecessors.begin(), predecessors.end(), block) ==
+                    predecessors.end()) {
+                predecessors.push_back(block);
+            }
+        };
+        if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator);
+            jump != nullptr) {
+            append_predecessor(jump->get_target_block());
+            continue;
+        }
+        if (auto *branch = dynamic_cast<CoreIrCondJumpInst *>(terminator);
+            branch != nullptr) {
+            append_predecessor(branch->get_true_block());
+            append_predecessor(branch->get_false_block());
+        }
+    }
+    return predecessors;
+}
+
+bool has_exact_single_predecessor(CoreIrBasicBlock *block,
+                                  CoreIrBasicBlock *predecessor) {
+    const std::vector<CoreIrBasicBlock *> predecessors =
+        collect_predecessors_by_scanning_function(block);
+    return predecessors.size() == 1 && predecessors.front() == predecessor;
+}
+
 CoreIrInstruction *clone_instruction_with_map(
     const CoreIrInstruction &instruction,
     const std::unordered_map<CoreIrValue *, CoreIrValue *> &value_map) {
@@ -465,6 +522,11 @@ bool rotate_phi_header_loop(
         header_phi_map.emplace(info.phi, const_cast<HeaderPhiInfo *>(&info));
         preheader_value_map.emplace(info.phi, info.preheader_value);
         latch_value_map.emplace(info.phi, info.latch_value);
+    }
+
+    if (header_phis_have_external_uses(loop, header_phis) &&
+        !has_exact_single_predecessor(outside_successor, header)) {
+        return false;
     }
 
     if (!rewrite_outside_successor_phis(outside_successor, header, preheader, latch,
@@ -643,8 +705,10 @@ PassResult CoreIrLoopRotatePass::Run(CompilerContext &context) {
 
         bool function_changed = false;
         for (const CoreIrLoopInfo *loop : ordered_loops) {
-            function_changed =
-                rotate_loop(*loop) || function_changed;
+            if (rotate_loop(*loop)) {
+                function_changed = true;
+                break;
+            }
         }
         if (function_changed) {
             effects.changed_functions.insert(function.get());

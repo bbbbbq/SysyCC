@@ -112,6 +112,10 @@ void collect_function_references(CoreIrFunction &function,
     }
 }
 
+bool is_discardable_function(const CoreIrFunction &function) noexcept {
+    return function.get_is_internal_linkage() || function.get_is_always_inline();
+}
+
 } // namespace
 
 PassKind CoreIrGlobalDcePass::Kind() const { return PassKind::CoreIrGlobalDce; }
@@ -137,7 +141,7 @@ PassResult CoreIrGlobalDcePass::Run(CompilerContext &context) {
     for (const auto &function_ptr : module->get_functions()) {
         CoreIrFunction *function = function_ptr.get();
         if (function != nullptr &&
-            (!function->get_is_internal_linkage() || function->get_name() == "main")) {
+            (!is_discardable_function(*function) || function->get_name() == "main")) {
             if (reachable_functions.insert(function).second) {
                 function_worklist.push_back(function);
             }
@@ -200,7 +204,7 @@ PassResult CoreIrGlobalDcePass::Run(CompilerContext &context) {
     std::vector<CoreIrFunction *> dead_functions;
     for (const auto &function_ptr : module->get_functions()) {
         CoreIrFunction *function = function_ptr.get();
-        if (function != nullptr && function->get_is_internal_linkage() &&
+        if (function != nullptr && is_discardable_function(*function) &&
             reachable_functions.find(function) == reachable_functions.end()) {
             dead_functions.push_back(function);
         }

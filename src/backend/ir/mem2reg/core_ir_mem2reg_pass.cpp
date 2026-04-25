@@ -68,6 +68,7 @@ struct UnitRenameContext {
     std::unordered_map<CoreIrBasicBlock *, CoreIrPhiInst *> inserted_phis;
     std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
         dominator_children;
+    std::unordered_map<CoreIrBasicBlock *, CoreIrValue *> outgoing_values;
     std::vector<CoreIrValue *> value_stack;
     bool changed = false;
 };
@@ -233,8 +234,55 @@ void add_phi_incoming_for_successors(CoreIrBasicBlock &block,
         add_incoming(jump->get_target_block());
     } else if (auto *cond_jump = dynamic_cast<CoreIrCondJumpInst *>(terminator);
                cond_jump != nullptr) {
-        add_incoming(cond_jump->get_true_block());
-        add_incoming(cond_jump->get_false_block());
+        std::unordered_set<CoreIrBasicBlock *> successors;
+        successors.insert(cond_jump->get_true_block());
+        successors.insert(cond_jump->get_false_block());
+        for (CoreIrBasicBlock *successor : successors) {
+            add_incoming(successor);
+        }
+    }
+}
+
+bool phi_has_incoming_from(const CoreIrPhiInst &phi,
+                           const CoreIrBasicBlock *block) {
+    for (std::size_t index = 0; index < phi.get_incoming_count(); ++index) {
+        if (phi.get_incoming_block(index) == block) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void complete_phi_incomings_for_unit(
+    CoreIrFunction &function, CoreIrAnalysisManager &analysis_manager,
+    UnitRenameContext &rename_context) {
+    const CoreIrCfgAnalysisResult &cfg_analysis =
+        analysis_manager.get_or_compute<CoreIrCfgAnalysis>(function);
+    CoreIrValue *default_value =
+        create_default_promoted_value(*rename_context.unit_info);
+
+    for (const auto &[block, phi] : rename_context.inserted_phis) {
+        if (block == nullptr || phi == nullptr) {
+            continue;
+        }
+        for (CoreIrBasicBlock *predecessor :
+             cfg_analysis.get_predecessors(block)) {
+            if (predecessor == nullptr ||
+                phi_has_incoming_from(*phi, predecessor)) {
+                continue;
+            }
+            CoreIrValue *incoming_value = default_value;
+            auto outgoing_it = rename_context.outgoing_values.find(predecessor);
+            if (outgoing_it != rename_context.outgoing_values.end() &&
+                outgoing_it->second != nullptr) {
+                incoming_value = outgoing_it->second;
+            }
+            if (incoming_value == nullptr) {
+                continue;
+            }
+            phi->add_incoming(predecessor, incoming_value);
+            rename_context.changed = true;
+        }
     }
 }
 
@@ -291,6 +339,10 @@ bool rename_promoted_unit(CoreIrBasicBlock &block, UnitRenameContext &rename_con
         ++index;
     }
 
+    rename_context.outgoing_values[&block] =
+        rename_context.value_stack.empty()
+            ? create_default_promoted_value(unit_info)
+            : rename_context.value_stack.back();
     add_phi_incoming_for_successors(block, rename_context);
     for (CoreIrBasicBlock *child : rename_context.dominator_children[&block]) {
         rename_promoted_unit(*child, rename_context);
@@ -388,6 +440,8 @@ PassResult CoreIrMem2RegPass::Run(CompilerContext &context) {
                 cfg_analysis.get_entry_block());
             if (entry_block != nullptr) {
                 rename_promoted_unit(*entry_block, rename_context);
+                complete_phi_incomings_for_unit(*function, *analysis_manager,
+                                                rename_context);
             }
             function_changed = rename_context.changed || function_changed;
         }
