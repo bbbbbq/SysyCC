@@ -13,6 +13,16 @@ TOOLCHAIN_FILE="${CASE_BUILD_DIR}/sysycc-toolchain.cmake"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
+if ! command -v cmake >/dev/null 2>&1; then
+    echo "skipped: cmake is required for the CMake+Ninja SysyCC driver smoke"
+    exit 0
+fi
+
+if ! command -v ninja >/dev/null 2>&1; then
+    echo "skipped: ninja is required for the CMake+Ninja SysyCC driver smoke"
+    exit 0
+fi
+
 mtime_of() {
     local path="$1"
     if stat -f '%m' "${path}" >/dev/null 2>&1; then

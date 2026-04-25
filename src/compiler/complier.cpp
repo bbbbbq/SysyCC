@@ -149,7 +149,7 @@ void append_depfile_target_arguments(std::vector<std::string> &arguments,
                                      const ComplierOption &option,
                                      const std::string &primary_output_file) {
     if (option.get_depfile_targets().empty()) {
-        arguments.push_back("-MT");
+        arguments.push_back("-MQ");
         arguments.push_back(primary_output_file);
         return;
     }

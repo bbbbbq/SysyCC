@@ -35,5 +35,6 @@ grep -Fq "${INPUT_FILE}" "${DEP_FILE}"
 grep -Fq "${LOCAL_HEADER_FILE}" "${DEP_FILE}"
 grep -Fq "${SYSTEM_HEADER_FILE}" "${DEP_FILE}"
 grep -Fxq "${LOCAL_HEADER_FILE}:" "${DEP_FILE}"
+grep -Fxq "${SYSTEM_HEADER_FILE}:" "${DEP_FILE}"
 
 echo "verified: -MD includes system headers and honors -MT/-MQ/-MP depfile target controls"
