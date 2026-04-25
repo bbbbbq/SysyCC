@@ -800,8 +800,49 @@ LLVM IR lowering path:
 - compile-only object smoke now also covers `.o` generation, relocation
   inspection for external PIC references, and `.eh_frame` presence in native
   AArch64 object output
+- the native AArch64 direct object writer now also encodes logical-immediate
+  forms for `and` / `orr` / `eor`, which keeps object-only emission aligned
+  with the assembly lane for narrow integer masks such as the backend-generated
+  `and #1` i1 truncation path
+- the native AArch64 direct object writer now also encodes the common
+  bitfield/extend aliases `uxtb` / `uxth` / `sxtb` / `sxth` / `sxtw` /
+  `ubfx` / `sbfx`, which keeps direct `.o` emission aligned with the assembly
+  lane for narrow integer, char, short, and rodata-heavy paths
+- native AArch64 object emission failures now carry stage-specific diagnostics
+  plus an object-input summary, so machine lowering / finalize-stage failures
+  are easier to distinguish from object-writer and object-readback failures
+- native AArch64 object/link coverage now also includes a dedicated
+  multi-object PIC matrix that emits separate `.o` files through
+  `sysycc-aarch64c -c -fPIC`, checks the cross-object relocations, links them
+  with the external AArch64 toolchain, and runs the linked executable for:
+  - function-call ABI
+  - external global-data read/write
+  - exported const/rodata access
+  - mixed code/data plus address-taking
+- native AArch64 object coverage now also has a single-source direct-object
+  regression lane inside the imported `llvm-test-suite/SingleSource` smoke
+  suite, now exercised by both `globalrefs.c` and
+  `gcc-c-torture/execute/medce-1.c`, so object emission is no longer only
+  covered through multi-object backend probes or compile-only CLI checks
+- the recovered `compiler2025` ARM functional/performance runners now also
+  include a native AArch64 object-link preflight, which checks that the
+  standalone `sysycc-aarch64c -c -fPIC` path still emits linkable PIC objects
+  before the larger external-suite loops begin
 - native debug-info smoke now also covers `.file` / `.loc` assembly emission and
   decoded DWARF line tables in native AArch64 object output
+- the current native AArch64 object/link relocation subset that is now backed
+  by regression coverage is:
+  - `R_AARCH64_CALL26` / `R_AARCH64_JUMP26` for external and cross-object calls
+  - `R_AARCH64_ADR_PREL_PG_HI21` + `R_AARCH64_ADD_ABS_LO12_NC` for page/lo12
+    symbol materialization
+  - `R_AARCH64_ADR_GOT_PAGE` + `R_AARCH64_LD64_GOT_LO12_NC` for GOT-based PIC
+    external data references
+  - `R_AARCH64_ABS32` / `R_AARCH64_ABS64` for absolute data initializers
+  - `R_AARCH64_PREL32` for unwind/debug section references such as `.eh_frame`
+- still outside the current regression-backed/native-closure boundary are
+  TLS/IFUNC/weak-symbol relocation families, large-code-model address forms,
+  and driver-owned link-mode controls such as full PIE/static selection or
+  external-linker flag plumbing
 
 ## Notes
 

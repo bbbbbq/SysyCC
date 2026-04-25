@@ -143,9 +143,53 @@
     “直接消费 backend-local import model 再 lower 到 CoreIR”
   - `AArch64BackendPipeline` 的输入也开始从硬绑定 `CoreIrModule`
     收口成内部 codegen input 抽象，CoreIR 现在只是其中一种 adapter
+- 截至 `2026-04-24`，AArch64 object/link 闭环又新增了一条稳定基线：
+  - native direct object writer 现已支持 logical-immediate 形式的
+    `and` / `orr` / `eor` 编码，修复了 object-only 路径在 backend
+    生成 `and #1` 这类窄整数 mask 指令时无法直接产出 `.o` 的问题
+  - 已新增 `tests/run/run_aarch64_multi_object_link_smoke`，覆盖
+    `clang -> .ll -> sysycc-aarch64c -c -fPIC -> 多个 .o -> readelf ->
+    外部链接 -> AArch64 运行验证`
+  - 已用 `medce-1.c + medce-1-lib.c` 的双 `.o` 手工探测确认相同路径可复现并已通过
+  - `tests/aarch64_backend_single_source` 现已把 `globalrefs.c` 纳入
+    direct-object smoke，覆盖单源 `.o -> 外部链接 -> 运行`
+  - `tests/compiler2025/run_arm_functional.sh` 与
+    `tests/compiler2025/run_arm_performance.sh` 现已在主循环前增加
+    一条最小 object/link 预检 smoke
 
 后续按本计划继续推进时，应从 `Phase 2` 已落地的 public API 继续补 `Phase 3`
 的 LLVM IR reader，不要把新的长期入口重新做回 `CompilerContext` 专属接口。
+
+## 当前 Object 路径边界（`2026-04-25`）
+
+已覆盖能力：
+
+- `sysycc-aarch64c` 与 `compiler -c --backend=aarch64-native` 都可稳定产出
+  AArch64 ELF relocatable object。
+- `.text`、常见数据段、符号表、`.eh_frame`、`.debug_line` 的最小产物链路已可用。
+- 已有回归覆盖直接函数调用的 `R_AARCH64_CALL26`、页级地址物化、
+  `:lo12:` 补充、以及 PIC 下的 GOT 型全局引用。
+- 已有三条门禁分别覆盖：
+  - imported single-source direct-object smoke
+  - multi-object PIC link/run smoke
+  - compiler2025 ARM runner preflight smoke
+
+仍未系统覆盖的场景：
+
+- TLS / thread-local 相关 relocation
+- weak/common/linkonce 等更复杂链接属性的 object 行为
+- shared-library / PLT 细粒度场景，以及更完整的 GOT/PLT 组合覆盖
+- 更复杂的 aggregate ABI、异常展开、以及 debug/unwind 的深度一致性验证
+- driver 直接 orchestrate 多 `.o` 输入、再统一链接的完整工程化工作流
+
+接口请求清单：
+
+- 需要 driver 提供稳定的 public 开关，把前端输入直接驱动到
+  native AArch64 object-only smoke，而不是手工先生成 `.ll`
+- 需要 driver 端把 `-fPIC` / debug-info 等 native object 相关选项
+  稳定传递到 AArch64 codegen library
+- 如果后续目标变成“让 SysyCC 直接参与外部链接流程”，则还需要
+  driver 层设计明确的 linker 参数透传与多对象编排接口
 
 ## Final Goal
 

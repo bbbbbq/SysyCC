@@ -6,6 +6,7 @@
 doc/
 ├── README.md
 └── modules/
+    ├── aarch64-llvm-backend-plan.md
     ├── attribute.md
     ├── class-relationships.md
     ├── cli.md
@@ -43,8 +44,20 @@ The test tree now also includes
 which vendors selected `llvm-test-suite/SingleSource` cases and runs a native
 AArch64 differential path (`clang -> .ll -> sysycc-aarch64c -> .s -> link/run`)
 against a Clang baseline, with both a fast smoke subset and a full imported
-manifest lane. The shared `run_all`/tiered regression entry only pulls in the
+manifest lane. That stage now also routes the existing `globalrefs.c` smoke
+case through a direct object path (`clang -> .ll -> sysycc-aarch64c -c -fPIC
+-> .o -> link/run`) so the single-source gate no longer exercises only the
+assembly lane. The shared `run_all`/tiered regression entry only pulls in the
 smoke subset by default; the full imported sweep stays on its explicit target.
+The `run` stage now also includes
+[tests/run/run_aarch64_multi_object_link_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_aarch64_multi_object_link_smoke),
+which drives two separate `clang -> .ll -> sysycc-aarch64c -c -fPIC -> .o`
+lanes, inspects the produced relocations, externally links the resulting
+objects, and runs the linked binary through the available AArch64 runtime.
+The recovered `compiler2025` ARM functional and performance runners now also
+perform a small AArch64 object-link preflight before their main suite loops,
+so the native object path is checked inside those larger harnesses rather than
+only in standalone backend-focused tests.
 The top-level regression entry [tests/run_all.sh](/Users/caojunze424/code/SysyCC/tests/run_all.sh) now defaults to the tier-1 regression lane (`run`, `cli`, and `dialects`), still writes a summary table to `build/test_result.md`, and is paired with [tests/run_tier2.sh](/Users/caojunze424/code/SysyCC/tests/run_tier2.sh) plus [tests/run_full.sh](/Users/caojunze424/code/SysyCC/tests/run_full.sh) for deeper or full-suite passes.
 For day-to-day local development, the top-level [Makefile](/Users/caojunze424/code/SysyCC/Makefile) now drives a dedicated Ninja build under `build-ninja/`, exposes `make test-tier1`, `make test-tier2`, `make test-full`, `make test-aarch64-ll`, `make test-aarch64-single-source`, `make test-aarch64-single-source-smoke`, and `make test-aarch64-single-source-full`, and leaves test/intermediate-result flows on `build/`.
 
@@ -97,6 +110,7 @@ repository transitions toward the public driver name.
 ## Module Map
 
 - [attribute.md](/Users/caojunze424/code/SysyCC/doc/modules/attribute.md): GNU-style attribute parsing and structured attribute records
+- [aarch64-llvm-backend-plan.md](/Users/caojunze424/code/SysyCC/doc/modules/aarch64-llvm-backend-plan.md): staged plan for the decoupled AArch64 LLVM-IR-first codegen library and object/link closure work
 - [roadmap.md](/Users/caojunze424/code/SysyCC/roadmap.md): current milestone roadmap for performance, backend completion, and correctness validation
 - [class-relationships.md](/Users/caojunze424/code/SysyCC/doc/modules/class-relationships.md): current class ownership and collaboration graph
 - [cli.md](/Users/caojunze424/code/SysyCC/doc/modules/cli.md): command line parsing and option mapping
