@@ -1,0 +1,7 @@
+#include <limits.h>
+
+int main(void) {
+    int max_value = INT_MAX;
+    int char_bits = CHAR_BIT;
+    return max_value > 0 && char_bits >= 8 ? 0 : 1;
+}

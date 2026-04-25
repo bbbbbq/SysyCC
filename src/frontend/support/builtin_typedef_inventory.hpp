@@ -25,8 +25,9 @@ struct BuiltinTypedefInventoryEntry {
     BuiltinTypedefGroup group;
 };
 
-inline constexpr std::array<BuiltinTypedefInventoryEntry, 46>
+inline constexpr std::array<BuiltinTypedefInventoryEntry, 47>
     kBuiltinTypedefInventory = {{
+        {"_Bool", BuiltinTypedefGroup::Int},
         {"int8_t", BuiltinTypedefGroup::SignedChar},
         {"uint8_t", BuiltinTypedefGroup::UnsignedChar},
         {"__int8_t", BuiltinTypedefGroup::SignedChar},

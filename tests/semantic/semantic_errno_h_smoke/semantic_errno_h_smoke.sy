@@ -1,0 +1,7 @@
+#include <errno.h>
+
+int main(void) {
+    int before = errno;
+    errno = EINVAL;
+    return errno == EINVAL || before == EDOM ? 0 : 1;
+}

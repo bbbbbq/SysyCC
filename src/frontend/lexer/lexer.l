@@ -104,8 +104,6 @@ static int get_keyword_parser_token(sysycc::TokenKind kind) {
         return TYPEDEF;
     case sysycc::TokenKind::KwSizeof:
         return SIZEOF;
-    case sysycc::TokenKind::KwAlignas:
-        return ALIGNAS;
     default:
         return IDENTIFIER;
     }
@@ -280,6 +278,7 @@ ANNOT_IDENT _LIBC_[A-Z0-9_]*
 "_Null_unspecified"         { return make_token(NULLABILITY, "NULLABILITY", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "__const"                   { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "__const__"                 { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"_Alignas"                  { return make_token(ALIGNAS, "ALIGNAS", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
 {STRING_CONST}              { return make_token(STRING_LITERAL, "STRING_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }
 {CHAR_CONST}                { return make_token(CHAR_LITERAL, "CHAR_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }

@@ -1,0 +1,19 @@
+#include <errno.h>
+#include <limits.h>
+#include <stdbool.h>
+#include <stdint.h>
+
+int main(void) {
+    bool ok = true;
+    int32_t signed_value = -1;
+    uint64_t wide_value = 1ULL;
+    intptr_t pointer_width = (intptr_t)&signed_value;
+    int bit_count = CHAR_BIT;
+
+    errno = EINVAL;
+    return ok && signed_value < 0 && wide_value > 0ULL &&
+                   pointer_width != (intptr_t)0 && bit_count >= 8 &&
+                   errno == EINVAL && INT_MAX > 0
+               ? 0
+               : 1;
+}

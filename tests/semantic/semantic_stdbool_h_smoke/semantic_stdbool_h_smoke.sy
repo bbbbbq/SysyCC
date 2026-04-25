@@ -1,0 +1,7 @@
+#include <stdbool.h>
+
+int main(void) {
+    bool enabled = true;
+    bool disabled = false;
+    return enabled && !disabled ? 0 : 1;
+}
