@@ -94,9 +94,31 @@ enum class OptimizationLevel : uint8_t {
     O1,
 };
 
+enum class DepfileMode : uint8_t {
+    None,
+    MD,
+    MMD,
+};
+
 enum class CommandLineMacroActionKind : uint8_t {
     Define,
     Undefine,
+};
+
+class DepfileTargetOption {
+  private:
+    std::string value_;
+    bool quote_for_make_ = false;
+
+  public:
+    DepfileTargetOption() = default;
+
+    DepfileTargetOption(std::string value, bool quote_for_make)
+        : value_(std::move(value)), quote_for_make_(quote_for_make) {}
+
+    const std::string &get_value() const noexcept { return value_; }
+
+    bool get_quote_for_make() const noexcept { return quote_for_make_; }
 };
 
 class CommandLineMacroOption {
@@ -131,12 +153,22 @@ class CommandLineMacroOption {
 class ComplierOption {
   private:
     std::string input_file_;
+    std::vector<std::string> linker_input_files_;
+    bool link_only_ = false;
     std::string output_file_;
+    DepfileMode depfile_mode_ = DepfileMode::None;
+    std::string depfile_output_file_;
+    std::vector<DepfileTargetOption> depfile_targets_;
+    bool depfile_add_phony_targets_ = false;
     std::vector<std::string> include_directories_;
     std::vector<std::string> system_include_directories_ =
         detail::get_default_system_include_directories();
     std::vector<CommandLineMacroOption> command_line_macro_options_;
     std::vector<std::string> forced_include_files_;
+    std::vector<std::string> linker_search_directories_;
+    std::vector<std::string> linker_libraries_;
+    std::vector<std::string> linker_passthrough_arguments_;
+    bool link_with_pthread_ = false;
     bool no_stdinc_ = false;
     bool dump_tokens_ = false;
     bool dump_parse_ = false;
@@ -172,10 +204,60 @@ class ComplierOption {
         input_file_ = std::move(input_file);
     }
 
+    const std::vector<std::string> &get_linker_input_files() const noexcept {
+        return linker_input_files_;
+    }
+
+    void set_linker_input_files(std::vector<std::string> linker_input_files) {
+        linker_input_files_ = std::move(linker_input_files);
+    }
+
+    bool get_link_only() const noexcept { return link_only_; }
+
+    void set_link_only(bool link_only) noexcept { link_only_ = link_only; }
+
     const std::string &get_output_file() const noexcept { return output_file_; }
 
     void set_output_file(std::string output_file) {
         output_file_ = std::move(output_file);
+    }
+
+    bool get_generate_depfile() const noexcept {
+        return depfile_mode_ != DepfileMode::None;
+    }
+
+    void set_generate_depfile(bool generate_depfile) noexcept {
+        depfile_mode_ = generate_depfile ? DepfileMode::MMD : DepfileMode::None;
+    }
+
+    DepfileMode get_depfile_mode() const noexcept { return depfile_mode_; }
+
+    void set_depfile_mode(DepfileMode depfile_mode) noexcept {
+        depfile_mode_ = depfile_mode;
+    }
+
+    const std::string &get_depfile_output_file() const noexcept {
+        return depfile_output_file_;
+    }
+
+    void set_depfile_output_file(std::string depfile_output_file) {
+        depfile_output_file_ = std::move(depfile_output_file);
+    }
+
+    const std::vector<DepfileTargetOption> &get_depfile_targets() const noexcept {
+        return depfile_targets_;
+    }
+
+    void set_depfile_targets(std::vector<DepfileTargetOption> depfile_targets) {
+        depfile_targets_ = std::move(depfile_targets);
+    }
+
+    bool get_depfile_add_phony_targets() const noexcept {
+        return depfile_add_phony_targets_;
+    }
+
+    void set_depfile_add_phony_targets(bool depfile_add_phony_targets) noexcept {
+        depfile_add_phony_targets_ = depfile_add_phony_targets;
     }
 
     const std::vector<std::string> &get_include_directories() const noexcept {
@@ -216,6 +298,39 @@ class ComplierOption {
 
     void set_forced_include_files(std::vector<std::string> forced_include_files) {
         forced_include_files_ = std::move(forced_include_files);
+    }
+
+    const std::vector<std::string> &get_linker_search_directories() const noexcept {
+        return linker_search_directories_;
+    }
+
+    void set_linker_search_directories(
+        std::vector<std::string> linker_search_directories) {
+        linker_search_directories_ = std::move(linker_search_directories);
+    }
+
+    const std::vector<std::string> &get_linker_libraries() const noexcept {
+        return linker_libraries_;
+    }
+
+    void set_linker_libraries(std::vector<std::string> linker_libraries) {
+        linker_libraries_ = std::move(linker_libraries);
+    }
+
+    const std::vector<std::string> &
+    get_linker_passthrough_arguments() const noexcept {
+        return linker_passthrough_arguments_;
+    }
+
+    void set_linker_passthrough_arguments(
+        std::vector<std::string> linker_passthrough_arguments) {
+        linker_passthrough_arguments_ = std::move(linker_passthrough_arguments);
+    }
+
+    bool get_link_with_pthread() const noexcept { return link_with_pthread_; }
+
+    void set_link_with_pthread(bool link_with_pthread) noexcept {
+        link_with_pthread_ = link_with_pthread;
     }
 
     bool get_no_stdinc() const noexcept { return no_stdinc_; }

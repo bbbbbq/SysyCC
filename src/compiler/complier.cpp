@@ -1,8 +1,18 @@
 #include "complier.hpp"
 
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <dlfcn.h>
+#include <fstream>
 #include <memory>
+#include <spawn.h>
+#include <string>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <utility>
+#include <vector>
 
 #include "backend/asm_gen/aarch64/aarch64_asm_gen_pass.hpp"
 #include "backend/asm_gen/backend_kind.hpp"
@@ -29,6 +39,8 @@
 #include "frontend/parser/parser.hpp"
 #include "frontend/preprocess/preprocess.hpp"
 #include "frontend/semantic/semantic_pass.hpp"
+
+extern char **environ;
 
 namespace sysycc {
 
@@ -72,6 +84,447 @@ std::unique_ptr<Pass> try_create_riscv64_asm_gen_pass() {
     CreatePassFn create_pass =
         reinterpret_cast<CreatePassFn>(symbol);
     return std::unique_ptr<Pass>(create_pass());
+}
+
+std::string default_output_file_for_action(const ComplierOption &option) {
+    const std::filesystem::path input_path(option.get_input_file());
+    switch (option.get_driver_action()) {
+    case DriverAction::FullCompile:
+        return "a.out";
+    case DriverAction::EmitLlvmIr:
+        return input_path.stem().string() + ".ll";
+    case DriverAction::EmitAssembly:
+        return input_path.stem().string() + ".s";
+    case DriverAction::CompileOnly:
+        return input_path.stem().string() + ".o";
+    default:
+        return option.get_output_file();
+    }
+}
+
+std::string effective_primary_output_file(const ComplierOption &option) {
+    return option.get_output_file().empty()
+               ? default_output_file_for_action(option)
+               : option.get_output_file();
+}
+
+std::string effective_depfile_output_file(const ComplierOption &option) {
+    if (!option.get_depfile_output_file().empty()) {
+        return option.get_depfile_output_file();
+    }
+
+    std::filesystem::path depfile_path(effective_primary_output_file(option));
+    depfile_path.replace_extension(".d");
+    return depfile_path.string();
+}
+
+std::string dependency_scanner_language_flag(const ComplierOption &option) {
+    switch (option.get_language_mode()) {
+    case LanguageMode::C99:
+        return "-std=c99";
+    case LanguageMode::Gnu99:
+        return "-std=gnu99";
+    case LanguageMode::Sysy:
+        return "";
+    }
+    return "";
+}
+
+void append_command_line_macro_argument(
+    std::vector<std::string> &arguments,
+    const CommandLineMacroOption &macro_option) {
+    if (macro_option.get_action_kind() == CommandLineMacroActionKind::Undefine) {
+        arguments.push_back("-U" + macro_option.get_name());
+        return;
+    }
+
+    std::string define_argument = "-D" + macro_option.get_name();
+    if (macro_option.has_replacement()) {
+        define_argument += "=" + macro_option.get_replacement();
+    }
+    arguments.push_back(std::move(define_argument));
+}
+
+void append_depfile_target_arguments(std::vector<std::string> &arguments,
+                                     const ComplierOption &option,
+                                     const std::string &primary_output_file) {
+    if (option.get_depfile_targets().empty()) {
+        arguments.push_back("-MT");
+        arguments.push_back(primary_output_file);
+        return;
+    }
+
+    for (const DepfileTargetOption &target : option.get_depfile_targets()) {
+        arguments.push_back(target.get_quote_for_make() ? "-MQ" : "-MT");
+        arguments.push_back(target.get_value());
+    }
+}
+
+std::vector<std::string> build_dependency_scanner_arguments(
+    const ComplierOption &option, const std::string &depfile_output_file,
+    const std::string &primary_output_file) {
+    std::vector<std::string> arguments;
+    arguments.push_back("-x");
+    arguments.push_back("c");
+    if (const std::string language_flag =
+            dependency_scanner_language_flag(option);
+        !language_flag.empty()) {
+        arguments.push_back(language_flag);
+    }
+    arguments.push_back(option.get_depfile_mode() == DepfileMode::MD ? "-MD"
+                                                                     : "-MMD");
+    if (option.get_depfile_add_phony_targets()) {
+        arguments.push_back("-MP");
+    }
+    arguments.push_back("-MF");
+    arguments.push_back(depfile_output_file);
+    append_depfile_target_arguments(arguments, option, primary_output_file);
+    if (option.get_no_stdinc()) {
+        arguments.push_back("-nostdinc");
+    }
+    for (const std::string &include_directory :
+         option.get_include_directories()) {
+        arguments.push_back("-I");
+        arguments.push_back(include_directory);
+    }
+    for (const std::string &system_include_directory :
+         option.get_system_include_directories()) {
+        arguments.push_back("-isystem");
+        arguments.push_back(system_include_directory);
+    }
+    for (const CommandLineMacroOption &macro_option :
+         option.get_command_line_macro_options()) {
+        append_command_line_macro_argument(arguments, macro_option);
+    }
+    for (const std::string &forced_include_file :
+         option.get_forced_include_files()) {
+        arguments.push_back("-include");
+        arguments.push_back(forced_include_file);
+    }
+    if (option.get_link_with_pthread()) {
+        arguments.push_back("-pthread");
+    }
+    arguments.push_back("-E");
+    arguments.push_back(option.get_input_file());
+    arguments.push_back("-o");
+    arguments.push_back("/dev/null");
+    return arguments;
+}
+
+struct SubprocessResult {
+    bool launched = false;
+    int exit_code = 0;
+    std::string error_message;
+};
+
+SubprocessResult run_subprocess(const std::string &program,
+                                const std::vector<std::string> &arguments) {
+    std::vector<char *> argv;
+    argv.reserve(arguments.size() + 2);
+    argv.push_back(const_cast<char *>(program.c_str()));
+    for (const std::string &argument : arguments) {
+        argv.push_back(const_cast<char *>(argument.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    pid_t child_pid = 0;
+    const int spawn_result =
+        posix_spawnp(&child_pid, program.c_str(), nullptr, nullptr, argv.data(),
+                     environ);
+    if (spawn_result != 0) {
+        return {false, spawn_result, std::strerror(spawn_result)};
+    }
+
+    int wait_status = 0;
+    if (waitpid(child_pid, &wait_status, 0) < 0) {
+        return {true, errno, std::strerror(errno)};
+    }
+    if (WIFEXITED(wait_status)) {
+        return {true, WEXITSTATUS(wait_status), ""};
+    }
+    if (WIFSIGNALED(wait_status)) {
+        return {true, 128 + WTERMSIG(wait_status),
+                "terminated by signal " + std::to_string(WTERMSIG(wait_status))};
+    }
+    return {true, 1, "terminated unexpectedly"};
+}
+
+std::vector<std::string> host_c_driver_candidates() {
+    std::vector<std::string> candidates;
+    if (const char *env_program = std::getenv("SYSYCC_HOST_CC");
+        env_program != nullptr && env_program[0] != '\0') {
+        candidates.emplace_back(env_program);
+    }
+    candidates.emplace_back("clang");
+    candidates.emplace_back("cc");
+    return candidates;
+}
+
+struct TemporaryFile {
+    std::filesystem::path path;
+
+    TemporaryFile() = default;
+    TemporaryFile(const TemporaryFile &) = delete;
+    TemporaryFile &operator=(const TemporaryFile &) = delete;
+
+    TemporaryFile(TemporaryFile &&other) noexcept : path(std::move(other.path)) {
+        other.path.clear();
+    }
+
+    TemporaryFile &operator=(TemporaryFile &&other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+        cleanup();
+        path = std::move(other.path);
+        other.path.clear();
+        return *this;
+    }
+
+    ~TemporaryFile() { cleanup(); }
+
+    void cleanup() noexcept {
+        if (path.empty()) {
+            return;
+        }
+        std::error_code remove_error;
+        std::filesystem::remove(path, remove_error);
+        path.clear();
+    }
+};
+
+bool write_text_file(const std::filesystem::path &path, const std::string &text,
+                     std::string &error_message) {
+    std::ofstream ofs(path);
+    if (!ofs.is_open()) {
+        error_message = "failed to open file '" + path.string() + "'";
+        return false;
+    }
+    ofs << text;
+    if (!ofs.good()) {
+        error_message = "failed to write file '" + path.string() + "'";
+        return false;
+    }
+    return true;
+}
+
+bool create_temporary_llvm_ir_file(const std::string &llvm_ir_text,
+                                   TemporaryFile &temporary_file,
+                                   std::string &error_message) {
+    std::error_code temp_dir_error;
+    const std::filesystem::path temp_dir =
+        std::filesystem::temp_directory_path(temp_dir_error);
+    if (temp_dir_error) {
+        error_message = "failed to query temporary directory: " +
+                        temp_dir_error.message();
+        return false;
+    }
+
+    std::string file_template =
+        (temp_dir / "sysycc-full-link-XXXXXX").string();
+    std::vector<char> template_buffer(file_template.begin(), file_template.end());
+    template_buffer.push_back('\0');
+    const int fd = mkstemp(template_buffer.data());
+    if (fd < 0) {
+        error_message =
+            "failed to create temporary link file: " + std::string(std::strerror(errno));
+        return false;
+    }
+    close(fd);
+
+    temporary_file.path = template_buffer.data();
+    return write_text_file(temporary_file.path, llvm_ir_text, error_message);
+}
+
+std::vector<std::string> build_full_compile_link_arguments(
+    const ComplierOption &option, const std::string &llvm_ir_file,
+    const std::string &output_file) {
+    std::vector<std::string> arguments;
+    if (option.get_backend_options().get_debug_info()) {
+        arguments.push_back("-g");
+    }
+    if (!llvm_ir_file.empty()) {
+        arguments.push_back("-Wno-override-module");
+        arguments.push_back("-x");
+        arguments.push_back("ir");
+        arguments.push_back(llvm_ir_file);
+    }
+    for (const std::string &link_input_file : option.get_linker_input_files()) {
+        arguments.push_back(link_input_file);
+    }
+    for (const std::string &search_directory :
+         option.get_linker_search_directories()) {
+        arguments.push_back("-L");
+        arguments.push_back(search_directory);
+    }
+    for (const std::string &library_name : option.get_linker_libraries()) {
+        arguments.push_back("-l" + library_name);
+    }
+    for (const std::string &passthrough_argument :
+         option.get_linker_passthrough_arguments()) {
+        arguments.push_back(passthrough_argument);
+    }
+    if (option.get_link_with_pthread()) {
+        arguments.push_back("-pthread");
+    }
+    arguments.push_back("-o");
+    arguments.push_back(output_file);
+    return arguments;
+}
+
+PassResult maybe_link_full_compile(const ComplierOption &option,
+                                   CompilerContext &context) {
+    if (option.get_driver_action() != DriverAction::FullCompile) {
+        return PassResult::Success();
+    }
+
+    const std::string output_file = effective_primary_output_file(option);
+    if (output_file.empty()) {
+        const std::string message =
+            "failed to determine executable output path for full compile";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                  message);
+        return PassResult::Failure(message);
+    }
+
+    const std::filesystem::path output_path(output_file);
+    if (output_path.has_parent_path()) {
+        std::error_code create_error;
+        std::filesystem::create_directories(output_path.parent_path(),
+                                            create_error);
+        if (create_error) {
+            const std::string message =
+                "failed to create output directory '" +
+                output_path.parent_path().string() +
+                "': " + create_error.message();
+            context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                      message);
+            return PassResult::Failure(message);
+        }
+    }
+
+    TemporaryFile temporary_llvm_ir_file;
+    std::string temp_file_error;
+    std::string llvm_ir_file_path;
+    if (!option.get_link_only()) {
+        const IRResult *ir_result = context.get_ir_result();
+        if (ir_result == nullptr) {
+            const std::string message = "missing LLVM IR output for full compile";
+            context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                      message);
+            return PassResult::Failure(message);
+        }
+
+        if (!create_temporary_llvm_ir_file(ir_result->get_text(),
+                                           temporary_llvm_ir_file,
+                                           temp_file_error)) {
+            context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                      temp_file_error);
+            return PassResult::Failure(temp_file_error);
+        }
+        llvm_ir_file_path = temporary_llvm_ir_file.path.string();
+    }
+
+    const std::vector<std::string> arguments =
+        build_full_compile_link_arguments(option, llvm_ir_file_path, output_file);
+    std::string last_failure_message;
+    for (const std::string &program : host_c_driver_candidates()) {
+        const SubprocessResult result = run_subprocess(program, arguments);
+        if (!result.launched) {
+            last_failure_message =
+                "failed to launch host linker driver '" + program +
+                "': " + result.error_message;
+            continue;
+        }
+        if (result.exit_code == 0) {
+            return PassResult::Success();
+        }
+
+        last_failure_message =
+            "host linker driver '" + program +
+            "' failed with exit code " + std::to_string(result.exit_code);
+        if (!result.error_message.empty()) {
+            last_failure_message += ": " + result.error_message;
+        }
+        break;
+    }
+
+    if (last_failure_message.empty()) {
+        last_failure_message =
+            "failed to locate a host C compiler for full compile linking";
+    }
+    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                              last_failure_message);
+    return PassResult::Failure(last_failure_message);
+}
+
+PassResult maybe_generate_depfile(const ComplierOption &option,
+                                  CompilerContext &context) {
+    if (!option.get_generate_depfile()) {
+        return PassResult::Success();
+    }
+
+    const std::string primary_output_file =
+        effective_primary_output_file(option);
+    if (primary_output_file.empty()) {
+        const std::string message =
+            "failed to determine the primary output path for depfile generation";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                  message);
+        return PassResult::Failure(message);
+    }
+
+    const std::string depfile_output_file =
+        effective_depfile_output_file(option);
+    std::error_code filesystem_error;
+    const std::filesystem::path depfile_path(depfile_output_file);
+    if (depfile_path.has_parent_path()) {
+        std::filesystem::create_directories(depfile_path.parent_path(),
+                                            filesystem_error);
+        if (filesystem_error) {
+            const std::string message =
+                "failed to create depfile directory '" +
+                depfile_path.parent_path().string() +
+                "': " + filesystem_error.message();
+            context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                      message);
+            return PassResult::Failure(message);
+        }
+    }
+
+    const std::vector<std::string> arguments =
+        build_dependency_scanner_arguments(option, depfile_output_file,
+                                           primary_output_file);
+
+    std::string last_failure_message;
+    for (const std::string &program : host_c_driver_candidates()) {
+        const SubprocessResult result = run_subprocess(program, arguments);
+        if (!result.launched) {
+            last_failure_message =
+                "failed to launch dependency scanner '" + program +
+                "': " + result.error_message;
+            continue;
+        }
+        if (result.exit_code == 0) {
+            return PassResult::Success();
+        }
+
+        last_failure_message =
+            "dependency scanner '" + program +
+            "' failed with exit code " + std::to_string(result.exit_code);
+        if (!result.error_message.empty()) {
+            last_failure_message += ": " + result.error_message;
+        }
+        break;
+    }
+
+    if (last_failure_message.empty()) {
+        last_failure_message =
+            "failed to locate a host C compiler for depfile generation";
+    }
+    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                              last_failure_message);
+    return PassResult::Failure(last_failure_message);
 }
 
 } // namespace
@@ -264,13 +717,8 @@ PassResult Complier::validate_driver_configuration() {
     switch (option_.get_driver_action()) {
     case DriverAction::InternalPipeline:
         return PassResult::Success();
-    case DriverAction::FullCompile: {
-        const std::string message =
-            "linking is not supported yet; use -E, -fsyntax-only, -c, -S, or -S -emit-llvm";
-        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
-                                                   message);
-        return PassResult::Failure(message);
-    }
+    case DriverAction::FullCompile:
+        return PassResult::Success();
     case DriverAction::CompileOnly:
         return PassResult::Success();
     case DriverAction::PreprocessOnly:
@@ -312,8 +760,19 @@ PassResult Complier::Run() {
     if (!backend_validation_result.ok) {
         return backend_validation_result;
     }
+    if (option_.get_link_only()) {
+        return maybe_link_full_compile(option_, context_);
+    }
     InitializePasses();
-    return pass_manager_.Run(context_);
+    PassResult pipeline_result = pass_manager_.Run(context_);
+    if (!pipeline_result.ok) {
+        return pipeline_result;
+    }
+    PassResult full_compile_link_result = maybe_link_full_compile(option_, context_);
+    if (!full_compile_link_result.ok) {
+        return full_compile_link_result;
+    }
+    return maybe_generate_depfile(option_, context_);
 }
 
 } // namespace sysycc
