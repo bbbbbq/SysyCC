@@ -20,6 +20,8 @@ tests/
 │   ├── run_arm_functional_in_docker.sh
 │   ├── run_arm_performance_in_docker.sh
 │   └── runtime support files
+├── compiler/
+│   └── <case>/
 ├── dialects/
 │   └── <case>/
 ├── fuzz/
@@ -153,6 +155,9 @@ includes:
   explicit failure coverage for unsupported `-x` modes
 - CLI coverage for single-input full-compile external linking plus link-only
   host-object passthrough through `-L/-l/-pthread/-Wl,...`
+- compiler-stage coverage for small Make/Ninja projects invoking
+  `build/compiler` with `-I`, `-D`, `-o`, one C source, and an external `.o`
+  linker input.
 - run-stage build-system coverage for multi-file Make and CMake+Ninja
   compile-only static-library builds plus depfile-driven incremental rebuild
   selection
@@ -791,6 +796,17 @@ Representative paths:
 - [tests/ir/ir_nullable_function_pointer_parameter_prototype](/Users/caojunze424/code/SysyCC/tests/ir/ir_nullable_function_pointer_parameter_prototype)
 - [tests/ir/ir_unary_bitwise_not_long_long](/Users/caojunze424/code/SysyCC/tests/ir/ir_unary_bitwise_not_long_long)
 - [tests/ir/ir_unsigned_bit_field_integer_promotion](/Users/caojunze424/code/SysyCC/tests/ir/ir_unsigned_bit_field_integer_promotion)
+
+### `tests/compiler/`
+
+Compiler-driver integration smokes exercise SysyCC as an external tool in
+small project layouts. The current lane focuses on build-system-facing behavior
+that should stay in tier1 but is too driver-specific for pure runtime cases:
+
+- Make invoking `build/compiler` with `-I`, `-D`, `-o`, one C source, and one
+  external object input
+- Ninja invoking the same command shape through a rule edge
+- host linker handoff for mixed temporary LLVM IR plus object-file inputs
 
 ### `tests/run/`
 

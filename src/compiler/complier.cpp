@@ -348,6 +348,8 @@ std::vector<std::string> build_full_compile_link_arguments(
         arguments.push_back("-x");
         arguments.push_back("ir");
         arguments.push_back(llvm_ir_file);
+        arguments.push_back("-x");
+        arguments.push_back("none");
     }
     for (const std::string &link_input_file : option.get_linker_input_files()) {
         arguments.push_back(link_input_file);
