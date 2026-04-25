@@ -1,5 +1,6 @@
 #include <cassert>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "backend/ir/lcssa/core_ir_lcssa_pass.hpp"
@@ -259,10 +260,23 @@ void test_folds_counted_zero_fill_loop_to_memset() {
     iv->add_incoming(entry, zero);
     iv->add_incoming(body, next_iv);
 
+    while (module->get_functions().size() < module->get_functions().capacity()) {
+        module->create_function<CoreIrFunction>(
+            "padding" + std::to_string(module->get_functions().size()),
+            function_type, false);
+    }
+    const std::size_t function_count_before = module->get_functions().size();
+    assert(function_count_before == module->get_functions().capacity());
+
     CompilerContext compiler_context =
         make_compiler_context(std::move(context), module);
     CoreIrLoopIdiomPass pass;
-    assert(pass.Run(compiler_context).ok);
+    PassResult result = pass.Run(compiler_context);
+    assert(result.ok);
+    assert(result.core_ir_effects.has_value());
+    assert(result.core_ir_effects->module_changed);
+    assert(module->get_functions().size() == function_count_before + 1);
+    assert(module->find_function("llvm.memset.p0.i64") != nullptr);
 
     CoreIrRawPrinter printer;
     const std::string text = printer.print_module(*module);
