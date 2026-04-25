@@ -519,7 +519,8 @@ CoreIrInstruction *insert_binary_before_terminator(CoreIrBasicBlock &block,
 }
 
 CoreIrFunction *get_or_create_memset_decl(CoreIrModule &module,
-                                          CoreIrContext &core_ir_context) {
+                                          CoreIrContext &core_ir_context,
+                                          bool &module_changed) {
     if (CoreIrFunction *existing = module.find_function("llvm.memset.p0.i64");
         existing != nullptr) {
         return existing;
@@ -534,6 +535,7 @@ CoreIrFunction *get_or_create_memset_decl(CoreIrModule &module,
         void_type, std::vector<const CoreIrType *>{ptr_i8_type, i8_type, i64_type,
                                                    i1_type},
         false);
+    module_changed = true;
     return module.create_function<CoreIrFunction>("llvm.memset.p0.i64", function_type,
                                                   false);
 }
@@ -579,7 +581,8 @@ bool fold_zero_fill_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
                          const CoreIrCanonicalInductionVarInfo &iv,
                          const ZeroFillLoopInfo &zero_fill,
                          CoreIrModule &module,
-                         CoreIrContext &core_ir_context) {
+                         CoreIrContext &core_ir_context,
+                         bool &module_changed) {
     CoreIrBasicBlock *header = loop.get_header();
     CoreIrBasicBlock *exit_block = loop.get_exit_blocks().empty()
                                        ? nullptr
@@ -609,7 +612,8 @@ bool fold_zero_fill_loop(CoreIrFunction &function, const CoreIrLoopInfo &loop,
         return false;
     }
 
-    CoreIrFunction *memset_decl = get_or_create_memset_decl(module, core_ir_context);
+    CoreIrFunction *memset_decl =
+        get_or_create_memset_decl(module, core_ir_context, module_changed);
     if (memset_decl == nullptr || memset_decl->get_function_type() == nullptr) {
         return false;
     }
@@ -912,7 +916,18 @@ PassResult CoreIrLoopIdiomPass::Run(CompilerContext &context) {
     }
 
     CoreIrPassEffects effects;
+    std::vector<CoreIrFunction *> functions;
+    functions.reserve(module->get_functions().size());
     for (const auto &function : module->get_functions()) {
+        if (function != nullptr) {
+            functions.push_back(function.get());
+        }
+    }
+
+    for (CoreIrFunction *function : functions) {
+        if (function == nullptr) {
+            continue;
+        }
         const CoreIrLoopInfoAnalysisResult &loop_info =
             analysis_manager->get_or_compute<CoreIrLoopInfoAnalysis>(*function);
         const CoreIrInductionVarAnalysisResult &induction_vars =
@@ -933,10 +948,13 @@ PassResult CoreIrLoopIdiomPass::Run(CompilerContext &context) {
             const std::optional<ZeroFillLoopInfo> zero_fill =
                 find_zero_fill_loop(*loop_ptr, *iv);
             if (zero_fill.has_value()) {
+                bool module_changed = false;
                 function_changed =
                     fold_zero_fill_loop(*function, *loop_ptr, *iv, *zero_fill,
-                                        *module, *core_ir_context) ||
+                                        *module, *core_ir_context,
+                                        module_changed) ||
                     function_changed;
+                effects.module_changed = module_changed || effects.module_changed;
                 continue;
             }
             const std::optional<AdditiveReductionInfo> reduction =
@@ -960,8 +978,8 @@ PassResult CoreIrLoopIdiomPass::Run(CompilerContext &context) {
                 function_changed;
         }
         if (function_changed) {
-            effects.changed_functions.insert(function.get());
-            effects.cfg_changed_functions.insert(function.get());
+            effects.changed_functions.insert(function);
+            effects.cfg_changed_functions.insert(function);
         }
     }
 
