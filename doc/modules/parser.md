@@ -48,6 +48,8 @@ Generated parser outputs live under the active build tree:
 - accept pointer-target cast forms such as `(int *)value` and
   `(const char *)buffer` through a dedicated `cast_target_type` grammar path
 - parse `extern` variable declarations such as `extern int signgam;`
+- parse declaration-side `_Alignas(...)` compatibility spellings on object and
+  field declarations, including `stdalign.h`-driven `alignas(...)` expansions
 - parse declaration-side builtin forms such as `_Float16`, `__signed char`,
   `short`, `unsigned char`, and `unsigned short`
 - parse `union` declarations and inline anonymous `union { ... } name;`
@@ -66,6 +68,9 @@ Generated parser outputs live under the active build tree:
 - recognize GNU-style `__asm("_symbol")` declaration suffixes attached to
   function prototypes, including adjacent string-literal concatenation used by
   Darwin alias macros
+- recognize GNU-style `__asm("_symbol")` declaration suffixes attached to
+  variable declarations from system headers such as `extern long timezone
+  __asm("_timezone");`
 - accept declaration-only function prototypes such as `extern int foo(void);`
   and `inline int foo(void);`, plus unnamed prototype parameters such as
   `extern int bar(float);`
@@ -73,12 +78,19 @@ Generated parser outputs live under the active build tree:
   `int printf(const char *fmt, ...);` and `int keep_first(int x, ...) { ... }`
 - accept unnamed pointer prototype parameters such as
   `extern float modff(float, float *);`
+- accept unnamed array prototype parameters such as
+  `double erand48(unsigned short[3]);` by decaying them through the ordinary
+  parameter-type path
 - accept unnamed typedef-name prototype parameters such as
   `int strncasecmp(const char *, const char *, size_t);`
 - accept pointer-return function prototypes such as
   `void *memchr(const void *, int, size_t);`
+- accept grouped function declarators that return function pointers such as
+  `void (*signal(int, void (*)(int)))(int);`
 - accept suffix GNU attributes on function prototypes such as
   `int foo(void) __attribute__((__always_inline__));`
+- accept suffix GNU attributes on struct and union declarations such as
+  `struct S { char bytes[4]; } __attribute__((aligned(4)));`
 - accept simple `const`-qualified prototype parameters such as
   `extern float nanf(const char *);`, preserving the qualifier into AST
   lowering as a pointee-side qualified type
@@ -131,6 +143,10 @@ Generated parser outputs live under the active build tree:
   and `uintptr_t` as `TYPE_NAME` tokens before user parsing so system-header
   typedef chains can be recognized without a prior in-translation-unit
   bootstrap header
+- seed compiler builtin type-macro spellings such as `__PTRDIFF_TYPE__`,
+  `__SIZE_TYPE__`, `__INTMAX_TYPE__`, `__UINTMAX_TYPE__`, `__WCHAR_TYPE__`,
+  and `__WINT_TYPE__`, plus compatibility builtin names such as `__uint128_t`,
+  as `TYPE_NAME` tokens for transitive system-header declarations
 - capture parser syntax failures as structured parser-runtime error state so
   CLI diagnostics can report the current token text and logical source span
 

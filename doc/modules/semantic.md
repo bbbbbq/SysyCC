@@ -99,6 +99,16 @@ The current implementation has a first batch of real semantic rules:
   `uintptr_t` are preinstalled as `TypedefName` symbols so system-header
   typedef chains resolve through the same semantic path as user-authored
   aliases
+- bootstrap typedef coverage now also includes compiler builtin type-macro
+  spellings such as `__PTRDIFF_TYPE__`, `__SIZE_TYPE__`, `__INTMAX_TYPE__`,
+  `__UINTMAX_TYPE__`, `__WCHAR_TYPE__`, and `__WINT_TYPE__`, plus
+  compatibility builtin names such as `__int128_t` and `__uint128_t`, so
+  common macOS system-header typedef chains can bind without ad hoc shim
+  headers
+- dedicated semantic smoke coverage now exercises real host-header includes
+  for `stdlib.h`, `string.h`, `math.h`, `ctype.h`, `assert.h`, `stddef.h`,
+  `time.h`, `float.h`, and `stdalign.h`, so header-chain regressions can be
+  localized before they reach the larger runtime suite
 - function-pointer declaration types now resolve through
   `PointerSemanticType(FunctionSemanticType(...))` when parser lowering sees
   grouped declarators such as `void (*routine)(void *)`
@@ -133,6 +143,9 @@ The current implementation has a first batch of real semantic rules:
   enumerator values can all reuse the selected branch constant once the
   condition folds
 - declaration analysis accepts `extern` variable declarations
+- ordinary identifiers and tag names now live in separate semantic namespaces,
+  so declarations such as `union wait { ... };` and `int wait(int *);` can
+  coexist the same way they do in C system headers
 - file-scope variable analysis now preserves one `VariableSemanticInfo` record
   per bound variable symbol, tracking:
   - whether the variable uses global storage

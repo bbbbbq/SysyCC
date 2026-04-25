@@ -31,6 +31,10 @@ The runtime stage additionally provides `tests/run/support/runtime_stub.c` so ex
 Each runtime case stores copied intermediate artifacts and the final linked test executable under `tests/run/<case>/build/`.
 The separate [tests/fuzz](/Users/caojunze424/code/SysyCC/tests/fuzz) workspace now provides `generate_and_build_csmith_cases.sh` plus `run_csmith_cases.sh`: the first appends new numbered fuzz-input directories after the highest existing numeric case id, optionally compiles them, and supports local path overrides through environment variables, while the second performs a differential run between host `clang` and `SysyCC` for either one chosen case like `001`, every numbered directory via `all`, or all numbered directories when invoked with no arguments, accepts both plain decimal and zero-padded case ids such as `8` and `008`, now discovers any pure-numeric fuzz directory in numeric order so mixed-width layouts such as `001 ... 200 0201 ... 0999 1000 ... 1200` are included, resolves explicit decimal requests such as `201` back to the existing on-disk directory name like `0201`, runs those requested cases in parallel by default using the detected logical CPU count unless `RUN_FUZZ_JOBS` overrides it, archives compiler logs, runtime stdout/stderr, exit codes, and a Markdown summary report in `tests/fuzz/result.md` by default or `SYSYCC_FUZZ_RESULT_FILE`, keeps `SysyCC` frontend and IR dump artifacts disabled by default unless `SYSYCC_FUZZ_CAPTURE_INTERMEDIATES=full` explicitly opts in, and can optionally print a concise per-case artifact summary in the terminal.
 Shared assertions for success-path test scripts live in [tests/test_helpers.sh](/Users/caojunze424/code/SysyCC/tests/test_helpers.sh).
+The tests module documentation now also carries a dedicated system-header
+compatibility matrix covering `stdlib.h`, `string.h`, `math.h`, `ctype.h`,
+`assert.h`, `stddef.h`, `time.h`, `float.h`, and `stdalign.h`, with each
+header classified as stable, partial, or blocked outside the frontend scope.
 That shared helper now also prefers Ninja plus `ccache` when available and
 coordinates one local build per `build/` directory at a time, so overlapping
 test runs wait for the in-flight compile instead of racing.
@@ -129,7 +133,8 @@ repository transitions toward the public driver name.
   tolerates conflicting macro redefinitions only when both definitions come
   from system-header paths. That seeded set now also includes standard
   integer limit macros and builtin numeric spellings used by host
-  `limits.h` implementations.
+  `limits.h` implementations, plus the floating builtin numeric spellings that
+  host `float.h` wrappers expand through.
 - The preprocess stage evaluates simple `#if/#elif` constant expressions including identifiers, `defined(...)`, arithmetic, bitwise operators, shifts, and logical operators such as `&&`, tolerates `__has_include(...)` / `__has_include_next(...)` plus common clang-style builtin probes such as `__has_feature(...)`, `__has_attribute(...)`, and `__has_cpp_attribute(...)` in system-header guards, remaps preprocess-local diagnostics through `#line` logical file and line state, and now exports emitted-line logical source positions through a shared `SourceLineMap` so later lexer/parser/semantic spans can inherit preprocess file/line remapping.
 - The compiler core now also owns a shared `SourceManager` plus
   `SourceLocationService`, and downstream lexer/parser scanner sessions consume
@@ -196,6 +201,12 @@ repository transitions toward the public driver name.
   backend is present as an explicit diagnostic-only placeholder until real ARM
   lowering begins.
 - The parser now accepts a broader C-style subset including `float`, `_Float16`, pointer declarators, `for`, `do ... while`, `switch/case/default`, bitwise operators, shifts, `++/--`, ordinary ternary `?:`, both `.` / `->` member access, declaration-only `extern` / `inline` function prototypes, `extern` variable declarations, declaration-side builtin forms such as `signed char`, `short`, `unsigned char`, and `unsigned short`, and GNU-style function attributes in declaration-specifier position.
+- The parser now also accepts `_Alignas(...)` declaration spellings,
+  variable-side GNU `__asm("_symbol")` aliases, suffix GNU attributes on
+  struct declarations, unnamed array prototype parameters, function-pointer
+  return declarators such as `signal`, and bootstrap builtin type spellings
+  such as `__PTRDIFF_TYPE__`, `__SIZE_TYPE__`, and `__uint128_t` that appear
+  in transitive system headers.
 - The lexer and ordinary front-end constant handling now also accept standard integer literal suffixes such as `u`, `UL`, and `LL` in decimal, octal, and hexadecimal literals.
 - The AST stage now lowers core declaration, expression, and control-flow nodes such as parameters, declarations, assignments, conditional `?:`, calls, `if`, `while`, `for`, `do ... while`, `switch/case/default`, pointer declarators, `.` / `->` member access, plus parsed `struct`, `enum`, and `typedef` declarations into a compiler-facing tree.
 - `AstPass` now records AST completeness in `CompilerContext` and rejects incomplete ASTs when `--dump-ast` explicitly requests AST output.
@@ -204,6 +215,9 @@ repository transitions toward the public driver name.
   function-designator decay in call/initializer compatibility, accepts
   pointer-to-function call targets, and lets enum-typed objects flow through
   assignment and return sites as ordinary integer-like values.
+- Semantic analysis now also keeps tag names in a separate namespace from
+  ordinary identifiers, which lets system-header declarations such as
+  `union wait` and `wait()` coexist without false redefinition errors.
 - Unary bitwise-not now follows C integer promotions end to end, so narrow
   integer operands still promote to `int` while `long long` operands keep
   their full width through semantic analysis and LLVM IR lowering.
