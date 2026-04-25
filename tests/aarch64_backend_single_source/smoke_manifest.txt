@@ -18,6 +18,7 @@ PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/va-arg-pack-1.c|-|-
 PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/ieee/minuszero.c|-|-
 PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/pr80692.c|-|-
 PASS|gnu11|SingleSource/Regression/C/globalrefs.c|-|-
+PASS|gnu89|SingleSource/Regression/C/gcc-c-torture/execute/medce-1.c|-|-
 PASS|gnu89|SingleSource/UnitTests/2003-05-07-VarArgs.c|-|-
 PASS|gnu89|SingleSource/UnitTests/2008-07-13-InlineSetjmp.c|-|-
 PASS|gnu89|SingleSource/UnitTests/AArch64/acle-fmv-features.c|-|-
