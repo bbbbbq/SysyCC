@@ -86,6 +86,10 @@ ParsedAttribute parse_attribute(const ParseTreeNode *node) {
 
     if (node != nullptr) {
         for (const auto &child : node->children) {
+            if (ParseTreeMatcher::label_equals(child.get(), "attribute_name")) {
+                name = join_terminal_texts(child.get());
+                continue;
+            }
             if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
                 name = ParseTreeMatcher::extract_terminal_suffix(child.get(),
                                                                  "IDENTIFIER");

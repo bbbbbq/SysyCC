@@ -174,6 +174,50 @@ void initialize_predefined_macros(
     define_object_like_macro(macro_table, "__SIZE_MAX__",
                              SYSYCC_STRINGIZE(__SIZE_MAX__));
 #endif
+#if defined(__FLT_RADIX__)
+    define_object_like_macro(macro_table, "__FLT_RADIX__",
+                             SYSYCC_STRINGIZE(__FLT_RADIX__));
+#endif
+#if defined(__FLT_EVAL_METHOD__)
+    define_object_like_macro(macro_table, "__FLT_EVAL_METHOD__",
+                             SYSYCC_STRINGIZE(__FLT_EVAL_METHOD__));
+#endif
+#if defined(__FLT_MANT_DIG__)
+    define_object_like_macro(macro_table, "__FLT_MANT_DIG__",
+                             SYSYCC_STRINGIZE(__FLT_MANT_DIG__));
+#endif
+#if defined(__DBL_MANT_DIG__)
+    define_object_like_macro(macro_table, "__DBL_MANT_DIG__",
+                             SYSYCC_STRINGIZE(__DBL_MANT_DIG__));
+#endif
+#if defined(__LDBL_MANT_DIG__)
+    define_object_like_macro(macro_table, "__LDBL_MANT_DIG__",
+                             SYSYCC_STRINGIZE(__LDBL_MANT_DIG__));
+#endif
+#if defined(__FLT_DIG__)
+    define_object_like_macro(macro_table, "__FLT_DIG__",
+                             SYSYCC_STRINGIZE(__FLT_DIG__));
+#endif
+#if defined(__DBL_DIG__)
+    define_object_like_macro(macro_table, "__DBL_DIG__",
+                             SYSYCC_STRINGIZE(__DBL_DIG__));
+#endif
+#if defined(__LDBL_DIG__)
+    define_object_like_macro(macro_table, "__LDBL_DIG__",
+                             SYSYCC_STRINGIZE(__LDBL_DIG__));
+#endif
+#if defined(__FLT_EPSILON__)
+    define_object_like_macro(macro_table, "__FLT_EPSILON__",
+                             SYSYCC_STRINGIZE(__FLT_EPSILON__));
+#endif
+#if defined(__DBL_EPSILON__)
+    define_object_like_macro(macro_table, "__DBL_EPSILON__",
+                             SYSYCC_STRINGIZE(__DBL_EPSILON__));
+#endif
+#if defined(__LDBL_EPSILON__)
+    define_object_like_macro(macro_table, "__LDBL_EPSILON__",
+                             SYSYCC_STRINGIZE(__LDBL_EPSILON__));
+#endif
 
 #if defined(INT8_MIN)
     define_object_like_macro(macro_table, "INT8_MIN", SYSYCC_STRINGIZE(INT8_MIN));

@@ -102,6 +102,9 @@ src/frontend/preprocess/
   macros used by common `limits.h` implementations so preprocess-only
   conditionals in system headers and csmith runtime helpers evaluate
   consistently
+- seed common floating builtin numeric macros such as `__FLT_RADIX__`,
+  `__FLT_MANT_DIG__`, and `__FLT_EPSILON__` so host `float.h` style wrappers
+  can lower public constants onto preprocess-visible spellings
 - centralize include-stack tracking and `#line` logical-file remapping inside a
   dedicated source mapper
 - preserve the logical include chain for nested preprocess failures so
@@ -187,7 +190,10 @@ first non-standard directive bridge now follows the same pattern:
 `PreprocessDirectiveHandlerRegistry` before honoring `#warning` and
 `#pragma once`, and now also requires the
 `NonStandardDirectivePayloads` feature, so those behaviors are owned by enabled
-dialect packs instead of being permanently unconditional.
+dialect packs instead of being permanently unconditional. The seeded predefined
+macro set now also covers the floating builtin numeric spellings exercised by
+host `float.h` wrappers, so public macros such as `FLT_RADIX` can expand all
+the way down to concrete numbers during later semantic analysis.
 
 ## Supported Syntax
 

@@ -107,6 +107,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::KwTypedef;
     case SIZEOF:
         return TokenKind::KwSizeof;
+    case ALIGNAS:
+        return TokenKind::KwAlignas;
     case PLUS:
         return TokenKind::Plus;
     case MINUS:

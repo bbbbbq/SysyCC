@@ -1660,7 +1660,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         if (owner_type->get_kind() == SemanticTypeKind::Struct) {
             const std::string &struct_name =
                 static_cast<const StructSemanticType *>(owner_type)->get_name();
-            const SemanticSymbol *struct_symbol = scope_stack.lookup(struct_name);
+            const SemanticSymbol *struct_symbol =
+                scope_stack.lookup_tag(struct_name);
             if (struct_symbol != nullptr &&
                 struct_symbol->get_kind() == SymbolKind::StructName &&
                 struct_symbol->get_decl_node() != nullptr &&
@@ -1691,7 +1692,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         if (owner_type->get_kind() == SemanticTypeKind::Union) {
             const std::string &union_name =
                 static_cast<const UnionSemanticType *>(owner_type)->get_name();
-            const SemanticSymbol *union_symbol = scope_stack.lookup(union_name);
+            const SemanticSymbol *union_symbol =
+                scope_stack.lookup_tag(union_name);
             if (union_symbol != nullptr &&
                 union_symbol->get_kind() == SymbolKind::UnionName &&
                 union_symbol->get_decl_node() != nullptr &&

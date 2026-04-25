@@ -169,18 +169,27 @@ includes:
   SysyCC stdin/stdout harness, including in-place duplicate compaction,
   binary-search insertion index lookup, Kadane maximum subarray, single-pass
   stock-profit scanning, and Boyer-Moore majority voting
-- bug-reproducer coverage for direct standard-library heap allocation through
-  `malloc` / `free`, preserving the current failure mode where the compiler
-  still chokes on transitive macOS system-header constructs while trying to
-  compile a dynamically allocated integer-buffer sum program
-- currently failing standard-library compatibility coverage for additional
-  macOS system-header and builtin expansion gaps, including `string.h`
-  `memcpy`, `math.h` `isnan`, `ctype.h` classification macros, and
-  `assert.h` predefined-builtin usage
-- currently failing standard-library compatibility coverage for compiler
-  builtin-type and declaration forms surfaced by common headers, including
-  `stddef.h` `ptrdiff_t`, `time.h` declaration aliases, `float.h` builtin
-  floating macros, and `stdalign.h` `alignas`
+- runtime coverage for direct standard-library heap allocation through
+  `malloc` / `free`, including the transitive macOS system-header path used by
+  the `run_malloc_free_dynamic_sum` integer-buffer sum case
+- runtime smoke coverage for `assert.h`, `string.h`, `float.h`, `stddef.h`,
+  `stdalign.h`, and `time.h` compatibility cases that now compile through the
+  frontend and emit non-empty IR
+- parser smoke coverage for stdlib-style system-header prototype forms such as
+  suffix `__attribute__((__const__))`, unnamed array parameters, nullability-
+  annotated function-pointer parameters, and function-pointer return
+  declarators
+- parser smoke coverage for suffix GNU attributes on struct declarations used
+  by transitive macOS ARM state headers
+- semantic smoke coverage for compiler builtin type-macro spellings such as
+  `__PTRDIFF_TYPE__` and `__SIZE_TYPE__`, compatibility builtin type names
+  such as `__uint128_t`, and the C rule that tag names and ordinary
+  identifiers use separate namespaces
+- current remaining standard-library frontend-adjacent blocker: the
+  `math.h`/`isnan` runtime regression now clears preprocess, parse, and
+  semantic stages, but the full `--dump-ir` path still fails later in
+  `BuildCoreIrPass` with a PHI/CFG mismatch, which is outside the current
+  front-end/system-header ownership scope
 - runtime coverage for longer LeetCode-inspired composite problems including
   dynamic 2D union-find, multi-source grid BFS, handwritten heap-based graph
   shortest path, interval-room scheduling with paired heaps, and 2D dynamic
@@ -232,6 +241,37 @@ includes:
   `fmul`, and `fdiv`
 - staged Core-IR-to-AArch64 placeholder coverage for the current
   not-yet-implemented ARM backend contract
+
+## System-Header Compatibility Matrix
+
+The current standard-header compatibility state is tracked explicitly instead
+of being inferred from larger suites.
+
+### Stable Support
+
+| Header | Targeted coverage | Notes |
+| --- | --- | --- |
+| `stdlib.h` | `tests/semantic/semantic_stdlib_h_smoke`, `tests/run/run_malloc_free_dynamic_sum`, `tests/parser/system_header_stdlib_prototype_compat` | Covers transitive `size_t` use plus `malloc` / `free` declarations through the real host header chain. |
+| `string.h` | `tests/semantic/semantic_string_h_smoke`, `tests/run/run_string_h_memcpy_builtin_bug` | Covers `memcpy` declarations and the builtin-backed expansion path used by host headers. |
+| `ctype.h` | `tests/semantic/semantic_ctype_h_smoke`, `tests/run/run_ctype_h_isdigit_header_bug` | Covers `isdigit` macro/function entry through the real header path. |
+| `assert.h` | `tests/semantic/semantic_assert_h_smoke`, `tests/run/run_assert_h_builtin_macro_bug` | Covers assert-macro expansion through the builtin macro surface accepted by the frontend. |
+| `stddef.h` | `tests/semantic/semantic_stddef_h_smoke`, `tests/run/run_stddef_h_ptrdiff_builtin_bug`, `tests/semantic/semantic_system_header_builtin_type_macros` | Covers `ptrdiff_t`, `size_t`, and builtin type-macro typedef chains. |
+| `time.h` | `tests/semantic/semantic_time_h_smoke`, `tests/run/run_time_h_timezone_asm_bug` | Covers `time_t`, `struct tm`, and asm-labeled timezone declarations. |
+| `float.h` | `tests/semantic/semantic_float_h_smoke`, `tests/run/run_float_h_builtin_macro_bug` | Covers `FLT_RADIX`, `DBL_MANT_DIG`, and the predefined floating builtin macro surface used by host wrappers. |
+| `stdalign.h` | `tests/semantic/semantic_stdalign_h_smoke`, `tests/run/run_stdalign_h_alignas_bug` | Covers `alignas(...)` expansion to `_Alignas(...)` on declarations and fields. |
+
+### Partial Support
+
+| Header | Targeted coverage | Remaining gap |
+| --- | --- | --- |
+| `math.h` | `tests/semantic/semantic_math_h_smoke`, `tests/semantic/semantic_math_h_isnan_macro_bug`, `tests/run/run_math_h_isnan_macro_bug` | `isnan(...)` now clears preprocess, parse, and semantic analysis, but the full `--dump-ir` path still fails later in `BuildCoreIrPass` with `phi incoming blocks do not match CFG predecessors`, which is a backend/Core-IR blocker outside the current frontend/system-header ownership scope. |
+
+### Explicitly Unsupported In This Phase
+
+No header from the current high-frequency target set is intentionally blocked
+at the preprocess/parser/semantic layer. Remaining unsupported behavior is
+currently backend-owned (`math.h` `isnan`) or belongs to headers outside this
+phase's compatibility matrix.
 
 ## Stage Groups
 
@@ -546,6 +586,9 @@ Semantic-analysis regressions, including:
 - `_Float16` cast-expression semantic acceptance
 - bootstrap typedef-name semantic resolution for system-header aliases such as
   `size_t`, `ptrdiff_t`, and `va_list`
+- dedicated host-header semantic smoke coverage for `stdlib.h`, `string.h`,
+  `math.h`, `ctype.h`, `assert.h`, `stddef.h`, `time.h`, `float.h`, and
+  `stdalign.h`
 - `extern` variable declarations
 - grouped function-pointer field declarations and typedef-backed field use
 - pointer-return function prototypes
@@ -612,6 +655,9 @@ Representative paths:
 - [tests/semantic/semantic_const_pointer_call_reject](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_const_pointer_call_reject)
 - [tests/semantic/semantic_pointer_nullability_annotation](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_pointer_nullability_annotation)
 - [tests/semantic/semantic_pointer_target_cast_expr](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_pointer_target_cast_expr)
+- [tests/semantic/semantic_stdlib_h_smoke](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_stdlib_h_smoke)
+- [tests/semantic/semantic_math_h_smoke](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_math_h_smoke)
+- [tests/semantic/semantic_time_h_smoke](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_time_h_smoke)
 - [tests/semantic/semantic_usual_arithmetic_conversions](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_usual_arithmetic_conversions)
 - [tests/semantic/semantic_union_decl](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_union_decl)
 - [tests/semantic/semantic_unsupported_attribute](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_unsupported_attribute)

@@ -1,0 +1,7 @@
+union wait {
+    int status;
+};
+
+int wait(int *);
+
+int main(void) { return 0; }

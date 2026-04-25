@@ -1,0 +1,9 @@
+#include <compat_builtin_types.h>
+
+compat_ptrdiff_t g_delta = 0;
+compat_size_t g_size_value = 1;
+
+int main(void) {
+    compat_neon value;
+    return (int)g_delta + (int)g_size_value + (int)sizeof(value.lanes);
+}

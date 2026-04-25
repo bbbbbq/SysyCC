@@ -149,7 +149,7 @@ const SemanticType *TypeResolver::resolve_type(
         const auto *struct_type = static_cast<const StructTypeNode *>(type_node);
         if (struct_type->get_fields().empty() && scope_stack != nullptr) {
             const SemanticSymbol *symbol =
-                scope_stack->lookup(struct_type->get_name());
+                scope_stack->lookup_tag(struct_type->get_name());
             if (symbol != nullptr && symbol->get_kind() == SymbolKind::StructName) {
                 return symbol->get_type();
             }
@@ -164,7 +164,7 @@ const SemanticType *TypeResolver::resolve_type(
         const auto *union_type = static_cast<const UnionTypeNode *>(type_node);
         if (union_type->get_fields().empty() && scope_stack != nullptr) {
             const SemanticSymbol *symbol =
-                scope_stack->lookup(union_type->get_name());
+                scope_stack->lookup_tag(union_type->get_name());
             if (symbol != nullptr && symbol->get_kind() == SymbolKind::UnionName) {
                 return symbol->get_type();
             }

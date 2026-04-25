@@ -104,6 +104,8 @@ static int get_keyword_parser_token(sysycc::TokenKind kind) {
         return TYPEDEF;
     case sysycc::TokenKind::KwSizeof:
         return SIZEOF;
+    case sysycc::TokenKind::KwAlignas:
+        return ALIGNAS;
     default:
         return IDENTIFIER;
     }
@@ -183,6 +185,8 @@ static const char *get_keyword_token_label(int token) {
         return "TYPEDEF";
     case SIZEOF:
         return "SIZEOF";
+    case ALIGNAS:
+        return "ALIGNAS";
     default:
         return "IDENTIFIER";
     }
@@ -213,7 +217,7 @@ STRING_BODY ([^"\\\n]|{ESCAPE})*
 STRING_CONST \"{STRING_BODY}\"
 INVALID_OCT 0{OCT_DIGIT}*[89]{DIGIT}*
 INVALID_HEX 0[xX]({LETTER}|{DIGIT})*
-ANNOT_IDENT _[A-Z][A-Z0-9_]*
+ANNOT_IDENT _LIBC_[A-Z0-9_]*
 
 %%
 [ \t\r\f\v]+                { }

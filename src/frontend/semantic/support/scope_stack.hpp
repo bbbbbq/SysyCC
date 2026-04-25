@@ -13,11 +13,14 @@ namespace detail {
 // Represents one lexical scope.
 class Scope {
   private:
-    std::unordered_map<std::string, const SemanticSymbol *> symbols_;
+    std::unordered_map<std::string, const SemanticSymbol *> ordinary_symbols_;
+    std::unordered_map<std::string, const SemanticSymbol *> tag_symbols_;
 
   public:
     bool define(const SemanticSymbol *symbol);
     const SemanticSymbol *lookup_local(const std::string &name) const noexcept;
+    const SemanticSymbol *lookup_tag_local(const std::string &name) const
+        noexcept;
 };
 
 // Manages nested lexical scopes during semantic analysis.
@@ -32,6 +35,9 @@ class ScopeStack {
     bool define(const SemanticSymbol *symbol);
     const SemanticSymbol *lookup_local(const std::string &name) const noexcept;
     const SemanticSymbol *lookup(const std::string &name) const noexcept;
+    const SemanticSymbol *lookup_tag_local(const std::string &name) const
+        noexcept;
+    const SemanticSymbol *lookup_tag(const std::string &name) const noexcept;
     bool empty() const noexcept;
 };
 

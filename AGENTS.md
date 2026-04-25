@@ -471,3 +471,100 @@ make check
 这份 `AGENTS.md` 不是为了替代现有模块文档，而是为了给进入仓库执行任务的人或代理一个“从目录结构到设计结构”的统一入口。
 
 如果未来目录结构、主路径、Core IR 管线或文档组织发生变化，应优先同步更新本文件。
+
+## 11. 当前阶段专项协作约束：系统头 / 前端兼容
+
+当前阶段目标不是继续铺宽功能面，而是把 `SysyCC` 从“能产出汇编”推进到“能编译真实工程”。
+
+### 11.1 阶段目标
+
+1. 让 `SysyCC` 能被小型/中型 C 工程通过 `make` / `ninja` / `cmake` 调用。
+2. 主战平台只做 `AArch64`，`RISC-V` 这一阶段只保不回退，不做主线开发。
+3. 该阶段优先级高于 IR 新优化、高于新语法特性、高于第二后端扩张。
+
+### 11.2 全局协作规则
+
+1. 只修改自己被授权的模块范围；不得跨边界“顺手修”。
+2. 任何行为变化必须补测试。
+3. 任何接口变化必须写清楚对接需求。
+4. 小步提交，优先做可合并的小闭环。
+5. 如果发现问题落在别人的模块，不要直接改，先记录为“接口请求”或“阻塞项”。
+
+### 11.3 系统头 / 前端兼容负责人职责
+
+你是 `SysyCC` 的系统头 / 前端兼容负责人。
+
+唯一目标：
+
+- 把 `SysyCC` 做成“能吃下真实 C 工程常见头文件和 builtin 形式”的编译器，而不是只通过受控样例。
+
+主职责：
+
+1. 提升 `preprocess / parser / semantic` 对系统头的兼容性。
+2. 集中清理 `stdlib/string/math/stddef/assert/time` 等高频头问题。
+3. 解决 builtin typedef、builtin macro、builtin declaration 兼容缺口。
+4. 不负责 driver/build-system，不负责 `AArch64` 后端 codegen。
+
+### 11.4 允许修改的模块范围
+
+1. `src/frontend/preprocess/**`
+2. `src/frontend/lexer/**`
+3. `src/frontend/parser/**`
+4. `src/frontend/ast/**`
+5. `src/frontend/semantic/**`
+6. `src/frontend/support/**`
+7. `src/frontend/dialects/**`
+8. `src/common/source_*`
+9. `src/common/diagnostic/**`
+10. `tests/preprocess/**`
+11. `tests/parser/**`
+12. `tests/semantic/**`
+13. `tests/run/**` 中“系统头 / 标准库 / builtin 兼容”相关用例
+14. `doc/modules/preprocess.md`
+15. `doc/modules/parser.md`
+16. `doc/modules/semantic.md`
+17. `doc/modules/tests.md`
+18. `doc/README.md`
+
+### 11.5 禁止修改的模块范围
+
+1. `src/cli/**`
+2. `src/compiler/complier.cpp`
+3. `src/backend/**`
+4. `tests/aarch64_backend_single_source/**`
+5. `tests/compiler2025/run_arm_*.sh`
+
+### 11.6 当前优先清理的已知问题
+
+1. `malloc / free`
+2. `memcpy`
+3. `isnan`
+4. `assert.h`
+5. `ptrdiff_t`
+6. `time.h`
+7. `stdalign.h / alignas`
+8. `stddef.h`
+9. `string.h`
+10. `math.h`
+11. `stdlib.h`
+
+### 11.7 第一阶段任务
+
+1. 把仓库里已经存在的标准库兼容失败 case 逐个转绿。
+2. 为每个高频头建立最小 smoke case，而不是只靠大套件碰运气。
+3. 清理 builtin typedef / builtin macro / system-header probe 相关兼容缺口。
+4. 优先解决真实工程最常见的“预处理过不了 / 语义过不了 / builtin 形式不认识”问题。
+5. 输出一份“已支持头文件能力矩阵”和“仍阻塞真实工程的头文件问题清单”。
+
+### 11.8 验收标准
+
+1. `run_malloc_free_dynamic_sum` 不再卡在系统头解析链路。
+2. 与 `string.h / math.h / stddef.h / assert.h / time.h` 相关的现有失败回归显著减少。
+3. 新增的头文件 smoke tests 稳定。
+4. 对真实工程常见头文件的失败模式从“随机爆炸”变成“明确、可定位、可收敛”。
+
+### 11.9 输出要求
+
+1. 每修一个头文件兼容问题，都要补最小复现测试。
+2. 不要改 driver，不要改 backend。
+3. 如果某个失败是 backend/link 阶段问题，记录为“非本模块阻塞”。

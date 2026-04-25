@@ -1,0 +1,10 @@
+#include <stdalign.h>
+
+struct Buffer {
+    alignas(16) char bytes[16];
+};
+
+int main(void) {
+    struct Buffer buffer;
+    return (int)sizeof(buffer.bytes);
+}
