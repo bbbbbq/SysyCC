@@ -1138,7 +1138,10 @@ Native Linux AArch64 asm regressions, including:
   recursively discovers executable `tests/<stage>/<case>/run.sh`, defaults to
   the tier-1 regression lane (`run`, `cli`, `dialects`), supports
   `--layer tier1|tier2|all`, and writes a Markdown summary to
-  `build/test_result.md`.
+  `build/test_result.md`. Each discovered case is also guarded by
+  `SYSYCC_TEST_CASE_TIMEOUT` seconds, defaulting to `300`, so a wedged
+  compiler or runtime case is reported as a case failure instead of stalling the
+  whole regression.
 - [tests/run_tier1.sh](/Users/caojunze424/code/SysyCC/tests/run_tier1.sh)
   is the explicit day-to-day fast lane for `run`, `cli`, and `dialects`
   regressions.
@@ -1165,6 +1168,14 @@ The same dedicated-assertion path is also used for `tests/run/`, because those
 cases validate executable stdout instead of only checking intermediate artifacts.
 Their per-case `build/` directories provide a stable place to inspect the
 runtime-focused intermediate files after a test run.
+
+## Optimization Diagnostics
+
+Set `SYSYCC_TRACE_PASSES=1` when running `build/compiler` or `build/SysyCC` to
+emit a lightweight pass trace on stderr. The trace logs pass entry/exit,
+Core IR block counts, elapsed milliseconds, changed/stopped flags, and
+fixed-point iteration convergence. This is intended for O1 hang triage and is
+silent by default.
 
 Parser-, AST-, and semantic-focused regression scripts now commonly invoke
 `SysyCC` with `--stop-after=parse`, `--stop-after=ast`, or

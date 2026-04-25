@@ -1,7 +1,12 @@
 #include "pass.hpp"
 
+#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <string>
+#include <string_view>
 
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -52,6 +57,54 @@ bool should_stop_after_pass(const CompilerContext &context,
 
 bool should_run_fixed_point_group(const CompilerContext &context) {
     return context.get_optimization_level() == OptimizationLevel::O1;
+}
+
+bool env_flag_enabled(const char *name) {
+    const char *value = std::getenv(name);
+    if (value == nullptr) {
+        return false;
+    }
+    const std::string text(value);
+    return text == "1" || text == "true" || text == "TRUE" ||
+           text == "yes" || text == "YES" || text == "on" ||
+           text == "ON";
+}
+
+bool trace_passes_enabled() { return env_flag_enabled("SYSYCC_TRACE_PASSES"); }
+
+std::size_t count_core_ir_blocks(const CompilerContext &context) {
+    const CoreIrBuildResult *build_result = context.get_core_ir_build_result();
+    const CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
+    if (module == nullptr) {
+        return 0;
+    }
+
+    std::size_t count = 0;
+    for (const auto &function : module->get_functions()) {
+        if (function != nullptr) {
+            count += function->get_basic_blocks().size();
+        }
+    }
+    return count;
+}
+
+void trace_pass_event(std::string_view event, const Pass &pass,
+                      std::size_t block_count) {
+    std::cerr << "[sysycc-pass] " << event << ' ' << pass.Name()
+              << " blocks=" << block_count << '\n';
+}
+
+void trace_pass_leave(const Pass &pass, bool changed, bool stopped,
+                      std::size_t block_count,
+                      std::chrono::steady_clock::duration elapsed) {
+    const auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+    std::cerr << "[sysycc-pass] leave " << pass.Name()
+              << " changed=" << (changed ? 1 : 0)
+              << " stopped=" << (stopped ? 1 : 0)
+              << " blocks=" << block_count << " elapsed_ms=" << elapsed_ms
+              << '\n';
 }
 
 bool contains_float_leaf_type(const CoreIrType *type) {
@@ -283,20 +336,38 @@ struct PassExecutionResult {
 PassExecutionResult run_one_pass(CompilerContext &context, Pass &pass) {
     PassExecutionResult execution_result;
 
+    const bool trace = trace_passes_enabled();
+    const auto start_time = std::chrono::steady_clock::now();
+    if (trace) {
+        trace_pass_event("enter", pass, count_core_ir_blocks(context));
+    }
+
     PassResult result = pass.Run(context);
     if (!result.ok) {
         execution_result.result = std::move(result);
+        if (trace) {
+            trace_pass_leave(pass, false, false, count_core_ir_blocks(context),
+                             std::chrono::steady_clock::now() - start_time);
+        }
         return execution_result;
     }
     if (context.get_diagnostic_engine().has_error()) {
         execution_result.result = PassResult::Failure(
             first_error_message(context.get_diagnostic_engine()));
+        if (trace) {
+            trace_pass_leave(pass, false, false, count_core_ir_blocks(context),
+                             std::chrono::steady_clock::now() - start_time);
+        }
         return execution_result;
     }
     if (pass.Metadata().writes_core_ir && !result.core_ir_effects.has_value()) {
         execution_result.result = PassResult::Failure(
             std::string(pass.Name()) +
             " wrote Core IR but did not report CoreIrPassEffects");
+        if (trace) {
+            trace_pass_leave(pass, false, false, count_core_ir_blocks(context),
+                             std::chrono::steady_clock::now() - start_time);
+        }
         return execution_result;
     }
     if (result.core_ir_effects.has_value()) {
@@ -306,11 +377,21 @@ PassExecutionResult run_one_pass(CompilerContext &context, Pass &pass) {
     if (!verify_core_ir_after_pass(context, pass, result)) {
         execution_result.result = PassResult::Failure(
             std::string(pass.Name()) + " failed Core IR verification");
+        if (trace) {
+            trace_pass_leave(pass, execution_result.changed, false,
+                             count_core_ir_blocks(context),
+                             std::chrono::steady_clock::now() - start_time);
+        }
         return execution_result;
     }
     if (should_stop_after_pass(context, pass.Kind())) {
         maybe_dump_core_ir_before_stop(context);
         execution_result.stopped = true;
+    }
+    if (trace) {
+        trace_pass_leave(pass, execution_result.changed, execution_result.stopped,
+                         count_core_ir_blocks(context),
+                         std::chrono::steady_clock::now() - start_time);
     }
     execution_result.result = PassResult::Success();
     return execution_result;
@@ -446,9 +527,24 @@ PassResult PassManager::Run(CompilerContext &context) {
         }
 
         const FixedPointPassGroup &group = *entry.fixed_point_group;
+        const bool trace = trace_passes_enabled();
+        if (trace) {
+            std::cerr << "[sysycc-pass] fixed-point begin scope="
+                      << (group.module_scope ? "module" : "function")
+                      << " passes=" << group.passes.size()
+                      << " max_iterations=" << group.max_iterations << '\n';
+        }
+        std::size_t iterations_run = 0;
+        bool converged = false;
         for (std::size_t iteration = 0; iteration < group.max_iterations;
              ++iteration) {
+            iterations_run = iteration + 1;
             bool iteration_changed = false;
+            if (trace) {
+                std::cerr << "[sysycc-pass] fixed-point iteration "
+                          << (iteration + 1) << '/' << group.max_iterations
+                          << " begin\n";
+            }
             for (const std::unique_ptr<Pass> &pass : group.passes) {
                 if (pass == nullptr) {
                     return PassResult::Failure(
@@ -466,9 +562,21 @@ PassResult PassManager::Run(CompilerContext &context) {
                 iteration_changed =
                     execution_result.changed || iteration_changed;
             }
+            if (trace) {
+                std::cerr << "[sysycc-pass] fixed-point iteration "
+                          << (iteration + 1) << '/' << group.max_iterations
+                          << " changed=" << (iteration_changed ? 1 : 0)
+                          << '\n';
+            }
             if (!iteration_changed) {
+                converged = true;
                 break;
             }
+        }
+        if (trace) {
+            std::cerr << "[sysycc-pass] fixed-point end iterations="
+                      << iterations_run
+                      << " converged=" << (converged ? 1 : 0) << '\n';
         }
     }
 

@@ -360,6 +360,45 @@ discover_tests() {
     done < <(find "${SCRIPT_DIR}" -mindepth 3 -maxdepth 3 -type f -name run.sh -perm -111 -print0 | sort -z)
 }
 
+run_script_with_timeout() {
+    local run_script="$1"
+    local timeout_seconds="${SYSYCC_TEST_CASE_TIMEOUT:-300}"
+
+    if [[ "${timeout_seconds}" == "0" ]]; then
+        "${run_script}"
+        return $?
+    fi
+
+    python3 - "${timeout_seconds}" "${run_script}" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+timeout_seconds = float(sys.argv[1])
+run_script = sys.argv[2]
+
+process = subprocess.Popen([run_script], start_new_session=True)
+try:
+    sys.exit(process.wait(timeout=timeout_seconds))
+except subprocess.TimeoutExpired:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+    print(f"error: timed out after {timeout_seconds:g}s", file=sys.stderr)
+    sys.exit(124)
+PY
+}
+
 run_case() {
     local case_index="$1"
     local run_script="${RUN_SCRIPTS[case_index]}"
@@ -374,9 +413,15 @@ run_case() {
     {
         echo "==> Running ${display_name}"
 
-        if ! "${run_script}"; then
+        local run_status=0
+        run_script_with_timeout "${run_script}" || run_status=$?
+        if [[ "${run_status}" -ne 0 ]]; then
             printf 'FAIL\n' >"${status_file}"
-            printf 'run.sh exited with non-zero status\n' >"${detail_file}"
+            if [[ "${run_status}" -eq 124 ]]; then
+                printf 'run.sh timed out after %ss\n' "${SYSYCC_TEST_CASE_TIMEOUT:-300}" >"${detail_file}"
+            else
+                printf 'run.sh exited with non-zero status %s\n' "${run_status}" >"${detail_file}"
+            fi
             return 0
         fi
 
