@@ -127,13 +127,17 @@ target_include_directories(sysycc_aarch64_codegen
         ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
-llvm_map_components_to_libnames(SYSYCC_AARCH64_LLVM_LIBS
-    BitReader
-    BitWriter
-    Core
-    IRReader
-    Support
-)
+if(LLVM_LINK_LLVM_DYLIB AND TARGET LLVM)
+    set(SYSYCC_AARCH64_LLVM_LIBS LLVM)
+else()
+    llvm_map_components_to_libnames(SYSYCC_AARCH64_LLVM_LIBS
+        BitReader
+        BitWriter
+        Core
+        IRReader
+        Support
+    )
+endif()
 target_include_directories(sysycc_aarch64_codegen
     PRIVATE
         ${LLVM_INCLUDE_DIRS}
@@ -166,27 +170,31 @@ target_include_directories(sysycc_riscv64_codegen
         ${LLVM_INCLUDE_DIRS}
 )
 
-llvm_map_components_to_libnames(SYSYCC_RISCV64_LLVM_LIBS
-    Analysis
-    AsmPrinter
-    BitReader
-    CodeGen
-    Core
-    IRReader
-    MC
-    Object
-    Passes
-    RISCVAsmParser
-    RISCVCodeGen
-    RISCVDesc
-    RISCVInfo
-    ScalarOpts
-    SelectionDAG
-    Support
-    Target
-    TargetParser
-    TransformUtils
-)
+if(LLVM_LINK_LLVM_DYLIB AND TARGET LLVM)
+    set(SYSYCC_RISCV64_LLVM_LIBS LLVM)
+else()
+    llvm_map_components_to_libnames(SYSYCC_RISCV64_LLVM_LIBS
+        Analysis
+        AsmPrinter
+        BitReader
+        CodeGen
+        Core
+        IRReader
+        MC
+        Object
+        Passes
+        RISCVAsmParser
+        RISCVCodeGen
+        RISCVDesc
+        RISCVInfo
+        ScalarOpts
+        SelectionDAG
+        Support
+        Target
+        TargetParser
+        TransformUtils
+    )
+endif()
 target_compile_definitions(sysycc_riscv64_codegen
     PRIVATE
         ${LLVM_DEFINITIONS}

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <llvm/Bitcode/BitcodeReader.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -68,9 +69,15 @@ std::string resolve_target_triple(const Riscv64CodegenFileRequest &request,
     if (!request.options.target_triple.empty()) {
         return request.options.target_triple;
     }
+#if LLVM_VERSION_MAJOR >= 22
     if (!module.getTargetTriple().str().empty()) {
         return module.getTargetTriple().str();
     }
+#else
+    if (!module.getTargetTriple().empty()) {
+        return module.getTargetTriple();
+    }
+#endif
     return "riscv64-unknown-linux-gnu";
 }
 
@@ -267,8 +274,13 @@ ResultT emit_loaded_module(LoadedModule loaded,
     }
 
     std::string lookup_error;
+#if LLVM_VERSION_MAJOR >= 22
     const llvm::Target *target =
         llvm::TargetRegistry::lookupTarget(triple, lookup_error);
+#else
+    const llvm::Target *target =
+        llvm::TargetRegistry::lookupTarget(triple_text, lookup_error);
+#endif
     if (target == nullptr) {
         return fail_with_diagnostic<ResultT>(
             "target",
@@ -285,10 +297,17 @@ ResultT emit_loaded_module(LoadedModule loaded,
     // link/runtime environment instead of falling back to slow absolute
     // HI20/LO12 sequences in large-data cases.
     const std::optional<llvm::Reloc::Model> reloc_model = llvm::Reloc::PIC_;
+#if LLVM_VERSION_MAJOR >= 22
     std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(
         triple, default_riscv64_cpu(), default_riscv64_features(),
         target_options, reloc_model, std::nullopt,
         llvm::CodeGenOptLevel::Aggressive));
+#else
+    std::unique_ptr<llvm::TargetMachine> target_machine(target->createTargetMachine(
+        triple_text, default_riscv64_cpu(), default_riscv64_features(),
+        target_options, reloc_model, std::nullopt,
+        llvm::CodeGenOptLevel::Aggressive));
+#endif
     if (target_machine == nullptr) {
         return fail_with_diagnostic<ResultT>(
             "target",
@@ -296,7 +315,11 @@ ResultT emit_loaded_module(LoadedModule loaded,
             request.input_file_path);
     }
 
+#if LLVM_VERSION_MAJOR >= 22
     loaded.module->setTargetTriple(triple);
+#else
+    loaded.module->setTargetTriple(triple_text);
+#endif
     loaded.module->setDataLayout(target_machine->createDataLayout());
     normalize_riscv64_function_subtargets(*loaded.module);
 

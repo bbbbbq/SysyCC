@@ -4,6 +4,7 @@
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_type_support.hpp"
 
 #include <cctype>
+#include <cstring>
 #include <sstream>
 
 namespace sysycc {

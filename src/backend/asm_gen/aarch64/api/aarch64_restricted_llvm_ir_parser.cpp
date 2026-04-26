@@ -3,6 +3,7 @@
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_parse_common_support.hpp"
 #include "backend/asm_gen/aarch64/api/aarch64_llvm_import_type_support.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <optional>
 #include <string>
