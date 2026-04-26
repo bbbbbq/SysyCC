@@ -92,6 +92,15 @@ std::uint32_t encode_load_store_unscaled_word(std::uint32_t base, unsigned rt,
            ((rn & 0x1fU) << 5) | (rt & 0x1fU);
 }
 
+std::uint32_t encode_load_store_register_offset_word(std::uint32_t base,
+                                                     unsigned rt, unsigned rn,
+                                                     unsigned rm,
+                                                     bool scaled) {
+    return base | ((rm & 0x1fU) << 16) |
+           (static_cast<std::uint32_t>(scaled ? 1U : 0U) << 12) |
+           ((rn & 0x1fU) << 5) | (rt & 0x1fU);
+}
+
 } // namespace
 
 std::optional<EncodedInstruction> encode_memory_family_instruction(
@@ -240,14 +249,20 @@ std::optional<EncodedInstruction> encode_memory_family_instruction(
         unsigned_base = is_load ? 0x79400000U : 0x79000000U;
         unscaled_base = is_load ? 0x78400000U : 0x78000000U;
     } else if (is_float) {
-        access_size = static_cast<unsigned>(scalar_fp_size(float_value->kind));
-        if (float_value->kind == AArch64VirtualRegKind::Float16) {
+        if (float_value->kind == AArch64VirtualRegKind::Float128) {
+            access_size = 16;
+            unsigned_base = is_load ? 0x3DC00000U : 0x3D800000U;
+            unscaled_base = is_load ? 0x3CC00000U : 0x3C800000U;
+        } else if (float_value->kind == AArch64VirtualRegKind::Float16) {
+            access_size = static_cast<unsigned>(scalar_fp_size(float_value->kind));
             unsigned_base = is_load ? 0x7D400000U : 0x7D000000U;
             unscaled_base = is_load ? 0x7C400000U : 0x7C000000U;
         } else if (float_value->kind == AArch64VirtualRegKind::Float32) {
+            access_size = static_cast<unsigned>(scalar_fp_size(float_value->kind));
             unsigned_base = is_load ? 0xBD400000U : 0xBD000000U;
             unscaled_base = is_load ? 0xBC400000U : 0xBC000000U;
         } else if (float_value->kind == AArch64VirtualRegKind::Float64) {
+            access_size = static_cast<unsigned>(scalar_fp_size(float_value->kind));
             unsigned_base = is_load ? 0xFD400000U : 0xFD000000U;
             unscaled_base = is_load ? 0xFC400000U : 0xFC000000U;
         } else {
@@ -277,6 +292,55 @@ std::optional<EncodedInstruction> encode_memory_family_instruction(
         encoded.word = encode_load_store_unsigned_word(unsigned_base, rt, rn, 0);
         encoded.relocations.push_back(AArch64RelocationRecord{
             AArch64RelocationKind::GotLo12, symbolic->target, pc_offset});
+        return encoded;
+    }
+    if (const auto *register_offset = memory->get_register_offset();
+        register_offset != nullptr) {
+        if (is_float || register_offset->kind != AArch64VirtualRegKind::General64 ||
+            memory->address_mode !=
+                AArch64MachineMemoryAddressOperand::AddressMode::Offset) {
+            return unsupported("register-offset load/store");
+        }
+        if (is_float_physical_reg(register_offset->reg_number)) {
+            return unsupported("floating-point register offset");
+        }
+        unsigned required_scaled_shift = 0;
+        if (access_size == 2) {
+            required_scaled_shift = 1;
+        } else if (access_size == 4) {
+            required_scaled_shift = 2;
+        } else if (access_size == 8) {
+            required_scaled_shift = 3;
+        }
+        const bool scaled = register_offset->shift_amount != 0;
+        if (register_offset->shift_kind != AArch64ShiftKind::Lsl ||
+            (register_offset->shift_amount != 0 &&
+             register_offset->shift_amount != required_scaled_shift)) {
+            return unsupported("register-offset shift");
+        }
+
+        std::uint32_t register_offset_base = 0;
+        if (opcode == AArch64MachineOpcode::LoadByte) {
+            register_offset_base = 0x38606800U;
+        } else if (opcode == AArch64MachineOpcode::StoreByte) {
+            register_offset_base = 0x38206800U;
+        } else if (opcode == AArch64MachineOpcode::LoadHalf) {
+            register_offset_base = 0x78606800U;
+        } else if (opcode == AArch64MachineOpcode::StoreHalf) {
+            register_offset_base = 0x78206800U;
+        } else if (opcode == AArch64MachineOpcode::Load && use_64bit) {
+            register_offset_base = 0xF8606800U;
+        } else if (opcode == AArch64MachineOpcode::Store && use_64bit) {
+            register_offset_base = 0xF8206800U;
+        } else if (opcode == AArch64MachineOpcode::Load) {
+            register_offset_base = 0xB8606800U;
+        } else if (opcode == AArch64MachineOpcode::Store) {
+            register_offset_base = 0xB8206800U;
+        } else {
+            return unsupported("register-offset opcode");
+        }
+        encoded.word = encode_load_store_register_offset_word(
+            register_offset_base, rt, rn, register_offset->reg_number, scaled);
         return encoded;
     }
 

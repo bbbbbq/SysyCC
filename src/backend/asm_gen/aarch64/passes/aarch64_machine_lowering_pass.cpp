@@ -61,6 +61,18 @@ std::size_t align_to(std::size_t value, std::size_t alignment) {
     return value + (alignment - remainder);
 }
 
+bool machine_function_contains_call(const AArch64MachineFunction &function) {
+    for (const AArch64MachineBlock &block : function.get_blocks()) {
+        for (const AArch64MachineInstr &instruction : block.get_instructions()) {
+            if (instruction.get_flags().is_call ||
+                instruction.get_call_clobber_mask().has_value()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool is_byte_string_global(const CoreIrGlobal &global) {
     const auto *array_type =
         dynamic_cast<const CoreIrArrayType *>(global.get_type());
@@ -344,9 +356,22 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         if (location == nullptr ||
             location->kind != AArch64ValueLocationKind::VirtualReg ||
             !location->virtual_reg.is_valid()) {
+            std::string detail;
+            if (value != nullptr && !value->get_name().empty()) {
+                detail = " '" + value->get_name() + "'";
+            }
+            if (const auto *instruction =
+                    dynamic_cast<const CoreIrInstruction *>(value);
+                instruction != nullptr) {
+                detail += " (opcode " +
+                          std::to_string(
+                              static_cast<unsigned>(instruction->get_opcode())) +
+                          ")";
+            }
             add_backend_error(
                 diagnostic_engine_,
-                "missing canonical AArch64 virtual register for Core IR value");
+                "missing canonical AArch64 virtual register for Core IR value" +
+                    detail);
             return false;
         }
         out = location->virtual_reg;
@@ -456,7 +481,8 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         const std::size_t frame_size = align_to(current_offset, 16);
         machine_function.get_frame_info().set_local_size(current_offset);
         machine_function.get_frame_info().set_frame_size(frame_size);
-        initialize_aarch64_function_frame_record(machine_function, frame_size);
+        initialize_aarch64_function_frame_record(machine_function, frame_size,
+                                                machine_function.get_has_calls());
     }
 
     void reserve_variadic_va_list_support_areas(
@@ -596,7 +622,8 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         AArch64MachineBlock &prologue_block =
             machine_function.append_block(function.get_name());
         append_aarch64_standard_prologue(
-            prologue_block, machine_function.get_frame_info().get_frame_size());
+            prologue_block, machine_function.get_frame_info().get_frame_size(),
+            machine_function.get_has_calls());
         if (state.call_state.abi_info.return_value.is_indirect) {
             state.value_state.indirect_result_address =
                 create_pointer_virtual_reg(machine_function);
@@ -694,7 +721,31 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         AArch64MachineBlock &epilogue_block = machine_function.append_block(
             machine_function.get_epilogue_label());
         append_aarch64_standard_epilogue(
-            epilogue_block, machine_function.get_frame_info().get_frame_size());
+            epilogue_block, machine_function.get_frame_info().get_frame_size(),
+            machine_function.get_has_calls());
+    }
+
+    void refresh_function_shell_state(AArch64MachineFunction &machine_function) {
+        const bool has_calls = machine_function_contains_call(machine_function);
+        machine_function.set_has_calls(has_calls);
+
+        const std::size_t frame_size = machine_function.get_frame_info().get_frame_size();
+        AArch64MachineBlock &entry_block = machine_function.get_blocks().front();
+        if (has_calls && frame_size == 0 &&
+            count_aarch64_standard_prologue_prefix(entry_block.get_instructions()) == 0) {
+            std::vector<AArch64MachineInstr> refreshed_prologue;
+            for (const AArch64StandardFrameShellOp &op :
+                 build_aarch64_standard_prologue_shell(frame_size, has_calls)) {
+                refreshed_prologue.push_back(op.instruction);
+            }
+            refreshed_prologue.insert(refreshed_prologue.end(),
+                                      entry_block.get_instructions().begin(),
+                                      entry_block.get_instructions().end());
+            entry_block.get_instructions() = std::move(refreshed_prologue);
+        }
+
+        initialize_aarch64_function_frame_record(machine_function, frame_size,
+                                                has_calls);
     }
 
     bool emit_function(AArch64MachineFunction &machine_function,
@@ -709,6 +760,7 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         if (!emit_phi_edge_blocks(machine_function, state, facade)) {
             return false;
         }
+        refresh_function_shell_state(machine_function);
         emit_function_exit(machine_function);
         return true;
     }

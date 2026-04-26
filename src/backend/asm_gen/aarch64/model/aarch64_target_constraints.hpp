@@ -28,8 +28,17 @@ inline constexpr std::array<unsigned, 5>
         static_cast<unsigned>(AArch64PhysicalReg::X23),
     };
 
-inline constexpr std::array<unsigned, 12>
+inline constexpr std::array<unsigned, 18>
     kAArch64CallerSavedAllocatableFloatPhysicalRegs = {
+        // v0/v1 are still reserved for backend helper/scratch sequences.  The
+        // remaining argument registers are safe caller-saved colors and are
+        // important for wide vector-PHI kernels.
+        static_cast<unsigned>(AArch64PhysicalReg::V2),
+        static_cast<unsigned>(AArch64PhysicalReg::V3),
+        static_cast<unsigned>(AArch64PhysicalReg::V4),
+        static_cast<unsigned>(AArch64PhysicalReg::V5),
+        static_cast<unsigned>(AArch64PhysicalReg::V6),
+        static_cast<unsigned>(AArch64PhysicalReg::V7),
         static_cast<unsigned>(AArch64PhysicalReg::V16),
         static_cast<unsigned>(AArch64PhysicalReg::V17),
         static_cast<unsigned>(AArch64PhysicalReg::V18),

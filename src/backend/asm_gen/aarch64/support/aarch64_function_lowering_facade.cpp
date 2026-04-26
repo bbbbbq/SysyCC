@@ -16,6 +16,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_memory_instruction_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_scalar_instruction_lowering_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_value_conversion_support.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
@@ -43,6 +44,189 @@ void append_stack_pointer_adjust(AArch64MachineBlock &machine_block,
                        AArch64MachineOperand::immediate("#" + std::to_string(chunk))}));
         remaining -= chunk;
     }
+}
+
+std::string integer_condition_code(CoreIrComparePredicate predicate) {
+    switch (predicate) {
+    case CoreIrComparePredicate::Equal:
+        return "eq";
+    case CoreIrComparePredicate::NotEqual:
+        return "ne";
+    case CoreIrComparePredicate::SignedLess:
+        return "lt";
+    case CoreIrComparePredicate::SignedLessEqual:
+        return "le";
+    case CoreIrComparePredicate::SignedGreater:
+        return "gt";
+    case CoreIrComparePredicate::SignedGreaterEqual:
+        return "ge";
+    case CoreIrComparePredicate::UnsignedLess:
+        return "lo";
+    case CoreIrComparePredicate::UnsignedLessEqual:
+        return "ls";
+    case CoreIrComparePredicate::UnsignedGreater:
+        return "hi";
+    case CoreIrComparePredicate::UnsignedGreaterEqual:
+        return "hs";
+    }
+    return "eq";
+}
+
+std::string float_condition_code(CoreIrComparePredicate predicate) {
+    switch (predicate) {
+    case CoreIrComparePredicate::Equal:
+        return "eq";
+    case CoreIrComparePredicate::NotEqual:
+        return "ne";
+    case CoreIrComparePredicate::SignedLess:
+    case CoreIrComparePredicate::UnsignedLess:
+        return "mi";
+    case CoreIrComparePredicate::SignedLessEqual:
+    case CoreIrComparePredicate::UnsignedLessEqual:
+        return "ls";
+    case CoreIrComparePredicate::SignedGreater:
+    case CoreIrComparePredicate::UnsignedGreater:
+        return "gt";
+    case CoreIrComparePredicate::SignedGreaterEqual:
+    case CoreIrComparePredicate::UnsignedGreaterEqual:
+        return "ge";
+    }
+    return "eq";
+}
+
+bool is_compare_only_used_by_cond_jump(const CoreIrCompareInst &compare,
+                                       const CoreIrCondJumpInst &cond_jump) {
+    const auto &uses = compare.get_uses();
+    return uses.size() == 1 && uses.front().get_user() == &cond_jump &&
+           uses.front().get_operand_index() == 0;
+}
+
+std::optional<long long>
+try_get_compare_immediate(const CoreIrValue *value) {
+    if (dynamic_cast<const CoreIrConstantNull *>(value) != nullptr) {
+        return 0;
+    }
+    const auto *constant_int = dynamic_cast<const CoreIrConstantInt *>(value);
+    if (constant_int == nullptr || constant_int->get_value() > 0xfffU) {
+        return std::nullopt;
+    }
+    return static_cast<long long>(constant_int->get_value());
+}
+
+std::uint64_t bitmask_for_width(unsigned width) {
+    return width >= 64U ? ~0ULL : ((1ULL << width) - 1ULL);
+}
+
+std::uint64_t rotate_right_masked(std::uint64_t value, unsigned amount,
+                                  unsigned width) {
+    const unsigned normalized = amount % width;
+    const std::uint64_t mask = bitmask_for_width(width);
+    value &= mask;
+    if (normalized == 0) {
+        return value;
+    }
+    if (width == 64U) {
+        return ((value >> normalized) | (value << (64U - normalized))) & mask;
+    }
+    return ((value >> normalized) | (value << (width - normalized))) & mask;
+}
+
+std::uint64_t replicate_element_pattern(std::uint64_t element, unsigned element_width,
+                                        unsigned reg_width) {
+    const std::uint64_t masked_element = element & bitmask_for_width(element_width);
+    if (element_width == reg_width) {
+        return masked_element;
+    }
+    std::uint64_t value = 0;
+    for (unsigned offset = 0; offset < reg_width; offset += element_width) {
+        value |= masked_element << offset;
+    }
+    return value & bitmask_for_width(reg_width);
+}
+
+bool can_encode_logical_immediate(std::uint64_t value, unsigned reg_width) {
+    const std::uint64_t mask = bitmask_for_width(reg_width);
+    value &= mask;
+    if (value == 0 || value == mask) {
+        return false;
+    }
+
+    for (unsigned element_width = 2; element_width <= reg_width; element_width <<= 1U) {
+        const std::uint64_t element_mask = bitmask_for_width(element_width);
+        const std::uint64_t element = value & element_mask;
+        if (replicate_element_pattern(element, element_width, reg_width) != value) {
+            continue;
+        }
+        for (unsigned ones = 1; ones < element_width; ++ones) {
+            const std::uint64_t one_run = bitmask_for_width(ones);
+            for (unsigned rotation = 0; rotation < element_width; ++rotation) {
+                if (rotate_right_masked(one_run, rotation, element_width) ==
+                    element) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+bool compare_uses_foldable_tst_mask(const CoreIrCompareInst &compare,
+                                    const CoreIrBinaryInst *&and_binary,
+                                    std::uint64_t &mask_value,
+                                    const CoreIrValue *&tested_value) {
+    if ((compare.get_predicate() != CoreIrComparePredicate::Equal &&
+         compare.get_predicate() != CoreIrComparePredicate::NotEqual) ||
+        dynamic_cast<const CoreIrConstantNull *>(compare.get_rhs()) == nullptr) {
+        const auto *constant_int =
+            dynamic_cast<const CoreIrConstantInt *>(compare.get_rhs());
+        if (constant_int == nullptr || constant_int->get_value() != 0) {
+            return false;
+        }
+    }
+
+    and_binary = dynamic_cast<const CoreIrBinaryInst *>(compare.get_lhs());
+    if (and_binary == nullptr ||
+        and_binary->get_binary_opcode() != CoreIrBinaryOpcode::And ||
+        and_binary->get_uses().size() != 1) {
+        return false;
+    }
+
+    const auto try_constant_mask =
+        [](const CoreIrValue *value) -> std::optional<std::uint64_t> {
+        if (dynamic_cast<const CoreIrConstantNull *>(value) != nullptr) {
+            return 0;
+        }
+        const auto *constant_int = dynamic_cast<const CoreIrConstantInt *>(value);
+        if (constant_int == nullptr) {
+            return std::nullopt;
+        }
+        return constant_int->get_value();
+    };
+
+    tested_value = nullptr;
+    if (const auto mask = try_constant_mask(and_binary->get_rhs());
+        mask.has_value()) {
+        mask_value = *mask;
+        tested_value = and_binary->get_lhs();
+        return true;
+    }
+    if (const auto mask = try_constant_mask(and_binary->get_lhs());
+        mask.has_value()) {
+        mask_value = *mask;
+        tested_value = and_binary->get_rhs();
+        return true;
+    }
+    return false;
+}
+
+std::string make_block_integer_constant_key(const AArch64MachineBlock &machine_block,
+                                            const CoreIrType *type,
+                                            std::uint64_t value) {
+    return machine_block.get_label() + "|" +
+           std::to_string(static_cast<std::uintptr_t>(
+               reinterpret_cast<std::uintptr_t>(type))) +
+           "|" + std::to_string(value);
 }
 
 } // namespace
@@ -132,9 +316,26 @@ bool AArch64FunctionLoweringFacade::materialize_integer_constant(
     AArch64MachineBlock &machine_block, const CoreIrType *type,
     std::uint64_t value, const AArch64VirtualReg &target_reg,
     AArch64MachineFunction &function) {
-    (void)function;
-    return sysycc::materialize_integer_constant(machine_block, services_, type,
-                                                value, target_reg);
+    if (value != 0) {
+        const std::string cache_key =
+            make_block_integer_constant_key(machine_block, type, value);
+        const auto cached = block_integer_constant_vregs_.find(cache_key);
+        if (cached != block_integer_constant_vregs_.end() &&
+            cached->second.is_valid() && cached->second.get_kind() == target_reg.get_kind() &&
+            cached->second.get_id() != target_reg.get_id()) {
+            machine_block.append_instruction(AArch64MachineInstr(
+                "mov", {def_vreg_operand(target_reg), use_vreg_operand(cached->second)}));
+            return true;
+        }
+    }
+
+    const bool ok = sysycc::materialize_integer_constant(machine_block, services_, type,
+                                                         value, target_reg);
+    if (ok && value != 0) {
+        block_integer_constant_vregs_[make_block_integer_constant_key(
+            machine_block, type, value)] = target_reg;
+    }
+    return ok;
 }
 
 AArch64FunctionAbiInfo
@@ -229,6 +430,17 @@ bool AArch64FunctionLoweringFacade::ensure_value_in_vreg(
     }
     if (try_get_value_vreg(value, out)) {
         return true;
+    }
+    if (const auto *constant_int = dynamic_cast<const CoreIrConstantInt *>(value);
+        constant_int != nullptr && constant_int->get_value() != 0) {
+        const auto cached = block_integer_constant_vregs_.find(
+            make_block_integer_constant_key(machine_block, value->get_type(),
+                                            constant_int->get_value()));
+        if (cached != block_integer_constant_vregs_.end() &&
+            cached->second.is_valid()) {
+            out = cached->second;
+            return true;
+        }
     }
     out = services_.create_virtual_reg(*state_.machine_function,
                                        value->get_type());
@@ -385,6 +597,7 @@ void AArch64FunctionLoweringFacade::emit_direct_call(
     services_.record_symbol_reference(callee_name, AArch64SymbolKind::Function);
     const AArch64SymbolReference callee_symbol = services_.make_symbol_reference(
         callee_name, AArch64SymbolKind::Function, AArch64SymbolBinding::Global);
+    state_.machine_function->set_has_calls(true);
     machine_block.append_instruction(
         AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(callee_symbol)},
                             AArch64InstructionFlags{.is_call = true}, {}, {},
@@ -393,6 +606,7 @@ void AArch64FunctionLoweringFacade::emit_direct_call(
 
 bool AArch64FunctionLoweringFacade::emit_indirect_call(
     AArch64MachineBlock &machine_block, const AArch64VirtualReg &callee_reg) {
+    state_.machine_function->set_has_calls(true);
     machine_block.append_instruction(AArch64MachineInstr(
         "blr", {AArch64MachineOperand::use_virtual_reg(callee_reg)},
         AArch64InstructionFlags{.is_call = true}, {}, {},
@@ -405,6 +619,7 @@ void AArch64FunctionLoweringFacade::append_helper_call(
     services_.record_symbol_reference(symbol_name, AArch64SymbolKind::Helper);
     const AArch64SymbolReference helper_symbol = services_.make_symbol_reference(
         symbol_name, AArch64SymbolKind::Helper, AArch64SymbolBinding::Global);
+    state_.machine_function->set_has_calls(true);
     machine_block.append_instruction(
         AArch64MachineInstr("bl", {AArch64MachineOperand::symbol(helper_symbol)},
                             AArch64InstructionFlags{.is_call = true}, {}, {},
@@ -585,6 +800,13 @@ bool AArch64FunctionLoweringFacade::emit_compare(
     AArch64MachineBlock &machine_block, const CoreIrCompareInst &compare,
     const FunctionState &state) {
     (void)state;
+    if (compare.get_uses().size() == 1) {
+        const CoreIrUse &use = compare.get_uses().front();
+        if (use.get_operand_index() == 0 &&
+            dynamic_cast<const CoreIrCondJumpInst *>(use.get_user()) != nullptr) {
+            return true;
+        }
+    }
     return sysycc::emit_compare_instruction(machine_block, *this, compare,
                                             *state_.machine_function);
 }
@@ -595,6 +817,38 @@ bool AArch64FunctionLoweringFacade::emit_select(
     (void)state;
     return sysycc::emit_select_instruction(machine_block, *this, select,
                                            *state_.machine_function);
+}
+
+bool AArch64FunctionLoweringFacade::emit_extract_element(
+    AArch64MachineBlock &machine_block, const CoreIrExtractElementInst &extract,
+    const FunctionState &state) {
+    (void)state;
+    return sysycc::emit_extract_element_instruction(
+        machine_block, *this, extract, *state_.machine_function);
+}
+
+bool AArch64FunctionLoweringFacade::emit_insert_element(
+    AArch64MachineBlock &machine_block, const CoreIrInsertElementInst &insert,
+    const FunctionState &state) {
+    (void)state;
+    return sysycc::emit_insert_element_instruction(
+        machine_block, *this, insert, *state_.machine_function);
+}
+
+bool AArch64FunctionLoweringFacade::emit_shuffle_vector(
+    AArch64MachineBlock &machine_block, const CoreIrShuffleVectorInst &shuffle,
+    const FunctionState &state) {
+    (void)state;
+    return sysycc::emit_shuffle_vector_instruction(
+        machine_block, *this, shuffle, *state_.machine_function);
+}
+
+bool AArch64FunctionLoweringFacade::emit_vector_reduce_add(
+    AArch64MachineBlock &machine_block, const CoreIrVectorReduceAddInst &reduce,
+    const FunctionState &state) {
+    (void)state;
+    return sysycc::emit_vector_reduce_add_instruction(
+        machine_block, *this, reduce, *state_.machine_function);
 }
 
 bool AArch64FunctionLoweringFacade::emit_cast(
@@ -617,6 +871,94 @@ bool AArch64FunctionLoweringFacade::emit_cond_jump(
     AArch64MachineBlock &machine_block, const CoreIrCondJumpInst &cond_jump,
     const FunctionState &state, const CoreIrBasicBlock *current_block) {
     (void)state;
+    if (const auto *compare =
+            dynamic_cast<const CoreIrCompareInst *>(cond_jump.get_condition());
+        compare != nullptr && is_compare_only_used_by_cond_jump(*compare, cond_jump)) {
+        AArch64VirtualReg lhs_reg;
+        if (!ensure_value_in_vreg(machine_block, compare->get_lhs(), lhs_reg)) {
+            return false;
+        }
+
+        if (is_float_type(compare->get_lhs()->get_type())) {
+            AArch64VirtualReg rhs_reg;
+            if (!ensure_value_in_vreg(machine_block, compare->get_rhs(), rhs_reg)) {
+                return false;
+            }
+            if (lhs_reg.get_kind() == AArch64VirtualRegKind::Float16) {
+                lhs_reg = promote_float16_to_float32(machine_block, lhs_reg,
+                                                     *state_.machine_function);
+                rhs_reg = promote_float16_to_float32(machine_block, rhs_reg,
+                                                     *state_.machine_function);
+            }
+            machine_block.append_instruction(
+                AArch64MachineInstr("fcmp", {use_vreg_operand(lhs_reg),
+                                             use_vreg_operand(rhs_reg)}));
+            machine_block.append_instruction(AArch64MachineInstr(
+                "b." + float_condition_code(compare->get_predicate()),
+                {AArch64MachineOperand::label(resolve_branch_target_label(
+                    state_, current_block, cond_jump.get_true_block()))}));
+        } else {
+            const CoreIrBinaryInst *folded_and = nullptr;
+            std::uint64_t mask_value = 0;
+            const CoreIrValue *tested_value = nullptr;
+            if (compare_uses_foldable_tst_mask(*compare, folded_and, mask_value,
+                                               tested_value) &&
+                folded_and != nullptr && tested_value != nullptr &&
+                can_encode_logical_immediate(mask_value,
+                                             is_pointer_type(
+                                                 tested_value->get_type()) ||
+                                                     get_storage_size(
+                                                         tested_value->get_type()) > 4
+                                                 ? 64U
+                                                 : 32U)) {
+                AArch64VirtualReg tested_reg;
+                if (!ensure_value_in_vreg(machine_block, tested_value, tested_reg)) {
+                    return false;
+                }
+                machine_block.append_instruction(AArch64MachineInstr(
+                    "tst", {use_vreg_operand(tested_reg),
+                            AArch64MachineOperand::immediate(
+                                "#" + std::to_string(mask_value))}));
+                machine_block.append_instruction(AArch64MachineInstr(
+                    "b." + integer_condition_code(compare->get_predicate()),
+                    {AArch64MachineOperand::label(resolve_branch_target_label(
+                        state_, current_block, cond_jump.get_true_block()))}));
+                machine_block.append_instruction(AArch64MachineInstr(
+                    "b",
+                    {AArch64MachineOperand::label(resolve_branch_target_label(
+                        state_, current_block, cond_jump.get_false_block()))}));
+                return true;
+            }
+
+            if (const auto rhs_immediate =
+                    try_get_compare_immediate(compare->get_rhs());
+                rhs_immediate.has_value()) {
+                machine_block.append_instruction(AArch64MachineInstr(
+                    "cmp", {use_vreg_operand(lhs_reg),
+                            AArch64MachineOperand::immediate(
+                                "#" + std::to_string(*rhs_immediate))}));
+            } else {
+                AArch64VirtualReg rhs_reg;
+                if (!ensure_value_in_vreg(machine_block, compare->get_rhs(),
+                                          rhs_reg)) {
+                    return false;
+                }
+                machine_block.append_instruction(
+                    AArch64MachineInstr("cmp", {use_vreg_operand(lhs_reg),
+                                                use_vreg_operand(rhs_reg)}));
+            }
+            machine_block.append_instruction(AArch64MachineInstr(
+                "b." + integer_condition_code(compare->get_predicate()),
+                {AArch64MachineOperand::label(resolve_branch_target_label(
+                    state_, current_block, cond_jump.get_true_block()))}));
+        }
+        machine_block.append_instruction(AArch64MachineInstr(
+            "b",
+            {AArch64MachineOperand::label(resolve_branch_target_label(
+                state_, current_block, cond_jump.get_false_block()))}));
+        return true;
+    }
+
     AArch64VirtualReg condition_reg;
     if (!ensure_value_in_vreg(machine_block, cond_jump.get_condition(),
                               condition_reg)) {

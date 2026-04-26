@@ -44,25 +44,32 @@ std::unordered_map<const CoreIrBasicBlock *, std::string>
 build_aarch64_function_block_labels(const CoreIrFunction &function,
                                     const std::string &function_name);
 void initialize_aarch64_function_frame_record(AArch64MachineFunction &function,
-                                              std::size_t frame_size);
+                                              std::size_t frame_size,
+                                              bool needs_frame_record);
 std::vector<AArch64StandardFrameShellOp>
-build_aarch64_standard_prologue_shell(std::size_t frame_size);
+build_aarch64_standard_prologue_shell(std::size_t frame_size,
+                                      bool needs_frame_record);
 std::vector<AArch64StandardFrameShellOp>
-build_aarch64_standard_epilogue_shell(std::size_t frame_size);
+build_aarch64_standard_epilogue_shell(std::size_t frame_size,
+                                      bool needs_frame_record);
 AArch64StandardFrameShellCfiBundle
 build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
-                                        std::size_t frame_size);
+                                        std::size_t frame_size,
+                                        bool needs_frame_record);
 void append_aarch64_frame_record_cfi_for_shell_op(
     AArch64FrameRecord &frame_record, AArch64StandardFrameShellOpKind op_kind,
-    std::size_t frame_size);
+    std::size_t frame_size, bool needs_frame_record);
 void append_aarch64_asm_cfi_for_shell_op(
     std::vector<AArch64MachineInstr> &instructions,
-    AArch64StandardFrameShellOpKind op_kind, std::size_t frame_size);
+    AArch64StandardFrameShellOpKind op_kind, std::size_t frame_size,
+    bool needs_frame_record);
 std::size_t count_aarch64_standard_prologue_prefix(
     const std::vector<AArch64MachineInstr> &instructions);
 void append_aarch64_standard_prologue(AArch64MachineBlock &block,
-                                      std::size_t frame_size);
+                                      std::size_t frame_size,
+                                      bool needs_frame_record);
 void append_aarch64_standard_epilogue(AArch64MachineBlock &block,
-                                      std::size_t frame_size);
+                                      std::size_t frame_size,
+                                      bool needs_frame_record);
 
 } // namespace sysycc

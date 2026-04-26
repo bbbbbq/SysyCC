@@ -110,6 +110,50 @@ const CoreIrValue *find_phi_incoming_value(const CoreIrPhiInst &phi,
     return nullptr;
 }
 
+std::optional<std::string>
+original_import_block_name_for_synthetic_predecessor(std::string_view name) {
+    for (std::string_view marker : {std::string_view(".llswitch."),
+                                    std::string_view(".llsel.")}) {
+        const std::size_t marker_pos = name.find(marker);
+        if (marker_pos != std::string_view::npos && marker_pos != 0) {
+            return std::string(name.substr(0, marker_pos));
+        }
+    }
+    return std::nullopt;
+}
+
+const CoreIrBasicBlock *find_function_block_by_name(const CoreIrFunction &function,
+                                                    const std::string &name) {
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block != nullptr && block->get_name() == name) {
+            return block.get();
+        }
+    }
+    return nullptr;
+}
+
+const CoreIrValue *find_phi_incoming_value_for_cfg_predecessor(
+    const CoreIrFunction &function, const CoreIrPhiInst &phi,
+    const CoreIrBasicBlock *predecessor) {
+    if (const CoreIrValue *direct = find_phi_incoming_value(phi, predecessor);
+        direct != nullptr) {
+        return direct;
+    }
+    if (predecessor == nullptr) {
+        return nullptr;
+    }
+    const auto original_name =
+        original_import_block_name_for_synthetic_predecessor(
+            predecessor->get_name());
+    if (!original_name.has_value()) {
+        return nullptr;
+    }
+    const CoreIrBasicBlock *original_block =
+        find_function_block_by_name(function, *original_name);
+    return original_block == nullptr ? nullptr
+                                     : find_phi_incoming_value(phi, original_block);
+}
+
 bool prefer_edge_materialization_for_phi_source(const CoreIrValue *value,
                                                 const CoreIrBasicBlock *predecessor) {
     if (dynamic_cast<const CoreIrParameter *>(value) != nullptr) {
@@ -192,7 +236,8 @@ bool build_phi_edge_plans(
                     return false;
                 }
                 const CoreIrValue *incoming =
-                    find_phi_incoming_value(*phi, predecessor);
+                    find_phi_incoming_value_for_cfg_predecessor(function, *phi,
+                                                               predecessor);
                 if (incoming == nullptr) {
                     context.report_error(
                         "phi block is missing an incoming value for one of its "
@@ -251,17 +296,20 @@ bool emit_parallel_phi_copies(AArch64MachineBlock &machine_block,
 
     while (!pending.empty()) {
         bool progressed = false;
-        std::unordered_set<std::size_t> pending_destinations;
-        for (const PendingPhiCopy &copy : pending) {
-            pending_destinations.insert(copy.destination.get_id());
-        }
-
         for (auto it = pending.begin(); it != pending.end(); ++it) {
-            const bool source_is_blocked =
-                it->source_reg.has_value() &&
-                pending_destinations.find(it->source_reg->get_id()) !=
-                    pending_destinations.end();
-            if (source_is_blocked) {
+            bool destination_is_still_needed_as_source = false;
+            for (const PendingPhiCopy &other : pending) {
+                if (&other == &*it || !other.source_reg.has_value()) {
+                    continue;
+                }
+                if (other.source_reg->get_id() == it->destination.get_id() &&
+                    other.source_reg->get_kind() ==
+                        it->destination.get_kind()) {
+                    destination_is_still_needed_as_source = true;
+                    break;
+                }
+            }
+            if (destination_is_still_needed_as_source) {
                 continue;
             }
             if (it->source_reg.has_value()) {

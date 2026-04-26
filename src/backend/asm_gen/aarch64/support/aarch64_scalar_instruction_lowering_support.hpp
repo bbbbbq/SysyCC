@@ -9,6 +9,10 @@ class CoreIrUnaryInst;
 class CoreIrCompareInst;
 class CoreIrSelectInst;
 class CoreIrCastInst;
+class CoreIrExtractElementInst;
+class CoreIrInsertElementInst;
+class CoreIrShuffleVectorInst;
+class CoreIrVectorReduceAddInst;
 
 bool emit_binary_instruction(AArch64MachineBlock &machine_block,
                              AArch64ScalarLoweringContext &context,
@@ -34,5 +38,25 @@ bool emit_cast_instruction(AArch64MachineBlock &machine_block,
                            AArch64ScalarLoweringContext &context,
                            const CoreIrCastInst &cast,
                            AArch64MachineFunction &function);
+
+bool emit_extract_element_instruction(AArch64MachineBlock &machine_block,
+                                      AArch64ScalarLoweringContext &context,
+                                      const CoreIrExtractElementInst &extract,
+                                      AArch64MachineFunction &function);
+
+bool emit_insert_element_instruction(AArch64MachineBlock &machine_block,
+                                     AArch64ScalarLoweringContext &context,
+                                     const CoreIrInsertElementInst &insert,
+                                     AArch64MachineFunction &function);
+
+bool emit_shuffle_vector_instruction(AArch64MachineBlock &machine_block,
+                                     AArch64ScalarLoweringContext &context,
+                                     const CoreIrShuffleVectorInst &shuffle,
+                                     AArch64MachineFunction &function);
+
+bool emit_vector_reduce_add_instruction(AArch64MachineBlock &machine_block,
+                                        AArch64ScalarLoweringContext &context,
+                                        const CoreIrVectorReduceAddInst &reduce,
+                                        AArch64MachineFunction &function);
 
 } // namespace sysycc

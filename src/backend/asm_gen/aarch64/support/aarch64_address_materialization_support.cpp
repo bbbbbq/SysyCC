@@ -250,10 +250,18 @@ bool apply_constant_gep_index(AArch64MachineBlock &machine_block,
         return true;
     }
 
-    context.report_error(
-        "invalid constant gep index into non-aggregate type in the AArch64 "
-        "native backend");
-    return false;
+    const auto scaled =
+        scale_integer_constant_value(index, get_type_size(current_type));
+    if (!scaled.has_value() ||
+        !context.add_constant_offset(machine_block, target_reg,
+                                     scaled->is_negative
+                                         ? -static_cast<long long>(scaled->magnitude)
+                                         : static_cast<long long>(scaled->magnitude),
+                                     function)) {
+        return false;
+    }
+    next_type = current_type;
+    return true;
 }
 
 bool apply_dynamic_gep_index(AArch64MachineBlock &machine_block,
@@ -297,10 +305,12 @@ bool apply_dynamic_gep_index(AArch64MachineBlock &machine_block,
         return false;
     }
 
-    context.report_error(
-        "invalid dynamic gep index into non-aggregate type in the AArch64 "
-        "native backend");
-    return false;
+    if (!add_scaled_index(machine_block, context, target_reg, index_value,
+                          get_type_size(current_type), function)) {
+        return false;
+    }
+    next_type = current_type;
+    return true;
 }
 
 } // namespace
