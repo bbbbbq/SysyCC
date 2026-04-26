@@ -10783,6 +10783,13 @@ class RestrictedLlvmIrImporter {
                     }
                     return ordered_blocks;
                 }
+                if (pending_definition.basic_blocks.size() > 512) {
+                    for (const AArch64LlvmImportBasicBlock &block :
+                         pending_definition.basic_blocks) {
+                        ordered_blocks.push_back(&block);
+                    }
+                    return ordered_blocks;
+                }
 
                 std::unordered_map<std::string, std::size_t> label_to_index;
                 label_to_index.reserve(pending_definition.basic_blocks.size());

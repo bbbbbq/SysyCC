@@ -2,9 +2,8 @@
 
 #include <algorithm>
 #include <array>
-#include <optional>
 #include <iostream>
-#include <set>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -627,17 +626,23 @@ void record_instruction_used_physical_regs(
     }
 }
 
-AArch64ScratchPool build_general_spill_scratch_pool(
-    const AArch64MachineInstr &instruction,
-    const AArch64MachineFunction &function,
-    const std::unordered_set<unsigned> &instruction_general_regs,
-    bool needs_address_scratch, bool allow_address_reg_sharing) {
-    AArch64ScratchPool pool;
-    std::set<unsigned> allocated;
+std::unordered_set<unsigned>
+collect_allocated_physical_regs(const AArch64MachineFunction &function) {
+    std::unordered_set<unsigned> allocated;
+    allocated.reserve(function.get_virtual_reg_allocation().size());
     for (const auto &[id, physical_reg] : function.get_virtual_reg_allocation()) {
         (void)id;
         allocated.insert(physical_reg);
     }
+    return allocated;
+}
+
+AArch64ScratchPool build_general_spill_scratch_pool(
+    const AArch64MachineInstr &instruction,
+    const std::unordered_set<unsigned> &allocated,
+    const std::unordered_set<unsigned> &instruction_general_regs,
+    bool needs_address_scratch, bool allow_address_reg_sharing) {
+    AArch64ScratchPool pool;
 
     auto append_if_available = [&](unsigned reg, bool borrowed) {
         if (instruction_general_regs.find(reg) != instruction_general_regs.end()) {
@@ -689,14 +694,9 @@ AArch64ScratchPool build_general_spill_scratch_pool(
 
 AArch64ScratchPool build_float_spill_scratch_pool(
     const AArch64MachineInstr &instruction,
-    const AArch64MachineFunction &function,
+    const std::unordered_set<unsigned> &allocated,
     const std::unordered_set<unsigned> &instruction_float_regs) {
     AArch64ScratchPool pool;
-    std::set<unsigned> allocated;
-    for (const auto &[id, physical_reg] : function.get_virtual_reg_allocation()) {
-        (void)id;
-        allocated.insert(physical_reg);
-    }
 
     auto append_if_available = [&](unsigned reg, bool borrowed) {
         if (instruction_float_regs.find(reg) != instruction_float_regs.end()) {
@@ -744,7 +744,8 @@ AArch64ScratchPool build_float_spill_scratch_pool(
 
 AArch64InstructionRewritePlan
 build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
-                               const AArch64MachineFunction &function) {
+                               const AArch64MachineFunction &function,
+                               const std::unordered_set<unsigned> &allocated) {
     AArch64InstructionRewritePlan plan;
     std::unordered_map<std::size_t, std::size_t> operand_indices;
     std::unordered_set<unsigned> instruction_general_regs;
@@ -802,7 +803,7 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
     }
 
     const AArch64ScratchPool float_scratch_pool =
-        build_float_spill_scratch_pool(instruction, function,
+        build_float_spill_scratch_pool(instruction, allocated,
                                        instruction_float_regs);
 
     std::size_t general_scratch_count = 0;
@@ -822,7 +823,7 @@ build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
                 AArch64InstructionRewritePlan::AddressScratchStrategy::StrictReserved;
         }
         const AArch64ScratchPool current_general_pool =
-            build_general_spill_scratch_pool(instruction, function,
+            build_general_spill_scratch_pool(instruction, allocated,
                                              instruction_general_regs,
                                              plan.needs_address_scratch,
                                              allow_address_reg_sharing);
@@ -1107,11 +1108,13 @@ collect_borrowed_scratch_states(const AArch64InstructionRewritePlan &plan) {
 
 bool AArch64SpillRewritePass::run(AArch64MachineFunction &function,
                                   DiagnosticEngine &diagnostic_engine) const {
+    const std::unordered_set<unsigned> allocated =
+        collect_allocated_physical_regs(function);
     for (AArch64MachineBlock &block : function.get_blocks()) {
         std::vector<AArch64MachineInstr> rewritten;
         for (AArch64MachineInstr &instruction : block.get_instructions()) {
             AArch64InstructionRewritePlan rewrite_plan =
-                build_instruction_rewrite_plan(instruction, function);
+                build_instruction_rewrite_plan(instruction, function, allocated);
             if (spill_debug_enabled_for_function(function)) {
                 dump_spill_rewrite_plan(function, instruction, rewrite_plan);
             }

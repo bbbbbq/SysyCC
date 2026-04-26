@@ -8,6 +8,7 @@
 #include <vector>
 #include <optional>
 #include <limits>
+#include <string_view>
 
 #include "backend/asm_gen/aarch64/model/aarch64_target_constraints.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
@@ -2511,13 +2512,45 @@ bool fold_redefining_physical_copies(AArch64MachineFunction &function) {
 
 bool hoist_loop_invariant_frame_slot_loads(AArch64MachineFunction &function) {
     auto &blocks = function.get_blocks();
+    std::size_t instruction_count = 0;
+    for (const AArch64MachineBlock &block : blocks) {
+        instruction_count += block.get_instructions().size();
+    }
+    if (blocks.size() > 512 || instruction_count > 4096) {
+        return false;
+    }
+
+    std::unordered_map<std::string, std::size_t> block_index_by_label;
+    block_index_by_label.reserve(blocks.size());
+    std::vector<BlockTerminatorInfo> terminators;
+    terminators.reserve(blocks.size());
+    for (std::size_t index = 0; index < blocks.size(); ++index) {
+        block_index_by_label.emplace(blocks[index].get_label(), index);
+        terminators.push_back(analyze_block_terminators(blocks[index]));
+    }
+
+    std::vector<std::vector<std::size_t>> predecessors_by_block(blocks.size());
+    for (std::size_t index = 0; index < terminators.size(); ++index) {
+        const BlockTerminatorInfo &terminator = terminators[index];
+        for (const std::optional<std::string> *target :
+             {&terminator.conditional_target, &terminator.unconditional_target}) {
+            if (!target->has_value()) {
+                continue;
+            }
+            const auto found = block_index_by_label.find(**target);
+            if (found != block_index_by_label.end()) {
+                predecessors_by_block[found->second].push_back(index);
+            }
+        }
+    }
+
     for (std::size_t body_index = 0; body_index < blocks.size(); ++body_index) {
         auto &body = blocks[body_index];
         auto &body_instructions = body.get_instructions();
         if (body_instructions.size() < 2) {
             continue;
         }
-        const BlockTerminatorInfo body_terminator = analyze_block_terminators(body);
+        const BlockTerminatorInfo &body_terminator = terminators[body_index];
         if (body_terminator.first_terminator_index >= body_instructions.size()) {
             continue;
         }
@@ -2532,17 +2565,17 @@ bool hoist_loop_invariant_frame_slot_loads(AArch64MachineFunction &function) {
             if (!target->has_value()) {
                 continue;
             }
-            const auto successor_index = find_block_index_by_label(function, **target);
-            if (!successor_index.has_value()) {
+            const auto successor_index = block_index_by_label.find(**target);
+            if (successor_index == block_index_by_label.end()) {
                 continue;
             }
-            const BlockTerminatorInfo successor_terminator =
-                analyze_block_terminators(blocks[*successor_index]);
+            const BlockTerminatorInfo &successor_terminator =
+                terminators[successor_index->second];
             if (successor_terminator.conditional_target.has_value()) {
                 continue;
             }
             if (successor_terminator.unconditional_target == body.get_label()) {
-                backedge_index = successor_index;
+                backedge_index = successor_index->second;
                 break;
             }
         }
@@ -2555,9 +2588,8 @@ bool hoist_loop_invariant_frame_slot_loads(AArch64MachineFunction &function) {
         if (backedge_instructions.empty()) {
             continue;
         }
-        const auto predecessors = collect_block_predecessors(function, body_index);
         std::optional<std::size_t> preheader_index;
-        for (std::size_t predecessor : predecessors) {
+        for (std::size_t predecessor : predecessors_by_block[body_index]) {
             if (predecessor != *backedge_index) {
                 preheader_index = predecessor;
                 break;
@@ -2571,7 +2603,8 @@ bool hoist_loop_invariant_frame_slot_loads(AArch64MachineFunction &function) {
         if (preheader_instructions.empty()) {
             continue;
         }
-        const BlockTerminatorInfo preheader_terminator = analyze_block_terminators(preheader);
+        const BlockTerminatorInfo &preheader_terminator =
+            terminators[*preheader_index];
         if (!terminator_targets_block(preheader_terminator, body.get_label())) {
             continue;
         }
@@ -3134,6 +3167,16 @@ void AArch64PostRaPeepholePass::run(AArch64MachineFunction &function) const {
     for (const AArch64MachineBlock &block : function.get_blocks()) {
         instruction_count += block.get_instructions().size();
     }
+    const bool skip_expensive_transforms =
+        function.get_blocks().size() > 512 || instruction_count > 4096;
+    const auto is_expensive_transform = [](const char *name) {
+        const std::string_view transform_name(name == nullptr ? "" : name);
+        return transform_name == "hoist_loop_invariant_frame_slot_loads" ||
+               transform_name == "remove_redundant_copies" ||
+               transform_name == "fold_direct_multiply_add_accumulates" ||
+               transform_name == "fold_multiply_add_sequences" ||
+               transform_name == "fold_indexed_memory_access_address_adds";
+    };
     const std::size_t max_iterations =
         std::max<std::size_t>(1024, instruction_count * 64U);
     const bool trace_enabled =
@@ -3142,6 +3185,10 @@ void AArch64PostRaPeepholePass::run(AArch64MachineFunction &function) const {
     for (std::size_t iteration = 0; iteration < max_iterations; ++iteration) {
         bool changed = false;
         for (const Transform &transform : kTransforms) {
+            if (skip_expensive_transforms &&
+                is_expensive_transform(transform.name)) {
+                continue;
+            }
             if (!transform.apply(function)) {
                 continue;
             }

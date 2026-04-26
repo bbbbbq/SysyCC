@@ -608,14 +608,14 @@ std::optional<std::uint32_t> vector_reduce_base(std::string_view mnemonic) {
 
 bool is_vector_instruction_candidate(const AArch64MachineInstr &instruction) {
     const std::string &mnemonic = instruction.get_mnemonic();
-    if (mnemonic == "movi" || mnemonic == "dup" || mnemonic == "and" ||
-        mnemonic == "orr" || mnemonic == "eor" || mnemonic == "smin" ||
+    if (mnemonic == "movi" || mnemonic == "dup" || mnemonic == "smin" ||
         mnemonic == "smax" || mnemonic == "ushl" || mnemonic == "addv" ||
         mnemonic == "sminv" || mnemonic == "smaxv") {
         return true;
     }
     if ((mnemonic == "mov" || mnemonic == "add" || mnemonic == "sub" ||
-         mnemonic == "mul") &&
+         mnemonic == "mul" || mnemonic == "and" || mnemonic == "orr" ||
+         mnemonic == "eor") &&
         instruction_has_vector_operand(instruction)) {
         return true;
     }

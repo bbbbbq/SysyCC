@@ -890,6 +890,28 @@ bool AArch64FunctionLoweringFacade::emit_cond_jump(
                 rhs_reg = promote_float16_to_float32(machine_block, rhs_reg,
                                                      *state_.machine_function);
             }
+            if (lhs_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+                const AArch64VirtualReg condition_reg =
+                    state_.machine_function->create_virtual_reg(
+                        AArch64VirtualRegKind::General32);
+                if (!emit_float128_compare_helper(machine_block,
+                                                  compare->get_predicate(),
+                                                  lhs_reg, rhs_reg,
+                                                  condition_reg,
+                                                  *state_.machine_function)) {
+                    return false;
+                }
+                machine_block.append_instruction(AArch64MachineInstr(
+                    "cbnz",
+                    {AArch64MachineOperand::use_virtual_reg(condition_reg),
+                     AArch64MachineOperand::label(resolve_branch_target_label(
+                         state_, current_block, cond_jump.get_true_block()))}));
+                machine_block.append_instruction(AArch64MachineInstr(
+                    "b",
+                    {AArch64MachineOperand::label(resolve_branch_target_label(
+                        state_, current_block, cond_jump.get_false_block()))}));
+                return true;
+            }
             machine_block.append_instruction(
                 AArch64MachineInstr("fcmp", {use_vreg_operand(lhs_reg),
                                              use_vreg_operand(rhs_reg)}));

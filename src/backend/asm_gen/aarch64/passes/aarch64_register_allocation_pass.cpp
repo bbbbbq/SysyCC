@@ -306,16 +306,25 @@ AArch64InterferenceGraph build_interference_graph(
     const AArch64MachineFunction &function,
     const AArch64LivenessInfo &liveness_info) {
     AArch64InterferenceGraph graph;
+    std::unordered_set<std::size_t> float_virtual_regs;
+    float_virtual_regs.reserve(function.get_virtual_reg_kinds().size());
     for (const auto &[virtual_reg_id, _] : function.get_virtual_reg_kinds()) {
         graph.add_node(virtual_reg_id);
+        if (AArch64VirtualReg(virtual_reg_id, _).is_floating_point()) {
+            float_virtual_regs.insert(virtual_reg_id);
+        }
     }
 
-    const auto add_bank_cliques = [&graph, &function](
+    const auto is_float_virtual_reg = [&float_virtual_regs](std::size_t id) {
+        return float_virtual_regs.find(id) != float_virtual_regs.end();
+    };
+
+    const auto add_bank_cliques = [&graph, &is_float_virtual_reg](
                                       const std::unordered_set<std::size_t> &live_set) {
         std::unordered_set<std::size_t> general_live;
         std::unordered_set<std::size_t> float_live;
         for (std::size_t id : live_set) {
-            if (AArch64VirtualReg(id, function.get_virtual_reg_kind(id)).is_floating_point()) {
+            if (is_float_virtual_reg(id)) {
                 float_live.insert(id);
             } else {
                 general_live.insert(id);
@@ -338,12 +347,8 @@ AArch64InterferenceGraph build_interference_graph(
             for (std::size_t def : instruction_liveness.defs) {
                 graph.add_node(def);
                 for (std::size_t live_virtual_reg : live) {
-                    if (AArch64VirtualReg(def, function.get_virtual_reg_kind(def))
-                            .get_bank() !=
-                        AArch64VirtualReg(
-                            live_virtual_reg,
-                            function.get_virtual_reg_kind(live_virtual_reg))
-                            .get_bank()) {
+                    if (is_float_virtual_reg(def) !=
+                        is_float_virtual_reg(live_virtual_reg)) {
                         continue;
                     }
                     graph.add_edge(def, live_virtual_reg);
@@ -377,6 +382,37 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
     std::unordered_map<std::size_t, std::unordered_set<std::size_t>> working_graph =
         graph.get_adjacency();
 
+    struct AllocationNodeInfo {
+        AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
+        bool is_floating_point = false;
+        bool live_across_call = false;
+        std::size_t color_count = 0;
+    };
+
+    std::unordered_map<std::size_t, AllocationNodeInfo> node_infos;
+    node_infos.reserve(function.get_virtual_reg_kinds().size());
+    for (const auto &[virtual_reg_id, kind] : function.get_virtual_reg_kinds()) {
+        const bool is_floating_point =
+            AArch64VirtualReg(virtual_reg_id, kind).is_floating_point();
+        const bool live_across_call =
+            liveness.get_live_across_call().find(virtual_reg_id) !=
+            liveness.get_live_across_call().end();
+        const std::size_t color_count =
+            is_floating_point
+                ? (live_across_call &&
+                           is_live_across_call_callee_saved_capable(kind)
+                       ? std::size(kAArch64CalleeSavedAllocatableFloatPhysicalRegs)
+                       : std::size(kAArch64CallerSavedAllocatableFloatPhysicalRegs) +
+                             std::size(kAArch64CalleeSavedAllocatableFloatPhysicalRegs))
+                : (live_across_call
+                       ? std::size(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs)
+                       : std::size(kAArch64CallerSavedAllocatableGeneralPhysicalRegs) +
+                             std::size(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs));
+        node_infos.emplace(
+            virtual_reg_id,
+            AllocationNodeInfo{kind, is_floating_point, live_across_call, color_count});
+    }
+
     struct SimplifyNode {
         std::size_t virtual_reg_id = 0;
         std::size_t degree = 0;
@@ -388,26 +424,10 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
         std::optional<SimplifyNode> low_degree_choice;
         std::optional<SimplifyNode> spill_choice;
         for (const auto &[virtual_reg_id, neighbors] : working_graph) {
-            const AArch64VirtualRegKind kind =
-                function.get_virtual_reg_kind(virtual_reg_id);
-            const std::size_t color_count =
-                AArch64VirtualReg(virtual_reg_id, kind).is_floating_point()
-                    ? (liveness.get_live_across_call().find(virtual_reg_id) !=
-                               liveness.get_live_across_call().end() &&
-                           is_live_across_call_callee_saved_capable(kind)
-                           ? std::size(kAArch64CalleeSavedAllocatableFloatPhysicalRegs)
-                           : std::size(kAArch64CallerSavedAllocatableFloatPhysicalRegs) +
-                                 std::size(kAArch64CalleeSavedAllocatableFloatPhysicalRegs))
-                    : (liveness.get_live_across_call().find(virtual_reg_id) !=
-                               liveness.get_live_across_call().end()
-                           ? std::size(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs)
-                           : std::size(kAArch64CallerSavedAllocatableGeneralPhysicalRegs) +
-                                 std::size(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs));
+            const AllocationNodeInfo &node_info = node_infos.at(virtual_reg_id);
             const SimplifyNode candidate{
-                virtual_reg_id, neighbors.size(),
-                liveness.get_live_across_call().find(virtual_reg_id) !=
-                    liveness.get_live_across_call().end()};
-            if (candidate.degree < color_count) {
+                virtual_reg_id, neighbors.size(), node_info.live_across_call};
+            if (candidate.degree < node_info.color_count) {
                 if (!low_degree_choice.has_value() ||
                     candidate.degree > low_degree_choice->degree ||
                     (candidate.degree == low_degree_choice->degree &&
@@ -449,8 +469,8 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
         simplify_stack.pop_back();
 
         std::set<unsigned> available;
-        const AArch64VirtualRegKind kind =
-            function.get_virtual_reg_kind(node.virtual_reg_id);
+        const AllocationNodeInfo &node_info = node_infos.at(node.virtual_reg_id);
+        const AArch64VirtualRegKind kind = node_info.kind;
         if (kind == AArch64VirtualRegKind::Float128 && node.live_across_call) {
             const std::size_t spill_size = virtual_reg_size(kind);
             std::size_t local_size = function.get_frame_info().get_local_size();
@@ -462,7 +482,7 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
             function.get_frame_info().set_frame_size(align_to(local_size, 16));
             continue;
         }
-        if (AArch64VirtualReg(node.virtual_reg_id, kind).is_floating_point()) {
+        if (node_info.is_floating_point) {
             if (node.live_across_call) {
                 if (is_live_across_call_callee_saved_capable(kind)) {
                     available.insert(kAArch64CalleeSavedAllocatableFloatPhysicalRegs.begin(),
@@ -501,8 +521,7 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
             continue;
         }
 
-        const std::size_t spill_size =
-            virtual_reg_size(function.get_virtual_reg_kind(node.virtual_reg_id));
+        const std::size_t spill_size = virtual_reg_size(kind);
         const std::size_t spill_alignment = spill_size;
         std::size_t local_size = function.get_frame_info().get_local_size();
         local_size = align_to(local_size, spill_alignment);

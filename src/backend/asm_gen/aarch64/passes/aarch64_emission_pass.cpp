@@ -174,6 +174,17 @@ bool any_asm_text_optimization_group_enabled(
            groups.vector;
 }
 
+std::string join_non_empty_asm_lines(const std::vector<std::string> &lines) {
+    std::ostringstream output;
+    for (const std::string &line : lines) {
+        if (line.empty()) {
+            continue;
+        }
+        output << line << "\n";
+    }
+    return output.str();
+}
+
 std::optional<std::string> invert_condition_code(std::string_view condition) {
     if (condition == "eq") {
         return "ne";
@@ -4979,6 +4990,7 @@ bool fold_store_only_backedge_shell(std::vector<std::string> &lines) {
 }
 
 bool remove_redundant_branch_to_next_label(std::vector<std::string> &lines) {
+    bool changed = false;
     for (std::size_t index = 0; index < lines.size(); ++index) {
         const auto branch = parse_unconditional_branch_line(lines[index]);
         if (!branch.has_value()) {
@@ -4997,9 +5009,9 @@ bool remove_redundant_branch_to_next_label(std::vector<std::string> &lines) {
             continue;
         }
         lines[index].clear();
-        return true;
+        changed = true;
     }
-    return false;
+    return changed;
 }
 
 void close_unbalanced_cfi_procedures(std::vector<std::string> &lines) {
@@ -5030,6 +5042,8 @@ void close_unbalanced_cfi_procedures(std::vector<std::string> &lines) {
 }
 
 std::string optimize_emitted_asm_text(std::string text) {
+    constexpr std::size_t kLargeAsmTextOptimizationLineLimit = 50000;
+
     std::vector<std::string> lines;
     {
         std::stringstream input(text);
@@ -5042,6 +5056,15 @@ std::string optimize_emitted_asm_text(std::string text) {
     const AsmTextOptimizationGroups groups = parse_asm_text_optimization_groups();
     if (!any_asm_text_optimization_group_enabled(groups)) {
         return text;
+    }
+
+    const bool groups_overridden =
+        std::getenv("SYSYCC_AARCH64_EMIT_ASM_OPT_GROUPS") != nullptr;
+    if (!groups_overridden &&
+        lines.size() > kLargeAsmTextOptimizationLineLimit) {
+        remove_redundant_branch_to_next_label(lines);
+        close_unbalanced_cfi_procedures(lines);
+        return join_non_empty_asm_lines(lines);
     }
 
     bool changed = false;
@@ -5592,18 +5615,10 @@ std::string optimize_emitted_asm_text(std::string text) {
         }
     } while (changed);
 
-    while (remove_redundant_branch_to_next_label(lines)) {
-    }
+    remove_redundant_branch_to_next_label(lines);
     close_unbalanced_cfi_procedures(lines);
 
-    std::ostringstream output;
-    for (const std::string &line : lines) {
-        if (line.empty()) {
-            continue;
-        }
-        output << line << "\n";
-    }
-    return output.str();
+    return join_non_empty_asm_lines(lines);
 }
 
 void append_rendered_cfi_directive(std::ostringstream &output,
