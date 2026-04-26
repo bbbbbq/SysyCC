@@ -49,7 +49,9 @@ bool should_stop_after_pass(const CompilerContext &context,
     case StopAfterStage::IR:
         return pass_kind == PassKind::LowerIr;
     case StopAfterStage::Asm:
-        return pass_kind == PassKind::CodeGen;
+        return pass_kind == PassKind::CodeGen &&
+               (context.get_asm_result() != nullptr ||
+                context.get_object_result() != nullptr);
     }
 
     return false;

@@ -28,8 +28,20 @@ std::string language_mode_name(sysycc::LanguageMode language_mode) {
         return "sysy";
     case sysycc::LanguageMode::C99:
         return "c99";
+    case sysycc::LanguageMode::C11:
+        return "c11";
+    case sysycc::LanguageMode::C17:
+        return "c17";
+    case sysycc::LanguageMode::C2x:
+        return "c2x";
     case sysycc::LanguageMode::Gnu99:
         return "gnu99";
+    case sysycc::LanguageMode::Gnu11:
+        return "gnu11";
+    case sysycc::LanguageMode::Gnu17:
+        return "gnu17";
+    case sysycc::LanguageMode::Gnu2x:
+        return "gnu2x";
     }
     return "unknown";
 }

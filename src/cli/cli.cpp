@@ -80,14 +80,77 @@ const char *default_target_triple_for_backend(sysycc::BackendKind backend_kind) 
     return "";
 }
 
+std::optional<sysycc::BackendKind>
+infer_backend_kind_from_target_triple(const std::string &target_triple) {
+    if (target_triple.find("aarch64") != std::string::npos) {
+        return sysycc::BackendKind::AArch64Native;
+    }
+    if (target_triple.find("riscv64") != std::string::npos) {
+        return sysycc::BackendKind::Riscv64Native;
+    }
+    return std::nullopt;
+}
+
+const char *backend_kind_to_string(sysycc::BackendKind backend_kind) {
+    switch (backend_kind) {
+    case sysycc::BackendKind::LlvmIr:
+        return "llvm-ir";
+    case sysycc::BackendKind::AArch64Native:
+        return "aarch64-native";
+    case sysycc::BackendKind::Riscv64Native:
+        return "riscv64-native";
+    }
+    return "unknown";
+}
+
 bool parse_language_mode(const std::string &mode_name,
                          sysycc::LanguageMode &language_mode) {
     if (mode_name == "c99") {
         language_mode = sysycc::LanguageMode::C99;
         return true;
     }
+    if (mode_name == "iso9899:1999") {
+        language_mode = sysycc::LanguageMode::C99;
+        return true;
+    }
+    if (mode_name == "c11") {
+        language_mode = sysycc::LanguageMode::C11;
+        return true;
+    }
+    if (mode_name == "iso9899:2011") {
+        language_mode = sysycc::LanguageMode::C11;
+        return true;
+    }
+    if (mode_name == "c17" || mode_name == "c18") {
+        language_mode = sysycc::LanguageMode::C17;
+        return true;
+    }
+    if (mode_name == "iso9899:2017" || mode_name == "iso9899:2018") {
+        language_mode = sysycc::LanguageMode::C17;
+        return true;
+    }
+    if (mode_name == "c2x" || mode_name == "c23") {
+        language_mode = sysycc::LanguageMode::C2x;
+        return true;
+    }
     if (mode_name == "gnu99") {
         language_mode = sysycc::LanguageMode::Gnu99;
+        return true;
+    }
+    if (mode_name == "gnu11") {
+        language_mode = sysycc::LanguageMode::Gnu11;
+        return true;
+    }
+    if (mode_name == "gnu17") {
+        language_mode = sysycc::LanguageMode::Gnu17;
+        return true;
+    }
+    if (mode_name == "gnu18") {
+        language_mode = sysycc::LanguageMode::Gnu17;
+        return true;
+    }
+    if (mode_name == "gnu2x" || mode_name == "gnu23") {
+        language_mode = sysycc::LanguageMode::Gnu2x;
         return true;
     }
     if (mode_name == "sysy") {
@@ -101,6 +164,11 @@ bool parse_optimization_level(const std::string &arg,
                               sysycc::OptimizationLevel &optimization_level,
                               std::string &unsupported_level) {
     if (arg == "-O" || arg == "-O1") {
+        optimization_level = sysycc::OptimizationLevel::O1;
+        return true;
+    }
+    if (arg == "-O2" || arg == "-O3" || arg == "-Os" || arg == "-Og" ||
+        arg == "-Oz" || arg == "-Ofast") {
         optimization_level = sysycc::OptimizationLevel::O1;
         return true;
     }
@@ -120,11 +188,17 @@ void apply_language_mode_defaults(sysycc::LanguageMode language_mode,
                                   bool &enable_builtin_type_extension_pack) {
     switch (language_mode) {
     case sysycc::LanguageMode::C99:
+    case sysycc::LanguageMode::C11:
+    case sysycc::LanguageMode::C17:
+    case sysycc::LanguageMode::C2x:
         enable_gnu_dialect = false;
         enable_clang_dialect = false;
         enable_builtin_type_extension_pack = false;
         return;
     case sysycc::LanguageMode::Gnu99:
+    case sysycc::LanguageMode::Gnu11:
+    case sysycc::LanguageMode::Gnu17:
+    case sysycc::LanguageMode::Gnu2x:
         enable_gnu_dialect = true;
         enable_clang_dialect = false;
         enable_builtin_type_extension_pack = false;
@@ -422,15 +496,38 @@ bool Cli::finalize_driver_mode() {
         emit_asm_ = false;
     }
 
-    if (!explicit_backend_) {
-        backend_kind_ = (driver_action_ == sysycc::DriverAction::EmitAssembly ||
-                         driver_action_ == sysycc::DriverAction::CompileOnly)
+    // Infer backend from --target if --backend was not explicitly given.
+    if (!explicit_backend_ && !target_triple_.empty()) {
+        if (const auto inferred =
+                infer_backend_kind_from_target_triple(target_triple_);
+            inferred.has_value()) {
+            backend_kind_ = *inferred;
+        }
+    }
+
+    // If still no backend chosen, fall back to defaults.
+    if (!explicit_backend_ && target_triple_.empty()) {
+        backend_kind_ = (driver_action_ == sysycc::DriverAction::EmitAssembly)
                             ? sysycc::BackendKind::AArch64Native
                             : sysycc::BackendKind::LlvmIr;
     }
 
-    if ((driver_action_ == sysycc::DriverAction::EmitAssembly ||
-         driver_action_ == sysycc::DriverAction::CompileOnly) &&
+    // Validate consistency when both --backend and --target are given.
+    if (explicit_backend_ && !target_triple_.empty()) {
+        const auto expected_backend =
+            infer_backend_kind_from_target_triple(target_triple_);
+        if (expected_backend.has_value() &&
+            *expected_backend != backend_kind_) {
+            emit_error("--target=" + target_triple_ +
+                       " is incompatible with --backend=" +
+                       backend_kind_to_string(backend_kind_));
+            return false;
+        }
+    }
+
+    // Fill in default target triple for native backends if none was given.
+    if ((backend_kind_ == sysycc::BackendKind::AArch64Native ||
+         backend_kind_ == sysycc::BackendKind::Riscv64Native) &&
         target_triple_.empty()) {
         target_triple_ = default_target_triple_for_backend(backend_kind_);
     }
@@ -665,9 +762,29 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
+        if (arg == "-ansi" || arg == "-pedantic" ||
+            arg == "-pedantic-errors") {
+            continue;
+        }
+
         if (arg == "-pipe" || arg == "-ffunction-sections" ||
             arg == "-fdata-sections" || arg == "-fno-common" ||
             arg == "-fno-strict-aliasing" || arg == "-fwrapv" ||
+            arg == "-funsigned-char" || arg == "-fsigned-char" ||
+            arg == "-fno-strict-overflow" ||
+            arg == "-fno-delete-null-pointer-checks" ||
+            arg == "-fno-tree-vectorize" || arg == "-fno-inline" ||
+            arg == "-ffreestanding" || arg == "-fhosted" ||
+            arg == "-fno-plt" ||
+            arg == "-fno-asynchronous-unwind-tables" ||
+            arg == "-fasynchronous-unwind-tables" ||
+            arg == "-funwind-tables" || arg == "-fno-unwind-tables" ||
+            arg == "-fmerge-all-constants" || arg == "-fno-merge-constants" ||
+            arg == "-fno-ident" || arg == "-fstrict-aliasing" ||
+            arg == "-fno-math-errno" || arg == "-fmath-errno" ||
+            arg == "-frounding-math" || arg == "-ftrapping-math" ||
+            arg == "-fno-trapping-math" ||
+            arg == "-fno-lto" ||
             arg == "-fno-builtin" || arg == "-fno-stack-protector" ||
             arg == "-fstack-protector" || arg == "-fstack-protector-strong" ||
             arg == "-fstack-protector-all" || arg == "-fomit-frame-pointer" ||
@@ -675,7 +792,7 @@ void Cli::Run(int argc, char *argv[]) {
             arg == "-fno-rtti" || arg == "-Winvalid-pch" ||
             arg == "-fvisibility=hidden" || arg == "-fcolor-diagnostics" ||
             arg == "-fno-color-diagnostics" || arg == "-Qunused-arguments" ||
-            arg == "-m64") {
+            arg == "-m64" || arg == "-mno-red-zone") {
             continue;
         }
 
@@ -706,7 +823,8 @@ void Cli::Run(int argc, char *argv[]) {
         if (arg.rfind("-fvisibility=", 0) == 0) {
             const std::string visibility_mode =
                 arg.substr(std::string("-fvisibility=").size());
-            if (visibility_mode != "hidden") {
+            if (visibility_mode != "hidden" && visibility_mode != "default" &&
+                visibility_mode != "internal") {
                 emit_error("argument to '-fvisibility=' is not supported: '" +
                            visibility_mode + "'");
                 return;
@@ -714,8 +832,13 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
-        if (arg == "-fPIC") {
+        if (arg == "-fPIC" || arg == "-fPIE" || arg == "-fpie") {
             request_position_independent_ = true;
+            continue;
+        }
+
+        if (arg == "-fno-pie" || arg == "-fno-pic" || arg == "-fno-PIC") {
+            request_position_independent_ = false;
             continue;
         }
 
@@ -1195,6 +1318,31 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-Wextra") {
             warning_policy_.enable_wextra();
+            continue;
+        }
+
+        if (arg == "-Wshadow" || arg == "-Wundef" ||
+            arg == "-Wformat=2" || arg == "-Wstrict-prototypes" ||
+            arg == "-Wmissing-prototypes" || arg == "-Wcast-align" ||
+            arg == "-Wpointer-arith" || arg == "-Wwrite-strings" ||
+            arg == "-Wbad-function-cast" || arg == "-Waggregate-return" ||
+            arg == "-Wswitch-enum" || arg == "-Wdouble-promotion" ||
+            arg == "-Wfloat-equal" || arg == "-Wredundant-decls" ||
+            arg == "-Wnested-externs" || arg == "-Wold-style-definition" ||
+            arg == "-Wdeclaration-after-statement" ||
+            arg == "-Wmissing-declarations" || arg == "-Wcast-qual" ||
+            arg == "-Wvla" || arg == "-Wsystem-headers" ||
+            arg == "-Wextra-semi" || arg == "-Wformat" ||
+            arg == "-Wformat-security" || arg == "-Wstrict-overflow" ||
+            arg == "-Wstrict-overflow=5" || arg == "-Wlogical-op" ||
+            arg == "-Wduplicated-cond" || arg == "-Wduplicated-branches" ||
+            arg == "-Walloca" || arg == "-Warray-bounds" ||
+            arg == "-Wstrict-aliasing" || arg == "-Wstrict-aliasing=2" ||
+            arg == "-Wold-style-declaration") {
+            continue;
+        }
+
+        if (arg == "-Werror=format" || arg == "-Wno-error=format") {
             continue;
         }
 

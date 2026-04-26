@@ -86,7 +86,13 @@ enum class DriverAction : uint8_t {
 enum class LanguageMode : uint8_t {
     Sysy,
     C99,
+    C11,
+    C17,
+    C2x,
     Gnu99,
+    Gnu11,
+    Gnu17,
+    Gnu2x,
 };
 
 enum class OptimizationLevel : uint8_t {

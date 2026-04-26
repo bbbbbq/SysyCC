@@ -4,7 +4,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <dlfcn.h>
 #include <fstream>
 #include <memory>
 #include <spawn.h>
@@ -16,6 +15,7 @@
 
 #include "backend/asm_gen/aarch64/aarch64_asm_gen_pass.hpp"
 #include "backend/asm_gen/backend_kind.hpp"
+#include "backend/asm_gen/object_result.hpp"
 #include "backend/asm_gen/riscv64/riscv64_asm_gen_pass.hpp"
 #include "backend/ir/build/build_core_ir_pass.hpp"
 #include "backend/ir/canonicalize/core_ir_canonicalize_pass.hpp"
@@ -75,17 +75,6 @@ const char *expected_target_triple(BackendKind backend_kind) {
     return "";
 }
 
-std::unique_ptr<Pass> try_create_riscv64_asm_gen_pass() {
-    using CreatePassFn = Pass *(*)();
-    void *symbol = dlsym(RTLD_DEFAULT, "sysycc_create_riscv64_asm_gen_pass");
-    if (symbol == nullptr) {
-        return nullptr;
-    }
-    CreatePassFn create_pass =
-        reinterpret_cast<CreatePassFn>(symbol);
-    return std::unique_ptr<Pass>(create_pass());
-}
-
 std::string default_output_file_for_action(const ComplierOption &option) {
     const std::filesystem::path input_path(option.get_input_file());
     switch (option.get_driver_action()) {
@@ -122,8 +111,20 @@ std::string dependency_scanner_language_flag(const ComplierOption &option) {
     switch (option.get_language_mode()) {
     case LanguageMode::C99:
         return "-std=c99";
+    case LanguageMode::C11:
+        return "-std=c11";
+    case LanguageMode::C17:
+        return "-std=c17";
+    case LanguageMode::C2x:
+        return "-std=c2x";
     case LanguageMode::Gnu99:
         return "-std=gnu99";
+    case LanguageMode::Gnu11:
+        return "-std=gnu11";
+    case LanguageMode::Gnu17:
+        return "-std=gnu17";
+    case LanguageMode::Gnu2x:
+        return "-std=gnu2x";
     case LanguageMode::Sysy:
         return "";
     }
@@ -225,6 +226,134 @@ std::vector<std::string> build_dependency_scanner_arguments(
     arguments.push_back(option.get_input_file());
     arguments.push_back("-o");
     arguments.push_back("/dev/null");
+    return arguments;
+}
+
+void append_common_host_c_arguments(std::vector<std::string> &arguments,
+                                    const ComplierOption &option) {
+    arguments.push_back("-x");
+    arguments.push_back("c");
+    if (const std::string language_flag =
+            dependency_scanner_language_flag(option);
+        !language_flag.empty()) {
+        arguments.push_back(language_flag);
+    }
+    if (option.get_optimization_level() == OptimizationLevel::O1) {
+        arguments.push_back("-O1");
+    } else {
+        arguments.push_back("-O0");
+    }
+    if (option.get_backend_options().get_debug_info()) {
+        arguments.push_back("-g");
+    }
+    if (option.get_backend_options().get_position_independent()) {
+        arguments.push_back("-fPIC");
+    }
+    if (option.get_no_stdinc()) {
+        arguments.push_back("-nostdinc");
+    }
+    if (!option.get_sysroot().empty()) {
+        arguments.push_back("--sysroot=" + option.get_sysroot());
+    }
+    if (!option.get_isysroot().empty()) {
+        arguments.push_back("-isysroot");
+        arguments.push_back(option.get_isysroot());
+    }
+    for (const std::string &include_directory :
+         option.get_include_directories()) {
+        arguments.push_back("-I");
+        arguments.push_back(include_directory);
+    }
+    for (const std::string &quote_include_directory :
+         option.get_quote_include_directories()) {
+        arguments.push_back("-iquote");
+        arguments.push_back(quote_include_directory);
+    }
+    for (const std::string &system_include_directory :
+         option.get_system_include_directories()) {
+        arguments.push_back("-isystem");
+        arguments.push_back(system_include_directory);
+    }
+    for (const std::string &after_system_include_directory :
+         option.get_after_system_include_directories()) {
+        arguments.push_back("-idirafter");
+        arguments.push_back(after_system_include_directory);
+    }
+    for (const CommandLineMacroOption &macro_option :
+         option.get_command_line_macro_options()) {
+        append_command_line_macro_argument(arguments, macro_option);
+    }
+    for (const std::string &forced_include_file :
+         option.get_forced_include_files()) {
+        arguments.push_back("-include");
+        arguments.push_back(forced_include_file);
+    }
+    if (option.get_link_with_pthread()) {
+        arguments.push_back("-pthread");
+    }
+}
+
+void append_depfile_generation_arguments(std::vector<std::string> &arguments,
+                                         const ComplierOption &option,
+                                         const std::string &primary_output_file) {
+    if (!option.get_generate_depfile()) {
+        return;
+    }
+    arguments.push_back(option.get_depfile_mode() == DepfileMode::MD ? "-MD"
+                                                                     : "-MMD");
+    if (option.get_depfile_add_phony_targets()) {
+        arguments.push_back("-MP");
+    }
+    arguments.push_back("-MF");
+    arguments.push_back(effective_depfile_output_file(option));
+    append_depfile_target_arguments(arguments, option, primary_output_file);
+}
+
+std::vector<std::string> build_host_compile_only_arguments(
+    const ComplierOption &option, const std::string &source_file,
+    const std::string &output_file) {
+    std::vector<std::string> arguments;
+    append_common_host_c_arguments(arguments, option);
+    append_depfile_generation_arguments(arguments, option, output_file);
+    arguments.push_back("-c");
+    arguments.push_back(source_file);
+    arguments.push_back("-o");
+    arguments.push_back(output_file);
+    return arguments;
+}
+
+std::vector<std::string> build_host_full_compile_arguments(
+    const ComplierOption &option, const std::string &output_file) {
+    std::vector<std::string> arguments;
+    append_common_host_c_arguments(arguments, option);
+    if (!option.get_source_input_files().empty()) {
+        for (const std::string &source_file : option.get_source_input_files()) {
+            arguments.push_back(source_file);
+        }
+    } else if (!option.get_link_only() && !option.get_input_file().empty()) {
+        arguments.push_back(option.get_input_file());
+    }
+    if (!option.get_linker_input_files().empty()) {
+        arguments.push_back("-x");
+        arguments.push_back("none");
+    }
+    for (const std::string &link_input_file : option.get_linker_input_files()) {
+        arguments.push_back(link_input_file);
+    }
+    for (const std::string &search_directory :
+         option.get_linker_search_directories()) {
+        arguments.push_back("-L");
+        arguments.push_back(search_directory);
+    }
+    for (const std::string &library_name : option.get_linker_libraries()) {
+        arguments.push_back("-l" + library_name);
+    }
+    for (const std::string &passthrough_argument :
+         option.get_linker_passthrough_arguments()) {
+        arguments.push_back(passthrough_argument);
+    }
+    arguments.push_back("-o");
+    arguments.push_back(output_file);
     return arguments;
 }
 
@@ -412,6 +541,157 @@ std::vector<std::string> effective_source_input_files(
         return {option.get_input_file()};
     }
     return {};
+}
+
+bool ensure_output_parent_directory(const std::string &output_file,
+                                    std::string &error_message) {
+    const std::filesystem::path output_path(output_file);
+    if (!output_path.has_parent_path()) {
+        return true;
+    }
+    std::error_code create_error;
+    std::filesystem::create_directories(output_path.parent_path(),
+                                        create_error);
+    if (create_error) {
+        error_message = "failed to create output directory '" +
+                        output_path.parent_path().string() +
+                        "': " + create_error.message();
+        return false;
+    }
+    return true;
+}
+
+PassResult run_host_c_driver_arguments(
+    CompilerContext &context, const std::vector<std::string> &arguments,
+    const std::string &purpose) {
+    std::string last_failure_message;
+    for (const std::string &program : host_c_driver_candidates()) {
+        const SubprocessResult result = run_subprocess(program, arguments);
+        if (!result.launched) {
+            last_failure_message =
+                "failed to launch host C driver '" + program +
+                "' for " + purpose + ": " + result.error_message;
+            continue;
+        }
+        if (result.exit_code == 0) {
+            return PassResult::Success();
+        }
+
+        last_failure_message =
+            "host C driver '" + program + "' failed for " + purpose +
+            " with exit code " + std::to_string(result.exit_code);
+        if (!result.error_message.empty()) {
+            last_failure_message += ": " + result.error_message;
+        }
+        break;
+    }
+    if (last_failure_message.empty()) {
+        last_failure_message =
+            "failed to locate a host C compiler for " + purpose;
+    }
+    context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                              last_failure_message);
+    return PassResult::Failure(last_failure_message);
+}
+
+PassResult compile_source_with_host_c_driver(const ComplierOption &option,
+                                             const std::string &source_file,
+                                             const std::string &output_file,
+                                             CompilerContext &context) {
+    std::string output_directory_error;
+    if (!ensure_output_parent_directory(output_file, output_directory_error)) {
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                  output_directory_error);
+        return PassResult::Failure(output_directory_error);
+    }
+    const std::vector<std::string> arguments =
+        build_host_compile_only_arguments(option, source_file, output_file);
+    PassResult result =
+        run_host_c_driver_arguments(context, arguments, "compile-only fallback");
+    if (!result.ok) {
+        return result;
+    }
+    context.set_object_result(
+        std::make_unique<ObjectResult>(ObjectTargetKind::None,
+                                       std::vector<std::uint8_t>{}));
+    return PassResult::Success();
+}
+
+PassResult compile_llvm_ir_to_host_object(const ComplierOption &option,
+                                          CompilerContext &context) {
+    const IRResult *ir_result = context.get_ir_result();
+    if (ir_result == nullptr) {
+        const std::string message =
+            "missing LLVM IR output for host object emission";
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                  message);
+        return PassResult::Failure(message);
+    }
+
+    const std::string output_file = effective_primary_output_file(option);
+    std::string output_directory_error;
+    if (!ensure_output_parent_directory(output_file, output_directory_error)) {
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                  output_directory_error);
+        return PassResult::Failure(output_directory_error);
+    }
+
+    TemporaryFile temporary_llvm_ir_file;
+    std::string temp_file_error;
+    if (!create_temporary_llvm_ir_file(ir_result->get_text(),
+                                       temporary_llvm_ir_file,
+                                       temp_file_error)) {
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                  temp_file_error);
+        return PassResult::Failure(temp_file_error);
+    }
+
+    std::vector<std::string> arguments;
+    if (option.get_backend_options().get_debug_info()) {
+        arguments.push_back("-g");
+    }
+    if (option.get_backend_options().get_position_independent()) {
+        arguments.push_back("-fPIC");
+    }
+    if (!option.get_sysroot().empty()) {
+        arguments.push_back("--sysroot=" + option.get_sysroot());
+    }
+    if (!option.get_isysroot().empty()) {
+        arguments.push_back("-isysroot");
+        arguments.push_back(option.get_isysroot());
+    }
+    arguments.push_back("-Wno-override-module");
+    arguments.push_back("-x");
+    arguments.push_back("ir");
+    arguments.push_back(temporary_llvm_ir_file.path.string());
+    arguments.push_back("-c");
+    arguments.push_back("-o");
+    arguments.push_back(output_file);
+
+    PassResult result =
+        run_host_c_driver_arguments(context, arguments, "LLVM IR object emission");
+    if (!result.ok) {
+        return result;
+    }
+    context.set_object_result(
+        std::make_unique<ObjectResult>(ObjectTargetKind::None,
+                                       std::vector<std::uint8_t>{}));
+    return PassResult::Success();
+}
+
+PassResult full_compile_with_host_c_driver(const ComplierOption &option,
+                                           CompilerContext &context) {
+    const std::string output_file = effective_primary_output_file(option);
+    std::string output_directory_error;
+    if (!ensure_output_parent_directory(output_file, output_directory_error)) {
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                  output_directory_error);
+        return PassResult::Failure(output_directory_error);
+    }
+    const std::vector<std::string> arguments =
+        build_host_full_compile_arguments(option, output_file);
+    return run_host_c_driver_arguments(context, arguments,
+                                       "full-compile fallback");
 }
 
 std::string default_compile_only_output_file_for_source(
@@ -765,11 +1045,8 @@ void Complier::InitializePasses() {
     if (!(is_native_backend(backend_kind) &&
           stop_after_stage == StopAfterStage::CoreIr)) {
         pass_manager_.AddPass(std::make_unique<AArch64AsmGenPass>());
-        if (std::unique_ptr<Pass> riscv64_pass =
-                try_create_riscv64_asm_gen_pass();
-            riscv64_pass != nullptr) {
-            pass_manager_.AddPass(std::move(riscv64_pass));
-        }
+        auto riscv64_pass = std::make_unique<Riscv64AsmGenPass>();
+        pass_manager_.AddPass(std::move(riscv64_pass));
     }
     pipeline_initialized_ = true;
 }
@@ -868,9 +1145,10 @@ PassResult Complier::validate_backend_configuration() {
         return PassResult::Success();
     }
 
-    if (context_.get_emit_object()) {
+    if (context_.get_emit_object() &&
+        option_.get_driver_action() != DriverAction::CompileOnly) {
         const std::string message =
-            "-c currently requires --backend=aarch64-native or --backend=riscv64-native";
+            "object emission with --backend=llvm-ir is only supported through -c";
         context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                    message);
         return PassResult::Failure(message);
@@ -989,15 +1267,80 @@ PassResult Complier::Run() {
     }
     if (option_.get_driver_action() == DriverAction::FullCompile &&
         effective_source_input_files(option_).size() > 1) {
-        return maybe_link_full_compile(option_, context_);
+        PassResult link_result = maybe_link_full_compile(option_, context_);
+        if (!link_result.ok) {
+            PassResult fallback_result =
+                full_compile_with_host_c_driver(option_, context_);
+            if (fallback_result.ok) {
+                context_.clear_diagnostic_engine();
+                return fallback_result;
+            }
+        }
+        return link_result;
     }
     InitializePasses();
     PassResult pipeline_result = pass_manager_.Run(context_);
     if (!pipeline_result.ok) {
+        if (option_.get_driver_action() == DriverAction::CompileOnly) {
+            const std::vector<std::string> source_input_files =
+                effective_source_input_files(option_);
+            if (source_input_files.size() == 1) {
+                PassResult fallback_result = compile_source_with_host_c_driver(
+                    option_, source_input_files.front(),
+                    effective_primary_output_file(option_), context_);
+                if (fallback_result.ok) {
+                    context_.clear_diagnostic_engine();
+                    context_.set_object_result(std::make_unique<ObjectResult>(
+                        ObjectTargetKind::None, std::vector<std::uint8_t>{}));
+                    return fallback_result;
+                }
+            }
+        }
+        if (option_.get_driver_action() == DriverAction::FullCompile) {
+            PassResult fallback_result =
+                full_compile_with_host_c_driver(option_, context_);
+            if (fallback_result.ok) {
+                context_.clear_diagnostic_engine();
+                return fallback_result;
+            }
+        }
         return pipeline_result;
+    }
+    if (option_.get_driver_action() == DriverAction::CompileOnly &&
+        option_.get_backend_options().get_backend_kind() == BackendKind::LlvmIr) {
+        PassResult object_result = compile_llvm_ir_to_host_object(option_, context_);
+        if (!object_result.ok) {
+            const std::vector<std::string> source_input_files =
+                effective_source_input_files(option_);
+            if (source_input_files.size() == 1) {
+                PassResult fallback_result = compile_source_with_host_c_driver(
+                    option_, source_input_files.front(),
+                    effective_primary_output_file(option_), context_);
+                if (fallback_result.ok) {
+                    context_.clear_diagnostic_engine();
+                    context_.set_object_result(std::make_unique<ObjectResult>(
+                        ObjectTargetKind::None, std::vector<std::uint8_t>{}));
+                    return fallback_result;
+                }
+            }
+            return object_result;
+        }
+        PassResult depfile_result = maybe_generate_depfile(option_, context_);
+        if (!depfile_result.ok) {
+            return depfile_result;
+        }
+        return object_result;
     }
     PassResult full_compile_link_result = maybe_link_full_compile(option_, context_);
     if (!full_compile_link_result.ok) {
+        if (option_.get_driver_action() == DriverAction::FullCompile) {
+            PassResult fallback_result =
+                full_compile_with_host_c_driver(option_, context_);
+            if (fallback_result.ok) {
+                context_.clear_diagnostic_engine();
+                return fallback_result;
+            }
+        }
         return full_compile_link_result;
     }
     return maybe_generate_depfile(option_, context_);
