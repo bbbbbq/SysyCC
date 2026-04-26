@@ -176,6 +176,9 @@ includes:
 - run-stage build-system coverage for multi-file Make and CMake+Ninja
   compile-only static-library builds plus depfile-driven incremental rebuild
   selection
+- run-stage north-star real-project coverage for an 8-source-file algorithm
+  library driven by `CC=.../compiler` under Make and CMake+Ninja, plus a
+  separate SysyCC full-compile executable run of the same sources
 - parser/AST/semantic/IR/runtime coverage for compound assignments
 - parser/AST/semantic/IR/runtime coverage for the comma operator
 - parser/AST/semantic coverage for `struct` bit-field declarators
@@ -858,6 +861,11 @@ runtime stub, feed stdin, and compare stdout, including:
   static-library builds driven by `CC=.../compiler`
 - depfile-driven incremental rebuild selection, including no-op second builds
   and selective recompilation after private-header edits
+- a north-star real-project smoke that builds a small static library from
+  `array/stats/sort/search/hash/graph/pipeline` sources through Make and
+  CMake+Ninja, then full-compiles and runs the same project as a host
+  executable to keep driver, header, linker handoff, and project-level behavior
+  visible in one case
 - fixed-size scalarized data-structure scenarios such as:
   - stack / queue / deque
   - ring buffer
@@ -901,6 +909,7 @@ Representative paths:
 - [tests/compiler/compiler_multisource_compile_only_smoke](/Users/caojunze424/code/SysyCC/tests/compiler/compiler_multisource_compile_only_smoke)
 - [tests/run/run_depfile_incremental_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_depfile_incremental_smoke)
 - [tests/run/run_cmake_ninja_multifile_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_cmake_ninja_multifile_smoke)
+- [tests/run/run_north_star_real_project_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_north_star_real_project_smoke)
 - [tests/run/support/runtime_stub.c](/Users/caojunze424/code/SysyCC/tests/run/support/runtime_stub.c)
 
 Each runtime case also maintains its own `build/` directory under
