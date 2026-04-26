@@ -855,6 +855,11 @@ that should stay in tier1 but is too driver-specific for pure runtime cases:
   `-std=iso9899:*` aliases, `c23`/`gnu23`, `-ansi`, `-pedantic`,
   format/strict-overflow/alloca/array warning flags, `-fno-lto`, and
   `-mno-red-zone`.
+- a Docker-backed external real-project probe under
+  `tests/manual/external_real_project_probe`, which builds SysyCC inside an
+  Ubuntu 24.04 container and then uses it as `CC` for Lua and MuJS. This stays
+  manual because it needs Docker, network access, package installation, and
+  external repositories.
 
 ### `tests/run/`
 
