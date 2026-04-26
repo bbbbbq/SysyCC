@@ -21,6 +21,10 @@ mkdir -p "${CASE_BUILD_DIR}"
     -fdata-sections \
     -fno-common \
     -fvisibility=hidden \
+    -Wfatal-errors \
+    -Wdisabled-optimization \
+    -Wc++-compat \
+    -march=native \
     -arch arm64 \
     -c \
     -o "${OBJ_FILE}" \

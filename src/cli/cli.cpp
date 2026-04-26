@@ -796,6 +796,11 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
+        if (arg.rfind("-march=", 0) == 0 || arg.rfind("-mtune=", 0) == 0 ||
+            arg.rfind("-mcpu=", 0) == 0) {
+            continue;
+        }
+
         if (arg.rfind("-fdebug-prefix-map=", 0) == 0 ||
             arg.rfind("-ffile-prefix-map=", 0) == 0 ||
             arg.rfind("-fmacro-prefix-map=", 0) == 0 ||
@@ -1256,6 +1261,11 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
+        if (arg == "-shared") {
+            linker_passthrough_arguments_.push_back(arg);
+            continue;
+        }
+
         if (arg.size() > 2 && arg.rfind("-I", 0) == 0) {
             include_directories_.push_back(arg.substr(2));
             continue;
@@ -1322,6 +1332,7 @@ void Cli::Run(int argc, char *argv[]) {
         }
 
         if (arg == "-Wshadow" || arg == "-Wundef" ||
+            arg == "-Wfatal-errors" || arg == "-Wdisabled-optimization" ||
             arg == "-Wformat=2" || arg == "-Wstrict-prototypes" ||
             arg == "-Wmissing-prototypes" || arg == "-Wcast-align" ||
             arg == "-Wpointer-arith" || arg == "-Wwrite-strings" ||
@@ -1331,7 +1342,7 @@ void Cli::Run(int argc, char *argv[]) {
             arg == "-Wnested-externs" || arg == "-Wold-style-definition" ||
             arg == "-Wdeclaration-after-statement" ||
             arg == "-Wmissing-declarations" || arg == "-Wcast-qual" ||
-            arg == "-Wvla" || arg == "-Wsystem-headers" ||
+            arg == "-Wc++-compat" || arg == "-Wvla" || arg == "-Wsystem-headers" ||
             arg == "-Wextra-semi" || arg == "-Wformat" ||
             arg == "-Wformat-security" || arg == "-Wstrict-overflow" ||
             arg == "-Wstrict-overflow=5" || arg == "-Wlogical-op" ||
