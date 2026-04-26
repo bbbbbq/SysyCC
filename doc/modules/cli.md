@@ -63,7 +63,8 @@ Output:
   - `-E` preprocesses to stdout or `-o`
   - `-fsyntax-only` stops after semantic analysis
   - `-S` emits native assembly
-  - `-c` emits a native ELF object file
+  - `-c` emits a host-linkable object by default through the LLVM IR host-object
+    bridge, while explicit native backends still emit target ELF objects
   - bare full-compile invocations lower source inputs to LLVM IR and then call
     a host `clang`/`cc` driver to produce an executable
   - link-only invocations with positional `.o`/`.a`/`.so`/`.dylib` inputs call
@@ -99,8 +100,9 @@ Output:
   default executable path when `-o` is omitted.
 - That full-compile path can collect multiple source inputs, extra positional
   linker inputs, `-pthread`, `-L`, `-l`, and `-Wl,...` for the external host
-  link driver. The native AArch64/RISC-V object-emission paths still remain the
-  public `-c`/`-S` workflows.
+  link driver. When a full-compile invocation uses GNU/C constructs that the
+  SysyCC frontend has not lowered yet, the driver can fall back to the host C
+  driver so build-system probes continue to produce a correct executable.
 - Multi-source `-c` now follows the common CC driver rule when `-o` is omitted:
   each source is compiled independently to `basename.o`. With `-MD`/`-MMD`,
   each source also gets its default `basename.d` depfile. Joined multi-source
@@ -116,9 +118,9 @@ Output:
 - `-O0` keeps the minimum Core IR pipeline required by later lowering, while
   `-O1` additionally enables the current Core IR optimization batch:
   canonicalization, constant folding, and dead-code elimination.
-- Unsupported higher optimization levels such as `-O2`, `-O3`, and `-Os`
-  currently fail with explicit driver diagnostics instead of being accepted
-  silently.
+- Higher public optimization spellings `-O2`, `-O3`, `-Os`, `-Og`, `-Oz`, and
+  `-Ofast` are accepted for build-system compatibility and currently map to
+  SysyCC's highest implemented internal optimization level (`-O1`).
 - `@response-file` arguments are expanded before normal option parsing. The
   response parser supports whitespace splitting, single and double quotes,
   backslash escaping, and nested response files with a recursion limit.
@@ -135,7 +137,7 @@ Output:
 - The parsed system include directories are also forwarded through the compiler context and consumed by the preprocess stage during angle-include and `#include_next` resolution.
 - `-D`, `-U`, and `-include` are stored as preprocess-session inputs and are
   applied before the main source file is preprocessed.
-- `-std=c99`, `-std=gnu99`, and `-std=sysy` select the base language mode, and
+- `-std=c99`, `-std=c11`, `-std=c17`, `-std=c18`, ISO aliases such as `-std=iso9899:2011`, `-std=c2x`, `-std=c23`, `-std=gnu99`, `-std=gnu11`, `-std=gnu17`, `-std=gnu18`, `-std=gnu2x`, `-std=gnu23`, and `-std=sysy` select the base language mode, and
   `-fgnu-extensions`, `-fclang-extensions`, and `-fbuiltin-types` can override
   parts of that base mode for one invocation.
 - `--strict-c99` remains accepted as a compatibility alias for disabling GNU,
@@ -158,12 +160,15 @@ Output:
   - `--sysy-target`
 - The public `-S` path still defaults to the native AArch64 backend and fills
   in `aarch64-unknown-linux-gnu` when the user does not specify a target.
-- The public `-c` path still defaults to the native AArch64 backend and the
-  same default target triple.
+- The public `-c` path now defaults to the LLVM IR host-object bridge so normal
+  Make/Ninja compile-only rules produce objects that the host linker can
+  consume. Explicit `--backend=aarch64-native` or `--backend=riscv64-native`
+  keeps the target ELF object path.
 - `--backend=riscv64-native` now switches the native path to a decoupled
   RISC-V64 codegen library and fills in `riscv64-unknown-linux-gnu` when the
   user omits `--target`.
-- `-fPIC` and `-g` are now forwarded to both native backends.
+- `-fPIC`, `-fPIE`, `-fpie`, and `-g` are forwarded into backend/driver state
+  where relevant; `-fno-pie` clears the position-independent request.
 - `--backend=llvm-ir|aarch64-native|riscv64-native` and `--target=...` remain
   accepted as compatibility / developer controls but are no longer the primary
   user-facing surface.
@@ -189,7 +194,7 @@ Output:
 | `main.c helper.o -o app` | supported | Lowers the source to LLVM IR and forwards the object to the host link step after resetting `-x none`. |
 | `main.c libhelper.a -o app` | supported | Lowers the source to LLVM IR and forwards the archive to the host link step. |
 | `helper.o libhelper.a -o app` | supported | Runs link-only mode through the host C driver. |
-| `-c a.c` | supported | Emits one native object through the selected native backend. |
+| `-c a.c` | supported | Emits one host-linkable object by default through LLVM IR and host `clang`/`cc`; explicit native backends still emit target ELF objects. |
 | `-c a.c b.c` | supported | Emits `a.o` and `b.o` in the current working directory. |
 | `-c -MD a.c b.c` | supported | Emits `a.o`/`b.o` plus default `a.d`/`b.d` depfiles. |
 | `-c -o out.o a.c b.c` | unsupported | Rejected because one `-o` cannot map to several object files. |
@@ -208,8 +213,10 @@ Output:
 | `-MF`, `-MT`, `-MQ`, `-MP` | supported with `-MD`/`-MMD` | Override depfile path or target spelling and optionally add phony header targets. |
 | `-iquote`, `-isystem`, `-idirafter` | supported | Fed into preprocess include lookup and host dependency scanning with GCC-like ordering. |
 | `--sysroot`, `-isysroot` | supported | Adds sysroot include roots and forwards the flags to host dependency scanning/full linking. |
-| `-fPIC`, `-g` | supported | Forwarded into backend/driver state for native output or full-compile linking. |
-| `-pipe`, `-ffunction-sections`, `-fdata-sections`, `-fno-common`, `-fno-strict-aliasing`, `-fwrapv`, `-fno-builtin`, stack-protector toggles, frame-pointer toggles, `-fvisibility=hidden`, prefix-map flags, diagnostic-color flags, `-Qunused-arguments`, `-m64`, `-Winvalid-pch`, `-arch arm64`, `-arch aarch64` | safe ignore | Accepted for build-system compatibility without changing the current output mode. |
+| `-fPIC`, `-fPIE`, `-fpie`, `-fno-pie`, `-fno-pic`, `-fno-PIC`, `-g` | supported | Forwarded into backend/driver state where relevant; the `-fno-*pic*` forms clear the position-independent request. |
+| `-ansi`, `-pedantic`, `-pedantic-errors` | safe ignore | Accepted for build-system compatibility until strict conformance diagnostics are implemented. |
+| `-pipe`, `-ffunction-sections`, `-fdata-sections`, `-fno-common`, `-fno-strict-aliasing`, `-fstrict-aliasing`, `-fno-strict-overflow`, `-fno-delete-null-pointer-checks`, `-fno-tree-vectorize`, `-fno-inline`, `-fwrapv`, `-funsigned-char`, `-fsigned-char`, `-ffreestanding`, `-fhosted`, `-fno-plt`, `-fno-lto`, unwind-table toggles, merge-constants toggles, `-fno-ident`, math-errno / trapping-math toggles, `-fno-builtin`, stack-protector toggles, frame-pointer toggles, `-fvisibility=hidden`, `-fvisibility=default`, `-fvisibility=internal`, prefix-map flags, diagnostic-color flags, `-Qunused-arguments`, `-m64`, `-mno-red-zone`, `-Winvalid-pch`, `-arch arm64`, `-arch aarch64` | safe ignore | Accepted for build-system compatibility without changing the current output mode. |
+| `-Wshadow`, `-Wundef`, `-Wformat`, `-Wformat=2`, `-Wformat-security`, `-Werror=format`, `-Wstrict-prototypes`, `-Wmissing-prototypes`, `-Wcast-align`, `-Wpointer-arith`, and related common project warning flags | safe ignore | Accepted until SysyCC implements equivalent diagnostics. |
 | `-pthread`, `-L`, `-l`, `-Wl,...` | pass through | Stored on [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp) and forwarded to the external host link driver when a link stage runs. |
 | unsupported `-x <lang>` | explicit error | Only `-x c` is currently accepted. |
 | unsupported `-arch <arch>` | explicit error | Only `arm64` and `aarch64` are accepted as compatibility spellings. |

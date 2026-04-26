@@ -833,6 +833,28 @@ that should stay in tier1 but is too driver-specific for pure runtime cases:
   external object input
 - Ninja invoking the same command shape through a rule edge
 - host linker handoff for mixed temporary LLVM IR plus object-file inputs
+- manual north-star compatibility coverage under
+  `tests/manual/north_star_gcc_only_gap_corpus`, which checks that SysyCC can
+  act as `CC` for small GNU/C project-shaped cases accepted by GCC/Clang. This
+  corpus currently covers `for`-init declarations, local array initializers,
+  `sizeof` on local arrays, designated initializers, compound literals, VLA
+  syntax, GNU statement expressions, `typeof`, GNU case ranges, and C11
+  `_Generic`.
+- manual driver-flag north-star compatibility coverage under
+  `tests/manual/north_star_gcc_only_driver_gap_corpus`, which checks common
+  Make/Ninja/CMake flags such as `-std=c11`, `-std=gnu17`, `-O2`, `-O3`,
+  `-Os`, `-Og`, selected `-f*` code-generation toggles, and common project
+  warning flags.
+- a second manual driver-flag north-star corpus under
+  `tests/manual/north_star_gcc_only_driver_gap_corpus_wave2`, covering newer
+  standard spellings (`c17`/`c18`/`c2x`/`gnu18`/`gnu2x`), `-Oz`, `-Ofast`,
+  hosted/freestanding toggles, visibility/PIC/unwind/math/codegen flags, and
+  additional warning flags.
+- a third manual driver-flag north-star corpus under
+  `tests/manual/north_star_gcc_only_driver_gap_corpus_wave3`, covering ISO
+  `-std=iso9899:*` aliases, `c23`/`gnu23`, `-ansi`, `-pedantic`,
+  format/strict-overflow/alloca/array warning flags, `-fno-lto`, and
+  `-mno-red-zone`.
 
 ### `tests/run/`
 
