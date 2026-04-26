@@ -348,7 +348,9 @@ bool llvm_import_is_modifier_token(const std::string &token) {
         "swiftself",         "swifterror",         "sret",
         "byval",             "align",              "dereferenceable",
         "dereferenceable_or_null",                 "nonnull",
-        "nuw",               "nsw",                "exact",
+        "nuw",               "nsw",                "nusw",
+        "exact",             "disjoint",           "samesign",
+        "nneg",
         "tail",              "musttail",           "notail",
         "fast",              "coldcc",             "fastcc",
         "ccc",               "internal",           "private",
@@ -366,7 +368,11 @@ bool llvm_import_is_modifier_token(const std::string &token) {
            llvm_import_starts_with(token, "align") ||
            llvm_import_starts_with(token, "addrspace(") ||
            llvm_import_starts_with(token, "byval(") ||
+           llvm_import_starts_with(token, "captures(") ||
            llvm_import_starts_with(token, "sret(") ||
+           llvm_import_starts_with(token, "memory(") ||
+           llvm_import_starts_with(token, "nofpclass(") ||
+           llvm_import_starts_with(token, "range(") ||
            llvm_import_starts_with(token, "dereferenceable(") ||
            llvm_import_starts_with(token, "dereferenceable_or_null(");
 }
@@ -375,7 +381,8 @@ std::optional<std::size_t>
 llvm_import_consume_parenthesized_modifier_prefix(const std::string &text) {
     static const std::vector<std::string> prefixes = {
         "addrspace(", "byval(", "sret(", "dereferenceable(",
-        "dereferenceable_or_null(", "elementtype(",
+        "dereferenceable_or_null(", "elementtype(", "captures(",
+        "memory(", "nofpclass(", "range(",
     };
     for (const std::string &prefix : prefixes) {
         if (!llvm_import_starts_with(text, prefix)) {

@@ -220,13 +220,18 @@ parse_llvm_import_compare_spec(const AArch64LlvmImportInstruction &instruction) 
         return std::nullopt;
     }
 
-    std::string payload = strip_leading_modifiers(payload_after_opcode(instruction));
+    std::string payload = trim_copy(payload_after_opcode(instruction));
+    AArch64LlvmImportCompareSpec spec;
+    if (starts_with(payload, "samesign ")) {
+        spec.is_same_sign = true;
+        payload = trim_copy(payload.substr(std::strlen("samesign ")));
+    }
+    payload = strip_leading_modifiers(payload);
     const std::size_t predicate_end = payload.find(' ');
     if (predicate_end == std::string::npos) {
         return std::nullopt;
     }
 
-    AArch64LlvmImportCompareSpec spec;
     spec.is_float_compare = is_float_compare;
     spec.predicate_text = payload.substr(0, predicate_end);
     payload = trim_copy(payload.substr(predicate_end + 1));
@@ -455,12 +460,20 @@ parse_llvm_import_gep_spec(const AArch64LlvmImportInstruction &instruction) {
     if (instruction.opcode_text != "getelementptr") {
         return std::nullopt;
     }
-    std::string payload = payload_after_opcode(instruction);
+    std::string payload = trim_copy(payload_after_opcode(instruction));
 
     AArch64LlvmImportGetElementPtrSpec spec;
-    if (starts_with(payload, "inbounds ")) {
-        spec.is_inbounds = true;
-        payload = trim_copy(payload.substr(9));
+    while (!payload.empty()) {
+        if (starts_with(payload, "inbounds ")) {
+            spec.is_inbounds = true;
+            payload = trim_copy(payload.substr(9));
+            continue;
+        }
+        const std::string stripped = strip_leading_modifiers(payload);
+        if (stripped == payload) {
+            break;
+        }
+        payload = stripped;
     }
 
     const std::vector<std::string> operands = split_top_level(payload, ',');

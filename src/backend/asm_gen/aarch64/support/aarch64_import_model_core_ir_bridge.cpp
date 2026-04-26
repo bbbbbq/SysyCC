@@ -7,6 +7,7 @@
 #include "backend/asm_gen/aarch64/support/aarch64_float_literal_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_function_shell_support.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdint>
@@ -355,6 +356,53 @@ std::optional<std::uint64_t> encode_float_literal_bits(const CoreIrConstantFloat
 
 class RestrictedLlvmIrImporter {
   private:
+    static constexpr const char *kInlineVecSminV4I32 =
+        "__sysycc_aarch64_inline_vec_smin_v4i32";
+    static constexpr const char *kInlineVecSmaxV4I32 =
+        "__sysycc_aarch64_inline_vec_smax_v4i32";
+    static constexpr const char *kInlineVecAddV4I32 =
+        "__sysycc_aarch64_inline_vec_add_v4i32";
+    static constexpr const char *kInlineVecMulV4I32 =
+        "__sysycc_aarch64_inline_vec_mul_v4i32";
+    static constexpr const char *kInlineVecAddV4I32SplatLhs =
+        "__sysycc_aarch64_inline_vec_add_v4i32_splat_lhs";
+    static constexpr const char *kInlineVecAddV4I32SplatRhs =
+        "__sysycc_aarch64_inline_vec_add_v4i32_splat_rhs";
+    static constexpr const char *kInlineVecMulV4I32SplatLhs =
+        "__sysycc_aarch64_inline_vec_mul_v4i32_splat_lhs";
+    static constexpr const char *kInlineVecMulV4I32SplatRhs =
+        "__sysycc_aarch64_inline_vec_mul_v4i32_splat_rhs";
+    static constexpr const char *kInlineCopyV4I32 =
+        "__sysycc_aarch64_inline_copy_v4i32";
+    static constexpr const char *kInlineZeroV4I32 =
+        "__sysycc_aarch64_inline_zero_v4i32";
+    static constexpr const char *kInlineSplatLane0V4I32 =
+        "__sysycc_aarch64_inline_splat_lane0_v4i32";
+    static constexpr const char *kInlineSplatScalarV4I32 =
+        "__sysycc_aarch64_inline_splat_scalar_v4i32";
+    static constexpr const char *kInlineInsertLane0ZeroedV4I32 =
+        "__sysycc_aarch64_inline_insert_lane0_zeroed_v4i32";
+    static constexpr const char *kInlineInsertLane0V4I32 =
+        "__sysycc_aarch64_inline_insert_lane0_v4i32";
+    static constexpr const char *kInlineInsertLane1V4I32 =
+        "__sysycc_aarch64_inline_insert_lane1_v4i32";
+    static constexpr const char *kInlineInsertLane2V4I32 =
+        "__sysycc_aarch64_inline_insert_lane2_v4i32";
+    static constexpr const char *kInlineInsertLane3V4I32 =
+        "__sysycc_aarch64_inline_insert_lane3_v4i32";
+    static constexpr const char *kInlineReduceSminV4I32 =
+        "__sysycc_aarch64_inline_reduce_smin_v4i32";
+    static constexpr const char *kInlineReduceSmaxV4I32 =
+        "__sysycc_aarch64_inline_reduce_smax_v4i32";
+    static constexpr const char *kInlineReduceAddV4I32 =
+        "__sysycc_aarch64_inline_reduce_add_v4i32";
+    static constexpr const char *kInlineReduceSminPairV4I32 =
+        "__sysycc_aarch64_inline_reduce_smin_pair_v4i32";
+    static constexpr const char *kInlineReduceSmaxPairV4I32 =
+        "__sysycc_aarch64_inline_reduce_smax_pair_v4i32";
+    static constexpr const char *kInlineReduceAddPairV4I32 =
+        "__sysycc_aarch64_inline_reduce_add_pair_v4i32";
+
     struct ParameterSpec {
         const CoreIrType *type = nullptr;
         std::string name;
@@ -375,12 +423,40 @@ class RestrictedLlvmIrImporter {
         int line_number = 0;
     };
 
+    struct PendingAggregatePhiIncoming {
+        CoreIrPhiInst *phi = nullptr;
+        CoreIrBasicBlock *incoming_block = nullptr;
+        const CoreIrType *type = nullptr;
+        AArch64LlvmImportTypedValue value;
+        int line_number = 0;
+    };
+
     struct ValueBinding {
+        enum class DeferredVectorPairKind {
+            None,
+            Add,
+            Mul,
+            SMin,
+            SMax,
+        };
+
         CoreIrValue *value = nullptr;
         CoreIrStackSlot *stack_slot = nullptr;
+        CoreIrValue *aggregate_address = nullptr;
         CoreIrValue *reinterpreted_source_value = nullptr;
         const CoreIrType *reinterpreted_source_type = nullptr;
         const CoreIrType *reinterpreted_target_type = nullptr;
+        CoreIrValue *lane0_splat_scalar = nullptr;
+        const CoreIrType *lane0_splat_vector_type = nullptr;
+        CoreIrValue *lane0_zero_insert_scalar = nullptr;
+        const CoreIrType *lane0_zero_insert_vector_type = nullptr;
+        DeferredVectorPairKind deferred_vector_pair_kind =
+            DeferredVectorPairKind::None;
+        CoreIrValue *deferred_vector_lhs_address = nullptr;
+        CoreIrValue *deferred_vector_rhs_address = nullptr;
+        CoreIrValue *deferred_vector_lhs_splat_scalar = nullptr;
+        CoreIrValue *deferred_vector_rhs_splat_scalar = nullptr;
+        const CoreIrType *deferred_vector_pair_type = nullptr;
         struct WideIntegerValue {
             enum class HighBitFill {
                 Zero,
@@ -532,8 +608,15 @@ class RestrictedLlvmIrImporter {
             if (element_type == nullptr) {
                 return nullptr;
             }
-            type = context_->create_type<CoreIrArrayType>(element_type,
-                                                          element_count);
+            const auto *integer_element = as_integer_type(element_type);
+            if (integer_element != nullptr &&
+                integer_element->get_bit_width() == 32 && element_count == 4) {
+                type = context_->create_type<CoreIrVectorType>(element_type,
+                                                               element_count);
+            } else {
+                type = context_->create_type<CoreIrArrayType>(element_type,
+                                                              element_count);
+            }
         } else if (normalized.front() == '[' && normalized.back() == ']') {
             const std::string inner =
                 trim_copy(normalized.substr(1, normalized.size() - 2));
@@ -687,6 +770,16 @@ class RestrictedLlvmIrImporter {
             const CoreIrType *element_type = lower_import_type(type.element_types.front());
             if (element_type == nullptr) {
                 return nullptr;
+            }
+            if (type.array_uses_vector_syntax &&
+                type.array_element_count == 4) {
+                const auto *integer_element = as_integer_type(element_type);
+                if (integer_element != nullptr &&
+                    integer_element->get_bit_width() == 32) {
+                    lowered = context_->create_type<CoreIrVectorType>(
+                        element_type, type.array_element_count);
+                    break;
+                }
             }
             lowered = context_->create_type<CoreIrArrayType>(
                 element_type, type.array_element_count);
@@ -974,26 +1067,38 @@ class RestrictedLlvmIrImporter {
     bool expand_vector_constant_lanes(const CoreIrType *vector_type,
                                       const CoreIrConstant *constant,
                                       std::vector<const CoreIrConstant *> &lanes) {
-        const auto *array_type = dynamic_cast<const CoreIrArrayType *>(vector_type);
-        if (array_type == nullptr || constant == nullptr) {
+        const CoreIrType *element_type = nullptr;
+        std::size_t element_count = 0;
+        if (const auto *array_type =
+                dynamic_cast<const CoreIrArrayType *>(vector_type);
+            array_type != nullptr) {
+            element_type = array_type->get_element_type();
+            element_count = array_type->get_element_count();
+        } else if (const auto *native_vector_type =
+                       dynamic_cast<const CoreIrVectorType *>(vector_type);
+                   native_vector_type != nullptr) {
+            element_type = native_vector_type->get_element_type();
+            element_count = native_vector_type->get_element_count();
+        }
+        if (element_type == nullptr || element_count == 0 || constant == nullptr) {
             return false;
         }
         lanes.clear();
-        lanes.reserve(array_type->get_element_count());
+        lanes.reserve(element_count);
         if (const auto *aggregate =
                 dynamic_cast<const CoreIrConstantAggregate *>(constant);
             aggregate != nullptr) {
             for (const CoreIrConstant *element : aggregate->get_elements()) {
                 lanes.push_back(element);
             }
-            while (lanes.size() < array_type->get_element_count()) {
-                lanes.push_back(make_zero_constant(array_type->get_element_type()));
+            while (lanes.size() < element_count) {
+                lanes.push_back(make_zero_constant(element_type));
             }
-            return lanes.size() == array_type->get_element_count();
+            return lanes.size() == element_count;
         }
         if (dynamic_cast<const CoreIrConstantZeroInitializer *>(constant) != nullptr) {
-            for (std::size_t index = 0; index < array_type->get_element_count(); ++index) {
-                lanes.push_back(make_zero_constant(array_type->get_element_type()));
+            for (std::size_t index = 0; index < element_count; ++index) {
+                lanes.push_back(make_zero_constant(element_type));
             }
             return true;
         }
@@ -1565,6 +1670,22 @@ class RestrictedLlvmIrImporter {
             return fold_vector_constant_expr(type, constant);
         case AArch64LlvmImportConstantKind::Aggregate: {
             std::vector<const CoreIrConstant *> elements;
+            if (type->get_kind() == CoreIrTypeKind::Vector) {
+                const auto *vector_type = static_cast<const CoreIrVectorType *>(type);
+                if (constant.elements.size() > vector_type->get_element_count()) {
+                    return nullptr;
+                }
+                for (const AArch64LlvmImportConstant &element : constant.elements) {
+                    const CoreIrConstant *lowered = lower_import_constant(
+                        vector_type->get_element_type(), element);
+                    if (lowered == nullptr) {
+                        return nullptr;
+                    }
+                    elements.push_back(lowered);
+                }
+                return context_->create_constant<CoreIrConstantAggregate>(
+                    type, elements);
+            }
             if (type->get_kind() == CoreIrTypeKind::Array) {
                 const auto *array_type = static_cast<const CoreIrArrayType *>(type);
                 if (constant.elements.size() > array_type->get_element_count()) {
@@ -2275,6 +2396,11 @@ class RestrictedLlvmIrImporter {
                           line_number, 1);
                 return {};
             }
+            if (it->second.aggregate_address != nullptr) {
+                ResolvedAddress resolved;
+                resolved.address_value = it->second.aggregate_address;
+                return resolved;
+            }
             if (it->second.stack_slot != nullptr) {
                 ResolvedAddress resolved;
                 resolved.stack_slot = it->second.stack_slot;
@@ -2627,6 +2753,16 @@ class RestrictedLlvmIrImporter {
         if (array_type == nullptr || base_address == nullptr) {
             return nullptr;
         }
+        const auto *base_pointer_type =
+            dynamic_cast<const CoreIrPointerType *>(base_address->get_type());
+        if (base_pointer_type != nullptr &&
+            base_pointer_type->get_pointee_type() != aggregate_type) {
+            return create_byte_offset_typed_address(
+                block, base_address,
+                static_cast<std::size_t>(index_value) *
+                    get_type_size(array_type->get_element_type()),
+                array_type->get_element_type(), synthetic_index);
+        }
         std::vector<CoreIrValue *> indices;
         indices.push_back(get_i32_constant(0));
         indices.push_back(get_i32_constant(index_value));
@@ -2664,6 +2800,27 @@ class RestrictedLlvmIrImporter {
             aggregate_element_type(aggregate_type, index_value);
         if (base_address == nullptr || element_type == nullptr) {
             return nullptr;
+        }
+        const auto *base_pointer_type =
+            dynamic_cast<const CoreIrPointerType *>(base_address->get_type());
+        if (base_pointer_type != nullptr &&
+            base_pointer_type->get_pointee_type() != aggregate_type) {
+            std::size_t byte_offset = 0;
+            if (const auto *array_type = as_array_type(aggregate_type);
+                array_type != nullptr) {
+                byte_offset = static_cast<std::size_t>(index_value) *
+                              get_type_size(array_type->get_element_type());
+            } else if (const auto *struct_type =
+                           dynamic_cast<const CoreIrStructType *>(aggregate_type);
+                       struct_type != nullptr) {
+                byte_offset =
+                    get_struct_member_offset(struct_type,
+                                             static_cast<std::size_t>(index_value));
+            } else {
+                return nullptr;
+            }
+            return create_byte_offset_typed_address(
+                block, base_address, byte_offset, element_type, synthetic_index);
         }
         std::vector<CoreIrValue *> indices;
         indices.push_back(get_i32_constant(0));
@@ -2744,6 +2901,46 @@ class RestrictedLlvmIrImporter {
             return false;
         }
         const auto &elements = aggregate->get_elements();
+        if (is_i32x4_array_type(slot->get_allocated_type()) && elements.size() == 4 &&
+            std::all_of(elements.begin(), elements.end(),
+                        [&](const CoreIrConstant *element) {
+                            const auto *int_constant =
+                                dynamic_cast<const CoreIrConstantInt *>(element);
+                            const auto *first_constant =
+                                dynamic_cast<const CoreIrConstantInt *>(elements.front());
+                            return int_constant != nullptr &&
+                                   first_constant != nullptr &&
+                                   int_constant->get_type() ==
+                                       first_constant->get_type() &&
+                                   int_constant->get_value() ==
+                                       first_constant->get_value();
+                        })) {
+            const CoreIrType *ptr_type = parse_type_text("ptr");
+            if (ptr_type == nullptr) {
+                return false;
+            }
+            const CoreIrFunctionType *helper_type =
+                context_->create_type<CoreIrFunctionType>(
+                    void_type(),
+                    std::vector<const CoreIrType *>{ptr_type,
+                                                    elements.front()->get_type()},
+                    false);
+            CoreIrFunction *helper = nullptr;
+            if (auto it = functions_.find(kInlineSplatScalarV4I32);
+                it != functions_.end()) {
+                helper = it->second;
+            } else {
+                helper = module_->create_function<CoreIrFunction>(
+                    kInlineSplatScalarV4I32, helper_type, false, false);
+                functions_[kInlineSplatScalarV4I32] = helper;
+            }
+            block.create_instruction<CoreIrCallInst>(
+                void_type(), "", helper->get_name(), helper_type,
+                std::vector<CoreIrValue *>{slot_address,
+                                           const_cast<CoreIrConstant *>(
+                                               elements.front())});
+            return true;
+        }
         for (std::size_t index = 0; index < elements.size(); ++index) {
             CoreIrValue *element_address = create_element_address(
                 block, slot_address, slot->get_allocated_type(),
@@ -2756,6 +2953,94 @@ class RestrictedLlvmIrImporter {
                 element_address);
         }
         return true;
+    }
+
+    bool materialize_constant_aggregate_to_address(
+        const CoreIrConstantAggregate *aggregate, const CoreIrType *aggregate_type,
+        CoreIrValue *destination_address, CoreIrBasicBlock &block,
+        std::size_t &synthetic_index) {
+        if (aggregate == nullptr || aggregate_type == nullptr ||
+            destination_address == nullptr) {
+            return false;
+        }
+        const auto *array_type = as_array_type(aggregate_type);
+        if (array_type != nullptr) {
+            const auto &elements = aggregate->get_elements();
+            if (is_i32x4_array_type(aggregate_type) && elements.size() == 4 &&
+                std::all_of(elements.begin(), elements.end(),
+                            [&](const CoreIrConstant *element) {
+                                const auto *int_constant =
+                                    dynamic_cast<const CoreIrConstantInt *>(element);
+                                const auto *first_constant =
+                                    dynamic_cast<const CoreIrConstantInt *>(
+                                        elements.front());
+                                return int_constant != nullptr &&
+                                       first_constant != nullptr &&
+                                       int_constant->get_type() ==
+                                           first_constant->get_type() &&
+                                       int_constant->get_value() ==
+                                           first_constant->get_value();
+                            })) {
+                const CoreIrType *ptr_type = parse_type_text("ptr");
+                if (ptr_type == nullptr) {
+                    return false;
+                }
+                const CoreIrFunctionType *helper_type =
+                    context_->create_type<CoreIrFunctionType>(
+                        void_type(),
+                        std::vector<const CoreIrType *>{ptr_type,
+                                                        elements.front()->get_type()},
+                        false);
+                CoreIrFunction *helper = nullptr;
+                if (auto it = functions_.find(kInlineSplatScalarV4I32);
+                    it != functions_.end()) {
+                    helper = it->second;
+                } else {
+                    helper = module_->create_function<CoreIrFunction>(
+                        kInlineSplatScalarV4I32, helper_type, false, false);
+                    functions_[kInlineSplatScalarV4I32] = helper;
+                }
+                block.create_instruction<CoreIrCallInst>(
+                    void_type(), "", helper->get_name(), helper_type,
+                    std::vector<CoreIrValue *>{destination_address,
+                                               const_cast<CoreIrConstant *>(
+                                                   elements.front())});
+                return true;
+            }
+            for (std::size_t index = 0; index < elements.size(); ++index) {
+                CoreIrValue *element_address = create_element_address(
+                    block, destination_address, aggregate_type,
+                    static_cast<std::uint64_t>(index), synthetic_index);
+                if (element_address == nullptr) {
+                    return false;
+                }
+                block.create_instruction<CoreIrStoreInst>(
+                    void_type(), const_cast<CoreIrConstant *>(elements[index]),
+                    element_address);
+            }
+            return true;
+        }
+        const auto *struct_type =
+            dynamic_cast<const CoreIrStructType *>(aggregate_type);
+        if (struct_type != nullptr) {
+            const auto &elements = aggregate->get_elements();
+            if (elements.size() != struct_type->get_element_types().size()) {
+                return false;
+            }
+            for (std::size_t index = 0; index < elements.size(); ++index) {
+                CoreIrValue *element_address = create_element_address(
+                    block, destination_address, aggregate_type,
+                    static_cast<std::uint64_t>(index), synthetic_index);
+                if (element_address == nullptr) {
+                    return false;
+                }
+                block.create_instruction<CoreIrStoreInst>(
+                    void_type(), const_cast<CoreIrConstant *>(elements[index]),
+                    element_address);
+            }
+            return true;
+        }
+        return false;
     }
 
     const CoreIrConstant *make_zero_constant(const CoreIrType *type) {
@@ -2787,6 +3072,27 @@ class RestrictedLlvmIrImporter {
         if (slot_address == nullptr) {
             return false;
         }
+        if (is_i32x4_array_type(type)) {
+            const CoreIrType *ptr_type = parse_type_text("ptr");
+            if (ptr_type == nullptr) {
+                return false;
+            }
+            const CoreIrFunctionType *helper_type =
+                context_->create_type<CoreIrFunctionType>(
+                    void_type(), std::vector<const CoreIrType *>{ptr_type}, false);
+            CoreIrFunction *helper = nullptr;
+            if (auto it = functions_.find(kInlineZeroV4I32); it != functions_.end()) {
+                helper = it->second;
+            } else {
+                helper = module_->create_function<CoreIrFunction>(
+                    kInlineZeroV4I32, helper_type, false, false);
+                functions_[kInlineZeroV4I32] = helper;
+            }
+            block.create_instruction<CoreIrCallInst>(
+                void_type(), "", helper->get_name(), helper_type,
+                std::vector<CoreIrValue *>{slot_address});
+            return true;
+        }
         for (std::size_t index = 0; index < array_type->get_element_count(); ++index) {
             CoreIrValue *element_address = create_element_address(
                 block, slot_address, type, static_cast<std::uint64_t>(index),
@@ -2802,6 +3108,255 @@ class RestrictedLlvmIrImporter {
         return true;
     }
 
+    bool materialize_zero_initializer_to_address(const CoreIrType *type,
+                                                 CoreIrValue *destination_address,
+                                                 CoreIrBasicBlock &block,
+                                                 std::size_t &synthetic_index) {
+        if (type == nullptr || destination_address == nullptr) {
+            return false;
+        }
+        const auto *array_type = as_array_type(type);
+        if (array_type != nullptr) {
+            if (is_i32x4_array_type(type)) {
+                const CoreIrType *ptr_type = parse_type_text("ptr");
+                if (ptr_type == nullptr) {
+                    return false;
+                }
+                const CoreIrFunctionType *helper_type =
+                    context_->create_type<CoreIrFunctionType>(
+                        void_type(), std::vector<const CoreIrType *>{ptr_type},
+                        false);
+                CoreIrFunction *helper = nullptr;
+                if (auto it = functions_.find(kInlineZeroV4I32);
+                    it != functions_.end()) {
+                    helper = it->second;
+                } else {
+                    helper = module_->create_function<CoreIrFunction>(
+                        kInlineZeroV4I32, helper_type, false, false);
+                    functions_[kInlineZeroV4I32] = helper;
+                }
+                block.create_instruction<CoreIrCallInst>(
+                    void_type(), "", helper->get_name(), helper_type,
+                    std::vector<CoreIrValue *>{destination_address});
+                return true;
+            }
+            for (std::size_t index = 0; index < array_type->get_element_count();
+                 ++index) {
+                CoreIrValue *element_address = create_element_address(
+                    block, destination_address, type,
+                    static_cast<std::uint64_t>(index), synthetic_index);
+                const CoreIrConstant *zero =
+                    make_zero_constant(array_type->get_element_type());
+                if (element_address == nullptr || zero == nullptr) {
+                    return false;
+                }
+                block.create_instruction<CoreIrStoreInst>(
+                    void_type(), const_cast<CoreIrConstant *>(zero),
+                    element_address);
+            }
+            return true;
+        }
+        const auto *struct_type =
+            dynamic_cast<const CoreIrStructType *>(type);
+        if (struct_type != nullptr) {
+            for (std::size_t index = 0;
+                 index < struct_type->get_element_types().size(); ++index) {
+                CoreIrValue *element_address = create_element_address(
+                    block, destination_address, type,
+                    static_cast<std::uint64_t>(index), synthetic_index);
+                const CoreIrConstant *zero =
+                    make_zero_constant(struct_type->get_element_types()[index]);
+                if (element_address == nullptr || zero == nullptr) {
+                    return false;
+                }
+                block.create_instruction<CoreIrStoreInst>(
+                    void_type(), const_cast<CoreIrConstant *>(zero),
+                    element_address);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    bool try_materialize_special_aggregate_binding_to_address(
+        const CoreIrType *aggregate_type, const AArch64LlvmImportTypedValue &operand,
+        CoreIrBasicBlock &block,
+        std::unordered_map<std::string, ValueBinding> &bindings,
+        CoreIrValue *destination_address, int line_number) {
+        if (destination_address == nullptr ||
+            operand.kind != AArch64LlvmImportValueKind::Local) {
+            return false;
+        }
+        const auto it = bindings.find(operand.local_name);
+        if (it == bindings.end() || !is_i32x4_array_type(aggregate_type)) {
+            return false;
+        }
+        const CoreIrType *ptr_type = parse_type_text("ptr");
+        if (ptr_type == nullptr) {
+            return false;
+        }
+        if (it->second.deferred_vector_pair_kind !=
+                ValueBinding::DeferredVectorPairKind::None &&
+            it->second.deferred_vector_pair_type == aggregate_type) {
+            const char *helper_name = nullptr;
+            std::vector<const CoreIrType *> helper_argument_types{ptr_type};
+            std::vector<CoreIrValue *> helper_arguments{destination_address};
+            if (it->second.deferred_vector_lhs_splat_scalar != nullptr &&
+                it->second.deferred_vector_rhs_address != nullptr) {
+                switch (it->second.deferred_vector_pair_kind) {
+                case ValueBinding::DeferredVectorPairKind::Add:
+                    helper_name = kInlineVecAddV4I32SplatLhs;
+                    break;
+                case ValueBinding::DeferredVectorPairKind::Mul:
+                    helper_name = kInlineVecMulV4I32SplatLhs;
+                    break;
+                default:
+                    break;
+                }
+                if (helper_name != nullptr) {
+                    helper_argument_types.push_back(
+                        it->second.deferred_vector_lhs_splat_scalar->get_type());
+                    helper_argument_types.push_back(ptr_type);
+                    helper_arguments.push_back(
+                        it->second.deferred_vector_lhs_splat_scalar);
+                    helper_arguments.push_back(
+                        it->second.deferred_vector_rhs_address);
+                }
+            } else if (it->second.deferred_vector_rhs_splat_scalar != nullptr &&
+                       it->second.deferred_vector_lhs_address != nullptr) {
+                switch (it->second.deferred_vector_pair_kind) {
+                case ValueBinding::DeferredVectorPairKind::Add:
+                    helper_name = kInlineVecAddV4I32SplatRhs;
+                    break;
+                case ValueBinding::DeferredVectorPairKind::Mul:
+                    helper_name = kInlineVecMulV4I32SplatRhs;
+                    break;
+                default:
+                    break;
+                }
+                if (helper_name != nullptr) {
+                    helper_argument_types.push_back(ptr_type);
+                    helper_argument_types.push_back(
+                        it->second.deferred_vector_rhs_splat_scalar->get_type());
+                    helper_arguments.push_back(
+                        it->second.deferred_vector_lhs_address);
+                    helper_arguments.push_back(
+                        it->second.deferred_vector_rhs_splat_scalar);
+                }
+            } else if (it->second.deferred_vector_lhs_address != nullptr &&
+                       it->second.deferred_vector_rhs_address != nullptr) {
+                switch (it->second.deferred_vector_pair_kind) {
+                case ValueBinding::DeferredVectorPairKind::Add:
+                    helper_name = kInlineVecAddV4I32;
+                    break;
+                case ValueBinding::DeferredVectorPairKind::Mul:
+                    helper_name = kInlineVecMulV4I32;
+                    break;
+                case ValueBinding::DeferredVectorPairKind::SMin:
+                    helper_name = kInlineVecSminV4I32;
+                    break;
+                case ValueBinding::DeferredVectorPairKind::SMax:
+                    helper_name = kInlineVecSmaxV4I32;
+                    break;
+                case ValueBinding::DeferredVectorPairKind::None:
+                    break;
+                }
+                if (helper_name != nullptr) {
+                    helper_argument_types.push_back(ptr_type);
+                    helper_argument_types.push_back(ptr_type);
+                    helper_arguments.push_back(
+                        it->second.deferred_vector_lhs_address);
+                    helper_arguments.push_back(
+                        it->second.deferred_vector_rhs_address);
+                }
+            }
+            if (helper_name != nullptr) {
+                const CoreIrFunctionType *helper_type =
+                    context_->create_type<CoreIrFunctionType>(
+                        void_type(), helper_argument_types, false);
+                CoreIrFunction *helper = nullptr;
+                if (auto fn_it = functions_.find(helper_name);
+                    fn_it != functions_.end()) {
+                    helper = fn_it->second;
+                } else {
+                    helper = module_->create_function<CoreIrFunction>(
+                        helper_name, helper_type, false, false);
+                    functions_[helper_name] = helper;
+                }
+                block.create_instruction<CoreIrCallInst>(
+                    void_type(), "", helper->get_name(), helper_type, helper_arguments);
+                return true;
+            }
+        }
+        if (it->second.lane0_splat_scalar != nullptr &&
+            it->second.lane0_splat_vector_type == aggregate_type) {
+            const CoreIrFunctionType *helper_type =
+                context_->create_type<CoreIrFunctionType>(
+                    void_type(),
+                    std::vector<const CoreIrType *>{ptr_type,
+                                                    it->second.lane0_splat_scalar
+                                                        ->get_type()},
+                    false);
+            CoreIrFunction *helper = nullptr;
+            if (auto fn_it = functions_.find(kInlineSplatScalarV4I32);
+                fn_it != functions_.end()) {
+                helper = fn_it->second;
+            } else {
+                helper = module_->create_function<CoreIrFunction>(
+                    kInlineSplatScalarV4I32, helper_type, false, false);
+                functions_[kInlineSplatScalarV4I32] = helper;
+            }
+            block.create_instruction<CoreIrCallInst>(
+                void_type(), "", helper->get_name(), helper_type,
+                std::vector<CoreIrValue *>{destination_address,
+                                           it->second.lane0_splat_scalar});
+            return true;
+        }
+        if (it->second.lane0_zero_insert_scalar != nullptr &&
+            it->second.lane0_zero_insert_vector_type == aggregate_type) {
+            const CoreIrFunctionType *helper_type =
+                context_->create_type<CoreIrFunctionType>(
+                    void_type(),
+                    std::vector<const CoreIrType *>{ptr_type,
+                                                    it->second
+                                                        .lane0_zero_insert_scalar
+                                                        ->get_type()},
+                    false);
+            CoreIrFunction *helper = nullptr;
+            if (auto fn_it = functions_.find(kInlineInsertLane0ZeroedV4I32);
+                fn_it != functions_.end()) {
+                helper = fn_it->second;
+            } else {
+                helper = module_->create_function<CoreIrFunction>(
+                    kInlineInsertLane0ZeroedV4I32, helper_type, false, false);
+                functions_[kInlineInsertLane0ZeroedV4I32] = helper;
+            }
+            block.create_instruction<CoreIrCallInst>(
+                void_type(), "", helper->get_name(), helper_type,
+                std::vector<CoreIrValue *>{destination_address,
+                                           it->second.lane0_zero_insert_scalar});
+            return true;
+        }
+        (void)line_number;
+        return false;
+    }
+
+    CoreIrValue *find_lane0_splat_scalar_binding(
+        const CoreIrType *aggregate_type, const AArch64LlvmImportTypedValue &operand,
+        const std::unordered_map<std::string, ValueBinding> &bindings) const {
+        if (operand.kind != AArch64LlvmImportValueKind::Local ||
+            !is_i32x4_array_type(aggregate_type)) {
+            return nullptr;
+        }
+        const auto it = bindings.find(operand.local_name);
+        if (it == bindings.end() ||
+            it->second.lane0_splat_scalar == nullptr ||
+            it->second.lane0_splat_vector_type != aggregate_type) {
+            return nullptr;
+        }
+        return it->second.lane0_splat_scalar;
+    }
+
     CoreIrValue *ensure_addressable_aggregate_typed_operand(
         const CoreIrType *aggregate_type, const AArch64LlvmImportTypedValue &operand,
         CoreIrFunction &function, CoreIrBasicBlock &block,
@@ -2814,9 +3369,113 @@ class RestrictedLlvmIrImporter {
                           line_number, 1);
                 return nullptr;
             }
+            if (it->second.aggregate_address != nullptr) {
+                return it->second.aggregate_address;
+            }
             if (it->second.stack_slot != nullptr) {
                 return materialize_stack_slot_address(block, it->second.stack_slot,
                                                       synthetic_index);
+            }
+            if (it->second.deferred_vector_pair_kind !=
+                    ValueBinding::DeferredVectorPairKind::None &&
+                it->second.deferred_vector_pair_type == aggregate_type &&
+                is_i32x4_array_type(aggregate_type)) {
+                CoreIrStackSlot *slot = function.create_stack_slot<CoreIrStackSlot>(
+                    "ll.vec.pair." + operand.local_name, aggregate_type,
+                    get_storage_alignment(aggregate_type));
+                CoreIrValue *slot_address =
+                    materialize_stack_slot_address(block, slot, synthetic_index);
+                if (slot_address == nullptr ||
+                    !try_materialize_special_aggregate_binding_to_address(
+                        aggregate_type, operand, block, bindings, slot_address,
+                        line_number)) {
+                    return nullptr;
+                }
+                ValueBinding updated = it->second;
+                updated.stack_slot = slot;
+                bindings[operand.local_name] = updated;
+                return slot_address;
+            }
+            if (it->second.lane0_splat_scalar != nullptr &&
+                it->second.lane0_splat_vector_type == aggregate_type &&
+                is_i32x4_array_type(aggregate_type)) {
+                const CoreIrType *ptr_type = parse_type_text("ptr");
+                if (ptr_type == nullptr) {
+                    return nullptr;
+                }
+                CoreIrStackSlot *slot = function.create_stack_slot<CoreIrStackSlot>(
+                    "ll.splat." + operand.local_name, aggregate_type,
+                    get_storage_alignment(aggregate_type));
+                CoreIrValue *slot_address =
+                    materialize_stack_slot_address(block, slot, synthetic_index);
+                if (slot_address == nullptr) {
+                    return nullptr;
+                }
+                const CoreIrFunctionType *helper_type =
+                    context_->create_type<CoreIrFunctionType>(
+                        void_type(),
+                        std::vector<const CoreIrType *>{ptr_type,
+                                                        it->second.lane0_splat_scalar
+                                                            ->get_type()},
+                        false);
+                CoreIrFunction *helper = nullptr;
+                if (auto fn_it = functions_.find(kInlineSplatScalarV4I32);
+                    fn_it != functions_.end()) {
+                    helper = fn_it->second;
+                } else {
+                    helper = module_->create_function<CoreIrFunction>(
+                        kInlineSplatScalarV4I32, helper_type, false, false);
+                    functions_[kInlineSplatScalarV4I32] = helper;
+                }
+                block.create_instruction<CoreIrCallInst>(
+                    void_type(), "", helper->get_name(), helper_type,
+                    std::vector<CoreIrValue *>{slot_address,
+                                               it->second.lane0_splat_scalar});
+                ValueBinding updated = it->second;
+                updated.stack_slot = slot;
+                bindings[operand.local_name] = updated;
+                return slot_address;
+            }
+            if (it->second.lane0_zero_insert_scalar != nullptr &&
+                it->second.lane0_zero_insert_vector_type == aggregate_type &&
+                is_i32x4_array_type(aggregate_type)) {
+                const CoreIrType *ptr_type = parse_type_text("ptr");
+                if (ptr_type == nullptr) {
+                    return nullptr;
+                }
+                CoreIrStackSlot *slot = function.create_stack_slot<CoreIrStackSlot>(
+                    "ll.insert0." + operand.local_name, aggregate_type,
+                    get_storage_alignment(aggregate_type));
+                CoreIrValue *slot_address =
+                    materialize_stack_slot_address(block, slot, synthetic_index);
+                if (slot_address == nullptr) {
+                    return nullptr;
+                }
+                const CoreIrFunctionType *helper_type =
+                    context_->create_type<CoreIrFunctionType>(
+                        void_type(),
+                        std::vector<const CoreIrType *>{ptr_type,
+                                                        it->second
+                                                            .lane0_zero_insert_scalar
+                                                            ->get_type()},
+                        false);
+                CoreIrFunction *helper = nullptr;
+                if (auto fn_it = functions_.find(kInlineInsertLane0ZeroedV4I32);
+                    fn_it != functions_.end()) {
+                    helper = fn_it->second;
+                } else {
+                    helper = module_->create_function<CoreIrFunction>(
+                        kInlineInsertLane0ZeroedV4I32, helper_type, false, false);
+                    functions_[kInlineInsertLane0ZeroedV4I32] = helper;
+                }
+                block.create_instruction<CoreIrCallInst>(
+                    void_type(), "", helper->get_name(), helper_type,
+                    std::vector<CoreIrValue *>{slot_address,
+                                               it->second.lane0_zero_insert_scalar});
+                ValueBinding updated = it->second;
+                updated.stack_slot = slot;
+                bindings[operand.local_name] = updated;
+                return slot_address;
             }
             if (it->second.value != nullptr) {
                 CoreIrStackSlot *slot = function.create_stack_slot<CoreIrStackSlot>(
@@ -2879,6 +3538,28 @@ class RestrictedLlvmIrImporter {
         if (!is_aggregate_type(aggregate_type) || destination_address == nullptr ||
             source_address == nullptr) {
             return false;
+        }
+        if (get_type_size(aggregate_type) == 16) {
+            const CoreIrType *ptr_type = parse_type_text("ptr");
+            if (ptr_type == nullptr) {
+                return false;
+            }
+            const CoreIrFunctionType *helper_type =
+                context_->create_type<CoreIrFunctionType>(
+                    void_type(), std::vector<const CoreIrType *>{ptr_type, ptr_type},
+                    false);
+            CoreIrFunction *helper = nullptr;
+            if (auto it = functions_.find(kInlineCopyV4I32); it != functions_.end()) {
+                helper = it->second;
+            } else {
+                helper = module_->create_function<CoreIrFunction>(
+                    kInlineCopyV4I32, helper_type, false, false);
+                functions_[kInlineCopyV4I32] = helper;
+            }
+            block.create_instruction<CoreIrCallInst>(
+                void_type(), "", helper->get_name(), helper_type,
+                std::vector<CoreIrValue *>{destination_address, source_address});
+            return true;
         }
         const std::size_t total_size = get_type_size(aggregate_type);
         const std::size_t max_chunk_alignment =
@@ -2964,6 +3645,18 @@ class RestrictedLlvmIrImporter {
         }
         ValueBinding binding;
         binding.stack_slot = stack_slot;
+        bindings[name] = binding;
+        return true;
+    }
+
+    bool bind_aggregate_address_result(
+        const std::string &name, CoreIrValue *aggregate_address,
+        std::unordered_map<std::string, ValueBinding> &bindings) {
+        if (name.empty()) {
+            return true;
+        }
+        ValueBinding binding;
+        binding.aggregate_address = aggregate_address;
         bindings[name] = binding;
         return true;
     }
@@ -3993,6 +4686,47 @@ class RestrictedLlvmIrImporter {
                                               : std::optional(it->second);
     }
 
+    bool is_i32x4_array_type(const CoreIrType *type) const {
+        const auto *array_type = as_array_type(type);
+        const auto *element_type =
+            array_type == nullptr ? nullptr
+                                  : as_integer_type(array_type->get_element_type());
+        return array_type != nullptr && element_type != nullptr &&
+               array_type->get_element_count() == 4 &&
+               element_type->get_bit_width() == 32;
+    }
+
+    bool is_zero_or_poison_constant_typed_value(
+        const AArch64LlvmImportTypedValue &value) const {
+        return value.kind == AArch64LlvmImportValueKind::Constant &&
+               (value.constant.kind == AArch64LlvmImportConstantKind::ZeroInitializer ||
+                value.constant.kind == AArch64LlvmImportConstantKind::PoisonValue);
+    }
+
+    bool is_lane0_zero_seed_constant_typed_value(
+        const AArch64LlvmImportTypedValue &value) const {
+        if (is_zero_or_poison_constant_typed_value(value)) {
+            return true;
+        }
+        if (value.kind != AArch64LlvmImportValueKind::Constant ||
+            value.constant.kind != AArch64LlvmImportConstantKind::Aggregate ||
+            value.constant.elements.size() != 4) {
+            return false;
+        }
+        for (std::size_t lane = 1; lane < value.constant.elements.size(); ++lane) {
+            const auto &element = value.constant.elements[lane];
+            if (element.kind == AArch64LlvmImportConstantKind::ZeroInitializer ||
+                element.kind == AArch64LlvmImportConstantKind::PoisonValue) {
+                continue;
+            }
+            if (element.kind != AArch64LlvmImportConstantKind::Integer ||
+                element.integer_value != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool parse_instruction(const AArch64LlvmImportInstruction &instruction,
                            CoreIrFunction &function,
                            CoreIrBasicBlock *&current_block,
@@ -4000,7 +4734,9 @@ class RestrictedLlvmIrImporter {
                                &block_map,
                            std::unordered_map<std::string, ValueBinding> &bindings,
                            std::size_t &synthetic_index,
-                           std::vector<PendingPhiIncoming> &pending_phi_incomings) {
+                           std::vector<PendingPhiIncoming> &pending_phi_incomings,
+                           std::vector<PendingAggregatePhiIncoming>
+                               &pending_aggregate_phi_incomings) {
         CoreIrBasicBlock &block = *current_block;
         const std::string &line = instruction.canonical_text;
         const int line_number = instruction.line;
@@ -4120,6 +4856,51 @@ class RestrictedLlvmIrImporter {
                 functions_[name] = callee;
                 return callee;
             };
+            auto lower_inline_v4i32_binary_helper =
+                [&](const std::string &helper_name) -> bool {
+                    if (!is_i32x4_array_type(type)) {
+                        return false;
+                    }
+                    const CoreIrType *ptr_type = parse_type_text("ptr");
+                    if (ptr_type == nullptr) {
+                        return false;
+                    }
+                    CoreIrValue *lhs_address =
+                        ensure_addressable_aggregate_typed_operand(
+                            type, spec.lhs, function, block, bindings,
+                            synthetic_index, line_number);
+                    CoreIrValue *rhs_address =
+                        ensure_addressable_aggregate_typed_operand(
+                            type, spec.rhs, function, block, bindings,
+                            synthetic_index, line_number);
+                    CoreIrStackSlot *result_slot =
+                        function.create_stack_slot<CoreIrStackSlot>(
+                            result_name.empty()
+                                ? "ll.inline.binary.vec." +
+                                      std::to_string(synthetic_index++)
+                                : result_name,
+                            type, get_storage_alignment(type));
+                    CoreIrValue *result_address = materialize_stack_slot_address(
+                        block, result_slot, synthetic_index);
+                    if (lhs_address == nullptr || rhs_address == nullptr ||
+                        result_address == nullptr) {
+                        return false;
+                    }
+                    const CoreIrFunctionType *helper_type =
+                        context_->create_type<CoreIrFunctionType>(
+                            void_type(),
+                            std::vector<const CoreIrType *>{ptr_type, ptr_type,
+                                                            ptr_type},
+                            false);
+                    CoreIrFunction *helper =
+                        get_or_create_runtime_decl(helper_name, helper_type);
+                    block.create_instruction<CoreIrCallInst>(
+                        void_type(), "", helper->get_name(), helper_type,
+                        std::vector<CoreIrValue *>{result_address, lhs_address,
+                                                   rhs_address});
+                    return bind_stack_slot_result(result_name, result_slot,
+                                                  bindings);
+                };
             if (is_import_integer_bit_width(spec.type, 128) &&
                 is_lowered_i128_type(type)) {
                 if (opcode != CoreIrBinaryOpcode::Add &&
@@ -4580,6 +5361,16 @@ class RestrictedLlvmIrImporter {
                 return bind_stack_slot_result(result_name, result_slot, bindings);
             }
             if (const auto *array_type = as_array_type(type); array_type != nullptr) {
+                if (is_i32x4_array_type(type)) {
+                    if (opcode == CoreIrBinaryOpcode::Add &&
+                        lower_inline_v4i32_binary_helper(kInlineVecAddV4I32)) {
+                        return true;
+                    }
+                    if (opcode == CoreIrBinaryOpcode::Mul &&
+                        lower_inline_v4i32_binary_helper(kInlineVecMulV4I32)) {
+                        return true;
+                    }
+                }
                 CoreIrStackSlot *result_slot =
                     function.create_stack_slot<CoreIrStackSlot>(
                         result_name.empty()
@@ -4847,6 +5638,108 @@ class RestrictedLlvmIrImporter {
                         CoreIrCastKind::Truncate, target_type, result_name,
                         low_word),
                     bindings);
+            }
+            const auto *source_array_type = as_array_type(source_type);
+            const auto *target_cast_array_type = as_array_type(target_type);
+            if ((kind == CoreIrCastKind::SignedIntToFloat ||
+                 kind == CoreIrCastKind::UnsignedIntToFloat) &&
+                is_i32x4_vector_type(source_type) &&
+                target_cast_array_type != nullptr &&
+                target_cast_array_type->get_element_count() == 4 &&
+                dynamic_cast<const CoreIrFloatType *>(
+                    target_cast_array_type->get_element_type()) != nullptr) {
+                const auto *source_vector_type =
+                    static_cast<const CoreIrVectorType *>(source_type);
+                CoreIrValue *source_value = resolve_typed_value_operand(
+                    source_type, spec.source_value, block, bindings,
+                    synthetic_index, line_number);
+                CoreIrStackSlot *result_slot =
+                    function.create_stack_slot<CoreIrStackSlot>(
+                        result_name.empty()
+                            ? "ll.vec.cast." + std::to_string(synthetic_index++)
+                            : result_name,
+                        target_type, get_storage_alignment(target_type));
+                CoreIrValue *result_address =
+                    materialize_stack_slot_address(block, result_slot,
+                                                   synthetic_index);
+                if (source_value == nullptr || result_address == nullptr) {
+                    return false;
+                }
+                for (std::size_t lane = 0; lane < source_vector_type->get_element_count();
+                     ++lane) {
+                    CoreIrValue *lane_index =
+                        get_i32_constant(static_cast<std::uint64_t>(lane));
+                    CoreIrValue *lane_source =
+                        block.create_instruction<CoreIrExtractElementInst>(
+                            source_vector_type->get_element_type(),
+                            "ll.vec.cast.extract." +
+                                std::to_string(synthetic_index++),
+                            source_value, lane_index);
+                    CoreIrValue *lane_value =
+                        block.create_instruction<CoreIrCastInst>(
+                            kind, target_cast_array_type->get_element_type(),
+                            "ll.vec.cast.lane." +
+                                std::to_string(synthetic_index++),
+                            lane_source);
+                    CoreIrValue *destination_element = create_element_address(
+                        block, result_address, target_type,
+                        static_cast<std::uint64_t>(lane), synthetic_index);
+                    if (lane_source == nullptr || lane_value == nullptr ||
+                        destination_element == nullptr) {
+                        return false;
+                    }
+                    block.create_instruction<CoreIrStoreInst>(
+                        void_type(), lane_value, destination_element);
+                }
+                return bind_stack_slot_result(result_name, result_slot, bindings);
+            }
+            if (source_array_type != nullptr && target_cast_array_type != nullptr &&
+                source_array_type->get_element_count() ==
+                    target_cast_array_type->get_element_count()) {
+                CoreIrValue *source_address =
+                    ensure_addressable_aggregate_typed_operand(
+                        source_type, spec.source_value, function, block,
+                        bindings, synthetic_index, line_number);
+                CoreIrStackSlot *result_slot =
+                    function.create_stack_slot<CoreIrStackSlot>(
+                        result_name.empty()
+                            ? "ll.vec.cast." + std::to_string(synthetic_index++)
+                            : result_name,
+                        target_type, get_storage_alignment(target_type));
+                CoreIrValue *result_address =
+                    materialize_stack_slot_address(block, result_slot,
+                                                   synthetic_index);
+                if (source_address == nullptr || result_address == nullptr) {
+                    return false;
+                }
+                for (std::size_t lane = 0;
+                     lane < source_array_type->get_element_count(); ++lane) {
+                    CoreIrValue *source_element = create_element_address(
+                        block, source_address, source_type,
+                        static_cast<std::uint64_t>(lane), synthetic_index);
+                    CoreIrValue *destination_element = create_element_address(
+                        block, result_address, target_type,
+                        static_cast<std::uint64_t>(lane), synthetic_index);
+                    if (source_element == nullptr ||
+                        destination_element == nullptr) {
+                        return false;
+                    }
+                    CoreIrValue *lane_source =
+                        block.create_instruction<CoreIrLoadInst>(
+                            source_array_type->get_element_type(),
+                            "ll.vec.cast.src." +
+                                std::to_string(synthetic_index++),
+                            source_element);
+                    CoreIrValue *lane_value =
+                        block.create_instruction<CoreIrCastInst>(
+                            kind, target_cast_array_type->get_element_type(),
+                            "ll.vec.cast.lane." +
+                                std::to_string(synthetic_index++),
+                            lane_source);
+                    block.create_instruction<CoreIrStoreInst>(
+                        void_type(), lane_value, destination_element);
+                }
+                return bind_stack_slot_result(result_name, result_slot, bindings);
             }
             CoreIrValue *operand = resolve_typed_value_operand(
                 source_type, spec.source_value, block, bindings,
@@ -5200,7 +6093,7 @@ class RestrictedLlvmIrImporter {
             return false;
         }
         if (instruction_kind == AArch64LlvmImportInstructionKind::Unary &&
-            opcode_text == "fneg") {
+            (opcode_text == "fneg" || opcode_text == "freeze")) {
             const std::optional<AArch64LlvmImportUnarySpec> unary_spec =
                 parse_llvm_import_unary_spec(instruction);
             if (!unary_spec.has_value()) {
@@ -5214,6 +6107,22 @@ class RestrictedLlvmIrImporter {
                 synthetic_index, line_number);
             if (type == nullptr || operand == nullptr) {
                 return false;
+            }
+            if (opcode_text == "freeze") {
+                if (!result_name.empty() &&
+                    unary_spec->operand.kind ==
+                        AArch64LlvmImportValueKind::Local) {
+                    const auto binding_it =
+                        bindings.find(unary_spec->operand.local_name);
+                    if (binding_it != bindings.end()) {
+                        bindings[result_name] = binding_it->second;
+                        return true;
+                    }
+                }
+                return result_name.empty()
+                           ? true
+                           : bind_instruction_result(result_name, operand,
+                                                     bindings);
             }
             if (const auto *array_type = as_array_type(type); array_type != nullptr) {
                 CoreIrValue *source_address = ensure_addressable_aggregate_typed_operand(
@@ -5394,9 +6303,27 @@ class RestrictedLlvmIrImporter {
                                                    bindings);
                 }
             }
-            const std::optional<CoreIrComparePredicate> predicate =
+            std::optional<CoreIrComparePredicate> predicate =
                 parse_compare_predicate(compare_spec->predicate_text,
                                         compare_spec->is_float_compare);
+            if (compare_spec->is_same_sign && predicate.has_value()) {
+                switch (*predicate) {
+                case CoreIrComparePredicate::UnsignedLess:
+                    predicate = CoreIrComparePredicate::SignedLess;
+                    break;
+                case CoreIrComparePredicate::UnsignedLessEqual:
+                    predicate = CoreIrComparePredicate::SignedLessEqual;
+                    break;
+                case CoreIrComparePredicate::UnsignedGreater:
+                    predicate = CoreIrComparePredicate::SignedGreater;
+                    break;
+                case CoreIrComparePredicate::UnsignedGreaterEqual:
+                    predicate = CoreIrComparePredicate::SignedGreaterEqual;
+                    break;
+                default:
+                    break;
+                }
+            }
             if (!predicate.has_value()) {
                 if (compare_spec->is_float_compare &&
                     (compare_spec->predicate_text == "uno" ||
@@ -5761,6 +6688,28 @@ class RestrictedLlvmIrImporter {
             }
             const CoreIrType *vector_type =
                 lower_import_type(extract_spec->vector_value.type);
+            if (is_i32x4_vector_type(vector_type)) {
+                const auto *core_vector_type =
+                    static_cast<const CoreIrVectorType *>(vector_type);
+                const CoreIrType *index_type =
+                    lower_import_type(extract_spec->index_value.type);
+                CoreIrValue *vector_value = resolve_typed_value_operand(
+                    vector_type, extract_spec->vector_value, block, bindings,
+                    synthetic_index, line_number);
+                CoreIrValue *index_value = resolve_typed_value_operand(
+                    index_type, extract_spec->index_value, block, bindings,
+                    synthetic_index, line_number);
+                if (index_type == nullptr || vector_value == nullptr ||
+                    index_value == nullptr) {
+                    return false;
+                }
+                return bind_instruction_result(
+                    result_name,
+                    block.create_instruction<CoreIrExtractElementInst>(
+                        core_vector_type->get_element_type(), result_name,
+                        vector_value, index_value),
+                    bindings);
+            }
             const auto *array_type = as_array_type(vector_type);
             const CoreIrType *index_type =
                 lower_import_type(extract_spec->index_value.type);
@@ -5803,6 +6752,32 @@ class RestrictedLlvmIrImporter {
             }
             const CoreIrType *vector_type =
                 lower_import_type(insert_spec->vector_value.type);
+            if (is_i32x4_vector_type(vector_type)) {
+                const CoreIrType *element_type =
+                    lower_import_type(insert_spec->element_value.type);
+                const CoreIrType *index_type =
+                    lower_import_type(insert_spec->index_value.type);
+                CoreIrValue *source_value = resolve_typed_value_operand(
+                    vector_type, insert_spec->vector_value, block, bindings,
+                    synthetic_index, line_number);
+                CoreIrValue *element_value = resolve_typed_value_operand(
+                    element_type, insert_spec->element_value, block,
+                    bindings, synthetic_index, line_number);
+                CoreIrValue *index_value = resolve_typed_value_operand(
+                    index_type, insert_spec->index_value, block, bindings,
+                    synthetic_index, line_number);
+                if (element_type == nullptr || index_type == nullptr ||
+                    source_value == nullptr || element_value == nullptr ||
+                    index_value == nullptr) {
+                    return false;
+                }
+                return bind_instruction_result(
+                    result_name,
+                    block.create_instruction<CoreIrInsertElementInst>(
+                        vector_type, result_name, source_value, element_value,
+                        index_value),
+                    bindings);
+            }
             const auto *array_type = as_array_type(vector_type);
             const CoreIrType *element_type =
                 lower_import_type(insert_spec->element_value.type);
@@ -5813,6 +6788,96 @@ class RestrictedLlvmIrImporter {
                 add_error("unsupported LLVM insertelement operand types: " + line,
                           line_number, 1);
                 return false;
+            }
+            if (is_i32x4_array_type(vector_type) &&
+                is_lane0_zero_seed_constant_typed_value(insert_spec->vector_value) &&
+                insert_spec->index_value.kind ==
+                    AArch64LlvmImportValueKind::Constant &&
+                insert_spec->index_value.constant.kind ==
+                    AArch64LlvmImportConstantKind::Integer &&
+                insert_spec->index_value.constant.integer_value == 0 &&
+                !result_name.empty()) {
+                CoreIrValue *element_value = resolve_typed_value_operand(
+                    element_type, insert_spec->element_value, block, bindings,
+                    synthetic_index, line_number);
+                if (element_value == nullptr) {
+                    return false;
+                }
+                ValueBinding binding;
+                binding.lane0_zero_insert_scalar = element_value;
+                binding.lane0_zero_insert_vector_type = vector_type;
+                bindings[result_name] = binding;
+                return true;
+            }
+            if (is_i32x4_array_type(vector_type) &&
+                insert_spec->index_value.kind ==
+                    AArch64LlvmImportValueKind::Constant &&
+                insert_spec->index_value.constant.kind ==
+                    AArch64LlvmImportConstantKind::Integer &&
+                insert_spec->index_value.constant.integer_value >= 0 &&
+                insert_spec->index_value.constant.integer_value < 4) {
+                const CoreIrType *ptr_type = parse_type_text("ptr");
+                CoreIrValue *source_address =
+                    ensure_addressable_aggregate_typed_operand(
+                        vector_type, insert_spec->vector_value, function,
+                        block, bindings, synthetic_index, line_number);
+                CoreIrValue *element_value = resolve_typed_value_operand(
+                    element_type, insert_spec->element_value, block,
+                    bindings, synthetic_index, line_number);
+                CoreIrStackSlot *result_slot =
+                    function.create_stack_slot<CoreIrStackSlot>(
+                        result_name.empty()
+                            ? "ll.vec.insert." +
+                                  std::to_string(synthetic_index++)
+                            : result_name,
+                        vector_type, get_storage_alignment(vector_type));
+                CoreIrValue *result_address =
+                    materialize_stack_slot_address(block, result_slot,
+                                                   synthetic_index);
+                if (ptr_type == nullptr || source_address == nullptr ||
+                    element_value == nullptr || result_address == nullptr) {
+                    return false;
+                }
+                const char *helper_name = nullptr;
+                switch (insert_spec->index_value.constant.integer_value) {
+                case 0:
+                    helper_name = kInlineInsertLane0V4I32;
+                    break;
+                case 1:
+                    helper_name = kInlineInsertLane1V4I32;
+                    break;
+                case 2:
+                    helper_name = kInlineInsertLane2V4I32;
+                    break;
+                case 3:
+                    helper_name = kInlineInsertLane3V4I32;
+                    break;
+                default:
+                    break;
+                }
+                if (helper_name == nullptr) {
+                    return false;
+                }
+                const CoreIrFunctionType *helper_type =
+                    context_->create_type<CoreIrFunctionType>(
+                        void_type(),
+                        std::vector<const CoreIrType *>{ptr_type, ptr_type,
+                                                        element_type},
+                        false);
+                CoreIrFunction *helper = nullptr;
+                if (auto callee_it = functions_.find(helper_name);
+                    callee_it != functions_.end()) {
+                    helper = callee_it->second;
+                } else {
+                    helper = module_->create_function<CoreIrFunction>(
+                        helper_name, helper_type, false, false);
+                    functions_[helper_name] = helper;
+                }
+                block.create_instruction<CoreIrCallInst>(
+                    void_type(), "", helper->get_name(), helper_type,
+                    std::vector<CoreIrValue *>{result_address, source_address,
+                                               element_value});
+                return bind_stack_slot_result(result_name, result_slot, bindings);
             }
             CoreIrValue *source_address = ensure_addressable_aggregate_typed_operand(
                 vector_type, insert_spec->vector_value, function,
@@ -5867,14 +6932,250 @@ class RestrictedLlvmIrImporter {
                 lower_import_type(shuffle_spec->rhs_value.type);
             const CoreIrType *mask_type =
                 lower_import_type(shuffle_spec->mask_value.type);
+            if (is_i32x4_vector_type(lhs_type) &&
+                is_i32x4_vector_type(rhs_type) &&
+                is_i32x4_vector_type(mask_type)) {
+                const CoreIrConstant *mask_constant =
+                    shuffle_spec->mask_value.kind ==
+                            AArch64LlvmImportValueKind::Constant
+                        ? lower_import_constant(mask_type,
+                                                shuffle_spec->mask_value.constant)
+                        : nullptr;
+                std::vector<const CoreIrConstant *> mask_lanes;
+                if (mask_constant == nullptr ||
+                    !expand_vector_constant_lanes(mask_type, mask_constant,
+                                                  mask_lanes) ||
+                    mask_lanes.size() != 4) {
+                    add_error("unsupported LLVM shufflevector mask: " + line,
+                              line_number, 1);
+                    return false;
+                }
+                bool only_lhs_lanes = true;
+                std::vector<CoreIrValue *> lowered_mask_lanes;
+                lowered_mask_lanes.reserve(mask_lanes.size());
+                for (const CoreIrConstant *lane : mask_lanes) {
+                    const auto *lane_int =
+                        dynamic_cast<const CoreIrConstantInt *>(lane);
+                    if (lane_int == nullptr || lane_int->get_value() >= 4) {
+                        only_lhs_lanes = false;
+                        break;
+                    }
+                    lowered_mask_lanes.push_back(
+                        const_cast<CoreIrConstant *>(lane));
+                }
+                if (!only_lhs_lanes) {
+                    add_error("unsupported non-lhs <4 x i32> shufflevector mask: " +
+                                  line,
+                              line_number, 1);
+                    return false;
+                }
+                CoreIrValue *lhs_value = resolve_typed_value_operand(
+                    lhs_type, shuffle_spec->lhs_value, block, bindings,
+                    synthetic_index, line_number);
+                CoreIrValue *rhs_value = resolve_typed_value_operand(
+                    rhs_type, shuffle_spec->rhs_value, block, bindings,
+                    synthetic_index, line_number);
+                if (lhs_value == nullptr || rhs_value == nullptr) {
+                    return false;
+                }
+                return bind_instruction_result(
+                    result_name,
+                    block.create_instruction<CoreIrShuffleVectorInst>(
+                        lhs_type, result_name, lhs_value, rhs_value,
+                        lowered_mask_lanes),
+                    bindings);
+            }
             const auto *lhs_array = as_array_type(lhs_type);
             const auto *rhs_array = as_array_type(rhs_type);
-            const auto *mask_array = as_array_type(mask_type);
-            if (lhs_array == nullptr || rhs_array == nullptr ||
-                mask_array == nullptr) {
+            const bool mask_is_native_v4i32 = is_i32x4_vector_type(mask_type);
+            const CoreIrConstant *mask_constant =
+                shuffle_spec->mask_value.kind == AArch64LlvmImportValueKind::Constant
+                    ? lower_import_constant(mask_type,
+                                            shuffle_spec->mask_value.constant)
+                    : nullptr;
+            std::vector<const CoreIrConstant *> mask_lanes;
+            if (!expand_vector_constant_lanes(mask_type, mask_constant, mask_lanes)) {
+                add_error("unsupported LLVM shufflevector mask: " + line,
+                          line_number, 1);
+                return false;
+            }
+            const bool is_lane0_splat_array =
+                lhs_array != nullptr && mask_is_native_v4i32 &&
+                is_zero_or_poison_constant_typed_value(shuffle_spec->rhs_value) &&
+                lhs_array->get_element_count() == mask_lanes.size() &&
+                std::all_of(mask_lanes.begin(), mask_lanes.end(),
+                            [](const CoreIrConstant *lane) {
+                                const auto *mask_element =
+                                    dynamic_cast<const CoreIrConstantInt *>(lane);
+                                return mask_element != nullptr &&
+                                       mask_element->get_value() == 0;
+                            });
+            if (is_lane0_splat_array && !is_i32x4_array_type(lhs_type)) {
+                CoreIrValue *lhs_address = ensure_addressable_aggregate_typed_operand(
+                    lhs_type, shuffle_spec->lhs_value, function, block,
+                    bindings, synthetic_index, line_number);
+                if (lhs_address == nullptr) {
+                    add_error("unsupported LLVM shufflevector operand types: " + line,
+                              line_number, 1);
+                    return false;
+                }
+                CoreIrValue *source_element = create_element_address(
+                    block, lhs_address, lhs_type, 0, synthetic_index);
+                if (source_element == nullptr) {
+                    return false;
+                }
+                CoreIrValue *lane_value = block.create_instruction<CoreIrLoadInst>(
+                    lhs_array->get_element_type(),
+                    "ll.vec.splat.load." + std::to_string(synthetic_index++),
+                    source_element);
+                CoreIrStackSlot *result_slot =
+                    function.create_stack_slot<CoreIrStackSlot>(
+                        result_name.empty()
+                            ? "ll.vec.splat." + std::to_string(synthetic_index++)
+                            : result_name,
+                        lhs_type, get_storage_alignment(lhs_type));
+                CoreIrValue *result_address =
+                    materialize_stack_slot_address(block, result_slot,
+                                                   synthetic_index);
+                if (lane_value == nullptr || result_address == nullptr) {
+                    return false;
+                }
+                for (std::size_t lane = 0; lane < lhs_array->get_element_count();
+                     ++lane) {
+                    CoreIrValue *destination_element = create_element_address(
+                        block, result_address, lhs_type,
+                        static_cast<std::uint64_t>(lane), synthetic_index);
+                    if (destination_element == nullptr) {
+                        return false;
+                    }
+                    block.create_instruction<CoreIrStoreInst>(
+                        void_type(), lane_value, destination_element);
+                }
+                return bind_stack_slot_result(result_name, result_slot, bindings);
+            }
+            if (lhs_array == nullptr || rhs_array == nullptr) {
                 add_error("unsupported LLVM shufflevector operand types: " + line,
                           line_number, 1);
                 return false;
+            }
+            if (mask_is_native_v4i32 &&
+                is_zero_or_poison_constant_typed_value(shuffle_spec->rhs_value)) {
+                const auto *lhs_element =
+                    as_integer_type(lhs_array->get_element_type());
+                if (lhs_element == nullptr || lhs_element->get_bit_width() != 32 ||
+                    mask_lanes.size() != 4) {
+                    add_error("unsupported LLVM shufflevector operand types: " + line,
+                              line_number, 1);
+                    return false;
+                }
+                CoreIrValue *lhs_address = ensure_addressable_aggregate_typed_operand(
+                    lhs_type, shuffle_spec->lhs_value, function, block,
+                    bindings, synthetic_index, line_number);
+                if (lhs_address == nullptr) {
+                    add_error("unsupported LLVM shufflevector operand types: " + line,
+                              line_number, 1);
+                    return false;
+                }
+                CoreIrValue *result_value =
+                    context_->create_constant<CoreIrConstantZeroInitializer>(
+                        mask_type);
+                for (std::size_t lane = 0; lane < mask_lanes.size(); ++lane) {
+                    const auto *mask_element =
+                        dynamic_cast<const CoreIrConstantInt *>(mask_lanes[lane]);
+                    if (mask_element == nullptr ||
+                        mask_element->get_value() >= lhs_array->get_element_count()) {
+                        add_error("unsupported LLVM shufflevector mask: " + line,
+                                  line_number, 1);
+                        return false;
+                    }
+                    CoreIrValue *source_element = create_element_address(
+                        block, lhs_address, lhs_type, mask_element->get_value(),
+                        synthetic_index);
+                    if (source_element == nullptr) {
+                        return false;
+                    }
+                    CoreIrValue *loaded = block.create_instruction<CoreIrLoadInst>(
+                        lhs_array->get_element_type(),
+                        "ll.vec.shuffle.load." +
+                            std::to_string(synthetic_index++),
+                        source_element);
+                    result_value = block.create_instruction<CoreIrInsertElementInst>(
+                        mask_type,
+                        "ll.vec.shuffle.insert." +
+                            std::to_string(synthetic_index++),
+                        result_value, loaded,
+                        get_i32_constant(static_cast<std::uint64_t>(lane)));
+                }
+                return bind_instruction_result(result_name, result_value, bindings);
+            }
+            const bool is_lane0_splat_v4i32 =
+                is_i32x4_array_type(lhs_type) &&
+                lhs_array->get_element_count() == mask_lanes.size() &&
+                std::all_of(mask_lanes.begin(), mask_lanes.end(),
+                            [](const CoreIrConstant *lane) {
+                                const auto *mask_element =
+                                    dynamic_cast<const CoreIrConstantInt *>(lane);
+                                return mask_element != nullptr &&
+                                       mask_element->get_value() == 0;
+                            });
+            if (is_lane0_splat_v4i32) {
+                if (shuffle_spec->lhs_value.kind == AArch64LlvmImportValueKind::Local) {
+                    if (auto it = bindings.find(shuffle_spec->lhs_value.local_name);
+                        it != bindings.end() &&
+                        ((it->second.lane0_splat_scalar != nullptr &&
+                          it->second.lane0_splat_vector_type == lhs_type) ||
+                         (it->second.lane0_zero_insert_scalar != nullptr &&
+                          it->second.lane0_zero_insert_vector_type == lhs_type))) {
+                        CoreIrValue *scalar_value =
+                            it->second.lane0_splat_scalar != nullptr
+                                ? it->second.lane0_splat_scalar
+                                : it->second.lane0_zero_insert_scalar;
+                        const CoreIrType *ptr_type = parse_type_text("ptr");
+                        if (ptr_type == nullptr) {
+                            return false;
+                        }
+                        ValueBinding binding;
+                        binding.lane0_splat_scalar = scalar_value;
+                        binding.lane0_splat_vector_type = lhs_type;
+                        bindings[result_name] = binding;
+                        return true;
+                    }
+                }
+                CoreIrValue *lhs_address = ensure_addressable_aggregate_typed_operand(
+                    lhs_type, shuffle_spec->lhs_value, function, block,
+                    bindings, synthetic_index, line_number);
+                const CoreIrType *ptr_type = parse_type_text("ptr");
+                if (ptr_type == nullptr) {
+                    return false;
+                }
+                CoreIrStackSlot *result_slot =
+                    function.create_stack_slot<CoreIrStackSlot>(
+                        result_name.empty()
+                            ? "ll.vec.splat." + std::to_string(synthetic_index++)
+                            : result_name,
+                        lhs_type, get_storage_alignment(lhs_type));
+                CoreIrValue *result_address = materialize_stack_slot_address(
+                    block, result_slot, synthetic_index);
+                if (result_address == nullptr) {
+                    return false;
+                }
+                const CoreIrFunctionType *helper_type =
+                    context_->create_type<CoreIrFunctionType>(
+                        void_type(), std::vector<const CoreIrType *>{ptr_type, ptr_type},
+                        false);
+                CoreIrFunction *helper = nullptr;
+                if (auto it = functions_.find(kInlineSplatLane0V4I32);
+                    it != functions_.end()) {
+                    helper = it->second;
+                } else {
+                    helper = module_->create_function<CoreIrFunction>(
+                        kInlineSplatLane0V4I32, helper_type, false, false);
+                    functions_[kInlineSplatLane0V4I32] = helper;
+                }
+                block.create_instruction<CoreIrCallInst>(
+                    void_type(), "", helper->get_name(), helper_type,
+                    std::vector<CoreIrValue *>{result_address, lhs_address});
+                return bind_stack_slot_result(result_name, result_slot, bindings);
             }
             CoreIrValue *lhs_address = ensure_addressable_aggregate_typed_operand(
                 lhs_type, shuffle_spec->lhs_value, function, block,
@@ -5882,16 +7183,8 @@ class RestrictedLlvmIrImporter {
             CoreIrValue *rhs_address = ensure_addressable_aggregate_typed_operand(
                 rhs_type, shuffle_spec->rhs_value, function, block,
                 bindings, synthetic_index, line_number);
-            const CoreIrConstant *mask_constant =
-                shuffle_spec->mask_value.kind == AArch64LlvmImportValueKind::Constant
-                    ? lower_import_constant(mask_type,
-                                            shuffle_spec->mask_value.constant)
-                    : nullptr;
-            std::vector<const CoreIrConstant *> mask_lanes;
-            if (lhs_address == nullptr || rhs_address == nullptr ||
-                !expand_vector_constant_lanes(mask_type, mask_constant,
-                                              mask_lanes)) {
-                add_error("unsupported LLVM shufflevector mask: " + line,
+            if (lhs_address == nullptr || rhs_address == nullptr) {
+                add_error("unsupported LLVM shufflevector operand types: " + line,
                           line_number, 1);
                 return false;
             }
@@ -5953,14 +7246,54 @@ class RestrictedLlvmIrImporter {
                 lower_import_type(reduce_spec->return_type);
             const CoreIrType *vector_type =
                 lower_import_type(reduce_spec->vector_value.type);
+            if (is_i32x4_vector_type(vector_type)) {
+                CoreIrValue *vector_value = resolve_typed_value_operand(
+                    vector_type, reduce_spec->vector_value, block, bindings,
+                    synthetic_index, line_number);
+                if (return_type == nullptr || vector_value == nullptr) {
+                    return false;
+                }
+                CoreIrValue *call_value =
+                    block.create_instruction<CoreIrVectorReduceAddInst>(
+                        return_type, result_name, vector_value);
+                return bind_instruction_result(result_name, call_value, bindings);
+            }
             const auto *array_type = as_array_type(vector_type);
-            CoreIrValue *vector_address = ensure_addressable_aggregate_typed_operand(
-                vector_type, reduce_spec->vector_value, function,
-                block, bindings, synthetic_index, line_number);
-            if (array_type == nullptr || vector_address == nullptr) {
+            if (array_type == nullptr) {
                 add_error("unsupported LLVM vector reduce operand: " + line,
                           line_number, 1);
                 return false;
+            }
+            CoreIrValue *vector_address = ensure_addressable_aggregate_typed_operand(
+                vector_type, reduce_spec->vector_value, function,
+                block, bindings, synthetic_index, line_number);
+            if (vector_address == nullptr) {
+                add_error("unsupported LLVM vector reduce operand: " + line,
+                          line_number, 1);
+                return false;
+            }
+            if (is_i32x4_array_type(vector_type)) {
+                const CoreIrType *ptr_type = parse_type_text("ptr");
+                if (ptr_type == nullptr) {
+                    return false;
+                }
+                const CoreIrFunctionType *helper_type =
+                    context_->create_type<CoreIrFunctionType>(
+                        return_type, std::vector<const CoreIrType *>{ptr_type},
+                        false);
+                CoreIrFunction *helper = nullptr;
+                if (auto it = functions_.find(kInlineReduceAddV4I32);
+                    it != functions_.end()) {
+                    helper = it->second;
+                } else {
+                    helper = module_->create_function<CoreIrFunction>(
+                        kInlineReduceAddV4I32, helper_type, false, false);
+                    functions_[kInlineReduceAddV4I32] = helper;
+                }
+                CoreIrValue *call_value = block.create_instruction<CoreIrCallInst>(
+                    return_type, result_name, helper->get_name(), helper_type,
+                    std::vector<CoreIrValue *>{vector_address});
+                return bind_instruction_result(result_name, call_value, bindings);
             }
             CoreIrValue *accumulator = nullptr;
             for (std::size_t lane = 0; lane < array_type->get_element_count(); ++lane) {
@@ -6230,6 +7563,49 @@ class RestrictedLlvmIrImporter {
                     return true;
                 }
             }
+            if (as_array_type(value_type) != nullptr) {
+                CoreIrValue *destination_address =
+                    address.stack_slot != nullptr
+                        ? materialize_stack_slot_address(block, address.stack_slot,
+                                                         synthetic_index)
+                        : address.address_value;
+                if (destination_address == nullptr) {
+                    return false;
+                }
+                if (store_spec->value.kind == AArch64LlvmImportValueKind::Constant) {
+                    const CoreIrConstant *constant =
+                        lower_import_constant(value_type, store_spec->value.constant);
+                    if (const auto *aggregate =
+                            dynamic_cast<const CoreIrConstantAggregate *>(constant);
+                        aggregate != nullptr) {
+                        return materialize_constant_aggregate_to_address(
+                            aggregate, value_type, destination_address, block,
+                            synthetic_index);
+                    }
+                    if (dynamic_cast<const CoreIrConstantZeroInitializer *>(
+                            constant) != nullptr) {
+                        return materialize_zero_initializer_to_address(
+                            value_type, destination_address, block,
+                            synthetic_index);
+                    }
+                }
+                if (try_materialize_special_aggregate_binding_to_address(
+                        value_type, store_spec->value, block, bindings,
+                        destination_address, line_number)) {
+                    return true;
+                }
+                CoreIrValue *source_address = ensure_addressable_aggregate_typed_operand(
+                    value_type, store_spec->value,
+                    function, block, bindings, synthetic_index, line_number);
+                if (source_address == nullptr ||
+                    !copy_aggregate_between_addresses(block, value_type,
+                                                     destination_address,
+                                                     source_address,
+                                                     synthetic_index)) {
+                    return false;
+                }
+                return true;
+            }
             CoreIrValue *value = resolve_typed_value_operand(
                 value_type, store_spec->value, block, bindings,
                 synthetic_index, line_number);
@@ -6238,24 +7614,6 @@ class RestrictedLlvmIrImporter {
                               describe_typed_operand(store_spec->value),
                           line_number, 1);
                 return false;
-            }
-            if (as_array_type(value_type) != nullptr) {
-                CoreIrValue *source_address = ensure_addressable_aggregate_typed_operand(
-                    value_type, store_spec->value,
-                    function, block, bindings, synthetic_index, line_number);
-                CoreIrValue *destination_address =
-                    address.stack_slot != nullptr
-                        ? materialize_stack_slot_address(block, address.stack_slot,
-                                                         synthetic_index)
-                        : address.address_value;
-                if (source_address == nullptr || destination_address == nullptr ||
-                    !copy_aggregate_between_addresses(block, value_type,
-                                                     destination_address,
-                                                     source_address,
-                                                     synthetic_index)) {
-                    return false;
-                }
-                return true;
             }
             if (address.stack_slot != nullptr) {
                 block.create_instruction<CoreIrStoreInst>(void_type(), value,
@@ -6808,39 +8166,79 @@ class RestrictedLlvmIrImporter {
             }
             std::vector<CoreIrValue *> arguments;
             std::vector<const CoreIrType *> argument_types;
+            std::vector<CoreIrValue *> aggregate_argument_addresses;
             for (const AArch64LlvmImportTypedValue &argument :
                  call_spec->arguments) {
                 const CoreIrType *argument_type =
                     lower_import_type(argument.type);
-                CoreIrValue *argument_value = resolve_typed_value_operand(
-                    argument_type, argument,
-                    block, bindings, synthetic_index, line_number);
-                if (argument_type == nullptr || argument_value == nullptr) {
+                if (argument_type == nullptr) {
                     add_error("unsupported LLVM call argument: " +
                                   argument.type_text + " " +
                                   describe_typed_operand(argument),
                               line_number, 1);
                     return false;
                 }
-                if (is_aggregate_type(argument_type) &&
-                    argument.kind == AArch64LlvmImportValueKind::Constant) {
-                    CoreIrValue *argument_address =
+                CoreIrValue *argument_value = nullptr;
+                CoreIrValue *aggregate_argument_address = nullptr;
+                if (is_aggregate_type(argument_type)) {
+                    aggregate_argument_address =
                         ensure_addressable_aggregate_typed_operand(
                             argument_type, argument, function, block, bindings,
                             synthetic_index, line_number);
-                    if (argument_address == nullptr) {
+                    if (aggregate_argument_address == nullptr) {
                         return false;
                     }
-                    argument_value = block.create_instruction<CoreIrLoadInst>(
-                        argument_type,
-                        "ll.call.arg.load." + std::to_string(synthetic_index++),
-                        argument_address);
+                } else {
+                    argument_value = resolve_typed_value_operand(
+                        argument_type, argument, block, bindings, synthetic_index,
+                        line_number);
+                }
+                if (!is_aggregate_type(argument_type) && argument_value == nullptr) {
+                    add_error("unsupported LLVM call argument: " +
+                                  argument.type_text + " " +
+                                  describe_typed_operand(argument),
+                              line_number, 1);
+                    return false;
                 }
                 arguments.push_back(argument_value);
                 argument_types.push_back(argument_type);
+                aggregate_argument_addresses.push_back(aggregate_argument_address);
             }
+            auto ensure_argument_value = [&](std::size_t index) -> CoreIrValue * {
+                if (index >= arguments.size()) {
+                    return nullptr;
+                }
+                if (arguments[index] != nullptr) {
+                    return arguments[index];
+                }
+                if (aggregate_argument_addresses[index] == nullptr ||
+                    argument_types[index] == nullptr) {
+                    return nullptr;
+                }
+                arguments[index] = block.create_instruction<CoreIrLoadInst>(
+                    argument_types[index],
+                    "ll.call.arg.load." + std::to_string(synthetic_index++),
+                    aggregate_argument_addresses[index]);
+                return arguments[index];
+            };
+            auto ensure_argument_prefix = [&](std::size_t count) -> bool {
+                if (count > arguments.size()) {
+                    return false;
+                }
+                for (std::size_t index = 0; index < count; ++index) {
+                    if (ensure_argument_value(index) == nullptr) {
+                        return false;
+                    }
+                }
+                return true;
+            };
             if (call_spec->callee.kind == AArch64LlvmImportValueKind::Global &&
                 call_spec->callee.global_name.rfind("llvm.is.fpclass.", 0) == 0) {
+                if (!ensure_argument_prefix(arguments.size())) {
+                    add_error("unsupported llvm.is.fpclass call shape: " + line,
+                              line_number, 1);
+                    return false;
+                }
                 const CoreIrType *i1_type = parse_type_text("i1");
                 const CoreIrType *i32_type = parse_type_text("i32");
                 const auto *operand_float =
@@ -8068,6 +9466,11 @@ class RestrictedLlvmIrImporter {
                     [&](const std::string &runtime_name,
                         std::size_t expected_minimum_arguments,
                         std::size_t used_argument_count) -> bool {
+                    if (!ensure_argument_prefix(used_argument_count)) {
+                        add_error("unsupported LLVM intrinsic call shape: " + line,
+                                  line_number, 1);
+                        return false;
+                    }
                     if (arguments.size() < expected_minimum_arguments ||
                         argument_types.size() < expected_minimum_arguments) {
                         add_error("unsupported LLVM intrinsic call shape: " + line,
@@ -8092,6 +9495,597 @@ class RestrictedLlvmIrImporter {
                                : bind_instruction_result(result_name, call_value,
                                                          bindings);
                 };
+                auto lower_scalar_extremum =
+                    [&](CoreIrComparePredicate predicate) -> bool {
+                        if (arguments.size() != 2 || argument_types.size() != 2 ||
+                            argument_types[0] != return_type ||
+                            argument_types[1] != return_type) {
+                            add_error("unsupported LLVM extremum call shape: " +
+                                          line,
+                                      line_number, 1);
+                            return false;
+                        }
+                        const CoreIrType *i1_type = parse_type_text("i1");
+                        if (i1_type == nullptr) {
+                            return false;
+                        }
+                        CoreIrValue *compare = block.create_instruction<
+                            CoreIrCompareInst>(
+                            predicate, i1_type,
+                            "ll.extremum.cmp." + std::to_string(synthetic_index++),
+                            arguments[0], arguments[1]);
+                        CoreIrValue *value = block.create_instruction<
+                            CoreIrSelectInst>(
+                            return_type,
+                            result_name.empty()
+                                ? "ll.extremum.sel." +
+                                      std::to_string(synthetic_index++)
+                                : result_name,
+                            compare, arguments[0], arguments[1]);
+                        return result_name.empty()
+                                   ? true
+                                   : bind_instruction_result(result_name, value,
+                                                             bindings);
+                    };
+                auto get_or_create_direct_call_decl =
+                    [&](const std::string &name,
+                        const CoreIrFunctionType *function_type)
+                    -> CoreIrFunction * {
+                        if (auto callee_it = functions_.find(name);
+                            callee_it != functions_.end()) {
+                            return callee_it->second;
+                        }
+                        CoreIrFunction *callee = module_->create_function<CoreIrFunction>(
+                            name, function_type, false, false);
+                        functions_[name] = callee;
+                        return callee;
+                    };
+                auto lower_inline_v4i32_extremum_helper =
+                    [&](const std::string &helper_name) -> bool {
+                        if (!is_i32x4_array_type(return_type) ||
+                            arguments.size() != 2 || argument_types.size() != 2 ||
+                            argument_types[0] != return_type ||
+                            argument_types[1] != return_type) {
+                            return false;
+                        }
+                        const CoreIrType *ptr_type = parse_type_text("ptr");
+                        if (ptr_type == nullptr) {
+                            return false;
+                        }
+                        CoreIrValue *lhs_address =
+                            ensure_addressable_aggregate_typed_operand(
+                                return_type, call_spec->arguments[0], function,
+                                block, bindings, synthetic_index, line_number);
+                        CoreIrValue *rhs_address =
+                            ensure_addressable_aggregate_typed_operand(
+                                return_type, call_spec->arguments[1], function,
+                                block, bindings, synthetic_index, line_number);
+                        CoreIrStackSlot *result_slot =
+                            function.create_stack_slot<CoreIrStackSlot>(
+                                result_name.empty()
+                                    ? "ll.inline.extremum.vec." +
+                                          std::to_string(synthetic_index++)
+                                    : result_name,
+                                return_type, get_storage_alignment(return_type));
+                        CoreIrValue *result_address =
+                            materialize_stack_slot_address(block, result_slot,
+                                                           synthetic_index);
+                        if (lhs_address == nullptr || rhs_address == nullptr ||
+                            result_address == nullptr) {
+                            return false;
+                        }
+                        const CoreIrFunctionType *helper_type =
+                            context_->create_type<CoreIrFunctionType>(
+                                void_type(),
+                                std::vector<const CoreIrType *>{ptr_type, ptr_type,
+                                                                ptr_type},
+                                false);
+                        CoreIrFunction *helper =
+                            get_or_create_direct_call_decl(helper_name, helper_type);
+                        block.create_instruction<CoreIrCallInst>(
+                            void_type(), "", helper->get_name(), helper_type,
+                            std::vector<CoreIrValue *>{result_address, lhs_address,
+                                                       rhs_address});
+                        return bind_stack_slot_result(result_name, result_slot,
+                                                      bindings);
+                    };
+                auto lower_native_v4i32_call =
+                    [&](const std::string &helper_name) -> bool {
+                        if (!is_i32x4_vector_type(return_type) ||
+                            arguments.size() != 2 || argument_types.size() != 2 ||
+                            argument_types[0] != return_type ||
+                            argument_types[1] != return_type) {
+                            return false;
+                        }
+                        const CoreIrFunctionType *helper_type =
+                            context_->create_type<CoreIrFunctionType>(
+                                return_type,
+                                std::vector<const CoreIrType *>{return_type,
+                                                                return_type},
+                                false);
+                        CoreIrFunction *helper =
+                            get_or_create_direct_call_decl(helper_name, helper_type);
+                        CoreIrValue *call_value =
+                            block.create_instruction<CoreIrCallInst>(
+                                return_type, result_name, helper->get_name(),
+                                helper_type, arguments);
+                        return result_name.empty()
+                                   ? true
+                                   : bind_instruction_result(result_name,
+                                                             call_value,
+                                                             bindings);
+                    };
+                auto lower_inline_v4i32_binary_helper =
+                    [&](const std::string &helper_name) -> bool {
+                        if (!is_i32x4_array_type(return_type) ||
+                            arguments.size() != 2 || argument_types.size() != 2 ||
+                            argument_types[0] != return_type ||
+                            argument_types[1] != return_type) {
+                            return false;
+                        }
+                        const CoreIrType *ptr_type = parse_type_text("ptr");
+                        if (ptr_type == nullptr) {
+                            return false;
+                        }
+                        CoreIrValue *lhs_splat_scalar =
+                            find_lane0_splat_scalar_binding(
+                                return_type, call_spec->arguments[0], bindings);
+                        CoreIrValue *rhs_splat_scalar =
+                            find_lane0_splat_scalar_binding(
+                                return_type, call_spec->arguments[1], bindings);
+                        if (lhs_splat_scalar != nullptr &&
+                            rhs_splat_scalar != nullptr) {
+                            lhs_splat_scalar = nullptr;
+                            rhs_splat_scalar = nullptr;
+                        }
+                        CoreIrValue *lhs_address =
+                            lhs_splat_scalar == nullptr
+                                ? ensure_addressable_aggregate_typed_operand(
+                                      return_type, call_spec->arguments[0], function,
+                                      block, bindings, synthetic_index, line_number)
+                                : nullptr;
+                        CoreIrValue *rhs_address =
+                            rhs_splat_scalar == nullptr
+                                ? ensure_addressable_aggregate_typed_operand(
+                                      return_type, call_spec->arguments[1], function,
+                                      block, bindings, synthetic_index, line_number)
+                                : nullptr;
+                        if ((lhs_splat_scalar == nullptr && lhs_address == nullptr) ||
+                            (rhs_splat_scalar == nullptr && rhs_address == nullptr)) {
+                            return false;
+                        }
+                        if (!result_name.empty()) {
+                            ValueBinding binding;
+                            if (helper_name == kInlineVecMulV4I32) {
+                                binding.deferred_vector_pair_kind =
+                                    ValueBinding::DeferredVectorPairKind::Mul;
+                                binding.deferred_vector_lhs_address = lhs_address;
+                                binding.deferred_vector_rhs_address = rhs_address;
+                            } else {
+                                binding.deferred_vector_pair_kind =
+                                    ValueBinding::DeferredVectorPairKind::Add;
+                            }
+                            binding.deferred_vector_lhs_address = lhs_address;
+                            binding.deferred_vector_rhs_address = rhs_address;
+                            binding.deferred_vector_lhs_splat_scalar =
+                                lhs_splat_scalar;
+                            binding.deferred_vector_rhs_splat_scalar =
+                                rhs_splat_scalar;
+                            binding.deferred_vector_pair_type = return_type;
+                            bindings[result_name] = binding;
+                            return true;
+                        }
+                        std::vector<const CoreIrType *> helper_argument_types{ptr_type};
+                        std::vector<CoreIrValue *> helper_arguments;
+                        CoreIrStackSlot *result_slot =
+                            function.create_stack_slot<CoreIrStackSlot>(
+                                "ll.inline.binary.vec." +
+                                    std::to_string(synthetic_index++),
+                                return_type, get_storage_alignment(return_type));
+                        CoreIrValue *result_address =
+                            materialize_stack_slot_address(block, result_slot,
+                                                           synthetic_index);
+                        if (result_address == nullptr) {
+                            return false;
+                        }
+                        helper_arguments.push_back(result_address);
+                        std::string direct_helper_name = helper_name;
+                        if (lhs_splat_scalar != nullptr &&
+                            rhs_address != nullptr) {
+                            direct_helper_name =
+                                helper_name == kInlineVecMulV4I32
+                                    ? kInlineVecMulV4I32SplatLhs
+                                    : kInlineVecAddV4I32SplatLhs;
+                            helper_argument_types.push_back(
+                                lhs_splat_scalar->get_type());
+                            helper_argument_types.push_back(ptr_type);
+                            helper_arguments.push_back(lhs_splat_scalar);
+                            helper_arguments.push_back(rhs_address);
+                        } else if (rhs_splat_scalar != nullptr &&
+                                   lhs_address != nullptr) {
+                            direct_helper_name =
+                                helper_name == kInlineVecMulV4I32
+                                    ? kInlineVecMulV4I32SplatRhs
+                                    : kInlineVecAddV4I32SplatRhs;
+                            helper_argument_types.push_back(ptr_type);
+                            helper_argument_types.push_back(
+                                rhs_splat_scalar->get_type());
+                            helper_arguments.push_back(lhs_address);
+                            helper_arguments.push_back(rhs_splat_scalar);
+                        } else {
+                            helper_argument_types.push_back(ptr_type);
+                            helper_argument_types.push_back(ptr_type);
+                            helper_arguments.push_back(lhs_address);
+                            helper_arguments.push_back(rhs_address);
+                        }
+                        const CoreIrFunctionType *helper_type =
+                            context_->create_type<CoreIrFunctionType>(
+                                void_type(), helper_argument_types, false);
+                        CoreIrFunction *helper =
+                            get_or_create_direct_call_decl(direct_helper_name,
+                                                           helper_type);
+                        block.create_instruction<CoreIrCallInst>(
+                            void_type(), "", helper->get_name(), helper_type,
+                            helper_arguments);
+                        return true;
+                    };
+                auto lower_inline_v4i32_reduce_helper =
+                    [&](const std::string &helper_name) -> bool {
+                        if (arguments.size() != 1 || argument_types.size() != 1) {
+                            return false;
+                        }
+                        if (is_i32x4_vector_type(argument_types.front())) {
+                            const CoreIrFunctionType *helper_type =
+                                context_->create_type<CoreIrFunctionType>(
+                                    return_type,
+                                    std::vector<const CoreIrType *>{
+                                        argument_types.front()},
+                                    false);
+                            CoreIrFunction *helper =
+                                get_or_create_direct_call_decl(helper_name, helper_type);
+                            CoreIrValue *call_value =
+                                block.create_instruction<CoreIrCallInst>(
+                                    return_type, result_name, helper->get_name(),
+                                    helper_type, arguments);
+                            return result_name.empty()
+                                       ? true
+                                       : bind_instruction_result(result_name,
+                                                                 call_value, bindings);
+                        }
+                        if (!is_i32x4_array_type(argument_types.front())) {
+                            return false;
+                        }
+                        const CoreIrType *ptr_type = parse_type_text("ptr");
+                        if (ptr_type == nullptr) {
+                            return false;
+                        }
+                        CoreIrValue *vector_address =
+                            ensure_addressable_aggregate_typed_operand(
+                                argument_types.front(), call_spec->arguments.front(),
+                                function, block, bindings, synthetic_index,
+                                line_number);
+                        if (vector_address == nullptr) {
+                            return false;
+                        }
+                        const CoreIrFunctionType *helper_type =
+                            context_->create_type<CoreIrFunctionType>(
+                                return_type,
+                                std::vector<const CoreIrType *>{ptr_type}, false);
+                        CoreIrFunction *helper =
+                            get_or_create_direct_call_decl(helper_name, helper_type);
+                        CoreIrValue *call_value = block.create_instruction<
+                            CoreIrCallInst>(
+                            return_type, result_name, helper->get_name(),
+                            helper_type, std::vector<CoreIrValue *>{vector_address});
+                        return result_name.empty()
+                                   ? true
+                                   : bind_instruction_result(result_name,
+                                                             call_value, bindings);
+                    };
+                auto lower_vector_extremum =
+                    [&](CoreIrComparePredicate predicate) -> bool {
+                        const auto *array_type = as_array_type(return_type);
+                        if (arguments.size() != 2 || argument_types.size() != 2 ||
+                            array_type == nullptr || argument_types[0] != return_type ||
+                            argument_types[1] != return_type) {
+                            add_error("unsupported LLVM vector extremum call shape: " +
+                                          line,
+                                      line_number, 1);
+                            return false;
+                        }
+                        CoreIrValue *lhs_address =
+                            ensure_addressable_aggregate_typed_operand(
+                                return_type, call_spec->arguments[0], function,
+                                block, bindings, synthetic_index, line_number);
+                        CoreIrValue *rhs_address =
+                            ensure_addressable_aggregate_typed_operand(
+                                return_type, call_spec->arguments[1], function,
+                                block, bindings, synthetic_index, line_number);
+                        CoreIrStackSlot *result_slot =
+                            function.create_stack_slot<CoreIrStackSlot>(
+                                result_name.empty()
+                                    ? "ll.extremum.vec." +
+                                          std::to_string(synthetic_index++)
+                                    : result_name,
+                                return_type, get_storage_alignment(return_type));
+                        CoreIrValue *result_address =
+                            materialize_stack_slot_address(block, result_slot,
+                                                           synthetic_index);
+                        const CoreIrType *i1_type = parse_type_text("i1");
+                        if (lhs_address == nullptr || rhs_address == nullptr ||
+                            result_address == nullptr || i1_type == nullptr) {
+                            return false;
+                        }
+                        for (std::size_t lane = 0;
+                             lane < array_type->get_element_count(); ++lane) {
+                            CoreIrValue *lhs_element_address = create_element_address(
+                                block, lhs_address, return_type,
+                                static_cast<std::uint64_t>(lane),
+                                synthetic_index);
+                            CoreIrValue *rhs_element_address = create_element_address(
+                                block, rhs_address, return_type,
+                                static_cast<std::uint64_t>(lane),
+                                synthetic_index);
+                            CoreIrValue *result_element_address =
+                                create_element_address(
+                                    block, result_address, return_type,
+                                    static_cast<std::uint64_t>(lane),
+                                    synthetic_index);
+                            if (lhs_element_address == nullptr ||
+                                rhs_element_address == nullptr ||
+                                result_element_address == nullptr) {
+                                return false;
+                            }
+                            CoreIrValue *lhs_value =
+                                block.create_instruction<CoreIrLoadInst>(
+                                    array_type->get_element_type(),
+                                    "ll.extremum.lhs." +
+                                        std::to_string(synthetic_index++),
+                                    lhs_element_address);
+                            CoreIrValue *rhs_value =
+                                block.create_instruction<CoreIrLoadInst>(
+                                    array_type->get_element_type(),
+                                    "ll.extremum.rhs." +
+                                        std::to_string(synthetic_index++),
+                                    rhs_element_address);
+                            CoreIrValue *compare =
+                                block.create_instruction<CoreIrCompareInst>(
+                                    predicate, i1_type,
+                                    "ll.extremum.cmp." +
+                                        std::to_string(synthetic_index++),
+                                    lhs_value, rhs_value);
+                            CoreIrValue *selected =
+                                block.create_instruction<CoreIrSelectInst>(
+                                    array_type->get_element_type(),
+                                    "ll.extremum.sel." +
+                                        std::to_string(synthetic_index++),
+                                    compare, lhs_value, rhs_value);
+                            block.create_instruction<CoreIrStoreInst>(
+                                void_type(), selected, result_element_address);
+                        }
+                        return bind_stack_slot_result(result_name, result_slot,
+                                                      bindings);
+                    };
+                auto lower_vector_reduce =
+                    [&](CoreIrBinaryOpcode opcode,
+                        std::optional<CoreIrComparePredicate> predicate,
+                        std::size_t vector_argument_index,
+                        std::optional<std::size_t> initial_argument_index)
+                    -> bool {
+                        if (arguments.size() <= vector_argument_index ||
+                            argument_types.size() <= vector_argument_index) {
+                            add_error("unsupported LLVM vector reduction call shape: " +
+                                          line,
+                                      line_number, 1);
+                            return false;
+                        }
+                        const CoreIrType *vector_type =
+                            argument_types[vector_argument_index];
+                        const auto *array_type = as_array_type(vector_type);
+                        if (array_type == nullptr) {
+                            add_error("unsupported LLVM vector reduction operand: " +
+                                          line,
+                                      line_number, 1);
+                            return false;
+                        }
+                        if (!predicate.has_value() &&
+                            !initial_argument_index.has_value() &&
+                            opcode == CoreIrBinaryOpcode::Add &&
+                            is_i32x4_array_type(vector_type)) {
+                            const CoreIrType *ptr_type = parse_type_text("ptr");
+                            if (ptr_type == nullptr) {
+                                return false;
+                            }
+                            CoreIrValue *vector_address =
+                                ensure_addressable_aggregate_typed_operand(
+                                    vector_type,
+                                    call_spec->arguments[vector_argument_index],
+                                    function, block, bindings, synthetic_index,
+                                    line_number);
+                            if (vector_address == nullptr) {
+                                return false;
+                            }
+                            const CoreIrFunctionType *helper_type =
+                                context_->create_type<CoreIrFunctionType>(
+                                    return_type,
+                                    std::vector<const CoreIrType *>{ptr_type},
+                                    false);
+                            CoreIrFunction *helper =
+                                get_or_create_direct_call_decl(
+                                    kInlineReduceAddV4I32, helper_type);
+                            CoreIrValue *call_value =
+                                block.create_instruction<CoreIrCallInst>(
+                                    return_type, result_name,
+                                    helper->get_name(), helper_type,
+                                    std::vector<CoreIrValue *>{vector_address});
+                            return result_name.empty()
+                                       ? true
+                                       : bind_instruction_result(result_name,
+                                                                 call_value,
+                                                                 bindings);
+                        }
+                        CoreIrValue *vector_address =
+                            ensure_addressable_aggregate_typed_operand(
+                                vector_type,
+                                call_spec->arguments[vector_argument_index],
+                                function, block, bindings, synthetic_index,
+                                line_number);
+                        if (vector_address == nullptr) {
+                            return false;
+                        }
+                        CoreIrValue *accumulator = nullptr;
+                        if (initial_argument_index.has_value()) {
+                            if (arguments.size() <= *initial_argument_index ||
+                                argument_types.size() <= *initial_argument_index ||
+                                argument_types[*initial_argument_index] !=
+                                    return_type) {
+                                add_error(
+                                    "unsupported LLVM vector reduction initial value: " +
+                                        line,
+                                    line_number, 1);
+                                return false;
+                            }
+                            accumulator = arguments[*initial_argument_index];
+                        }
+                        const CoreIrType *i1_type = predicate.has_value()
+                                                        ? parse_type_text("i1")
+                                                        : nullptr;
+                        if (predicate.has_value() && i1_type == nullptr) {
+                            return false;
+                        }
+                        for (std::size_t lane = 0;
+                             lane < array_type->get_element_count(); ++lane) {
+                            CoreIrValue *element_address = create_element_address(
+                                block, vector_address, vector_type,
+                                static_cast<std::uint64_t>(lane),
+                                synthetic_index);
+                            if (element_address == nullptr) {
+                                return false;
+                            }
+                            CoreIrValue *element_value =
+                                block.create_instruction<CoreIrLoadInst>(
+                                    array_type->get_element_type(),
+                                    "ll.vec.reduce.load." +
+                                        std::to_string(synthetic_index++),
+                                    element_address);
+                            if (accumulator == nullptr) {
+                                accumulator = element_value;
+                                continue;
+                            }
+                            if (predicate.has_value()) {
+                                CoreIrValue *compare =
+                                    block.create_instruction<CoreIrCompareInst>(
+                                        *predicate, i1_type,
+                                        "ll.vec.reduce.cmp." +
+                                            std::to_string(synthetic_index++),
+                                        accumulator, element_value);
+                                accumulator =
+                                    block.create_instruction<CoreIrSelectInst>(
+                                        return_type,
+                                        "ll.vec.reduce.sel." +
+                                            std::to_string(synthetic_index++),
+                                        compare, accumulator, element_value);
+                            } else {
+                                accumulator =
+                                    block.create_instruction<CoreIrBinaryInst>(
+                                        opcode, return_type,
+                                        "ll.vec.reduce.bin." +
+                                            std::to_string(synthetic_index++),
+                                        accumulator, element_value);
+                            }
+                        }
+                        if (accumulator == nullptr) {
+                            add_error("unsupported empty LLVM vector reduction: " +
+                                          line,
+                                      line_number, 1);
+                            return false;
+                        }
+                        return result_name.empty()
+                                   ? true
+                                   : bind_instruction_result(result_name,
+                                                             accumulator,
+                                                             bindings);
+                    };
+                if (callee_name.rfind("llvm.lifetime.start", 0) == 0 ||
+                    callee_name.rfind("llvm.lifetime.end", 0) == 0) {
+                    return true;
+                }
+                if (callee_name.rfind("llvm.smax.", 0) == 0) {
+                    if (is_i32x4_vector_type(return_type)) {
+                        return lower_native_v4i32_call(kInlineVecSmaxV4I32);
+                    }
+                    return as_array_type(return_type) != nullptr
+                               ? (lower_inline_v4i32_extremum_helper(
+                                      kInlineVecSmaxV4I32) ||
+                                  lower_vector_extremum(
+                                      CoreIrComparePredicate::SignedGreater))
+                               : lower_scalar_extremum(
+                                     CoreIrComparePredicate::SignedGreater);
+                }
+                if (callee_name.rfind("llvm.smin.", 0) == 0) {
+                    if (is_i32x4_vector_type(return_type)) {
+                        return lower_native_v4i32_call(kInlineVecSminV4I32);
+                    }
+                    return as_array_type(return_type) != nullptr
+                               ? (lower_inline_v4i32_extremum_helper(
+                                      kInlineVecSminV4I32) ||
+                                  lower_vector_extremum(
+                                      CoreIrComparePredicate::SignedLess))
+                               : lower_scalar_extremum(
+                                     CoreIrComparePredicate::SignedLess);
+                }
+                if (callee_name.rfind("llvm.umax.", 0) == 0) {
+                    return as_array_type(return_type) != nullptr
+                               ? lower_vector_extremum(
+                                     CoreIrComparePredicate::UnsignedGreater)
+                               : lower_scalar_extremum(
+                                     CoreIrComparePredicate::UnsignedGreater);
+                }
+                if (callee_name.rfind("llvm.umin.", 0) == 0) {
+                    return as_array_type(return_type) != nullptr
+                               ? lower_vector_extremum(
+                                     CoreIrComparePredicate::UnsignedLess)
+                               : lower_scalar_extremum(
+                                     CoreIrComparePredicate::UnsignedLess);
+                }
+                if (callee_name.rfind("llvm.vector.reduce.fadd.", 0) == 0) {
+                    return lower_vector_reduce(CoreIrBinaryOpcode::Add,
+                                               std::nullopt, 1, 0);
+                }
+                if (callee_name.rfind("llvm.vector.reduce.add.", 0) == 0) {
+                    return lower_inline_v4i32_reduce_helper(
+                               kInlineReduceAddV4I32) ||
+                           lower_vector_reduce(CoreIrBinaryOpcode::Add,
+                                               std::nullopt, 0, std::nullopt);
+                }
+                if (callee_name.rfind("llvm.vector.reduce.smax.", 0) == 0) {
+                    return lower_inline_v4i32_reduce_helper(
+                               kInlineReduceSmaxV4I32) ||
+                           lower_vector_reduce(
+                               CoreIrBinaryOpcode::Add,
+                               CoreIrComparePredicate::SignedGreater, 0,
+                               std::nullopt);
+                }
+                if (callee_name.rfind("llvm.vector.reduce.smin.", 0) == 0) {
+                    return lower_inline_v4i32_reduce_helper(
+                               kInlineReduceSminV4I32) ||
+                           lower_vector_reduce(
+                               CoreIrBinaryOpcode::Add,
+                               CoreIrComparePredicate::SignedLess, 0,
+                               std::nullopt);
+                }
+                if (callee_name.rfind("llvm.vector.reduce.umax.", 0) == 0) {
+                    return lower_vector_reduce(
+                        CoreIrBinaryOpcode::Add,
+                        CoreIrComparePredicate::UnsignedGreater, 0,
+                        std::nullopt);
+                }
+                if (callee_name.rfind("llvm.vector.reduce.umin.", 0) == 0) {
+                    return lower_vector_reduce(
+                        CoreIrBinaryOpcode::Add,
+                        CoreIrComparePredicate::UnsignedLess, 0,
+                        std::nullopt);
+                }
                 if (callee_name.rfind("llvm.memcpy.", 0) == 0) {
                     return lower_memory_intrinsic_call("memcpy", 4, 3);
                 }
@@ -8103,6 +10097,11 @@ class RestrictedLlvmIrImporter {
                 }
             }
             if (call_spec->callee.kind == AArch64LlvmImportValueKind::Global) {
+                if (!ensure_argument_prefix(arguments.size())) {
+                    add_error("unsupported LLVM direct call arguments: " + line,
+                              line_number, 1);
+                    return false;
+                }
                 const std::string &callee_name = call_spec->callee.global_name;
                 CoreIrFunction *callee = nullptr;
                 if (auto callee_it = functions_.find(callee_name);
@@ -8133,6 +10132,11 @@ class RestrictedLlvmIrImporter {
                           line_number, 1);
                 return false;
             }
+            if (!ensure_argument_prefix(arguments.size())) {
+                add_error("unsupported LLVM indirect call arguments: " + line,
+                          line_number, 1);
+                return false;
+            }
             CoreIrValue *callee_value = resolve_typed_value_operand(
                 pointer_to(callee_type), call_spec->callee, block, bindings,
                 synthetic_index, line_number);
@@ -8160,6 +10164,42 @@ class RestrictedLlvmIrImporter {
                 add_error("unsupported LLVM phi type: " + phi_spec->type_text,
                           line_number, 1);
                 return false;
+            }
+            if (is_aggregate_type(type)) {
+                CoreIrPhiInst *phi_address =
+                    block.create_instruction<CoreIrPhiInst>(
+                        pointer_to(type),
+                        result_name.empty()
+                            ? "ll.agg.phi.addr." +
+                                  std::to_string(synthetic_index++)
+                            : result_name + ".addr");
+                if (!bind_aggregate_address_result(result_name, phi_address,
+                                                  bindings)) {
+                    return false;
+                }
+                for (const AArch64LlvmImportPhiIncoming &incoming :
+                     phi_spec->incoming_values) {
+                    auto block_it = block_map.find(incoming.block_label);
+                    if (block_it == block_map.end() &&
+                        incoming.block_label == "1") {
+                        block_it = block_map.find("0");
+                    }
+                    if (block_it == block_map.end()) {
+                        add_error("unsupported LLVM phi incoming block: " +
+                                      incoming.block_label,
+                                  line_number, 1);
+                        return false;
+                    }
+                    PendingAggregatePhiIncoming pending_incoming;
+                    pending_incoming.phi = phi_address;
+                    pending_incoming.incoming_block = block_it->second;
+                    pending_incoming.type = type;
+                    pending_incoming.value = incoming.value;
+                    pending_incoming.line_number = line_number;
+                    pending_aggregate_phi_incomings.push_back(
+                        std::move(pending_incoming));
+                }
+                return true;
             }
             CoreIrPhiInst *phi =
                 block.create_instruction<CoreIrPhiInst>(type, result_name);
@@ -8731,23 +10771,246 @@ class RestrictedLlvmIrImporter {
 
         std::size_t synthetic_index = 0;
         std::vector<PendingPhiIncoming> pending_phi_incomings;
-        for (const AArch64LlvmImportBasicBlock &record : pending.basic_blocks) {
-            CoreIrBasicBlock *current_block = block_map.at(record.label);
+        std::vector<PendingAggregatePhiIncoming> pending_aggregate_phi_incomings;
+        const auto compute_lowering_block_order =
+            [&](const PendingFunctionDefinition &pending_definition) {
+                std::vector<const AArch64LlvmImportBasicBlock *> ordered_blocks;
+                ordered_blocks.reserve(pending_definition.basic_blocks.size());
+                if (pending_definition.basic_blocks.size() <= 1) {
+                    for (const AArch64LlvmImportBasicBlock &block :
+                         pending_definition.basic_blocks) {
+                        ordered_blocks.push_back(&block);
+                    }
+                    return ordered_blocks;
+                }
+
+                std::unordered_map<std::string, std::size_t> label_to_index;
+                label_to_index.reserve(pending_definition.basic_blocks.size());
+                for (std::size_t index = 0;
+                     index < pending_definition.basic_blocks.size(); ++index) {
+                    label_to_index.emplace(
+                        pending_definition.basic_blocks[index].label, index);
+                }
+
+                std::vector<std::vector<std::size_t>> successors(
+                    pending_definition.basic_blocks.size());
+                std::vector<std::vector<std::size_t>> predecessors(
+                    pending_definition.basic_blocks.size());
+                const auto add_edge = [&](std::size_t source_index,
+                                          const std::string &target_label) {
+                    const auto it = label_to_index.find(target_label);
+                    if (it == label_to_index.end()) {
+                        return;
+                    }
+                    successors[source_index].push_back(it->second);
+                    predecessors[it->second].push_back(source_index);
+                };
+
+                for (std::size_t index = 0;
+                     index < pending_definition.basic_blocks.size(); ++index) {
+                    const AArch64LlvmImportBasicBlock &block =
+                        pending_definition.basic_blocks[index];
+                    if (block.instructions.empty()) {
+                        continue;
+                    }
+                    const AArch64LlvmImportInstruction &terminator =
+                        block.instructions.back();
+                    if (const auto branch =
+                            parse_llvm_import_branch_spec(terminator);
+                        branch.has_value()) {
+                        add_edge(index, branch->true_target_label);
+                        if (branch->is_conditional) {
+                            add_edge(index, branch->false_target_label);
+                        }
+                        continue;
+                    }
+                    if (const auto switch_spec =
+                            parse_llvm_import_switch_spec(terminator);
+                        switch_spec.has_value()) {
+                        add_edge(index, switch_spec->default_target_label);
+                        for (const AArch64LlvmImportSwitchCase &switch_case :
+                             switch_spec->cases) {
+                            add_edge(index, switch_case.target_label);
+                        }
+                        continue;
+                    }
+                    if (const auto indirect_branch =
+                            parse_llvm_import_indirect_branch_spec(terminator);
+                        indirect_branch.has_value()) {
+                        for (const std::string &target_label :
+                             indirect_branch->target_labels) {
+                            add_edge(index, target_label);
+                        }
+                    }
+                }
+
+                const std::size_t block_count =
+                    pending_definition.basic_blocks.size();
+                std::vector<std::vector<bool>> dominates(
+                    block_count, std::vector<bool>(block_count, true));
+                for (std::size_t index = 0; index < block_count; ++index) {
+                    if (index == 0) {
+                        dominates[index].assign(block_count, false);
+                        dominates[index][0] = true;
+                        continue;
+                    }
+                    if (predecessors[index].empty()) {
+                        dominates[index].assign(block_count, false);
+                        dominates[index][index] = true;
+                    }
+                }
+
+                bool changed = true;
+                while (changed) {
+                    changed = false;
+                    for (std::size_t index = 1; index < block_count; ++index) {
+                        if (predecessors[index].empty()) {
+                            continue;
+                        }
+                        std::vector<bool> new_dominators =
+                            dominates[predecessors[index].front()];
+                        for (std::size_t predecessor_index = 1;
+                             predecessor_index < predecessors[index].size();
+                             ++predecessor_index) {
+                            const std::size_t predecessor =
+                                predecessors[index][predecessor_index];
+                            for (std::size_t candidate = 0;
+                                 candidate < block_count; ++candidate) {
+                                new_dominators[candidate] =
+                                    new_dominators[candidate] &&
+                                    dominates[predecessor][candidate];
+                            }
+                        }
+                        new_dominators[index] = true;
+                        if (new_dominators != dominates[index]) {
+                            dominates[index] = std::move(new_dominators);
+                            changed = true;
+                        }
+                    }
+                }
+
+                std::vector<std::vector<std::size_t>> dom_tree_children(
+                    block_count);
+                for (std::size_t index = 1; index < block_count; ++index) {
+                    if (predecessors[index].empty()) {
+                        continue;
+                    }
+                    std::optional<std::size_t> immediate_dominator;
+                    for (std::size_t candidate = 0; candidate < block_count;
+                         ++candidate) {
+                        if (candidate == index || !dominates[index][candidate]) {
+                            continue;
+                        }
+                        bool is_immediate = true;
+                        for (std::size_t other = 0; other < block_count; ++other) {
+                            if (other == index || other == candidate ||
+                                !dominates[index][other]) {
+                                continue;
+                            }
+                            if (!dominates[candidate][other]) {
+                                is_immediate = false;
+                                break;
+                            }
+                        }
+                        if (is_immediate) {
+                            immediate_dominator = candidate;
+                            break;
+                        }
+                    }
+                    if (immediate_dominator.has_value()) {
+                        dom_tree_children[*immediate_dominator].push_back(index);
+                    }
+                }
+
+                for (std::vector<std::size_t> &children : dom_tree_children) {
+                    std::sort(children.begin(), children.end());
+                }
+
+                std::vector<bool> visited(block_count, false);
+                const auto visit = [&](auto &&self, std::size_t index) -> void {
+                    if (visited[index]) {
+                        return;
+                    }
+                    visited[index] = true;
+                    ordered_blocks.push_back(
+                        &pending_definition.basic_blocks[index]);
+                    for (const std::size_t child : dom_tree_children[index]) {
+                        self(self, child);
+                    }
+                };
+
+                visit(visit, 0);
+                for (std::size_t index = 0; index < block_count; ++index) {
+                    if (!visited[index]) {
+                        ordered_blocks.push_back(
+                            &pending_definition.basic_blocks[index]);
+                    }
+                }
+                return ordered_blocks;
+            };
+
+        for (const AArch64LlvmImportBasicBlock *record :
+             compute_lowering_block_order(pending)) {
+            if (record == nullptr) {
+                continue;
+            }
+            CoreIrBasicBlock *current_block = block_map.at(record->label);
             for (const AArch64LlvmImportInstruction &instruction :
-                 record.instructions) {
+                 record->instructions) {
                 if (!parse_instruction(instruction, function, current_block,
                                        block_map, bindings, synthetic_index,
-                                       pending_phi_incomings)) {
+                                       pending_phi_incomings,
+                                       pending_aggregate_phi_incomings)) {
                     return false;
                 }
             }
         }
 
+        for (const PendingAggregatePhiIncoming &pending_incoming :
+             pending_aggregate_phi_incomings) {
+            std::unique_ptr<CoreIrInstruction> detached_terminator;
+            auto &incoming_instructions =
+                pending_incoming.incoming_block->get_instructions();
+            if (!incoming_instructions.empty() &&
+                incoming_instructions.back() != nullptr &&
+                incoming_instructions.back()->get_is_terminator()) {
+                detached_terminator = std::move(incoming_instructions.back());
+                incoming_instructions.pop_back();
+            }
+            CoreIrValue *incoming_address =
+                ensure_addressable_aggregate_typed_operand(
+                    pending_incoming.type, pending_incoming.value, function,
+                    *pending_incoming.incoming_block, bindings, synthetic_index,
+                    pending_incoming.line_number);
+            if (detached_terminator != nullptr) {
+                pending_incoming.incoming_block->append_instruction(
+                    std::move(detached_terminator));
+            }
+            if (incoming_address == nullptr) {
+                return false;
+            }
+            pending_incoming.phi->add_incoming(pending_incoming.incoming_block,
+                                               incoming_address);
+        }
+
         for (const PendingPhiIncoming &pending_incoming : pending_phi_incomings) {
+            std::unique_ptr<CoreIrInstruction> detached_terminator;
+            auto &incoming_instructions =
+                pending_incoming.incoming_block->get_instructions();
+            if (!incoming_instructions.empty() &&
+                incoming_instructions.back() != nullptr &&
+                incoming_instructions.back()->get_is_terminator()) {
+                detached_terminator = std::move(incoming_instructions.back());
+                incoming_instructions.pop_back();
+            }
             CoreIrValue *incoming_value = resolve_typed_value_operand(
                 pending_incoming.type, pending_incoming.value,
-                *pending_incoming.phi_block, bindings, synthetic_index,
+                *pending_incoming.incoming_block, bindings, synthetic_index,
                 pending_incoming.line_number);
+            if (detached_terminator != nullptr) {
+                pending_incoming.incoming_block->append_instruction(
+                    std::move(detached_terminator));
+            }
             if (incoming_value == nullptr) {
                 add_error("unknown LLVM local value: %" +
                               pending_incoming.value.local_name,

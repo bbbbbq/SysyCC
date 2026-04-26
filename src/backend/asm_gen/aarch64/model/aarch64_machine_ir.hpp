@@ -38,6 +38,8 @@ enum class AArch64MachineOpcode : unsigned char {
     Orr,
     Eor,
     Mul,
+    MultiplyAdd,
+    MultiplySubtract,
     SignedDiv,
     UnsignedDiv,
     ShiftLeft,
@@ -94,6 +96,7 @@ describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept;
 enum class AArch64MachineOperandKind : unsigned char {
     VirtualReg,
     PhysicalReg,
+    VectorReg,
     Immediate,
     Symbol,
     Label,
@@ -143,6 +146,21 @@ struct AArch64MachineVirtualRegOperand {
 struct AArch64MachinePhysicalRegOperand {
     unsigned reg_number = 0;
     AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
+};
+
+struct AArch64MachineVectorRegOperand {
+    enum class BaseKind : unsigned char {
+        VirtualReg,
+        PhysicalReg,
+    };
+
+    BaseKind base_kind = BaseKind::VirtualReg;
+    AArch64VirtualReg reg;
+    unsigned physical_reg = 0;
+    bool is_def = false;
+    unsigned lane_count = 4;
+    char element_kind = 's';
+    std::optional<unsigned> lane_index;
 };
 
 struct AArch64MachineConditionCodeOperand {
@@ -251,10 +269,18 @@ struct AArch64MachineMemoryImmediateOffset {
     long long value = 0;
 };
 
+struct AArch64MachineMemoryRegisterOffset {
+    unsigned reg_number = 0;
+    AArch64VirtualRegKind kind = AArch64VirtualRegKind::General64;
+    AArch64ShiftKind shift_kind = AArch64ShiftKind::Lsl;
+    unsigned shift_amount = 0;
+};
+
 struct AArch64MachineMemoryAddressOperand {
     using OffsetPayload =
         std::variant<std::monostate, AArch64MachineMemoryImmediateOffset,
-                     AArch64MachineSymbolReference>;
+                     AArch64MachineSymbolReference,
+                     AArch64MachineMemoryRegisterOffset>;
 
     enum class AddressMode : unsigned char {
         Offset,
@@ -288,6 +314,11 @@ struct AArch64MachineMemoryAddressOperand {
         return std::get_if<AArch64MachineSymbolReference>(&offset);
     }
 
+    const AArch64MachineMemoryRegisterOffset *
+    get_register_offset() const noexcept {
+        return std::get_if<AArch64MachineMemoryRegisterOffset>(&offset);
+    }
+
     bool has_offset() const noexcept {
         return !std::holds_alternative<std::monostate>(offset);
     }
@@ -297,6 +328,7 @@ class AArch64MachineOperand {
   private:
     using Payload = std::variant<std::monostate, AArch64MachineVirtualRegOperand,
                                  AArch64MachinePhysicalRegOperand,
+                                 AArch64MachineVectorRegOperand,
                                  AArch64MachineConditionCodeOperand,
                                  AArch64MachineImmediateOperand,
                                  AArch64MachineSymbolOperand,
@@ -316,6 +348,26 @@ class AArch64MachineOperand {
     static AArch64MachineOperand def_virtual_reg(const AArch64VirtualReg &reg);
     static AArch64MachineOperand physical_reg(unsigned reg_number,
                                               AArch64VirtualRegKind kind);
+    static AArch64MachineOperand use_vector_reg(const AArch64VirtualReg &reg,
+                                                unsigned lane_count,
+                                                char element_kind);
+    static AArch64MachineOperand def_vector_reg(const AArch64VirtualReg &reg,
+                                                unsigned lane_count,
+                                                char element_kind);
+    static AArch64MachineOperand use_vector_lane(const AArch64VirtualReg &reg,
+                                                 char element_kind,
+                                                 unsigned lane_index);
+    static AArch64MachineOperand def_vector_lane(const AArch64VirtualReg &reg,
+                                                 char element_kind,
+                                                 unsigned lane_index);
+    static AArch64MachineOperand physical_vector_reg(unsigned reg_number,
+                                                     unsigned lane_count,
+                                                     char element_kind,
+                                                     bool is_def = false);
+    static AArch64MachineOperand physical_vector_lane(unsigned reg_number,
+                                                      char element_kind,
+                                                      unsigned lane_index,
+                                                      bool is_def = false);
     static AArch64MachineOperand immediate(std::string text);
     static AArch64MachineOperand symbol(std::string text);
     static AArch64MachineOperand symbol(AArch64SymbolReference reference);
@@ -345,6 +397,11 @@ class AArch64MachineOperand {
         unsigned reg_number, AArch64MachineSymbolReference symbolic_offset,
         AArch64MachineMemoryAddressOperand::AddressMode address_mode =
             AArch64MachineMemoryAddressOperand::AddressMode::Offset);
+    static AArch64MachineOperand memory_address_physical_reg_indexed(
+        unsigned base_reg_number, unsigned index_reg_number,
+        AArch64VirtualRegKind index_kind = AArch64VirtualRegKind::General64,
+        AArch64ShiftKind shift_kind = AArch64ShiftKind::Lsl,
+        unsigned shift_amount = 0);
     static AArch64MachineOperand memory_address_stack_pointer(
         std::optional<long long> immediate_offset = std::nullopt,
         bool use_64bit = true,
@@ -361,6 +418,9 @@ class AArch64MachineOperand {
     }
     bool is_physical_reg() const noexcept {
         return kind_ == AArch64MachineOperandKind::PhysicalReg;
+    }
+    bool is_vector_reg() const noexcept {
+        return kind_ == AArch64MachineOperandKind::VectorReg;
     }
     bool is_immediate() const noexcept {
         return kind_ == AArch64MachineOperandKind::Immediate;
@@ -387,6 +447,8 @@ class AArch64MachineOperand {
     get_virtual_reg_operand() const noexcept;
     const AArch64MachinePhysicalRegOperand *
     get_physical_reg_operand() const noexcept;
+    const AArch64MachineVectorRegOperand *
+    get_vector_reg_operand() const noexcept;
     const AArch64MachineConditionCodeOperand *
     get_condition_code_operand() const noexcept;
     const AArch64MachineImmediateOperand *get_immediate_operand() const noexcept;
@@ -606,6 +668,7 @@ class AArch64MachineFunction {
   private:
     std::string name_;
     bool is_global_symbol_ = false;
+    bool has_calls_ = false;
     AArch64SectionKind section_kind_ = AArch64SectionKind::Text;
     std::string epilogue_label_;
     AArch64FunctionFrameInfo frame_info_;
@@ -614,6 +677,7 @@ class AArch64MachineFunction {
     std::size_t next_virtual_reg_id_ = 1;
     std::unordered_map<std::size_t, AArch64VirtualRegKind> virtual_reg_kinds_;
     std::unordered_map<std::size_t, unsigned> virtual_reg_allocation_;
+    std::unordered_map<std::string, AArch64VirtualReg> hoisted_integer_constant_vregs_;
 
   public:
     AArch64MachineFunction(std::string name, bool is_global_symbol,
@@ -624,6 +688,8 @@ class AArch64MachineFunction {
 
     const std::string &get_name() const noexcept { return name_; }
     bool get_is_global_symbol() const noexcept { return is_global_symbol_; }
+    void set_has_calls(bool has_calls) noexcept { has_calls_ = has_calls; }
+    bool get_has_calls() const noexcept { return has_calls_; }
     AArch64SectionKind get_section_kind() const noexcept { return section_kind_; }
     void set_section_kind(AArch64SectionKind section_kind) noexcept {
         section_kind_ = section_kind;
@@ -672,6 +738,18 @@ class AArch64MachineFunction {
     const std::unordered_map<std::size_t, unsigned> &
     get_virtual_reg_allocation() const noexcept {
         return virtual_reg_allocation_;
+    }
+    std::optional<AArch64VirtualReg>
+    get_hoisted_integer_constant_vreg(const std::string &key) const noexcept {
+        const auto it = hoisted_integer_constant_vregs_.find(key);
+        if (it == hoisted_integer_constant_vregs_.end()) {
+            return std::nullopt;
+        }
+        return it->second;
+    }
+    void set_hoisted_integer_constant_vreg(std::string key,
+                                           AArch64VirtualReg reg) {
+        hoisted_integer_constant_vregs_[std::move(key)] = reg;
     }
     std::optional<unsigned> get_physical_reg_for_virtual(std::size_t id) const {
         const auto it = virtual_reg_allocation_.find(id);

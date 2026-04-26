@@ -16,6 +16,7 @@ bool is_integer_type(const CoreIrType *type);
 bool is_pointer_type(const CoreIrType *type);
 bool is_float_type(const CoreIrType *type);
 bool is_vector_type(const CoreIrType *type);
+bool is_i32x4_vector_type(const CoreIrType *type);
 bool is_void_type(const CoreIrType *type);
 const CoreIrIntegerType *as_integer_type(const CoreIrType *type);
 const CoreIrFloatType *as_float_type(const CoreIrType *type);

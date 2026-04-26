@@ -135,6 +135,56 @@ bool materialize_constant_cast(AArch64MachineBlock &machine_block,
     }
 }
 
+bool materialize_zero_vector(AArch64MachineBlock &machine_block,
+                             const AArch64VirtualReg &target_reg) {
+    machine_block.append_instruction(AArch64MachineInstr(
+        "movi", {AArch64MachineOperand::def_vector_reg(target_reg, 2, 'd'),
+                 AArch64MachineOperand::immediate("#0")}));
+    return true;
+}
+
+bool materialize_i32x4_constant(AArch64MachineBlock &machine_block,
+                                AArch64ValueMaterializationContext &context,
+                                const CoreIrConstantAggregate &aggregate,
+                                const AArch64VirtualReg &target_reg,
+                                AArch64MachineFunction &function) {
+    if (!is_i32x4_vector_type(aggregate.get_type())) {
+        return false;
+    }
+    if (aggregate.get_elements().size() > 4) {
+        context.report_error("invalid <4 x i32> aggregate constant in AArch64 native backend");
+        return false;
+    }
+    if (!materialize_zero_vector(machine_block, target_reg)) {
+        return false;
+    }
+
+    static CoreIrIntegerType i32_type(32);
+    for (std::size_t lane = 0; lane < aggregate.get_elements().size(); ++lane) {
+        const auto *constant_int =
+            dynamic_cast<const CoreIrConstantInt *>(aggregate.get_elements()[lane]);
+        if (constant_int == nullptr) {
+            context.report_error(
+                "unsupported non-integer <4 x i32> aggregate lane constant");
+            return false;
+        }
+        if (constant_int->get_value() == 0) {
+            continue;
+        }
+        const AArch64VirtualReg lane_reg =
+            function.create_virtual_reg(AArch64VirtualRegKind::General32);
+        if (!materialize_integer_constant(machine_block, context, &i32_type,
+                                          constant_int->get_value(), lane_reg)) {
+            return false;
+        }
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov", {AArch64MachineOperand::def_vector_lane(
+                        target_reg, 's', static_cast<unsigned>(lane)),
+                    use_vreg_operand_as(lane_reg, false)}));
+    }
+    return true;
+}
+
 } // namespace
 
 bool materialize_noncanonical_value(AArch64MachineBlock &machine_block,
@@ -159,10 +209,18 @@ bool materialize_noncanonical_value(AArch64MachineBlock &machine_block,
     }
     if (dynamic_cast<const CoreIrConstantNull *>(value) != nullptr ||
         dynamic_cast<const CoreIrConstantZeroInitializer *>(value) != nullptr) {
+        if (is_i32x4_vector_type(value->get_type())) {
+            return materialize_zero_vector(machine_block, target_reg);
+        }
         machine_block.append_instruction(AArch64MachineInstr(
             "mov",
             {def_vreg_operand(target_reg), zero_register_operand(target_reg.get_use_64bit())}));
         return true;
+    }
+    if (const auto *aggregate = dynamic_cast<const CoreIrConstantAggregate *>(value);
+        aggregate != nullptr && is_i32x4_vector_type(aggregate->get_type())) {
+        return materialize_i32x4_constant(machine_block, context, *aggregate,
+                                          target_reg, function);
     }
     if (const auto *constant = dynamic_cast<const CoreIrConstant *>(value);
         constant != nullptr) {
