@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "backend/asm_gen/aarch64/model/aarch64_machine_lowering_state.hpp"
@@ -26,12 +27,16 @@ class CoreIrCastInst;
 class CoreIrCompareInst;
 class CoreIrCondJumpInst;
 class CoreIrConstantFloat;
+class CoreIrExtractElementInst;
+class CoreIrInsertElementInst;
 class CoreIrIndirectJumpInst;
 class CoreIrLoadInst;
 class CoreIrReturnInst;
 class CoreIrSelectInst;
+class CoreIrShuffleVectorInst;
 class CoreIrStoreInst;
 class CoreIrUnaryInst;
+class CoreIrVectorReduceAddInst;
 class DiagnosticEngine;
 
 class AArch64LoweringFacadeServices
@@ -177,6 +182,7 @@ class AArch64FunctionLoweringFacade final
   private:
     AArch64LoweringFacadeServices &services_;
     FunctionState &state_;
+    std::unordered_map<std::string, AArch64VirtualReg> block_integer_constant_vregs_;
 
   public:
     AArch64FunctionLoweringFacade(AArch64LoweringFacadeServices &services,
@@ -365,6 +371,18 @@ class AArch64FunctionLoweringFacade final
     bool emit_select(AArch64MachineBlock &machine_block,
                      const CoreIrSelectInst &select,
                      const FunctionState &state);
+    bool emit_extract_element(AArch64MachineBlock &machine_block,
+                              const CoreIrExtractElementInst &extract,
+                              const FunctionState &state);
+    bool emit_insert_element(AArch64MachineBlock &machine_block,
+                             const CoreIrInsertElementInst &insert,
+                             const FunctionState &state);
+    bool emit_shuffle_vector(AArch64MachineBlock &machine_block,
+                             const CoreIrShuffleVectorInst &shuffle,
+                             const FunctionState &state);
+    bool emit_vector_reduce_add(AArch64MachineBlock &machine_block,
+                                const CoreIrVectorReduceAddInst &reduce,
+                                const FunctionState &state);
     bool emit_cast(AArch64MachineBlock &machine_block,
                    const CoreIrCastInst &cast, const FunctionState &state);
     bool emit_call(AArch64MachineBlock &machine_block,

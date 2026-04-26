@@ -183,7 +183,8 @@ bool materialize_integer_constant(AArch64MachineBlock &machine_block,
             continue;
         }
         machine_block.append_instruction(AArch64MachineInstr(
-            "movk", {use_vreg_operand(target_reg),
+            "movk", {def_vreg_operand(target_reg),
+                     use_vreg_operand(target_reg),
                      AArch64MachineOperand::immediate("#" + std::to_string(imm16)),
                      shift_operand("lsl", piece * 16U)}));
     }

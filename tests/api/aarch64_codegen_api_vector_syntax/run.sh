@@ -32,4 +32,4 @@ READELF_TOOL="$(find_aarch64_readelf)"
 "${READELF_TOOL}" -S "${OBJECT_FILE}" | grep -q '\.text'
 "${READELF_TOOL}" -s "${OBJECT_FILE}" | grep -q ' vec_demo$'
 
-echo "verified: Phase 3 importer scalarizes a basic textual LLVM vector slice into native AArch64 asm/object output"
+echo "verified: AArch64 LLVM importer lowers the basic v4i32 slice into native vector asm/object output"

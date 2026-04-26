@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -9,6 +10,7 @@
 #include "backend/asm_gen/aarch64/passes/aarch64_emission_pass.hpp"
 #include "backend/asm_gen/aarch64/passes/aarch64_frame_finalize_pass.hpp"
 #include "backend/asm_gen/aarch64/passes/aarch64_register_allocation_pass.hpp"
+#include "backend/asm_gen/aarch64/passes/aarch64_post_ra_peephole_pass.hpp"
 #include "backend/asm_gen/aarch64/passes/aarch64_spill_rewrite_pass.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_backend_context.hpp"
 #include "backend/asm_gen/asm_result.hpp"
@@ -24,8 +26,15 @@ class AArch64BackendPipeline {
     AArch64MachineLoweringPass machine_lowering_pass_;
     AArch64RegisterAllocationPass register_allocation_pass_;
     AArch64SpillRewritePass spill_rewrite_pass_;
+    AArch64PostRaPeepholePass post_ra_peephole_pass_;
     AArch64FrameFinalizePass frame_finalize_pass_;
     AArch64EmissionPass emission_pass_;
+
+    static bool post_ra_peephole_enabled() {
+        const char *disabled = std::getenv("SYSYCC_AARCH64_DISABLE_POST_RA_PEEPHOLE");
+        return disabled == nullptr || *disabled == '\0' ||
+               std::string_view(disabled) == "0";
+    }
 
   public:
     bool build_and_finalize_module(const AArch64CodegenInput &input,
@@ -87,6 +96,9 @@ class AArch64BackendPipeline {
                         "' without emitting a specific diagnostic");
             }
             return false;
+        }
+        if (post_ra_peephole_enabled()) {
+            post_ra_peephole_pass_.run(function);
         }
         frame_finalize_pass_.run(function);
         return true;

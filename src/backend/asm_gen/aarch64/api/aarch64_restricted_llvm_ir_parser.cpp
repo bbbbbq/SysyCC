@@ -150,7 +150,8 @@ AArch64LlvmImportInstructionKind classify_instruction_kind(
         starts_with(normalized, "fdiv ")) {
         return AArch64LlvmImportInstructionKind::Binary;
     }
-    if (starts_with(normalized, "fneg ")) {
+    if (starts_with(normalized, "fneg ") ||
+        starts_with(normalized, "freeze ")) {
         return AArch64LlvmImportInstructionKind::Unary;
     }
     if (starts_with(normalized, "icmp ") || starts_with(normalized, "fcmp ")) {

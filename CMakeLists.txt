@@ -61,6 +61,7 @@ set(SYSYCC_AARCH64_CODEGEN_SOURCES
     src/backend/asm_gen/aarch64/passes/aarch64_frame_finalize_pass.cpp
     src/backend/asm_gen/aarch64/passes/aarch64_abi_lowering_pass.cpp
     src/backend/asm_gen/aarch64/passes/aarch64_machine_lowering_pass.cpp
+    src/backend/asm_gen/aarch64/passes/aarch64_post_ra_peephole_pass.cpp
     src/backend/asm_gen/aarch64/passes/aarch64_register_allocation_pass.cpp
     src/backend/asm_gen/aarch64/passes/aarch64_spill_rewrite_pass.cpp
     src/backend/asm_gen/aarch64/support/aarch64_frame_support.cpp

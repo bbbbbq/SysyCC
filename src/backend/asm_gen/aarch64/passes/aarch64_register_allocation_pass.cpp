@@ -149,10 +149,15 @@ std::vector<std::size_t> collect_block_successors(
 
     if (instructions.size() >= 2) {
         const AArch64MachineInstr &second_last = instructions[instructions.size() - 2];
-        if (second_last.get_opcode() == AArch64MachineOpcode::CompareBranchNonZero &&
+        if ((second_last.get_opcode() == AArch64MachineOpcode::CompareBranchNonZero ||
+             second_last.get_opcode() == AArch64MachineOpcode::BranchConditional) &&
             last.get_opcode() == AArch64MachineOpcode::Branch) {
-            if (second_last.get_operands().size() >= 2) {
-                const auto *label = second_last.get_operands()[1].get_label_operand();
+            const std::size_t label_index =
+                second_last.get_opcode() == AArch64MachineOpcode::BranchConditional ? 0U
+                                                                                    : 1U;
+            if (second_last.get_operands().size() > label_index) {
+                const auto *label =
+                    second_last.get_operands()[label_index].get_label_operand();
                 if (label != nullptr) {
                     const auto it = label_to_index.find(label->label_text);
                     if (it != label_to_index.end()) {
@@ -173,9 +178,12 @@ std::vector<std::size_t> collect_block_successors(
         }
     }
 
-    if (last.get_opcode() == AArch64MachineOpcode::CompareBranchNonZero) {
-        if (last.get_operands().size() >= 2) {
-            const auto *label = last.get_operands()[1].get_label_operand();
+    if (last.get_opcode() == AArch64MachineOpcode::CompareBranchNonZero ||
+        last.get_opcode() == AArch64MachineOpcode::BranchConditional) {
+        const std::size_t label_index =
+            last.get_opcode() == AArch64MachineOpcode::BranchConditional ? 0U : 1U;
+        if (last.get_operands().size() > label_index) {
+            const auto *label = last.get_operands()[label_index].get_label_operand();
             if (label != nullptr) {
                 const auto it = label_to_index.find(label->label_text);
                 if (it != label_to_index.end()) {
@@ -443,7 +451,7 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
         std::set<unsigned> available;
         const AArch64VirtualRegKind kind =
             function.get_virtual_reg_kind(node.virtual_reg_id);
-        if (kind == AArch64VirtualRegKind::Float128) {
+        if (kind == AArch64VirtualRegKind::Float128 && node.live_across_call) {
             const std::size_t spill_size = virtual_reg_size(kind);
             std::size_t local_size = function.get_frame_info().get_local_size();
             local_size = align_to(local_size, spill_size);

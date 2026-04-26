@@ -191,6 +191,36 @@ std::string render_virtual_reg_fallback(
     return virtual_reg.is_def ? def_vreg(virtual_reg.reg) : use_vreg(virtual_reg.reg);
 }
 
+std::string render_vector_reg_text(unsigned physical_reg, unsigned lane_count,
+                                   char element_kind,
+                                   std::optional<unsigned> lane_index) {
+    const unsigned vector_index =
+        physical_reg - static_cast<unsigned>(AArch64PhysicalReg::V0);
+    std::string text = "v" + std::to_string(vector_index) + ".";
+    text.push_back(element_kind);
+    if (lane_index.has_value()) {
+        text += "[" + std::to_string(*lane_index) + "]";
+        return text;
+    }
+    return "v" + std::to_string(vector_index) + "." +
+           std::to_string(lane_count) + std::string(1, element_kind);
+}
+
+std::string render_vector_reg_fallback(
+    const AArch64MachineVectorRegOperand &vector_reg) {
+    std::string text = vector_reg.is_def ? def_vreg(vector_reg.reg)
+                                         : use_vreg(vector_reg.reg);
+    text += ".";
+    if (vector_reg.lane_index.has_value()) {
+        text.push_back(vector_reg.element_kind);
+        text += "[" + std::to_string(*vector_reg.lane_index) + "]";
+        return text;
+    }
+    text += std::to_string(vector_reg.lane_count);
+    text.push_back(vector_reg.element_kind);
+    return text;
+}
+
 const char *scalar_directive_name(std::size_t size) {
     switch (size) {
     case 1:
@@ -294,6 +324,14 @@ void append_register_copy(AArch64MachineBlock &machine_block,
         dst_reg.get_kind() == src_reg.get_kind()) {
         return;
     }
+    if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128 &&
+        src_reg.get_kind() == AArch64VirtualRegKind::Float128) {
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov",
+            {AArch64MachineOperand::def_vector_reg(dst_reg, 16, 'b'),
+             AArch64MachineOperand::use_vector_reg(src_reg, 16, 'b')}));
+        return;
+    }
     if (dst_reg.is_floating_point() && src_reg.is_floating_point()) {
         machine_block.append_instruction(AArch64MachineInstr(
             fp_move_mnemonic(dst_reg.get_kind()),
@@ -313,6 +351,14 @@ void append_copy_from_physical_reg(AArch64MachineBlock &machine_block,
                                    const AArch64VirtualReg &dst_reg,
                                    unsigned physical_reg,
                                    AArch64VirtualRegKind physical_kind) {
+    if (dst_reg.get_kind() == AArch64VirtualRegKind::Float128 &&
+        physical_kind == AArch64VirtualRegKind::Float128) {
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov",
+            {AArch64MachineOperand::def_vector_reg(dst_reg, 16, 'b'),
+             AArch64MachineOperand::physical_vector_reg(physical_reg, 16, 'b')}));
+        return;
+    }
     if (dst_reg.is_floating_point()) {
         machine_block.append_instruction(AArch64MachineInstr(
             fp_move_mnemonic(dst_reg.get_kind()),
@@ -330,6 +376,15 @@ void append_copy_to_physical_reg(AArch64MachineBlock &machine_block,
                                  unsigned physical_reg,
                                  AArch64VirtualRegKind physical_kind,
                                  const AArch64VirtualReg &src_reg) {
+    if (src_reg.get_kind() == AArch64VirtualRegKind::Float128 &&
+        physical_kind == AArch64VirtualRegKind::Float128) {
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov",
+            {AArch64MachineOperand::physical_vector_reg(physical_reg, 16, 'b',
+                                                        true),
+             AArch64MachineOperand::use_vector_reg(src_reg, 16, 'b')}));
+        return;
+    }
     if (src_reg.is_floating_point()) {
         machine_block.append_instruction(AArch64MachineInstr(
             fp_move_mnemonic(src_reg.get_kind()),
@@ -353,6 +408,15 @@ collect_virtual_reg_refs(const AArch64MachineOperand &operand) {
         virtual_reg != nullptr) {
         return {{virtual_reg->reg.get_id(), virtual_reg->reg.get_kind(),
                  virtual_reg->is_def}};
+    }
+    if (const auto *vector_reg = operand.get_vector_reg_operand();
+        vector_reg != nullptr) {
+        if (vector_reg->base_kind !=
+            AArch64MachineVectorRegOperand::BaseKind::VirtualReg) {
+            return {};
+        }
+        return {{vector_reg->reg.get_id(), vector_reg->reg.get_kind(),
+                 vector_reg->is_def}};
     }
     if (const auto *memory = operand.get_memory_address_operand(); memory != nullptr) {
         if (memory->base_kind !=
@@ -406,6 +470,18 @@ std::string render_memory_address_operand_for_asm(
                    memory.get_symbolic_offset();
                symbolic_offset != nullptr) {
         offset_text = render_symbol_reference_for_asm(*symbolic_offset);
+    } else if (const AArch64MachineMemoryRegisterOffset *register_offset =
+                   memory.get_register_offset();
+               register_offset != nullptr) {
+        offset_text = render_physical_register(register_offset->reg_number,
+                                               register_offset->kind);
+        if (register_offset->shift_amount != 0 ||
+            register_offset->shift_kind != AArch64ShiftKind::Lsl) {
+            offset_text += ", ";
+            offset_text += render_aarch64_shift_kind(register_offset->shift_kind);
+            offset_text += " #";
+            offset_text += std::to_string(register_offset->shift_amount);
+        }
     }
 
     if (offset_text.empty()) {
@@ -486,6 +562,24 @@ std::string render_machine_operand_for_asm(const AArch64MachineOperand &operand,
     if (const auto *physical_reg = operand.get_physical_reg_operand();
         physical_reg != nullptr) {
         return render_physical_register(physical_reg->reg_number, physical_reg->kind);
+    }
+    if (const auto *vector_reg = operand.get_vector_reg_operand();
+        vector_reg != nullptr) {
+        if (vector_reg->base_kind ==
+            AArch64MachineVectorRegOperand::BaseKind::PhysicalReg) {
+            return render_vector_reg_text(vector_reg->physical_reg,
+                                          vector_reg->lane_count,
+                                          vector_reg->element_kind,
+                                          vector_reg->lane_index);
+        }
+        const std::optional<unsigned> physical_reg =
+            function.get_physical_reg_for_virtual(vector_reg->reg.get_id());
+        if (!physical_reg.has_value()) {
+            return render_vector_reg_fallback(*vector_reg);
+        }
+        return render_vector_reg_text(*physical_reg, vector_reg->lane_count,
+                                      vector_reg->element_kind,
+                                      vector_reg->lane_index);
     }
     if (const auto *immediate = operand.get_immediate_operand(); immediate != nullptr) {
         return immediate->asm_text;

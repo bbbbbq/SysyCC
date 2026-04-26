@@ -25,9 +25,19 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (asm_result.asm_text.find(".globl vec_demo") == std::string::npos ||
-        asm_result.asm_text.find("ldr w") == std::string::npos ||
-        asm_result.asm_text.find("str w") == std::string::npos ||
-        asm_result.asm_text.find("add w") == std::string::npos) {
+        asm_result.asm_text.find("movi v") == std::string::npos ||
+        asm_result.asm_text.find("mov v") == std::string::npos ||
+        asm_result.asm_text.find("dup v") == std::string::npos ||
+        asm_result.asm_text.find("add v") == std::string::npos ||
+        asm_result.asm_text.find("mul v") == std::string::npos ||
+        asm_result.asm_text.find("smin v") == std::string::npos ||
+        asm_result.asm_text.find("smax v") == std::string::npos ||
+        asm_result.asm_text.find("addv s") == std::string::npos ||
+        asm_result.asm_text.find("sminv s") == std::string::npos ||
+        asm_result.asm_text.find("smaxv s") == std::string::npos ||
+        asm_result.asm_text.find("add w") == std::string::npos ||
+        asm_result.asm_text.find("__sysycc_aarch64_inline_") !=
+            std::string::npos) {
         std::cerr << "unexpected vector asm output\n";
         return 1;
     }

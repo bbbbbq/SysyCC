@@ -76,6 +76,18 @@ void append_frame_record_directive_at(AArch64FrameRecord &frame_record,
     frame_record.append_cfi_directive(std::move(directive));
 }
 
+bool function_contains_call(const AArch64MachineFunction &function) {
+    for (const AArch64MachineBlock &block : function.get_blocks()) {
+        for (const AArch64MachineInstr &instruction : block.get_instructions()) {
+            if (instruction.get_flags().is_call ||
+                instruction.get_call_clobber_mask().has_value()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
@@ -91,8 +103,11 @@ void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
 
     std::vector<AArch64MachineInstr> prologue;
     const std::size_t frame_size = function.get_frame_info().get_frame_size();
+    const bool has_calls = function.get_has_calls() || function_contains_call(function);
+    const bool needs_frame_record = frame_size != 0 || has_calls;
+    function.set_has_calls(has_calls);
     for (const AArch64StandardFrameShellOp &op :
-         build_aarch64_standard_prologue_shell(frame_size)) {
+         build_aarch64_standard_prologue_shell(frame_size, needs_frame_record)) {
         prologue.push_back(op.instruction);
     }
     for (unsigned reg : function.get_frame_info().get_saved_physical_regs()) {
@@ -112,7 +127,7 @@ void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
                               function.get_frame_info().get_saved_physical_reg_offset(*it));
     }
     for (const AArch64StandardFrameShellOp &op :
-         build_aarch64_standard_epilogue_shell(frame_size)) {
+         build_aarch64_standard_epilogue_shell(frame_size, needs_frame_record)) {
         epilogue.push_back(op.instruction);
     }
     function.get_blocks().back().get_instructions() = std::move(epilogue);
@@ -134,10 +149,11 @@ void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
 
     std::size_t current_code_offset = 0;
     for (const AArch64StandardFrameShellOp &op :
-         build_aarch64_standard_prologue_shell(frame_size)) {
+         build_aarch64_standard_prologue_shell(frame_size, needs_frame_record)) {
         current_code_offset += 4;
         for (const AArch64CfiDirective &directive :
-             build_aarch64_standard_shell_cfi_bundle(op.kind, frame_size)
+             build_aarch64_standard_shell_cfi_bundle(op.kind, frame_size,
+                                                     needs_frame_record)
                  .frame_record_directives) {
             append_frame_record_directive_at(frame_record, current_code_offset,
                                              directive);
@@ -165,10 +181,11 @@ void AArch64FrameFinalizePass::run(AArch64MachineFunction &function) const {
                 .reg = dwarf_register_number(*it)});
     }
     for (const AArch64StandardFrameShellOp &op :
-         build_aarch64_standard_epilogue_shell(frame_size)) {
+         build_aarch64_standard_epilogue_shell(frame_size, needs_frame_record)) {
         current_code_offset += 4;
         for (const AArch64CfiDirective &directive :
-             build_aarch64_standard_shell_cfi_bundle(op.kind, frame_size)
+             build_aarch64_standard_shell_cfi_bundle(op.kind, frame_size,
+                                                     needs_frame_record)
                  .frame_record_directives) {
             append_frame_record_directive_at(frame_record, current_code_offset,
                                              directive);

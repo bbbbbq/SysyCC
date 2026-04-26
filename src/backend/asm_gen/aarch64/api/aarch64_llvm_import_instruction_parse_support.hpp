@@ -112,6 +112,7 @@ struct AArch64LlvmImportVectorReduceAddSpec {
 
 struct AArch64LlvmImportCompareSpec {
     bool is_float_compare = false;
+    bool is_same_sign = false;
     std::string predicate_text;
     AArch64LlvmImportTypedValue lhs;
     AArch64LlvmImportTypedValue rhs;

@@ -96,4 +96,25 @@ bool emit_non_float128_compare(AArch64MachineBlock &machine_block,
     return true;
 }
 
+bool emit_non_float128_compare_immediate(AArch64MachineBlock &machine_block,
+                                         const CoreIrCompareInst &compare,
+                                         const AArch64VirtualReg &lhs_reg,
+                                         long long rhs_immediate,
+                                         const AArch64VirtualReg &dst_reg,
+                                         AArch64MachineFunction &function) {
+    (void)function;
+    if (is_float_type(compare.get_lhs()->get_type())) {
+        return false;
+    }
+
+    machine_block.append_instruction(AArch64MachineInstr(
+        "cmp", {use_vreg_operand(lhs_reg),
+                AArch64MachineOperand::immediate("#" +
+                                                 std::to_string(rhs_immediate))}));
+    machine_block.append_instruction(AArch64MachineInstr(
+        "cset", {def_vreg_operand(dst_reg),
+                 condition_code_operand(integer_condition_code(compare.get_predicate()))}));
+    return true;
+}
+
 } // namespace sysycc

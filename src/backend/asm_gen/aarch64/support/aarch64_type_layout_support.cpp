@@ -37,6 +37,15 @@ bool is_vector_type(const CoreIrType *type) {
     return type != nullptr && type->get_kind() == CoreIrTypeKind::Vector;
 }
 
+bool is_i32x4_vector_type(const CoreIrType *type) {
+    const auto *vector_type = dynamic_cast<const CoreIrVectorType *>(type);
+    const auto *element_type =
+        vector_type == nullptr ? nullptr
+                               : as_integer_type(vector_type->get_element_type());
+    return element_type != nullptr && element_type->get_bit_width() == 32 &&
+           vector_type->get_element_count() == 4;
+}
+
 bool is_void_type(const CoreIrType *type) {
     return type != nullptr && type->get_kind() == CoreIrTypeKind::Void;
 }
@@ -118,7 +127,8 @@ AArch64VirtualRegKind classify_virtual_reg_kind(const CoreIrType *type) {
         return AArch64VirtualRegKind::General64;
     }
     if (is_vector_type(type)) {
-        return AArch64VirtualRegKind::General64;
+        return is_i32x4_vector_type(type) ? AArch64VirtualRegKind::Float128
+                                          : AArch64VirtualRegKind::General64;
     }
     if (const auto *integer_type = as_integer_type(type); integer_type != nullptr) {
         return integer_type->get_bit_width() > 32 ? AArch64VirtualRegKind::General64
@@ -168,6 +178,9 @@ bool is_narrow_integer_type(const CoreIrType *type) {
 }
 
 bool is_supported_scalar_storage_type(const CoreIrType *type) {
+    if (is_i32x4_vector_type(type)) {
+        return true;
+    }
     if (is_pointer_type(type)) {
         return true;
     }
@@ -272,7 +285,7 @@ std::size_t get_type_size(const CoreIrType *type) {
     if (type == nullptr) {
         return 0;
     }
-    if (is_supported_scalar_storage_type(type)) {
+    if (is_supported_scalar_storage_type(type) || is_i32x4_vector_type(type)) {
         return get_storage_size(type);
     }
     if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
@@ -302,7 +315,7 @@ std::size_t get_type_alignment(const CoreIrType *type) {
     if (type == nullptr) {
         return 0;
     }
-    if (is_supported_scalar_storage_type(type)) {
+    if (is_supported_scalar_storage_type(type) || is_i32x4_vector_type(type)) {
         return get_storage_alignment(type);
     }
     if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);

@@ -58,6 +58,16 @@ std::optional<unsigned> parse_unsigned_immediate_text(const std::string &text) {
     return static_cast<unsigned>(*value);
 }
 
+std::uint32_t encode_bitfield_move_word(bool use_64bit, bool signed_extract,
+                                        unsigned rd, unsigned rn,
+                                        unsigned immr, unsigned imms) {
+    const std::uint32_t base =
+        signed_extract ? (use_64bit ? 0x93400000U : 0x13000000U)
+                       : (use_64bit ? 0xD3400000U : 0x53000000U);
+    return base | ((immr & 0x3fU) << 16) | ((imms & 0x3fU) << 10) |
+           ((rn & 0x1fU) << 5) | (rd & 0x1fU);
+}
+
 std::optional<AArch64MachineSymbolReference>
 get_symbol_reference_operand(const AArch64MachineOperand &operand) {
     const auto *symbol = operand.get_symbol_operand();
@@ -256,6 +266,180 @@ unsigned encode_condition_code(AArch64ConditionCode code) {
 
 unsigned invert_condition_code(unsigned code) { return code ^ 1U; }
 
+std::uint64_t bitmask_for_width(unsigned width) {
+    return width >= 64U ? ~0ULL : ((1ULL << width) - 1ULL);
+}
+
+std::uint64_t rotate_right_masked(std::uint64_t value, unsigned amount,
+                                  unsigned width) {
+    const unsigned normalized = amount % width;
+    const std::uint64_t mask = bitmask_for_width(width);
+    value &= mask;
+    if (normalized == 0) {
+        return value;
+    }
+    if (width == 64U) {
+        return ((value >> normalized) | (value << (64U - normalized))) & mask;
+    }
+    return ((value >> normalized) | (value << (width - normalized))) & mask;
+}
+
+std::uint64_t replicate_element_pattern(std::uint64_t element,
+                                        unsigned element_width,
+                                        unsigned reg_width) {
+    const std::uint64_t masked_element = element & bitmask_for_width(element_width);
+    if (element_width == reg_width) {
+        return masked_element;
+    }
+    std::uint64_t value = 0;
+    for (unsigned offset = 0; offset < reg_width; offset += element_width) {
+        value |= masked_element << offset;
+    }
+    return value & bitmask_for_width(reg_width);
+}
+
+struct AArch64LogicalImmediateEncoding {
+    bool n = false;
+    unsigned immr = 0;
+    unsigned imms = 0;
+};
+
+struct EncodedVectorReg {
+    unsigned code = 0;
+    unsigned lane_count = 0;
+    char element_kind = '\0';
+    std::optional<unsigned> lane_index;
+    bool is_def = false;
+};
+
+std::optional<EncodedVectorReg>
+resolve_vector_reg_operand(const AArch64MachineOperand &operand,
+                           const AArch64MachineFunction &function,
+                           DiagnosticEngine &diagnostic_engine,
+                           const std::string &context) {
+    const auto *vector_reg = operand.get_vector_reg_operand();
+    if (vector_reg == nullptr) {
+        diagnostic_engine.add_error(
+            DiagnosticStage::Compiler,
+            "AArch64 direct object writer: expected vector register operand in " +
+                context);
+        return std::nullopt;
+    }
+
+    unsigned physical_reg = 0;
+    if (vector_reg->base_kind ==
+        AArch64MachineVectorRegOperand::BaseKind::PhysicalReg) {
+        physical_reg = vector_reg->physical_reg;
+    } else {
+        const std::optional<unsigned> resolved =
+            function.get_physical_reg_for_virtual(vector_reg->reg.get_id());
+        if (!resolved.has_value()) {
+            diagnostic_engine.add_error(
+                DiagnosticStage::Compiler,
+                "AArch64 direct object writer: unresolved vector virtual register in " +
+                    context);
+            return std::nullopt;
+        }
+        physical_reg = *resolved;
+    }
+
+    if (!is_float_physical_reg(physical_reg)) {
+        diagnostic_engine.add_error(
+            DiagnosticStage::Compiler,
+            "AArch64 direct object writer: vector virtual register resolved to general register in " +
+                context);
+        return std::nullopt;
+    }
+
+    return EncodedVectorReg{
+        physical_reg - static_cast<unsigned>(AArch64PhysicalReg::V0),
+        vector_reg->lane_count,
+        vector_reg->element_kind,
+        vector_reg->lane_index,
+        vector_reg->is_def};
+}
+
+bool operand_is_vector_reg_like(const AArch64MachineOperand &operand) {
+    return operand.get_vector_reg_operand() != nullptr;
+}
+
+bool instruction_has_vector_operand(const AArch64MachineInstr &instruction) {
+    for (const AArch64MachineOperand &operand : instruction.get_operands()) {
+        if (operand_is_vector_reg_like(operand)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_v4s_vector(const EncodedVectorReg &reg) {
+    return !reg.lane_index.has_value() && reg.lane_count == 4 &&
+           reg.element_kind == 's';
+}
+
+bool is_v16b_vector(const EncodedVectorReg &reg) {
+    return !reg.lane_index.has_value() && reg.lane_count == 16 &&
+           reg.element_kind == 'b';
+}
+
+bool is_v2d_vector(const EncodedVectorReg &reg) {
+    return !reg.lane_index.has_value() && reg.lane_count == 2 &&
+           reg.element_kind == 'd';
+}
+
+bool is_s_lane(const EncodedVectorReg &reg) {
+    return reg.lane_index.has_value() && reg.element_kind == 's' &&
+           *reg.lane_index < 4;
+}
+
+unsigned encode_s_lane_imm5(unsigned lane) { return 4U | ((lane & 0x3U) << 3); }
+
+std::optional<AArch64LogicalImmediateEncoding>
+encode_logical_immediate_fields(std::uint64_t value, unsigned reg_width) {
+    const std::uint64_t mask = bitmask_for_width(reg_width);
+    value &= mask;
+    if (value == 0 || value == mask) {
+        return std::nullopt;
+    }
+
+    for (unsigned element_width = 2; element_width <= reg_width; element_width <<= 1U) {
+        const std::uint64_t element_mask = bitmask_for_width(element_width);
+        const std::uint64_t element = value & element_mask;
+        if (replicate_element_pattern(element, element_width, reg_width) != value) {
+            continue;
+        }
+
+        unsigned len = 0;
+        for (unsigned width = element_width; width > 1; width >>= 1U) {
+            ++len;
+        }
+        const unsigned levels = (1U << len) - 1U;
+
+        for (unsigned ones = 1; ones < element_width; ++ones) {
+            const std::uint64_t one_run = bitmask_for_width(ones);
+            for (unsigned rotation = 0; rotation < element_width; ++rotation) {
+                if (rotate_right_masked(one_run, rotation, element_width) !=
+                    element) {
+                    continue;
+                }
+                const unsigned immr = rotation & levels;
+                const unsigned imms =
+                    element_width == 64U
+                        ? (ones - 1U)
+                        : (((~((1U << (len + 1U)) - 1U)) & 0x3fU) |
+                           ((ones - 1U) & levels));
+                return AArch64LogicalImmediateEncoding{
+                    .n = element_width == 64U,
+                    .immr = immr,
+                    .imms = imms,
+                };
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
 std::optional<long long>
 parse_operand_immediate(const AArch64MachineOperand &operand) {
     const auto *immediate = operand.get_immediate_operand();
@@ -323,87 +507,24 @@ std::uint32_t encode_logical_register_word(std::uint32_t base, unsigned rd,
            ((amount & 0x3fU) << 10) | ((rn & 0x1fU) << 5) | (rd & 0x1fU);
 }
 
-struct EncodedLogicalImmediate {
-    unsigned n = 0;
-    unsigned immr = 0;
-    unsigned imms = 0;
-};
-
-std::uint64_t mask_for_width(unsigned width) {
-    if (width >= 64) {
-        return ~0ULL;
-    }
-    return (1ULL << width) - 1ULL;
+std::uint32_t encode_multiply_add_word(bool use_64bit, unsigned rd,
+                                       unsigned rn, unsigned rm, unsigned ra) {
+    const std::uint32_t base = use_64bit ? 0x9B000000U : 0x1B000000U;
+    return base | ((rm & 0x1fU) << 16) | ((ra & 0x1fU) << 10) |
+           ((rn & 0x1fU) << 5) | (rd & 0x1fU);
 }
 
-std::uint64_t rotate_right_within_width(std::uint64_t value, unsigned amount,
-                                        unsigned width) {
-    const std::uint64_t mask = mask_for_width(width);
-    value &= mask;
-    amount %= width;
-    if (amount == 0) {
-        return value;
-    }
-    return ((value >> amount) | (value << (width - amount))) & mask;
-}
-
-std::uint64_t replicate_within_width(std::uint64_t value, unsigned pattern_width,
-                                     unsigned width) {
-    const std::uint64_t pattern_mask = mask_for_width(pattern_width);
-    std::uint64_t replicated = 0;
-    for (unsigned offset = 0; offset < width; offset += pattern_width) {
-        replicated |= (value & pattern_mask) << offset;
-    }
-    return replicated & mask_for_width(width);
-}
-
-std::optional<EncodedLogicalImmediate>
-encode_logical_immediate_fields(std::uint64_t immediate, unsigned width) {
-    if (width != 32 && width != 64) {
-        return std::nullopt;
-    }
-
-    const std::uint64_t width_mask = mask_for_width(width);
-    immediate &= width_mask;
-    if (immediate == 0 || immediate == width_mask) {
-        return std::nullopt;
-    }
-
-    for (unsigned pattern_width = 2; pattern_width <= width; pattern_width <<= 1U) {
-        const std::uint64_t pattern_mask = mask_for_width(pattern_width);
-        const std::uint64_t pattern = immediate & pattern_mask;
-        if (replicate_within_width(pattern, pattern_width, width) != immediate) {
-            continue;
-        }
-
-        for (unsigned ones_count = 1; ones_count < pattern_width; ++ones_count) {
-            const std::uint64_t ones_pattern =
-                mask_for_width(ones_count) & pattern_mask;
-            for (unsigned rotation = 0; rotation < pattern_width; ++rotation) {
-                if (rotate_right_within_width(ones_pattern, rotation,
-                                              pattern_width) != pattern) {
-                    continue;
-                }
-
-                EncodedLogicalImmediate encoded;
-                encoded.n = pattern_width == 64 ? 1U : 0U;
-                encoded.immr = rotation & 0x3fU;
-                encoded.imms =
-                    (static_cast<unsigned>(-(static_cast<int>(pattern_width) << 1)) |
-                     (ones_count - 1U)) &
-                    0x3fU;
-                return encoded;
-            }
-        }
-    }
-
-    return std::nullopt;
+std::uint32_t encode_multiply_sub_word(bool use_64bit, unsigned rd,
+                                       unsigned rn, unsigned rm, unsigned ra) {
+    const std::uint32_t base = use_64bit ? 0x9B008000U : 0x1B008000U;
+    return base | ((rm & 0x1fU) << 16) | ((ra & 0x1fU) << 10) |
+           ((rn & 0x1fU) << 5) | (rd & 0x1fU);
 }
 
 std::uint32_t encode_logical_immediate_word(std::uint32_t base, unsigned rd,
                                             unsigned rn,
-                                            const EncodedLogicalImmediate &imm) {
-    return base | ((imm.n & 0x1U) << 22) | ((imm.immr & 0x3fU) << 16) |
+                                            const AArch64LogicalImmediateEncoding &imm) {
+    return base | ((imm.n ? 1U : 0U) << 22) | ((imm.immr & 0x3fU) << 16) |
            ((imm.imms & 0x3fU) << 10) | ((rn & 0x1fU) << 5) | (rd & 0x1fU);
 }
 
@@ -435,6 +556,264 @@ std::uint32_t encode_pair_word(std::uint32_t base, unsigned rt, unsigned rt2,
                                unsigned rn, long long scaled_imm7) {
     return base | ((static_cast<std::uint32_t>(scaled_imm7) & 0x7fU) << 15) |
            ((rt2 & 0x1fU) << 10) | ((rn & 0x1fU) << 5) | (rt & 0x1fU);
+}
+
+std::optional<std::uint32_t> vector_binary_base(std::string_view mnemonic) {
+    if (mnemonic == "and") {
+        return 0x4E201C00U;
+    }
+    if (mnemonic == "orr") {
+        return 0x4EA01C00U;
+    }
+    if (mnemonic == "eor") {
+        return 0x6E201C00U;
+    }
+    if (mnemonic == "add") {
+        return 0x4EA08400U;
+    }
+    if (mnemonic == "sub") {
+        return 0x6EA08400U;
+    }
+    if (mnemonic == "mul") {
+        return 0x4EA09C00U;
+    }
+    if (mnemonic == "smin") {
+        return 0x4EA06C00U;
+    }
+    if (mnemonic == "smax") {
+        return 0x4EA06400U;
+    }
+    if (mnemonic == "ushl") {
+        return 0x6EA04400U;
+    }
+    return std::nullopt;
+}
+
+bool vector_binary_uses_v16b_shape(std::string_view mnemonic) {
+    return mnemonic == "and" || mnemonic == "orr" || mnemonic == "eor";
+}
+
+std::optional<std::uint32_t> vector_reduce_base(std::string_view mnemonic) {
+    if (mnemonic == "addv") {
+        return 0x4EB1B800U;
+    }
+    if (mnemonic == "sminv") {
+        return 0x4EB1A800U;
+    }
+    if (mnemonic == "smaxv") {
+        return 0x4EB0A800U;
+    }
+    return std::nullopt;
+}
+
+bool is_vector_instruction_candidate(const AArch64MachineInstr &instruction) {
+    const std::string &mnemonic = instruction.get_mnemonic();
+    if (mnemonic == "movi" || mnemonic == "dup" || mnemonic == "and" ||
+        mnemonic == "orr" || mnemonic == "eor" || mnemonic == "smin" ||
+        mnemonic == "smax" || mnemonic == "ushl" || mnemonic == "addv" ||
+        mnemonic == "sminv" || mnemonic == "smaxv") {
+        return true;
+    }
+    if ((mnemonic == "mov" || mnemonic == "add" || mnemonic == "sub" ||
+         mnemonic == "mul") &&
+        instruction_has_vector_operand(instruction)) {
+        return true;
+    }
+    return false;
+}
+
+std::optional<EncodedInstruction> encode_vector_family_instruction(
+    const AArch64MachineInstr &instruction, const AArch64MachineFunction &function,
+    DiagnosticEngine &diagnostic_engine) {
+    EncodedInstruction encoded;
+    const auto unsupported = [&](const std::string &detail)
+        -> std::optional<EncodedInstruction> {
+        diagnostic_engine.add_error(
+            DiagnosticStage::Compiler,
+            "AArch64 direct object writer: unsupported instruction '" +
+                instruction.get_mnemonic() + "' (" + detail + ")");
+        return std::nullopt;
+    };
+
+    const std::string &mnemonic = instruction.get_mnemonic();
+    const auto &operands = instruction.get_operands();
+
+    if (mnemonic == "movi") {
+        if (operands.size() != 2) {
+            return unsupported("movi operand shape");
+        }
+        const auto rd = resolve_vector_reg_operand(
+            operands[0], function, diagnostic_engine, "movi dst");
+        const auto imm = parse_operand_immediate(operands[1]);
+        if (!rd.has_value() || !imm.has_value()) {
+            return std::nullopt;
+        }
+        if (!is_v2d_vector(*rd) || *imm != 0) {
+            return unsupported("only movi vN.2d, #0 is currently supported");
+        }
+        encoded.word = 0x6F00E400U | (rd->code & 0x1fU);
+        return encoded;
+    }
+
+    if (mnemonic == "dup") {
+        if (operands.size() != 2) {
+            return unsupported("dup operand shape");
+        }
+        const auto rd = resolve_vector_reg_operand(
+            operands[0], function, diagnostic_engine, "dup dst");
+        if (!rd.has_value() || !is_v4s_vector(*rd)) {
+            return unsupported("dup destination vector shape");
+        }
+        if (operand_is_vector_reg_like(operands[1])) {
+            const auto rn = resolve_vector_reg_operand(
+                operands[1], function, diagnostic_engine, "dup source lane");
+            if (!rn.has_value()) {
+                return std::nullopt;
+            }
+            if (!is_s_lane(*rn)) {
+                return unsupported("dup source lane shape");
+            }
+            encoded.word = 0x4E000400U |
+                           ((encode_s_lane_imm5(*rn->lane_index) & 0x1fU)
+                            << 16) |
+                           ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+            return encoded;
+        }
+        const auto rn = resolve_general_reg_operand(
+            operands[1], function, false, false, diagnostic_engine, "dup source");
+        if (!rn.has_value()) {
+            return std::nullopt;
+        }
+        if (rn->use_64bit) {
+            return unsupported("dup v4s requires a 32-bit general source");
+        }
+        encoded.word = 0x4E000C00U | (4U << 16) |
+                       ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+        return encoded;
+    }
+
+    if (mnemonic == "mov") {
+        if (operands.size() != 2) {
+            return unsupported("vector mov operand shape");
+        }
+        const bool dst_is_vector = operand_is_vector_reg_like(operands[0]);
+        const bool src_is_vector = operand_is_vector_reg_like(operands[1]);
+        if (dst_is_vector && src_is_vector) {
+            const auto rd = resolve_vector_reg_operand(
+                operands[0], function, diagnostic_engine, "mov dst");
+            const auto rn = resolve_vector_reg_operand(
+                operands[1], function, diagnostic_engine, "mov src");
+            if (!rd.has_value() || !rn.has_value()) {
+                return std::nullopt;
+            }
+            if (!rd->lane_index.has_value() && !rn->lane_index.has_value()) {
+                if (!is_v16b_vector(*rd) || !is_v16b_vector(*rn)) {
+                    return unsupported("vector register copy shape");
+                }
+                encoded.word = 0x4EA01C00U | ((rn->code & 0x1fU) << 16) |
+                               ((rn->code & 0x1fU) << 5) |
+                               (rd->code & 0x1fU);
+                return encoded;
+            }
+            if (!is_s_lane(*rd) || !is_s_lane(*rn)) {
+                return unsupported("vector lane move shape");
+            }
+            encoded.word = 0x6E000400U |
+                           ((encode_s_lane_imm5(*rd->lane_index) & 0x1fU)
+                            << 16) |
+                           ((*rn->lane_index & 0x3U) << 13) |
+                           ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+            return encoded;
+        }
+        if (dst_is_vector) {
+            const auto rd = resolve_vector_reg_operand(
+                operands[0], function, diagnostic_engine, "mov dst lane");
+            const auto rn = resolve_general_reg_operand(
+                operands[1], function, false, true, diagnostic_engine,
+                "mov lane source");
+            if (!rd.has_value() || !rn.has_value()) {
+                return std::nullopt;
+            }
+            if (!is_s_lane(*rd) || rn->use_64bit) {
+                return unsupported("general-to-vector lane move shape");
+            }
+            encoded.word = 0x4E001C00U |
+                           ((encode_s_lane_imm5(*rd->lane_index) & 0x1fU)
+                            << 16) |
+                           ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+            return encoded;
+        }
+        if (src_is_vector) {
+            const auto rd = resolve_general_reg_operand(
+                operands[0], function, false, false, diagnostic_engine,
+                "mov lane dst");
+            const auto rn = resolve_vector_reg_operand(
+                operands[1], function, diagnostic_engine, "mov src lane");
+            if (!rd.has_value() || !rn.has_value()) {
+                return std::nullopt;
+            }
+            if (!is_s_lane(*rn) || rd->use_64bit) {
+                return unsupported("vector lane-to-general move shape");
+            }
+            encoded.word = 0x0E003C00U |
+                           ((encode_s_lane_imm5(*rn->lane_index) & 0x1fU)
+                            << 16) |
+                           ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+            return encoded;
+        }
+        return unsupported("non-vector mov reached vector encoder");
+    }
+
+    if (const auto base = vector_binary_base(mnemonic); base.has_value()) {
+        if (operands.size() != 3) {
+            return unsupported("vector binary operand shape");
+        }
+        const auto rd = resolve_vector_reg_operand(
+            operands[0], function, diagnostic_engine, mnemonic + " dst");
+        const auto rn = resolve_vector_reg_operand(
+            operands[1], function, diagnostic_engine, mnemonic + " lhs");
+        const auto rm = resolve_vector_reg_operand(
+            operands[2], function, diagnostic_engine, mnemonic + " rhs");
+        if (!rd.has_value() || !rn.has_value() || !rm.has_value()) {
+            return std::nullopt;
+        }
+        const bool use_v16b = vector_binary_uses_v16b_shape(mnemonic);
+        const bool valid_shape = use_v16b
+                                     ? (is_v16b_vector(*rd) &&
+                                        is_v16b_vector(*rn) &&
+                                        is_v16b_vector(*rm))
+                                     : (is_v4s_vector(*rd) &&
+                                        is_v4s_vector(*rn) &&
+                                        is_v4s_vector(*rm));
+        if (!valid_shape) {
+            return unsupported(use_v16b ? "vector binary v16b shape"
+                                        : "vector binary v4s shape");
+        }
+        encoded.word = *base | ((rm->code & 0x1fU) << 16) |
+                       ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+        return encoded;
+    }
+
+    if (const auto base = vector_reduce_base(mnemonic); base.has_value()) {
+        if (operands.size() != 2) {
+            return unsupported("vector reduce operand shape");
+        }
+        const auto rd = resolve_float_reg_operand(
+            operands[0], function, diagnostic_engine, mnemonic + " dst");
+        const auto rn = resolve_vector_reg_operand(
+            operands[1], function, diagnostic_engine, mnemonic + " source");
+        if (!rd.has_value() || !rn.has_value()) {
+            return std::nullopt;
+        }
+        if (rd->kind != AArch64VirtualRegKind::Float32 || !is_v4s_vector(*rn)) {
+            return unsupported("vector reduce v4s-to-s shape");
+        }
+        encoded.word = *base | ((rn->code & 0x1fU) << 5) |
+                       (rd->code & 0x1fU);
+        return encoded;
+    }
+
+    return unsupported("vector encoder coverage gap");
 }
 
 } // namespace
@@ -493,6 +872,11 @@ std::optional<EncodedInstruction> encode_machine_instruction(
     const std::string &mnemonic = instruction.get_mnemonic();
     const auto &operands = instruction.get_operands();
 
+    if (is_vector_instruction_candidate(instruction)) {
+        return encode_vector_family_instruction(instruction, function,
+                                                diagnostic_engine);
+    }
+
     if (opcode == AArch64MachineOpcode::Branch ||
         opcode == AArch64MachineOpcode::BranchLink ||
         opcode == AArch64MachineOpcode::BranchRegister ||
@@ -540,18 +924,25 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         if (operands.size() < 2) {
             return unsupported("wide move operand shape");
         }
+        const std::size_t immediate_index =
+            opcode == AArch64MachineOpcode::MoveWideKeep &&
+                    operands.size() >= 3 &&
+                    operands[2].get_immediate_operand() != nullptr
+                ? 2U
+                : 1U;
         const auto rd = resolve_general_reg_operand(
             operands[0], function, false, false, diagnostic_engine, mnemonic);
-        const auto imm = parse_operand_immediate(operands[1]);
+        const auto imm = parse_operand_immediate(operands[immediate_index]);
         if (!rd.has_value() || !imm.has_value() ||
             !check_signed_range(*imm, 0, 0xffff, diagnostic_engine,
                                 "AArch64 direct object writer: wide move immediate out of range")) {
             return std::nullopt;
         }
         unsigned hw = 0;
-        if (operands.size() >= 3) {
+        if (operands.size() > immediate_index + 1U) {
             AArch64ShiftKind shift_kind = AArch64ShiftKind::Lsl;
-            const auto amount = parse_shift_amount(operands[2], shift_kind);
+            const auto amount =
+                parse_shift_amount(operands[immediate_index + 1U], shift_kind);
             if (!amount.has_value() || shift_kind != AArch64ShiftKind::Lsl ||
                 (*amount % 16) != 0 ||
                 *amount > 48) {
@@ -680,10 +1071,8 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             if (operands.size() != 3) {
                 return unsupported("logical immediate shift");
             }
-            const std::optional<EncodedLogicalImmediate> encoded_imm =
-                encode_logical_immediate_fields(
-                    static_cast<std::uint64_t>(*imm),
-                    rd->use_64bit ? 64U : 32U);
+            const auto encoded_imm = encode_logical_immediate_fields(
+                static_cast<std::uint64_t>(*imm), rd->use_64bit ? 64U : 32U);
             if (!encoded_imm.has_value()) {
                 return unsupported("logical immediate");
             }
@@ -780,12 +1169,17 @@ std::optional<EncodedInstruction> encode_machine_instruction(
     }
 
     if (opcode == AArch64MachineOpcode::Mul ||
+        opcode == AArch64MachineOpcode::MultiplyAdd ||
+        opcode == AArch64MachineOpcode::MultiplySubtract ||
         opcode == AArch64MachineOpcode::SignedDiv ||
         opcode == AArch64MachineOpcode::UnsignedDiv ||
         opcode == AArch64MachineOpcode::ShiftLeft ||
         opcode == AArch64MachineOpcode::ShiftRightLogical ||
         opcode == AArch64MachineOpcode::ShiftRightArithmetic) {
-        if (operands.size() != 3) {
+        if (operands.size() != ((opcode == AArch64MachineOpcode::MultiplyAdd ||
+                                 opcode == AArch64MachineOpcode::MultiplySubtract)
+                                    ? 4U
+                                    : 3U)) {
             return unsupported("arithmetic operand shape");
         }
         const auto rd = resolve_general_reg_operand(
@@ -804,6 +1198,22 @@ std::optional<EncodedInstruction> encode_machine_instruction(
                            ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
             return encoded;
         }
+        if (opcode == AArch64MachineOpcode::MultiplyAdd ||
+            opcode == AArch64MachineOpcode::MultiplySubtract) {
+            const auto ra = resolve_general_reg_operand(
+                operands[3], function, false, false, diagnostic_engine,
+                mnemonic + " acc");
+            if (!ra.has_value() || rd->use_64bit != ra->use_64bit) {
+                return std::nullopt;
+            }
+            encoded.word =
+                opcode == AArch64MachineOpcode::MultiplyAdd
+                    ? encode_multiply_add_word(rd->use_64bit, rd->code, rn->code,
+                                               rm->code, ra->code)
+                    : encode_multiply_sub_word(rd->use_64bit, rd->code, rn->code,
+                                               rm->code, ra->code);
+            return encoded;
+        }
         if (opcode == AArch64MachineOpcode::SignedDiv) {
             encoded.word = (rd->use_64bit ? 0x9AC00C00U : 0x1AC00C00U) |
                            ((rm->code & 0x1fU) << 16) |
@@ -814,6 +1224,25 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             encoded.word = (rd->use_64bit ? 0x9AC00800U : 0x1AC00800U) |
                            ((rm->code & 0x1fU) << 16) |
                            ((rn->code & 0x1fU) << 5) | (rd->code & 0x1fU);
+            return encoded;
+        }
+        if (const auto imm = parse_operand_immediate(operands[2]); imm.has_value()) {
+            const unsigned reg_width = rd->use_64bit ? 64U : 32U;
+            if (*imm < 0 || *imm >= static_cast<long long>(reg_width)) {
+                return unsupported("shift immediate");
+            }
+            const unsigned amount = static_cast<unsigned>(*imm);
+            if (opcode == AArch64MachineOpcode::ShiftLeft) {
+                const unsigned immr = (reg_width - amount) & (reg_width - 1U);
+                const unsigned imms = reg_width - 1U - amount;
+                encoded.word = encode_bitfield_move_word(
+                    rd->use_64bit, false, rd->code, rn->code, immr, imms);
+                return encoded;
+            }
+            encoded.word = encode_bitfield_move_word(
+                rd->use_64bit,
+                opcode == AArch64MachineOpcode::ShiftRightArithmetic, rd->code,
+                rn->code, amount, reg_width - 1U);
             return encoded;
         }
         const std::uint32_t base = rd->use_64bit
@@ -873,9 +1302,9 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         const auto rd = resolve_general_reg_operand(
             operands[0], function, false, false, diagnostic_engine, "csel dst");
         const auto rn = resolve_general_reg_operand(
-            operands[1], function, false, false, diagnostic_engine, "csel lhs");
+            operands[1], function, false, true, diagnostic_engine, "csel lhs");
         const auto rm = resolve_general_reg_operand(
-            operands[2], function, false, false, diagnostic_engine, "csel rhs");
+            operands[2], function, false, true, diagnostic_engine, "csel rhs");
         const auto *condition = operands[3].get_condition_code_operand();
         if (!rd.has_value() || !rn.has_value() || !rm.has_value() ||
             condition == nullptr || rd->use_64bit != rn->use_64bit ||

@@ -1,5 +1,6 @@
 #include "backend/asm_gen/aarch64/support/aarch64_global_data_lowering_support.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -275,6 +276,33 @@ void append_scalar_fragment(AArch64DataObject &data_object, std::size_t size,
     }
 }
 
+bool can_place_fragment_in_bss(const AArch64DataFragment &fragment) {
+    if (fragment.is_zero_fill()) {
+        return true;
+    }
+    if (const auto *bytes = fragment.get_byte_sequence(); bytes != nullptr) {
+        if (!bytes->relocations.empty()) {
+            return false;
+        }
+        return std::all_of(bytes->bytes.begin(), bytes->bytes.end(),
+                           [](std::uint8_t byte) { return byte == 0; });
+    }
+    if (fragment.is_scalar_value()) {
+        return fragment.get_scalar_bits() == 0 &&
+               fragment.get_relocations().empty();
+    }
+    return false;
+}
+
+bool can_place_object_in_bss(const AArch64DataObject &data_object) {
+    if (data_object.get_fragments().empty()) {
+        return false;
+    }
+    return std::all_of(data_object.get_fragments().begin(),
+                       data_object.get_fragments().end(),
+                       can_place_fragment_in_bss);
+}
+
 } // namespace
 
 bool append_global_constant_fragments(AArch64DataObject &data_object,
@@ -470,20 +498,30 @@ bool append_global(AArch64ObjectModule &object_module, const CoreIrGlobal &globa
         return false;
     }
 
-    const AArch64SectionKind section_kind =
+    const AArch64SectionKind default_section_kind =
         global.get_is_constant() ? AArch64SectionKind::ReadOnlyData
                                  : AArch64SectionKind::Data;
-    context.record_symbol_definition(global.get_name(), AArch64SymbolKind::Object,
-                                     section_kind, !global.get_is_internal_linkage());
-    AArch64DataObject &data_object = object_module.append_data_object(
-        section_kind, global.get_name(), !global.get_is_internal_linkage(),
+    AArch64DataObject staged_data_object(
+        default_section_kind, global.get_name(), !global.get_is_internal_linkage(),
         alignment_to_log2(get_type_alignment(global.get_type())));
-    if (!append_global_constant_fragments(data_object, global.get_initializer(),
+    if (!append_global_constant_fragments(staged_data_object, global.get_initializer(),
                                           global.get_type(), context)) {
         context.report_error(
             "unsupported global initializer in AArch64 native backend for '" +
             global.get_name() + "'");
         return false;
+    }
+    const AArch64SectionKind section_kind =
+        !global.get_is_constant() && can_place_object_in_bss(staged_data_object)
+            ? AArch64SectionKind::Bss
+            : default_section_kind;
+    context.record_symbol_definition(global.get_name(), AArch64SymbolKind::Object,
+                                     section_kind, !global.get_is_internal_linkage());
+    AArch64DataObject &data_object = object_module.append_data_object(
+        section_kind, global.get_name(), !global.get_is_internal_linkage(),
+        staged_data_object.get_align_log2());
+    for (const AArch64DataFragment &fragment : staged_data_object.get_fragments()) {
+        data_object.append_fragment(fragment);
     }
     return true;
 }

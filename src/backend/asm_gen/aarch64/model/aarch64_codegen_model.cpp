@@ -174,6 +174,12 @@ classify_aarch64_machine_opcode(std::string_view mnemonic) noexcept {
     if (mnemonic == "mul") {
         return AArch64MachineOpcode::Mul;
     }
+    if (mnemonic == "madd") {
+        return AArch64MachineOpcode::MultiplyAdd;
+    }
+    if (mnemonic == "msub") {
+        return AArch64MachineOpcode::MultiplySubtract;
+    }
     if (mnemonic == "sdiv") {
         return AArch64MachineOpcode::SignedDiv;
     }
@@ -319,6 +325,10 @@ aarch64_machine_opcode_mnemonic(AArch64MachineOpcode opcode) noexcept {
         return "eor";
     case AArch64MachineOpcode::Mul:
         return "mul";
+    case AArch64MachineOpcode::MultiplyAdd:
+        return "madd";
+    case AArch64MachineOpcode::MultiplySubtract:
+        return "msub";
     case AArch64MachineOpcode::SignedDiv:
         return "sdiv";
     case AArch64MachineOpcode::UnsignedDiv:
@@ -441,6 +451,10 @@ describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept {
         AArch64MachineOpcode::Eor, "eor", false, false, false};
     static const AArch64MachineOpcodeDescriptor kMul{
         AArch64MachineOpcode::Mul, "mul", false, false, false};
+    static const AArch64MachineOpcodeDescriptor kMultiplyAdd{
+        AArch64MachineOpcode::MultiplyAdd, "madd", false, false, false};
+    static const AArch64MachineOpcodeDescriptor kMultiplySubtract{
+        AArch64MachineOpcode::MultiplySubtract, "msub", false, false, false};
     static const AArch64MachineOpcodeDescriptor kSignedDiv{
         AArch64MachineOpcode::SignedDiv, "sdiv", false, false, false};
     static const AArch64MachineOpcodeDescriptor kUnsignedDiv{
@@ -551,6 +565,10 @@ describe_aarch64_machine_opcode(AArch64MachineOpcode opcode) noexcept {
         return kEor;
     case AArch64MachineOpcode::Mul:
         return kMul;
+    case AArch64MachineOpcode::MultiplyAdd:
+        return kMultiplyAdd;
+    case AArch64MachineOpcode::MultiplySubtract:
+        return kMultiplySubtract;
     case AArch64MachineOpcode::SignedDiv:
         return kSignedDiv;
     case AArch64MachineOpcode::UnsignedDiv:
@@ -648,6 +666,104 @@ AArch64MachineOperand::physical_reg(unsigned reg_number,
                                     AArch64VirtualRegKind kind) {
     return AArch64MachineOperand(AArch64MachineOperandKind::PhysicalReg,
                                  AArch64MachinePhysicalRegOperand{reg_number, kind});
+}
+
+AArch64MachineOperand
+AArch64MachineOperand::use_vector_reg(const AArch64VirtualReg &reg,
+                                      unsigned lane_count,
+                                      char element_kind) {
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::VectorReg,
+        AArch64MachineVectorRegOperand{
+            AArch64MachineVectorRegOperand::BaseKind::VirtualReg,
+            AArch64VirtualReg(reg.get_id(), AArch64VirtualRegKind::Float128),
+            0,
+            false,
+            lane_count,
+            element_kind,
+            std::nullopt});
+}
+
+AArch64MachineOperand
+AArch64MachineOperand::def_vector_reg(const AArch64VirtualReg &reg,
+                                      unsigned lane_count,
+                                      char element_kind) {
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::VectorReg,
+        AArch64MachineVectorRegOperand{
+            AArch64MachineVectorRegOperand::BaseKind::VirtualReg,
+            AArch64VirtualReg(reg.get_id(), AArch64VirtualRegKind::Float128),
+            0,
+            true,
+            lane_count,
+            element_kind,
+            std::nullopt});
+}
+
+AArch64MachineOperand
+AArch64MachineOperand::use_vector_lane(const AArch64VirtualReg &reg,
+                                       char element_kind,
+                                       unsigned lane_index) {
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::VectorReg,
+        AArch64MachineVectorRegOperand{
+            AArch64MachineVectorRegOperand::BaseKind::VirtualReg,
+            AArch64VirtualReg(reg.get_id(), AArch64VirtualRegKind::Float128),
+            0,
+            false,
+            1,
+            element_kind,
+            lane_index});
+}
+
+AArch64MachineOperand
+AArch64MachineOperand::def_vector_lane(const AArch64VirtualReg &reg,
+                                       char element_kind,
+                                       unsigned lane_index) {
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::VectorReg,
+        AArch64MachineVectorRegOperand{
+            AArch64MachineVectorRegOperand::BaseKind::VirtualReg,
+            AArch64VirtualReg(reg.get_id(), AArch64VirtualRegKind::Float128),
+            0,
+            true,
+            1,
+            element_kind,
+            lane_index});
+}
+
+AArch64MachineOperand
+AArch64MachineOperand::physical_vector_reg(unsigned reg_number,
+                                           unsigned lane_count,
+                                           char element_kind,
+                                           bool is_def) {
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::VectorReg,
+        AArch64MachineVectorRegOperand{
+            AArch64MachineVectorRegOperand::BaseKind::PhysicalReg,
+            {},
+            reg_number,
+            is_def,
+            lane_count,
+            element_kind,
+            std::nullopt});
+}
+
+AArch64MachineOperand
+AArch64MachineOperand::physical_vector_lane(unsigned reg_number,
+                                            char element_kind,
+                                            unsigned lane_index,
+                                            bool is_def) {
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::VectorReg,
+        AArch64MachineVectorRegOperand{
+            AArch64MachineVectorRegOperand::BaseKind::PhysicalReg,
+            {},
+            reg_number,
+            is_def,
+            1,
+            element_kind,
+            lane_index});
 }
 
 AArch64MachineOperand AArch64MachineOperand::immediate(std::string text) {
@@ -795,6 +911,26 @@ AArch64MachineOperand AArch64MachineOperand::memory_address_physical_reg(
             .address_mode = address_mode});
 }
 
+AArch64MachineOperand AArch64MachineOperand::memory_address_physical_reg_indexed(
+    unsigned base_reg_number, unsigned index_reg_number,
+    AArch64VirtualRegKind index_kind, AArch64ShiftKind shift_kind,
+    unsigned shift_amount) {
+    return AArch64MachineOperand(
+        AArch64MachineOperandKind::MemoryAddress,
+        AArch64MachineMemoryAddressOperand{
+            .base_kind = AArch64MachineMemoryAddressOperand::BaseKind::PhysicalReg,
+            .virtual_reg = {},
+            .physical_reg = base_reg_number,
+            .stack_pointer_use_64bit = true,
+            .offset = AArch64MachineMemoryRegisterOffset{
+                .reg_number = index_reg_number,
+                .kind = index_kind,
+                .shift_kind = shift_kind,
+                .shift_amount = shift_amount,
+            },
+            .address_mode = AArch64MachineMemoryAddressOperand::AddressMode::Offset});
+}
+
 AArch64MachineOperand AArch64MachineOperand::memory_address_stack_pointer(
     AArch64MachineSymbolReference symbolic_offset, bool use_64bit,
     AArch64MachineMemoryAddressOperand::AddressMode address_mode) {
@@ -817,6 +953,11 @@ AArch64MachineOperand::get_virtual_reg_operand() const noexcept {
 const AArch64MachinePhysicalRegOperand *
 AArch64MachineOperand::get_physical_reg_operand() const noexcept {
     return std::get_if<AArch64MachinePhysicalRegOperand>(&payload_);
+}
+
+const AArch64MachineVectorRegOperand *
+AArch64MachineOperand::get_vector_reg_operand() const noexcept {
+    return std::get_if<AArch64MachineVectorRegOperand>(&payload_);
 }
 
 const AArch64MachineConditionCodeOperand *

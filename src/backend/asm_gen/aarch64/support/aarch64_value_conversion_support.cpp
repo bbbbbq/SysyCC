@@ -48,6 +48,7 @@ void apply_zero_extend_to_virtual_reg(AArch64MachineBlock &machine_block,
                                       const CoreIrType *source_type,
                                       const CoreIrType *target_type) {
     const auto *source_integer = as_integer_type(source_type);
+    const bool target_uses_64bit = uses_64bit_register(target_type);
     if (source_integer == nullptr) {
         return;
     }
@@ -57,27 +58,38 @@ void apply_zero_extend_to_virtual_reg(AArch64MachineBlock &machine_block,
             "and",
             {def_vreg_operand_as(dst_reg, false), use_vreg_operand_as(dst_reg, false),
              AArch64MachineOperand::immediate("#1")}));
+        if (target_uses_64bit) {
+            machine_block.append_instruction(AArch64MachineInstr(
+                "uxtw", {def_vreg_operand_as(dst_reg, true),
+                         use_vreg_operand_as(dst_reg, false)}));
+        }
         break;
     case 8:
         machine_block.append_instruction(
-            AArch64MachineInstr("uxtb", {def_vreg_operand_as(dst_reg, false),
+            AArch64MachineInstr("uxtb", {def_vreg_operand_as(dst_reg, target_uses_64bit),
                                          use_vreg_operand_as(dst_reg, false)}));
         break;
     case 16:
         machine_block.append_instruction(
-            AArch64MachineInstr("uxth", {def_vreg_operand_as(dst_reg, false),
+            AArch64MachineInstr("uxth", {def_vreg_operand_as(dst_reg, target_uses_64bit),
                                          use_vreg_operand_as(dst_reg, false)}));
         break;
     case 32:
+        if (target_uses_64bit) {
+            machine_block.append_instruction(AArch64MachineInstr(
+                "uxtw", {def_vreg_operand_as(dst_reg, true),
+                         use_vreg_operand_as(dst_reg, false)}));
+        }
+        break;
     case 64:
         break;
     default:
         if (source_integer->get_bit_width() < 64) {
             machine_block.append_instruction(AArch64MachineInstr(
                 "ubfx", {def_vreg_operand_as(dst_reg,
-                                             source_integer->get_bit_width() > 32),
-                         use_vreg_operand_as(dst_reg,
-                                             source_integer->get_bit_width() > 32),
+                                             target_uses_64bit ||
+                                                 source_integer->get_bit_width() > 32),
+                         use_vreg_operand_as(dst_reg, false),
                          AArch64MachineOperand::immediate("#0"),
                          AArch64MachineOperand::immediate(
                              "#" + std::to_string(source_integer->get_bit_width()))}));

@@ -51,10 +51,29 @@ bool dispatch_aarch64_lowered_instruction(
             machine_block, static_cast<const CoreIrSelectInst &>(instruction),
             state);
     case CoreIrOpcode::ExtractElement:
+        context.emit_debug_location(machine_block,
+                                    instruction.get_source_span(), state);
+        return context.emit_extract_element(
+            machine_block,
+            static_cast<const CoreIrExtractElementInst &>(instruction), state);
     case CoreIrOpcode::InsertElement:
+        context.emit_debug_location(machine_block,
+                                    instruction.get_source_span(), state);
+        return context.emit_insert_element(
+            machine_block,
+            static_cast<const CoreIrInsertElementInst &>(instruction), state);
     case CoreIrOpcode::ShuffleVector:
+        context.emit_debug_location(machine_block,
+                                    instruction.get_source_span(), state);
+        return context.emit_shuffle_vector(
+            machine_block,
+            static_cast<const CoreIrShuffleVectorInst &>(instruction), state);
     case CoreIrOpcode::VectorReduceAdd:
-        return false;
+        context.emit_debug_location(machine_block,
+                                    instruction.get_source_span(), state);
+        return context.emit_vector_reduce_add(
+            machine_block,
+            static_cast<const CoreIrVectorReduceAddInst &>(instruction), state);
     case CoreIrOpcode::Cast:
         context.emit_debug_location(machine_block,
                                     instruction.get_source_span(), state);

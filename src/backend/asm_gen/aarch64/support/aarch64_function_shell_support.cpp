@@ -242,6 +242,11 @@ bool is_frame_adjust_instruction(const AArch64MachineInstr &instruction,
            immediate->asm_text.front() == '#';
 }
 
+bool needs_standard_frame_record(std::size_t frame_size,
+                                 bool needs_frame_record) {
+    return needs_frame_record || frame_size != 0;
+}
+
 } // namespace
 
 std::string sanitize_aarch64_label_fragment(const std::string &text) {
@@ -291,24 +296,27 @@ build_aarch64_function_block_labels(const CoreIrFunction &function,
 }
 
 void initialize_aarch64_function_frame_record(AArch64MachineFunction &function,
-                                              std::size_t frame_size) {
+                                              std::size_t frame_size,
+                                              bool needs_frame_record) {
     function.get_frame_record().set_stack_frame_size(frame_size);
+    function.get_frame_record().clear_cfi_directives();
     function.get_frame_record().append_cfi_directive(
         AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::StartProcedure});
     // This frame record seeds shell-only CFI from the same shared shell semantics
     // that both lowering and frame-finalize consume. Final emitted unwind text is
     // still authoritative in frame-finalize once saved-register slots are known.
     for (const AArch64StandardFrameShellOp &op :
-         build_aarch64_standard_prologue_shell(frame_size)) {
+         build_aarch64_standard_prologue_shell(frame_size, needs_frame_record)) {
         append_aarch64_frame_record_cfi_for_shell_op(function.get_frame_record(),
-                                                     op.kind, frame_size);
+                                                     op.kind, frame_size,
+                                                     needs_frame_record);
     }
     function.get_frame_record().append_cfi_directive(
         AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::EndProcedure});
 }
 
 std::vector<AArch64StandardFrameShellOp>
-build_aarch64_standard_prologue_shell(std::size_t frame_size) {
+build_aarch64_frame_record_prefix_shell() {
     std::vector<AArch64StandardFrameShellOp> shell;
     shell.push_back(AArch64StandardFrameShellOp{
         AArch64StandardFrameShellOpKind::SaveFrameRecord,
@@ -331,6 +339,17 @@ build_aarch64_standard_prologue_shell(std::size_t frame_size) {
                  static_cast<unsigned>(AArch64PhysicalReg::X29),
                  AArch64VirtualRegKind::General64),
              AArch64MachineOperand::stack_pointer(true)})});
+    return shell;
+}
+
+std::vector<AArch64StandardFrameShellOp>
+build_aarch64_standard_prologue_shell(std::size_t frame_size,
+                                      bool needs_frame_record) {
+    std::vector<AArch64StandardFrameShellOp> shell;
+    if (!needs_standard_frame_record(frame_size, needs_frame_record)) {
+        return shell;
+    }
+    shell = build_aarch64_frame_record_prefix_shell();
     if (frame_size > 0) {
         append_stack_pointer_adjust_shell_ops(
             shell, true, frame_size,
@@ -341,8 +360,14 @@ build_aarch64_standard_prologue_shell(std::size_t frame_size) {
 }
 
 std::vector<AArch64StandardFrameShellOp>
-build_aarch64_standard_epilogue_shell(std::size_t frame_size) {
+build_aarch64_standard_epilogue_shell(std::size_t frame_size,
+                                      bool needs_frame_record) {
     std::vector<AArch64StandardFrameShellOp> shell;
+    if (!needs_standard_frame_record(frame_size, needs_frame_record)) {
+        shell.push_back(AArch64StandardFrameShellOp{
+            AArch64StandardFrameShellOpKind::Return, AArch64MachineInstr("ret", {})});
+        return shell;
+    }
     if (frame_size > 0) {
         append_stack_pointer_adjust_shell_ops(
             shell, false, frame_size,
@@ -369,10 +394,16 @@ build_aarch64_standard_epilogue_shell(std::size_t frame_size) {
 
 AArch64StandardFrameShellCfiBundle
 build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
-                                        std::size_t frame_size) {
+                                        std::size_t frame_size,
+                                        bool needs_frame_record) {
     AArch64StandardFrameShellCfiBundle bundle;
+    const bool uses_frame_record =
+        needs_standard_frame_record(frame_size, needs_frame_record);
     switch (op_kind) {
     case AArch64StandardFrameShellOpKind::SaveFrameRecord:
+        if (!uses_frame_record) {
+            break;
+        }
         bundle.frame_record_directives.push_back(
             AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::DefCfa,
                                 .reg = static_cast<unsigned>(AArch64PhysicalReg::X29),
@@ -398,6 +429,9 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
                              AArch64MachineOperand::immediate("-8")}));
         break;
     case AArch64StandardFrameShellOpKind::EstablishFramePointer:
+        if (!uses_frame_record) {
+            break;
+        }
         bundle.frame_record_directives.push_back(
             AArch64CfiDirective{
                 .kind = AArch64CfiDirectiveKind::DefCfaRegister,
@@ -410,6 +444,9 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
     case AArch64StandardFrameShellOpKind::DeallocateLocalFrameChunk:
         break;
     case AArch64StandardFrameShellOpKind::AllocateLocalFrame:
+        if (!uses_frame_record) {
+            break;
+        }
         bundle.frame_record_directives.push_back(
             AArch64CfiDirective{
                 .kind = AArch64CfiDirectiveKind::DefCfaOffset,
@@ -420,6 +457,9 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
             {AArch64MachineOperand::immediate(std::to_string(frame_size + 16))}));
         break;
     case AArch64StandardFrameShellOpKind::DeallocateLocalFrame:
+        if (!uses_frame_record) {
+            break;
+        }
         bundle.frame_record_directives.push_back(
             AArch64CfiDirective{
                 .kind = AArch64CfiDirectiveKind::DefCfaOffset,
@@ -430,6 +470,9 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
                             {AArch64MachineOperand::immediate("16")}));
         break;
     case AArch64StandardFrameShellOpKind::RestoreFrameRecord:
+        if (!uses_frame_record) {
+            break;
+        }
         bundle.frame_record_directives.push_back(
             AArch64CfiDirective{.kind = AArch64CfiDirectiveKind::Restore,
                                 .reg = static_cast<unsigned>(AArch64PhysicalReg::X29)});
@@ -460,9 +503,10 @@ build_aarch64_standard_shell_cfi_bundle(AArch64StandardFrameShellOpKind op_kind,
 
 void append_aarch64_frame_record_cfi_for_shell_op(
     AArch64FrameRecord &frame_record, AArch64StandardFrameShellOpKind op_kind,
-    std::size_t frame_size) {
+    std::size_t frame_size, bool needs_frame_record) {
     for (const AArch64CfiDirective &directive :
-         build_aarch64_standard_shell_cfi_bundle(op_kind, frame_size)
+         build_aarch64_standard_shell_cfi_bundle(op_kind, frame_size,
+                                                 needs_frame_record)
              .frame_record_directives) {
         frame_record.append_cfi_directive(directive);
     }
@@ -470,9 +514,11 @@ void append_aarch64_frame_record_cfi_for_shell_op(
 
 void append_aarch64_asm_cfi_for_shell_op(
     std::vector<AArch64MachineInstr> &instructions,
-    AArch64StandardFrameShellOpKind op_kind, std::size_t frame_size) {
+    AArch64StandardFrameShellOpKind op_kind, std::size_t frame_size,
+    bool needs_frame_record) {
     for (const AArch64MachineInstr &directive :
-         build_aarch64_standard_shell_cfi_bundle(op_kind, frame_size)
+         build_aarch64_standard_shell_cfi_bundle(op_kind, frame_size,
+                                                 needs_frame_record)
              .asm_instructions) {
         instructions.push_back(directive);
     }
@@ -481,7 +527,7 @@ void append_aarch64_asm_cfi_for_shell_op(
 std::size_t count_aarch64_standard_prologue_prefix(
     const std::vector<AArch64MachineInstr> &instructions) {
     const std::vector<AArch64StandardFrameShellOp> shell_without_allocation =
-        build_aarch64_standard_prologue_shell(0);
+        build_aarch64_frame_record_prefix_shell();
     if (instructions.size() < shell_without_allocation.size()) {
         return 0;
     }
@@ -500,17 +546,19 @@ std::size_t count_aarch64_standard_prologue_prefix(
 }
 
 void append_aarch64_standard_prologue(AArch64MachineBlock &block,
-                                      std::size_t frame_size) {
+                                      std::size_t frame_size,
+                                      bool needs_frame_record) {
     for (const AArch64StandardFrameShellOp &op :
-         build_aarch64_standard_prologue_shell(frame_size)) {
+         build_aarch64_standard_prologue_shell(frame_size, needs_frame_record)) {
         block.append_instruction(op.instruction);
     }
 }
 
 void append_aarch64_standard_epilogue(AArch64MachineBlock &block,
-                                      std::size_t frame_size) {
+                                      std::size_t frame_size,
+                                      bool needs_frame_record) {
     for (const AArch64StandardFrameShellOp &op :
-         build_aarch64_standard_epilogue_shell(frame_size)) {
+         build_aarch64_standard_epilogue_shell(frame_size, needs_frame_record)) {
         block.append_instruction(op.instruction);
     }
 }

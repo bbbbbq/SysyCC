@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <optional>
+#include <iostream>
 #include <set>
 #include <sstream>
 #include <string>
@@ -163,6 +164,21 @@ void record_spilled_operand_roles(
         return;
     }
 
+    if (const auto *vector_reg = operand.get_vector_reg_operand();
+        vector_reg != nullptr) {
+        if (vector_reg->base_kind !=
+                AArch64MachineVectorRegOperand::BaseKind::VirtualReg ||
+            !is_spilled_virtual_reg(vector_reg->reg, function)) {
+            return;
+        }
+        AArch64SpillRewriteOperand *entry =
+            find_or_append_spill_operand(plan, operand_indices, vector_reg->reg);
+        add_role(entry->roles, vector_reg->is_def
+                                   ? AArch64SpillOperandRole::ValueDef
+                                   : AArch64SpillOperandRole::ValueUse);
+        return;
+    }
+
     const auto *memory = operand.get_memory_address_operand();
     if (memory == nullptr || memory->base_kind !=
                                 AArch64MachineMemoryAddressOperand::BaseKind::VirtualReg ||
@@ -256,6 +272,30 @@ AArch64MachineOperand rewrite_spilled_operand(
         }
         return AArch64MachineOperand::memory_address_physical_reg(
             it->second, std::nullopt, memory->address_mode);
+    }
+
+    if (const auto *vector_reg = operand.get_vector_reg_operand();
+        vector_reg != nullptr) {
+        if (vector_reg->base_kind !=
+            AArch64MachineVectorRegOperand::BaseKind::VirtualReg) {
+            return operand;
+        }
+        if (function.get_physical_reg_for_virtual(vector_reg->reg.get_id())
+                .has_value()) {
+            return operand;
+        }
+        const auto it = mapping.find(vector_reg->reg.get_id());
+        if (it == mapping.end()) {
+            return operand;
+        }
+        if (vector_reg->lane_index.has_value()) {
+            return AArch64MachineOperand::physical_vector_lane(
+                it->second, vector_reg->element_kind, *vector_reg->lane_index,
+                vector_reg->is_def);
+        }
+        return AArch64MachineOperand::physical_vector_reg(
+            it->second, vector_reg->lane_count, vector_reg->element_kind,
+            vector_reg->is_def);
     }
 
     return operand;
@@ -531,6 +571,26 @@ void record_instruction_used_physical_regs(
         virtual_reg != nullptr) {
         const auto physical_reg =
             function.get_physical_reg_for_virtual(virtual_reg->reg.get_id());
+        if (!physical_reg.has_value()) {
+            return;
+        }
+        if (is_float_physical_reg(*physical_reg)) {
+            float_regs.insert(*physical_reg);
+        } else {
+            general_regs.insert(*physical_reg);
+        }
+        return;
+    }
+    if (const auto *vector_reg = operand.get_vector_reg_operand();
+        vector_reg != nullptr) {
+        std::optional<unsigned> physical_reg;
+        if (vector_reg->base_kind ==
+            AArch64MachineVectorRegOperand::BaseKind::PhysicalReg) {
+            physical_reg = vector_reg->physical_reg;
+        } else {
+            physical_reg =
+                function.get_physical_reg_for_virtual(vector_reg->reg.get_id());
+        }
         if (!physical_reg.has_value()) {
             return;
         }
@@ -930,6 +990,69 @@ void add_backend_error(DiagnosticEngine &diagnostic_engine,
     diagnostic_engine.add_error(DiagnosticStage::Compiler, message);
 }
 
+bool spill_debug_enabled_for_function(const AArch64MachineFunction &function) {
+    const char *requested = std::getenv("SYSYCC_AARCH64_SPILL_DEBUG_FUNCTION");
+    return requested != nullptr && *requested != '\0' &&
+           function.get_name() == requested;
+}
+
+std::string format_machine_instruction_for_debug(
+    const AArch64MachineInstr &instruction,
+    const AArch64MachineFunction &function) {
+    std::ostringstream output;
+    output << instruction.get_mnemonic();
+    const auto &operands = instruction.get_operands();
+    if (!operands.empty()) {
+        output << " ";
+    }
+    for (std::size_t index = 0; index < operands.size(); ++index) {
+        if (index != 0) {
+            output << ", ";
+        }
+        output << render_machine_operand_for_asm(operands[index], function);
+    }
+    return output.str();
+}
+
+void dump_spill_rewrite_plan(const AArch64MachineFunction &function,
+                             const AArch64MachineInstr &instruction,
+                             const AArch64InstructionRewritePlan &plan) {
+    std::cerr << "[spill-debug] function=" << function.get_name()
+              << " original: "
+              << format_machine_instruction_for_debug(instruction, function) << "\n";
+    for (const AArch64SpillRewriteOperand &operand : plan.operands) {
+        std::cerr << "  operand v" << operand.virtual_reg_id << " kind="
+                  << static_cast<int>(operand.kind) << " roles="
+                  << static_cast<unsigned>(operand.roles) << "\n";
+    }
+    for (const AArch64ScratchAssignment &assignment : plan.assignments) {
+        std::cerr << "  assign v" << assignment.virtual_reg_id << " -> "
+                  << assignment.physical_reg
+                  << (assignment.borrowed ? " borrowed" : "") << "\n";
+    }
+    for (const AArch64SpillRewriteStep &step : plan.steps) {
+        std::cerr << "  step ";
+        switch (step.kind) {
+        case AArch64SpillRewriteStep::Kind::LoadUse:
+            std::cerr << "load v" << step.virtual_reg_id << " -> "
+                      << step.physical_reg;
+            break;
+        case AArch64SpillRewriteStep::Kind::StoreDef:
+            std::cerr << "store v" << step.virtual_reg_id << " <- "
+                      << step.physical_reg;
+            break;
+        case AArch64SpillRewriteStep::Kind::EmitInstruction:
+            std::cerr << "emit ";
+            if (step.instruction.has_value()) {
+                std::cerr << format_machine_instruction_for_debug(*step.instruction,
+                                                                  function);
+            }
+            break;
+        }
+        std::cerr << "\n";
+    }
+}
+
 std::size_t borrowed_scratch_save_size(unsigned physical_reg) {
     return is_float_physical_reg(physical_reg) ? 16 : 8;
 }
@@ -989,6 +1112,9 @@ bool AArch64SpillRewritePass::run(AArch64MachineFunction &function,
         for (AArch64MachineInstr &instruction : block.get_instructions()) {
             AArch64InstructionRewritePlan rewrite_plan =
                 build_instruction_rewrite_plan(instruction, function);
+            if (spill_debug_enabled_for_function(function)) {
+                dump_spill_rewrite_plan(function, instruction, rewrite_plan);
+            }
             if (!rewrite_plan.failure_reason.empty()) {
                 add_backend_error(diagnostic_engine, rewrite_plan.failure_reason);
                 return false;

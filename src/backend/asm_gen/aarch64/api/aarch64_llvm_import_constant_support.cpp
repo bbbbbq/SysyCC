@@ -147,6 +147,39 @@ std::optional<std::string> canonicalize_float_literal_text(
 std::optional<AArch64LlvmImportConstant> parse_constant_impl(
     const AArch64LlvmImportType &type, const std::string &text);
 
+std::optional<AArch64LlvmImportTypedConstant>
+parse_typed_constant(const std::string &text);
+
+bool import_types_equal(const AArch64LlvmImportType &lhs,
+                        const AArch64LlvmImportType &rhs);
+
+std::optional<AArch64LlvmImportConstant> parse_vector_splat_constant(
+    const AArch64LlvmImportType &type, const std::string &text) {
+    if (!type.array_uses_vector_syntax || type.element_types.size() != 1 ||
+        !llvm_import_starts_with(text, "splat (") || text.back() != ')') {
+        return std::nullopt;
+    }
+
+    const std::string inner = llvm_import_trim_copy(
+        text.substr(std::strlen("splat ("), text.size() - std::strlen("splat (") - 1));
+    const auto typed_element = parse_typed_constant(inner);
+    if (!typed_element.has_value()) {
+        return std::nullopt;
+    }
+
+    const AArch64LlvmImportType &element_type = type.element_types.front();
+    if (!import_types_equal(typed_element->type, element_type)) {
+        return std::nullopt;
+    }
+
+    AArch64LlvmImportConstant constant;
+    constant.kind = AArch64LlvmImportConstantKind::Aggregate;
+    for (std::size_t index = 0; index < type.array_element_count; ++index) {
+        constant.elements.push_back(typed_element->constant);
+    }
+    return constant;
+}
+
 std::optional<std::pair<std::uint64_t, std::uint64_t>>
 parse_integer_literal_words_128(const std::string &text) {
     const std::string trimmed = llvm_import_trim_copy(text);
@@ -1094,6 +1127,10 @@ std::optional<AArch64LlvmImportConstant> parse_constant_impl(
             return parse_select_constant(type, trimmed);
         }
         if (type.array_uses_vector_syntax) {
+            if (const auto splat = parse_vector_splat_constant(type, trimmed);
+                splat.has_value()) {
+                return splat;
+            }
             if (llvm_import_starts_with(trimmed, "insertelement ")) {
                 return parse_insertelement_constant(type, trimmed);
             }
