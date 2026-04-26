@@ -13,6 +13,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${COMPILER_BIN}" --stop-after=semantic "${INPUT_FILE}" --dump-tokens --dump-parse
+"${COMPILER_BIN}" -std=gnu99 --stop-after=semantic "${INPUT_FILE}"
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 
-echo "verified: stddef.h smoke clears preprocess/parse/semantic"
+echo "verified: stddef.h smoke clears preprocess/parse/semantic in default and gnu99 modes"

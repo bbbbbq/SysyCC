@@ -8,8 +8,17 @@ std::string_view GnuDialect::get_name() const noexcept { return "gnu-c"; }
 
 void GnuDialect::contribute_preprocess_features(
     PreprocessFeatureRegistry &registry) const {
+    registry.add_feature(PreprocessFeature::ClangBuiltinProbes);
     registry.add_feature(PreprocessFeature::GnuPredefinedMacros);
+    registry.add_feature(PreprocessFeature::HasIncludeFamily);
     registry.add_feature(PreprocessFeature::NonStandardDirectivePayloads);
+}
+
+void GnuDialect::contribute_preprocess_probe_handlers(
+    PreprocessProbeHandlerRegistry &registry) const {
+    // Host Clang system headers use these probes even for GNU language modes.
+    registry.add_handler(PreprocessProbeHandlerKind::ClangBuiltinProbes,
+                         "clang");
 }
 
 void GnuDialect::contribute_preprocess_directive_handlers(

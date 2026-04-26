@@ -88,7 +88,9 @@ The current implementation has moved beyond a pure skeleton:
 - `C99Dialect` contributes current standard-C keywords and baseline parser/AST/
   semantic features
 - `GnuDialect` contributes current GNU-oriented pieces such as
-  `__attribute__` and `__signed`
+  `__attribute__`, `__signed`, GNU predefined macros, and the clang-style
+  preprocess probe parsing needed by host Clang system headers under
+  `-std=gnu99`
 - `ClangDialect` currently exists as a named extension pack placeholder for
   clang-oriented behavior
 - `BuiltinTypeExtensionPack` contributes extended builtin-type support such as

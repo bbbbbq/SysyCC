@@ -184,7 +184,10 @@ The non-standard probe path now also consults the shared dialect manager before
 dispatching to provider implementations, so clang-style builtin-probe support
 is enabled by declared handler ownership instead of by an always-on implicit
 route. `__has_include*` is likewise gated by the `HasIncludeFamily` feature,
-and clang-style non-standard probes are gated by `ClangBuiltinProbes`. The
+and clang-style non-standard probes are gated by `ClangBuiltinProbes`. GNU mode
+enables those probe gates too because common host Clang headers use
+`__has_include_next(...)` and `__has_feature(...)` even when the public
+language mode is `-std=gnu99`. The
 first non-standard directive bridge now follows the same pattern:
 `DirectiveExecutor` consults the shared
 `PreprocessDirectiveHandlerRegistry` before honoring `#warning` and

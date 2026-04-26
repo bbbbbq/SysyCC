@@ -14,6 +14,9 @@ class GnuDialect : public FrontendDialect {
     void contribute_preprocess_features(
         PreprocessFeatureRegistry &registry) const override;
 
+    void contribute_preprocess_probe_handlers(
+        PreprocessProbeHandlerRegistry &registry) const override;
+
     void contribute_preprocess_directive_handlers(
         PreprocessDirectiveHandlerRegistry &registry) const override;
 

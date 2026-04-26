@@ -18,9 +18,13 @@ int main() {
         "__attribute__"));
     assert(!dialect_manager.get_lexer_keyword_registry().has_keyword(
         "_Float16"));
-    assert(!dialect_manager.get_preprocess_feature_registry().has_feature(
+    assert(dialect_manager.get_preprocess_feature_registry().has_feature(
         PreprocessFeature::ClangBuiltinProbes));
     assert(dialect_manager.get_preprocess_feature_registry().has_feature(
+        PreprocessFeature::HasIncludeFamily));
+    assert(dialect_manager.get_preprocess_feature_registry().has_feature(
         PreprocessFeature::GnuPredefinedMacros));
+    assert(dialect_manager.get_preprocess_probe_handler_registry().has_handler(
+        PreprocessProbeHandlerKind::ClangBuiltinProbes));
     return 0;
 }
