@@ -1,0 +1,24 @@
+typedef struct Node Node;
+struct Node {
+    int value;
+};
+
+typedef union Box Box;
+union Box {
+    int value;
+};
+
+typedef enum Kind Kind;
+enum Kind {
+    KindZero = 0,
+    KindOne = 1
+};
+
+int main(void) {
+    struct Node node;
+    union Box box;
+    enum Kind kind = KindOne;
+    node.value = 1;
+    box.value = 2;
+    return node.value + box.value + kind;
+}

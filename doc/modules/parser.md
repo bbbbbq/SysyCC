@@ -145,6 +145,10 @@ Generated parser outputs live under the active build tree:
   bootstrap header; the same bootstrap inventory now includes `_Bool`, which
   lets `stdbool.h` macro-expanded `bool` declarations flow through the
   ordinary typedef-name parser path
+- accept `TYPE_NAME` tokens in `struct` / `union` / `enum` tag-name positions,
+  so system headers remain parseable after a typedef such as
+  `typedef struct fd_set { ... } fd_set;` causes later `struct fd_set *`
+  references to be lexed with typedef-name spelling
 - seed compiler builtin type-macro spellings such as `__PTRDIFF_TYPE__`,
   `__SIZE_TYPE__`, `__INTMAX_TYPE__`, `__UINTMAX_TYPE__`, `__WCHAR_TYPE__`,
   and `__WINT_TYPE__`, plus compatibility builtin names such as `__uint128_t`,

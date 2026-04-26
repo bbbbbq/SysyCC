@@ -1,5 +1,6 @@
 #include "frontend/ast/detail/ast_builder.hpp"
 
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -106,6 +107,28 @@ bool is_parameter_list_node(const ParseTreeNode *node) {
     return node != nullptr &&
            (ParseTreeMatcher::label_equals(node, "parameter_list_opt") ||
             ParseTreeMatcher::label_equals(node, "function_parameter_list_opt"));
+}
+
+bool extract_tag_identifier_name(const ParseTreeNode *node, std::string &name) {
+    if (node == nullptr) {
+        return false;
+    }
+    if (ParseTreeMatcher::label_starts_with(node, "IDENTIFIER")) {
+        name = ParseTreeMatcher::extract_terminal_suffix(node, "IDENTIFIER");
+        return !name.empty();
+    }
+    if (ParseTreeMatcher::label_starts_with(node, "TYPE_NAME")) {
+        name = ParseTreeMatcher::extract_terminal_suffix(node, "TYPE_NAME");
+        return !name.empty();
+    }
+    if (ParseTreeMatcher::label_equals(node, "tag_identifier")) {
+        for (const auto &child : node->children) {
+            if (extract_tag_identifier_name(child.get(), name)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 PointerNullabilityKind get_pointer_nullability_kind(const ParseTreeNode *node) {
@@ -720,13 +743,10 @@ AstBuilder::build_struct_decl(const ParseTreeNode *node) const {
     std::string name = "<anonymous>";
     if (specifier != nullptr) {
         for (const auto &child : specifier->children) {
-            if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
-                const std::string suffix = ParseTreeMatcher::extract_terminal_suffix(
-                    child.get(), "IDENTIFIER");
-                if (!suffix.empty()) {
-                    name = suffix;
-                    break;
-                }
+            std::string tag_name;
+            if (extract_tag_identifier_name(child.get(), tag_name)) {
+                name = tag_name;
+                break;
             }
         }
     }
@@ -752,13 +772,10 @@ AstBuilder::build_union_decl(const ParseTreeNode *node) const {
     std::string name = "<anonymous>";
     if (specifier != nullptr) {
         for (const auto &child : specifier->children) {
-            if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
-                const std::string suffix = ParseTreeMatcher::extract_terminal_suffix(
-                    child.get(), "IDENTIFIER");
-                if (!suffix.empty()) {
-                    name = suffix;
-                    break;
-                }
+            std::string tag_name;
+            if (extract_tag_identifier_name(child.get(), tag_name)) {
+                name = tag_name;
+                break;
             }
         }
     }
@@ -784,13 +801,10 @@ AstBuilder::build_enum_decl(const ParseTreeNode *node) const {
     std::string name = "<anonymous>";
     if (specifier != nullptr) {
         for (const auto &child : specifier->children) {
-            if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
-                const std::string suffix = ParseTreeMatcher::extract_terminal_suffix(
-                    child.get(), "IDENTIFIER");
-                if (!suffix.empty()) {
-                    name = suffix;
-                    break;
-                }
+            std::string tag_name;
+            if (extract_tag_identifier_name(child.get(), tag_name)) {
+                name = tag_name;
+                break;
             }
         }
     }
@@ -1020,12 +1034,9 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
         std::string name = "<anonymous>";
         std::vector<std::unique_ptr<Decl>> fields;
         for (const auto &child : struct_specifier->children) {
-            if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
-                const std::string suffix = ParseTreeMatcher::extract_terminal_suffix(
-                    child.get(), "IDENTIFIER");
-                if (!suffix.empty()) {
-                    name = suffix;
-                }
+            std::string tag_name;
+            if (extract_tag_identifier_name(child.get(), tag_name)) {
+                name = tag_name;
                 continue;
             }
             if (ParseTreeMatcher::label_equals(child.get(), "struct_field_list_opt")) {
@@ -1052,12 +1063,9 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
         std::string name = "<anonymous>";
         std::vector<std::unique_ptr<Decl>> fields;
         for (const auto &child : union_specifier->children) {
-            if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
-                const std::string suffix = ParseTreeMatcher::extract_terminal_suffix(
-                    child.get(), "IDENTIFIER");
-                if (!suffix.empty()) {
-                    name = suffix;
-                }
+            std::string tag_name;
+            if (extract_tag_identifier_name(child.get(), tag_name)) {
+                name = tag_name;
                 continue;
             }
             if (ParseTreeMatcher::label_equals(child.get(), "union_field_list_opt")) {
@@ -1072,13 +1080,10 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
             ParseTreeMatcher::find_first_child_with_label(node, "enum_specifier")) {
         std::string name = "<anonymous>";
         for (const auto &child : enum_specifier->children) {
-            if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
-                const std::string suffix = ParseTreeMatcher::extract_terminal_suffix(
-                    child.get(), "IDENTIFIER");
-                if (!suffix.empty()) {
-                    name = suffix;
-                    break;
-                }
+            std::string tag_name;
+            if (extract_tag_identifier_name(child.get(), tag_name)) {
+                name = tag_name;
+                break;
             }
         }
         return std::make_unique<EnumTypeNode>(name,

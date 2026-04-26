@@ -113,6 +113,11 @@ The current implementation has a first batch of real semantic rules:
   `time.h`, `float.h`, `stdalign.h`, `stdbool.h`, `stdint.h`, `limits.h`, and
   `errno.h`, so header-chain regressions can be localized before they reach
   the larger runtime suite
+- semantic header coverage now also includes a matrix-style probe for
+  `stddef.h`, `stdint.h`, `stdlib.h`, `string.h`, `math.h`, `assert.h`,
+  `errno.h`, `limits.h`, and `sys/types.h` in one translation unit, plus a
+  project-style local-header probe that exercises the same families through a
+  realistic `-I include` entry point
 - function-pointer declaration types now resolve through
   `PointerSemanticType(FunctionSemanticType(...))` when parser lowering sees
   grouped declarators such as `void (*routine)(void *)`
@@ -314,6 +319,30 @@ The current implementation has a first batch of real semantic rules:
 - if the current AST is not complete yet, `SemanticPass` stores a semantic
   model but skips strict rule checking so incomplete lowering does not block
   ordinary frontend smoke tests
+
+## System Header Capability Matrix
+
+The current frontend compatibility matrix is intentionally scoped to
+preprocess, parse, and semantic acceptance. It does not claim that every
+system-header inline helper is safe for later IR/codegen yet.
+
+| Header family | Covered surface | Primary smoke |
+| --- | --- | --- |
+| `stddef.h` | `size_t`, `ptrdiff_t`, `NULL`, `sizeof` flow | `semantic_stddef_h_smoke` |
+| `stdint.h` | fixed-width and pointer-width typedefs such as `int32_t`, `uint64_t`, `intptr_t`, `uintptr_t` | `semantic_stdint_h_smoke` |
+| `stdlib.h` | `malloc`, `free`, `NULL`, `size_t` parameters | `semantic_stdlib_h_smoke` |
+| `string.h` | `memcpy` and object-size builtin wrapper chains | `semantic_string_h_smoke` |
+| `math.h` | `isnan`, math builtin probes, Darwin inline helper declarations | `semantic_math_h_smoke` |
+| `assert.h` | `assert(...)` macro expansion and builtin function references | `semantic_assert_h_smoke` |
+| `errno.h` | `errno`, `EINVAL`, `EDOM` macro/declaration chains | `semantic_errno_h_smoke` |
+| `limits.h` | public integer limit macros and compiler builtin numeric spellings | `semantic_limits_h_smoke` |
+| `sys/types.h` | POSIX/Darwin typedef chains such as `ssize_t`, `off_t`, `mode_t`, and `fd_set` tag/typedef reuse | `semantic_standard_header_matrix_smoke` |
+
+The matrix-wide regression is
+`tests/semantic/semantic_standard_header_matrix_smoke`, and the local-header
+project probe is `tests/semantic/semantic_system_header_project_probe`.
+Known remaining limitation: full IR/codegen for every static inline body inside
+host system headers is still broader than this frontend acceptance matrix.
 
 ## Output
 

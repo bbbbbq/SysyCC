@@ -1,0 +1,48 @@
+#include <assert.h>
+#include <errno.h>
+#include <limits.h>
+#include <math.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+
+struct HeaderMatrix {
+    size_t size_value;
+    ptrdiff_t diff_value;
+    int32_t signed32;
+    uint64_t unsigned64;
+    ssize_t signed_size;
+    off_t offset;
+    mode_t mode;
+};
+
+static int fill_matrix(struct HeaderMatrix *probe) {
+    char dst[8];
+    const char src[8] = "abc";
+    void *buffer = malloc(sizeof(dst));
+
+    probe->size_value = sizeof(dst);
+    probe->diff_value = 0;
+    probe->signed32 = INT_MIN < 0 ? -7 : 7;
+    probe->unsigned64 = UINT64_MAX;
+    probe->signed_size = (ssize_t)probe->size_value;
+    probe->offset = (off_t)probe->diff_value;
+    probe->mode = (mode_t)0;
+
+    memcpy(dst, src, sizeof(dst));
+    errno = EINVAL;
+    assert(dst[0] == 'a');
+
+    if (buffer != NULL) {
+        free(buffer);
+    }
+
+    return isnan(0.0) ? 1 : (errno == EINVAL && probe->signed_size >= 0 ? 0 : 2);
+}
+
+int main(void) {
+    struct HeaderMatrix probe;
+    return fill_matrix(&probe);
+}

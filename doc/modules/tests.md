@@ -202,6 +202,14 @@ includes:
 - IR/runtime coverage for prefix and postfix increment expressions
 - preprocess/runtime coverage for csmith safe-math headers whose `#if`
   branches depend on standard limit macros and builtin numeric macros
+- semantic coverage for a standard-header capability matrix that includes
+  `stddef.h`, `stdint.h`, `stdlib.h`, `string.h`, `math.h`, `assert.h`,
+  `errno.h`, `limits.h`, and `sys/types.h` in one translation unit, plus a
+  project-style local-header probe that drives the same system-header families
+  through an `-I include` layout
+- parser coverage for tag names that collide with typedef names, matching
+  system-header patterns such as `typedef struct fd_set { ... } fd_set;`
+  followed by `struct fd_set *`
 - preprocess coverage for adjacent-string concatenation after `#`
   stringization and for variadic macro calls with no trailing variadic
   arguments

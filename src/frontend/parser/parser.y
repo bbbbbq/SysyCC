@@ -36,6 +36,7 @@ char *yyget_text(void *yyscanner);
 %type <node> alignment_specifier_seq_opt alignment_specifier_seq alignment_specifier
 %type <node> pointer_qualifier_seq_opt pointer_qualifier_seq pointer_qualifier
 %type <node> type_qualifier_seq_opt type_qualifier_seq type_qualifier
+%type <node> tag_identifier
 %type <node> direct_declarator declarator_identifier expr_opt annotation_argument annotation_invocation_opt
 %type <node> typedef_decl struct_decl union_decl enum_decl
 %type <node> type_specifier object_type_specifier nonvoid_type_specifier basic_type struct_specifier union_specifier enum_specifier
@@ -243,8 +244,15 @@ typedef_decl
       }
     ;
 
+tag_identifier
+    : IDENTIFIER
+      { $$ = sysycc::make_nonterminal_node("tag_identifier", {$1}); }
+    | TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("tag_identifier", {$1}); }
+    ;
+
 struct_decl
-    : STRUCT IDENTIFIER SEMICOLON
+    : STRUCT tag_identifier SEMICOLON
       {
           void *specifier =
               sysycc::make_nonterminal_node("struct_specifier", {$1, $2});
@@ -253,7 +261,7 @@ struct_decl
           $$ = sysycc::make_nonterminal_node("struct_decl",
                                              {specifier, suffix_attributes, $3});
       }
-    | STRUCT IDENTIFIER LBRACE struct_field_list_opt RBRACE attribute_specifier_seq_opt SEMICOLON
+    | STRUCT tag_identifier LBRACE struct_field_list_opt RBRACE attribute_specifier_seq_opt SEMICOLON
       {
           void *specifier = sysycc::make_nonterminal_node(
               "struct_specifier", {$1, $2, $3, $4, $5});
@@ -268,7 +276,7 @@ struct_decl
     ;
 
 union_decl
-    : UNION IDENTIFIER SEMICOLON
+    : UNION tag_identifier SEMICOLON
       {
           void *specifier =
               sysycc::make_nonterminal_node("union_specifier", {$1, $2});
@@ -277,7 +285,7 @@ union_decl
           $$ = sysycc::make_nonterminal_node("union_decl",
                                              {specifier, suffix_attributes, $3});
       }
-    | UNION IDENTIFIER LBRACE union_field_list_opt RBRACE attribute_specifier_seq_opt SEMICOLON
+    | UNION tag_identifier LBRACE union_field_list_opt RBRACE attribute_specifier_seq_opt SEMICOLON
       {
           void *specifier = sysycc::make_nonterminal_node(
               "union_specifier", {$1, $2, $3, $4, $5});
@@ -292,7 +300,7 @@ union_decl
     ;
 
 enum_decl
-    : ENUM IDENTIFIER LBRACE enumerator_list_opt RBRACE SEMICOLON
+    : ENUM tag_identifier LBRACE enumerator_list_opt RBRACE SEMICOLON
       {
           void *specifier = sysycc::make_nonterminal_node(
               "enum_specifier", {$1, $2, $3, $4, $5});
@@ -532,9 +540,9 @@ basic_type
     ;
 
 struct_specifier
-    : STRUCT IDENTIFIER
+    : STRUCT tag_identifier
       { $$ = sysycc::make_nonterminal_node("struct_specifier", {$1, $2}); }
-    | STRUCT IDENTIFIER LBRACE struct_field_list_opt RBRACE
+    | STRUCT tag_identifier LBRACE struct_field_list_opt RBRACE
       { $$ = sysycc::make_nonterminal_node("struct_specifier", {$1, $2, $3, $4, $5}); }
     | STRUCT LBRACE struct_field_list_opt RBRACE
       { $$ = sysycc::make_nonterminal_node("struct_specifier", {$1, $2, $3, $4}); }
@@ -581,9 +589,9 @@ field_bit_width_opt
     ;
 
 union_specifier
-    : UNION IDENTIFIER
+    : UNION tag_identifier
       { $$ = sysycc::make_nonterminal_node("union_specifier", {$1, $2}); }
-    | UNION IDENTIFIER LBRACE union_field_list_opt RBRACE
+    | UNION tag_identifier LBRACE union_field_list_opt RBRACE
       { $$ = sysycc::make_nonterminal_node("union_specifier", {$1, $2, $3, $4, $5}); }
     | UNION LBRACE union_field_list_opt RBRACE
       { $$ = sysycc::make_nonterminal_node("union_specifier", {$1, $2, $3, $4}); }
@@ -623,9 +631,9 @@ union_field_declarator
     ;
 
 enum_specifier
-    : ENUM IDENTIFIER
+    : ENUM tag_identifier
       { $$ = sysycc::make_nonterminal_node("enum_specifier", {$1, $2}); }
-    | ENUM IDENTIFIER LBRACE enumerator_list_opt RBRACE
+    | ENUM tag_identifier LBRACE enumerator_list_opt RBRACE
       { $$ = sysycc::make_nonterminal_node("enum_specifier", {$1, $2, $3, $4, $5}); }
     | ENUM LBRACE enumerator_list_opt RBRACE
       { $$ = sysycc::make_nonterminal_node("enum_specifier", {$1, $2, $3, $4}); }
