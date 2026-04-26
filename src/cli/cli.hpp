@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -23,9 +24,13 @@ class Cli {
     std::vector<sysycc::DepfileTargetOption> depfile_targets_;
     bool depfile_add_phony_targets_ = false;
     std::vector<std::string> include_directories_;
+    std::vector<std::string> quote_include_directories_;
     std::vector<std::string> system_include_directories_;
+    std::vector<std::string> after_system_include_directories_;
     std::vector<sysycc::CommandLineMacroOption> command_line_macro_options_;
     std::vector<std::string> forced_include_files_;
+    std::string sysroot_;
+    std::string isysroot_;
     std::vector<std::string> linker_search_directories_;
     std::vector<std::string> linker_libraries_;
     std::vector<std::string> linker_passthrough_arguments_;
@@ -108,7 +113,11 @@ class Cli {
                   << "  -MP                Add phony header targets to the depfile (requires -MD/-MMD)\n"
                   << "  -I<dir>            Add include search directory\n"
                   << "  -I <dir>           Add include search directory\n"
+                  << "  -iquote <dir>      Add quoted-include-only search directory\n"
                   << "  -isystem <dir>     Add system include search directory\n"
+                  << "  -idirafter <dir>   Add late system include search directory\n"
+                  << "  --sysroot <dir>    Use a sysroot for headers and host linking\n"
+                  << "  -isysroot <dir>    Use a header SDK root for system includes\n"
                   << "  -L<dir>            Add a linker search directory for full-compile linking\n"
                   << "  -l<name>           Link a library during full-compile linking\n"
                   << "  -Wl,<arg>          Pass an argument through to the external linker driver\n"
@@ -159,6 +168,7 @@ class Cli {
         option.set_depfile_targets(depfile_targets_);
         option.set_depfile_add_phony_targets(depfile_add_phony_targets_);
         option.set_include_directories(include_directories_);
+        option.set_quote_include_directories(quote_include_directories_);
         std::vector<std::string> merged_system_include_directories;
         if (!no_stdinc_) {
             merged_system_include_directories =
@@ -168,10 +178,36 @@ class Cli {
             merged_system_include_directories.begin(),
             system_include_directories_.begin(),
             system_include_directories_.end());
+        const auto append_sysroot_include_directories =
+            [](std::vector<std::string> &directories,
+               const std::string &root) {
+                if (root.empty()) {
+                    return;
+                }
+                const std::filesystem::path root_path(root);
+                directories.push_back((root_path / "usr/local/include").string());
+                directories.push_back((root_path / "usr/include").string());
+            };
+        std::vector<std::string> sysroot_include_directories;
+        if (!no_stdinc_) {
+            append_sysroot_include_directories(sysroot_include_directories,
+                                               sysroot_);
+            append_sysroot_include_directories(sysroot_include_directories,
+                                               isysroot_);
+        }
+        merged_system_include_directories.insert(
+            merged_system_include_directories.begin() +
+                static_cast<std::ptrdiff_t>(system_include_directories_.size()),
+            sysroot_include_directories.begin(),
+            sysroot_include_directories.end());
         option.set_system_include_directories(
             std::move(merged_system_include_directories));
+        option.set_after_system_include_directories(
+            after_system_include_directories_);
         option.set_command_line_macro_options(command_line_macro_options_);
         option.set_forced_include_files(forced_include_files_);
+        option.set_sysroot(sysroot_);
+        option.set_isysroot(isysroot_);
         option.set_linker_search_directories(linker_search_directories_);
         option.set_linker_libraries(linker_libraries_);
         option.set_linker_passthrough_arguments(linker_passthrough_arguments_);

@@ -134,6 +134,7 @@ PassResult BuiltinProbeEvaluator::try_evaluate(
     const std::string &expression, std::size_t &index,
     const MacroTable &macro_table, const std::string &current_file_path,
     const std::vector<std::string> &include_directories,
+    const std::vector<std::string> &quote_include_directories,
     const std::vector<std::string> &system_include_directories,
     const DialectManager &dialect_manager, long long &value,
     bool &handled) const {
@@ -186,8 +187,8 @@ PassResult BuiltinProbeEvaluator::try_evaluate(
         std::string resolved_file_path;
         PassResult resolve_result = include_resolver_->resolve_include(
             include_token, current_file_path, include_directories,
-            system_include_directories, include_next, include_token,
-            resolved_file_path);
+            quote_include_directories, system_include_directories, include_next,
+            include_token, resolved_file_path);
         value = resolve_result.ok ? 1 : 0;
         handled = true;
         return PassResult::Success();

@@ -60,6 +60,7 @@ PassResult DirectiveExecutor::evaluate_if_condition(const Directive &directive,
         arguments[0], preprocess_context_.get_macro_table(),
         preprocess_context_.get_source_mapper().get_current_physical_file_path(),
         preprocess_context_.get_include_directories(),
+        preprocess_context_.get_quote_include_directories(),
         preprocess_context_.get_system_include_directories(),
         preprocess_context_.get_compiler_context().get_dialect_manager(),
         value);
@@ -239,6 +240,7 @@ PassResult DirectiveExecutor::handle_include_directive(
     std::string resolved_file_path;
     PassResult resolve_result = include_resolver_.resolve_include(
         line, current_file_path, preprocess_context_.get_include_directories(),
+        preprocess_context_.get_quote_include_directories(),
         preprocess_context_.get_system_include_directories(),
         directive.get_kind() == DirectiveKind::IncludeNext,
         expanded_include_token, resolved_file_path);

@@ -22,8 +22,16 @@ assert_compiler_fails_with_message \
 assert_compiler_fails_with_message \
     "${BUILD_DIR}/compiler" \
     -c \
+    -o "${SCRIPT_DIR}/build/combined.o" \
     "${INPUT_FILE_A}" \
     "${INPUT_FILE_B}" \
-    "multiple source inputs with -c are not supported yet; compile sources separately"
+    "cannot specify '-o' with '-c' and multiple source inputs"
 
-echo "verified: gcc-like CLI rejects unsupported non-linking multisource modes with driver errors"
+assert_compiler_fails_with_message \
+    "${BUILD_DIR}/compiler" \
+    -S \
+    "${INPUT_FILE_A}" \
+    "${INPUT_FILE_B}" \
+    "multiple input files are not yet supported"
+
+echo "verified: gcc-like CLI rejects unsupported non-linking multisource modes while allowing bare multi-source -c elsewhere"

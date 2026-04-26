@@ -101,9 +101,14 @@ Output:
   linker inputs, `-pthread`, `-L`, `-l`, and `-Wl,...` for the external host
   link driver. The native AArch64/RISC-V object-emission paths still remain the
   public `-c`/`-S` workflows.
-- Multi-source `-c`, `-S`, `-E`, and `-fsyntax-only` invocations are not yet
-  supported. Multi-source `-MD`/`-MMD` depfile generation is also rejected
-  until the driver has a defined depfile merge strategy.
+- Multi-source `-c` now follows the common CC driver rule when `-o` is omitted:
+  each source is compiled independently to `basename.o`. With `-MD`/`-MMD`,
+  each source also gets its default `basename.d` depfile. Joined multi-source
+  `-o`, explicit `-MF`, and explicit `-MT`/`-MQ` remain rejected because they
+  require a per-source output mapping.
+- Multi-source `-S`, `-E`, and `-fsyntax-only` invocations are not yet
+  supported. Multi-source full-link `-MD`/`-MMD` depfile generation is also
+  rejected until the driver has a defined depfile merge strategy.
 - Multi-source final linking of SysyCC-native AArch64 objects is still not the
   stabilized mainline path; build systems should currently drive SysyCC one
   source at a time through `-c` and then use the external-link skeleton only
@@ -114,8 +119,18 @@ Output:
 - Unsupported higher optimization levels such as `-O2`, `-O3`, and `-Os`
   currently fail with explicit driver diagnostics instead of being accepted
   silently.
+- `@response-file` arguments are expanded before normal option parsing. The
+  response parser supports whitespace splitting, single and double quotes,
+  backslash escaping, and nested response files with a recursion limit.
 - `-I<dir>` and `-I <dir>` are both accepted and stored in [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp).
+- `-iquote <dir>` is accepted for quoted-include-only search before `-I`.
 - `-isystem <dir>` is accepted and merged ahead of the default system include directories unless `-nostdinc` disables the default search roots.
+- `-idirafter <dir>` is accepted and searched after the ordinary system include
+  roots.
+- `--sysroot=<dir>`, `--sysroot <dir>`, and `-isysroot <dir>` are accepted.
+  Sysroot-derived `usr/local/include` and `usr/include` directories are added
+  to system-header search, and the flags are forwarded to host dependency
+  scanning and host full-linking.
 - The parsed include directories are forwarded through the compiler context and consumed by the preprocess stage during local include resolution.
 - The parsed system include directories are also forwarded through the compiler context and consumed by the preprocess stage during angle-include and `#include_next` resolution.
 - `-D`, `-U`, and `-include` are stored as preprocess-session inputs and are
@@ -175,7 +190,10 @@ Output:
 | `main.c libhelper.a -o app` | supported | Lowers the source to LLVM IR and forwards the archive to the host link step. |
 | `helper.o libhelper.a -o app` | supported | Runs link-only mode through the host C driver. |
 | `-c a.c` | supported | Emits one native object through the selected native backend. |
-| `-c a.c b.c` | unsupported | Rejected with a stable diagnostic; compile sources separately for now. |
+| `-c a.c b.c` | supported | Emits `a.o` and `b.o` in the current working directory. |
+| `-c -MD a.c b.c` | supported | Emits `a.o`/`b.o` plus default `a.d`/`b.d` depfiles. |
+| `-c -o out.o a.c b.c` | unsupported | Rejected because one `-o` cannot map to several object files. |
+| `-c -MD -MF deps.d a.c b.c` | unsupported | Rejected until the driver has a per-source explicit depfile mapping. |
 | `-S a.c b.c`, `-E a.c b.c`, `-fsyntax-only a.c b.c` | unsupported | Rejected with a multiple-input diagnostic. |
 | `-MD/-MMD main.c helper.c -o app` | unsupported | Rejected because multi-source depfile merging is not defined yet. |
 
@@ -184,11 +202,14 @@ Output:
 | Flag(s) | Status | Current behavior |
 | --- | --- | --- |
 | `-x c` | supported | Forces C parsing for following inputs, including non-`.c` file names. |
+| `@file` | supported | Expands response-file arguments before option parsing. |
 | `-MD` | supported | Emits a depfile that includes system headers. |
 | `-MMD` | supported | Emits a depfile that excludes system headers. |
 | `-MF`, `-MT`, `-MQ`, `-MP` | supported with `-MD`/`-MMD` | Override depfile path or target spelling and optionally add phony header targets. |
+| `-iquote`, `-isystem`, `-idirafter` | supported | Fed into preprocess include lookup and host dependency scanning with GCC-like ordering. |
+| `--sysroot`, `-isysroot` | supported | Adds sysroot include roots and forwards the flags to host dependency scanning/full linking. |
 | `-fPIC`, `-g` | supported | Forwarded into backend/driver state for native output or full-compile linking. |
-| `-pipe`, `-ffunction-sections`, `-fdata-sections`, `-fno-common`, `-fvisibility=hidden`, `-Winvalid-pch`, `-arch arm64`, `-arch aarch64` | safe ignore | Accepted for build-system compatibility without changing the current output mode. |
+| `-pipe`, `-ffunction-sections`, `-fdata-sections`, `-fno-common`, `-fno-strict-aliasing`, `-fwrapv`, `-fno-builtin`, stack-protector toggles, frame-pointer toggles, `-fvisibility=hidden`, prefix-map flags, diagnostic-color flags, `-Qunused-arguments`, `-m64`, `-Winvalid-pch`, `-arch arm64`, `-arch aarch64` | safe ignore | Accepted for build-system compatibility without changing the current output mode. |
 | `-pthread`, `-L`, `-l`, `-Wl,...` | pass through | Stored on [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp) and forwarded to the external host link driver when a link stage runs. |
 | unsupported `-x <lang>` | explicit error | Only `-x c` is currently accepted. |
 | unsupported `-arch <arch>` | explicit error | Only `arm64` and `aarch64` are accepted as compatibility spellings. |

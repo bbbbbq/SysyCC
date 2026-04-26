@@ -67,6 +67,11 @@ PreprocessContext::get_include_directories() const noexcept {
 }
 
 const std::vector<std::string> &
+PreprocessContext::get_quote_include_directories() const noexcept {
+    return compiler_context_.get_quote_include_directories();
+}
+
+const std::vector<std::string> &
 PreprocessContext::get_system_include_directories() const noexcept {
     return compiler_context_.get_system_include_directories();
 }

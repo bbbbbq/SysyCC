@@ -197,6 +197,26 @@ PassResult PreprocessSession::preprocess_forced_includes() {
         if (std::filesystem::exists(include_path)) {
             resolved_file_path = include_path.lexically_normal().string();
         } else {
+            for (const std::string &quote_include_directory :
+                 preprocess_context_.get_quote_include_directories()) {
+                const std::filesystem::path candidate =
+                    std::filesystem::path(quote_include_directory) /
+                    forced_include;
+                if (!std::filesystem::exists(candidate)) {
+                    continue;
+                }
+                resolved_file_path = candidate.lexically_normal().string();
+                break;
+            }
+
+            if (!resolved_file_path.empty()) {
+                PassResult result = preprocess_file(resolved_file_path);
+                if (!result.ok) {
+                    return result;
+                }
+                continue;
+            }
+
             for (const std::string &include_directory :
                  preprocess_context_.get_include_directories()) {
                 const std::filesystem::path candidate =

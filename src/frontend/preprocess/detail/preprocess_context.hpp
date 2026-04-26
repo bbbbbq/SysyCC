@@ -44,6 +44,8 @@ class PreprocessContext {
 
     const std::vector<std::string> &get_include_directories() const noexcept;
     const std::vector<std::string> &
+    get_quote_include_directories() const noexcept;
+    const std::vector<std::string> &
     get_system_include_directories() const noexcept;
     const std::vector<CommandLineMacroOption> &
     get_command_line_macro_options() const noexcept;

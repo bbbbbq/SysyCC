@@ -103,13 +103,18 @@ EOF
 assert_compiler_fails_with_message \
     "${BUILD_DIR}/compiler" \
     -c \
+    -I"${INCLUDE_DIR}" \
+    -DPROJECT_OFFSET=2 \
+    -o "${CASE_BUILD_DIR}/combined.o" \
     "${SOURCE_DIR}/main.c" \
     "${SOURCE_DIR}/helper.c" \
-    "multiple source inputs with -c are not supported yet; compile sources separately"
+    "cannot specify '-o' with '-c' and multiple source inputs"
 
 assert_compiler_fails_with_message \
     "${BUILD_DIR}/compiler" \
     -MD \
+    -I"${INCLUDE_DIR}" \
+    -DPROJECT_OFFSET=2 \
     "${SOURCE_DIR}/main.c" \
     "${SOURCE_DIR}/helper.c" \
     -o "${CASE_BUILD_DIR}/app-depfile" \

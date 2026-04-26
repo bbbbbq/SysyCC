@@ -25,7 +25,7 @@ int main() {
     long long value = -1;
     bool handled = true;
     PassResult result = probe_evaluator.try_evaluate(
-        "__has_include(<missing.h>)", index, macro_table, "", {}, {},
+        "__has_include(<missing.h>)", index, macro_table, "", {}, {}, {},
         empty_dialects, value, handled);
     assert(result.ok);
     assert(!handled);
@@ -34,7 +34,7 @@ int main() {
     value = -1;
     handled = true;
     result = probe_evaluator.try_evaluate("__has_feature(modules)", index,
-                                          macro_table, "", {}, {},
+                                          macro_table, "", {}, {}, {},
                                           empty_dialects, value, handled);
     assert(result.ok);
     assert(!handled);
@@ -45,7 +45,7 @@ int main() {
     value = -1;
     handled = false;
     result = probe_evaluator.try_evaluate("__has_include(<missing.h>)", index,
-                                          macro_table, "", {}, {},
+                                          macro_table, "", {}, {}, {},
                                           clang_dialects, value, handled);
     assert(result.ok);
     assert(handled);
@@ -55,7 +55,7 @@ int main() {
     value = -1;
     handled = false;
     result = probe_evaluator.try_evaluate("__has_feature(modules)", index,
-                                          macro_table, "", {}, {},
+                                          macro_table, "", {}, {}, {},
                                           clang_dialects, value, handled);
     assert(result.ok);
     assert(handled);

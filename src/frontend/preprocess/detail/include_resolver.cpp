@@ -75,6 +75,7 @@ bool resolve_include_next_from_search_directories(
 PassResult IncludeResolver::resolve_include( // NOLINT(bugprone-easily-swappable-parameters)
     const std::string &directive_line, const std::string &including_file_path,
     const std::vector<std::string> &include_directories,
+    const std::vector<std::string> &quote_include_directories,
     const std::vector<std::string> &system_include_directories,
     const bool include_next,
     const std::string &include_token, std::string &resolved_file_path) const {
@@ -120,6 +121,9 @@ PassResult IncludeResolver::resolve_include( // NOLINT(bugprone-easily-swappable
                 search_directories.push_back(current_directory);
             }
             search_directories.insert(search_directories.end(),
+                                      quote_include_directories.begin(),
+                                      quote_include_directories.end());
+            search_directories.insert(search_directories.end(),
                                       include_directories.begin(),
                                       include_directories.end());
         }
@@ -143,6 +147,12 @@ PassResult IncludeResolver::resolve_include( // NOLINT(bugprone-easily-swappable
             current_path.parent_path() / include_name;
         if (std::filesystem::exists(local_path)) {
             resolved_file_path = local_path.lexically_normal().string();
+            return PassResult::Success();
+        }
+
+        if (resolve_from_search_directories(include_name,
+                                            quote_include_directories,
+                                            resolved_file_path)) {
             return PassResult::Success();
         }
 

@@ -1,6 +1,8 @@
 #include "cli.hpp"
 
 #include <cctype>
+#include <fstream>
+#include <iterator>
 #include <optional>
 
 #include "common/diagnostic/warning_options.hpp"
@@ -203,6 +205,123 @@ bool is_linker_input_file_path(const std::string &path) {
            extension == ".so" || extension == ".dylib" || extension == ".lo";
 }
 
+bool read_text_file(const std::string &path, std::string &text,
+                    std::string &error_message) {
+    std::ifstream input(path);
+    if (!input.is_open()) {
+        error_message = "failed to open response file '" + path + "'";
+        return false;
+    }
+    text.assign(std::istreambuf_iterator<char>(input),
+                std::istreambuf_iterator<char>());
+    if (input.bad()) {
+        error_message = "failed to read response file '" + path + "'";
+        return false;
+    }
+    return true;
+}
+
+bool parse_response_file_text(const std::string &text,
+                              std::vector<std::string> &arguments,
+                              std::string &error_message) {
+    std::string current;
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+    bool escaping = false;
+
+    const auto flush_argument = [&]() {
+        if (!current.empty()) {
+            arguments.push_back(current);
+            current.clear();
+        }
+    };
+
+    for (char ch : text) {
+        if (escaping) {
+            current.push_back(ch);
+            escaping = false;
+            continue;
+        }
+        if (ch == '\\') {
+            escaping = true;
+            continue;
+        }
+        if (in_single_quote) {
+            if (ch == '\'') {
+                in_single_quote = false;
+            } else {
+                current.push_back(ch);
+            }
+            continue;
+        }
+        if (in_double_quote) {
+            if (ch == '"') {
+                in_double_quote = false;
+            } else {
+                current.push_back(ch);
+            }
+            continue;
+        }
+        if (ch == '\'') {
+            in_single_quote = true;
+            continue;
+        }
+        if (ch == '"') {
+            in_double_quote = true;
+            continue;
+        }
+        if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
+            flush_argument();
+            continue;
+        }
+        current.push_back(ch);
+    }
+
+    if (escaping) {
+        current.push_back('\\');
+    }
+    if (in_single_quote || in_double_quote) {
+        error_message = "unterminated quote in response file";
+        return false;
+    }
+    flush_argument();
+    return true;
+}
+
+bool expand_response_arguments(const std::vector<std::string> &input_arguments,
+                               std::vector<std::string> &expanded_arguments,
+                               std::string &error_message,
+                               unsigned depth = 0) {
+    if (depth > 16) {
+        error_message = "response file nesting is too deep";
+        return false;
+    }
+
+    for (const std::string &argument : input_arguments) {
+        if (argument.size() <= 1 || argument.front() != '@') {
+            expanded_arguments.push_back(argument);
+            continue;
+        }
+
+        const std::string response_file = argument.substr(1);
+        std::string text;
+        if (!read_text_file(response_file, text, error_message)) {
+            return false;
+        }
+        std::vector<std::string> nested_arguments;
+        if (!parse_response_file_text(text, nested_arguments, error_message)) {
+            error_message += " in '" + response_file + "'";
+            return false;
+        }
+        if (!expand_response_arguments(nested_arguments, expanded_arguments,
+                                       error_message, depth + 1)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 } // namespace
 
 bool Cli::finalize_driver_mode() {
@@ -371,8 +490,21 @@ bool Cli::finalize_inputs() {
     }
     if (source_inputs.size() > 1) {
         if (driver_action_ == sysycc::DriverAction::CompileOnly) {
-            emit_error("multiple source inputs with -c are not supported yet; compile sources separately");
-            return false;
+            if (!output_file_.empty()) {
+                emit_error("cannot specify '-o' with '-c' and multiple source inputs");
+                return false;
+            }
+            if (!depfile_output_file_.empty()) {
+                emit_error("'-MF' with '-c' and multiple source inputs is not supported yet; compile sources separately");
+                return false;
+            }
+            if (!depfile_targets_.empty()) {
+                emit_error("'-MT' and '-MQ' with '-c' and multiple source inputs are not supported yet; compile sources separately");
+                return false;
+            }
+            input_file_ = source_inputs.front();
+            source_input_files_ = std::move(source_inputs);
+            return true;
         }
         emit_error("multiple input files are not yet supported: '" +
                    source_inputs.back() + "'");
@@ -397,9 +529,13 @@ void Cli::Run(int argc, char *argv[]) {
     depfile_targets_.clear();
     depfile_add_phony_targets_ = false;
     include_directories_.clear();
+    quote_include_directories_.clear();
     system_include_directories_.clear();
+    after_system_include_directories_.clear();
     command_line_macro_options_.clear();
     forced_include_files_.clear();
+    sysroot_.clear();
+    isysroot_.clear();
     linker_search_directories_.clear();
     linker_libraries_.clear();
     linker_passthrough_arguments_.clear();
@@ -444,8 +580,22 @@ void Cli::Run(int argc, char *argv[]) {
         return;
     }
 
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
+    std::vector<std::string> raw_arguments;
+    raw_arguments.reserve(static_cast<std::size_t>(argc - 1));
+    for (int index = 1; index < argc; ++index) {
+        raw_arguments.emplace_back(argv[index]);
+    }
+
+    std::vector<std::string> expanded_arguments;
+    std::string response_file_error;
+    if (!expand_response_arguments(raw_arguments, expanded_arguments,
+                                   response_file_error)) {
+        emit_error(response_file_error);
+        return;
+    }
+
+    for (std::size_t i = 0; i < expanded_arguments.size(); ++i) {
+        const std::string arg = expanded_arguments[i];
 
         if (arg == "-h" || arg == "--help") {
             is_help_ = true;
@@ -498,7 +648,9 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-x" || (arg.size() > 2 && arg.rfind("-x", 0) == 0)) {
             const std::string language_name =
-                arg == "-x" ? (i + 1 < argc ? argv[++i] : std::string())
+                arg == "-x" ? (i + 1 < expanded_arguments.size()
+                                   ? expanded_arguments[++i]
+                                   : std::string())
                             : arg.substr(2);
             if (language_name.empty()) {
                 emit_error("missing argument to '-x'");
@@ -515,13 +667,30 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-pipe" || arg == "-ffunction-sections" ||
             arg == "-fdata-sections" || arg == "-fno-common" ||
-            arg == "-Winvalid-pch" || arg == "-fvisibility=hidden") {
+            arg == "-fno-strict-aliasing" || arg == "-fwrapv" ||
+            arg == "-fno-builtin" || arg == "-fno-stack-protector" ||
+            arg == "-fstack-protector" || arg == "-fstack-protector-strong" ||
+            arg == "-fstack-protector-all" || arg == "-fomit-frame-pointer" ||
+            arg == "-fno-omit-frame-pointer" || arg == "-fno-exceptions" ||
+            arg == "-fno-rtti" || arg == "-Winvalid-pch" ||
+            arg == "-fvisibility=hidden" || arg == "-fcolor-diagnostics" ||
+            arg == "-fno-color-diagnostics" || arg == "-Qunused-arguments" ||
+            arg == "-m64") {
+            continue;
+        }
+
+        if (arg.rfind("-fdebug-prefix-map=", 0) == 0 ||
+            arg.rfind("-ffile-prefix-map=", 0) == 0 ||
+            arg.rfind("-fmacro-prefix-map=", 0) == 0 ||
+            arg.rfind("-fdiagnostics-color=", 0) == 0) {
             continue;
         }
 
         if (arg == "-arch") {
             const std::string arch_name =
-                i + 1 < argc ? std::string(argv[++i]) : std::string();
+                i + 1 < expanded_arguments.size()
+                    ? expanded_arguments[++i]
+                    : std::string();
             if (arch_name.empty()) {
                 emit_error("missing argument to '-arch'");
                 return;
@@ -577,7 +746,9 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-MF" || (arg.size() > 3 && arg.rfind("-MF", 0) == 0)) {
             depfile_output_file_ =
-                arg == "-MF" ? (i + 1 < argc ? argv[++i] : std::string())
+                arg == "-MF" ? (i + 1 < expanded_arguments.size()
+                                    ? expanded_arguments[++i]
+                                    : std::string())
                              : arg.substr(3);
             if (depfile_output_file_.empty()) {
                 emit_error("missing argument to '-MF'");
@@ -588,7 +759,9 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-MT" || (arg.size() > 3 && arg.rfind("-MT", 0) == 0)) {
             const std::string dep_target =
-                arg == "-MT" ? (i + 1 < argc ? argv[++i] : std::string())
+                arg == "-MT" ? (i + 1 < expanded_arguments.size()
+                                    ? expanded_arguments[++i]
+                                    : std::string())
                              : arg.substr(3);
             if (dep_target.empty()) {
                 emit_error("missing argument to '-MT'");
@@ -600,7 +773,9 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-MQ" || (arg.size() > 3 && arg.rfind("-MQ", 0) == 0)) {
             const std::string dep_target =
-                arg == "-MQ" ? (i + 1 < argc ? argv[++i] : std::string())
+                arg == "-MQ" ? (i + 1 < expanded_arguments.size()
+                                    ? expanded_arguments[++i]
+                                    : std::string())
                              : arg.substr(3);
             if (dep_target.empty()) {
                 emit_error("missing argument to '-MQ'");
@@ -659,12 +834,12 @@ void Cli::Run(int argc, char *argv[]) {
         }
 
         if (arg == "--backend" || arg == "--sysy-backend") {
-            if (i + 1 >= argc) {
+            if (i + 1 >= expanded_arguments.size()) {
                 emit_error("missing argument to '" + arg + "'");
                 return;
             }
 
-            const std::string backend_name = argv[++i];
+            const std::string backend_name = expanded_arguments[++i];
             if (!parse_backend_kind(backend_name, backend_kind_)) {
                 emit_error("invalid backend kind: " + backend_name);
                 return;
@@ -685,13 +860,31 @@ void Cli::Run(int argc, char *argv[]) {
         }
 
         if (arg == "--target" || arg == "--sysy-target") {
-            if (i + 1 >= argc) {
+            if (i + 1 >= expanded_arguments.size()) {
                 emit_error("missing argument to '" + arg + "'");
                 return;
             }
 
             internal_pipeline_requested_ = true;
-            target_triple_ = argv[++i];
+            target_triple_ = expanded_arguments[++i];
+            continue;
+        }
+
+        if (arg.rfind("--sysroot=", 0) == 0) {
+            sysroot_ = arg.substr(std::string("--sysroot=").size());
+            if (sysroot_.empty()) {
+                emit_error("missing argument to '--sysroot'");
+                return;
+            }
+            continue;
+        }
+
+        if (arg == "--sysroot") {
+            if (i + 1 >= expanded_arguments.size()) {
+                emit_error("missing argument to '--sysroot'");
+                return;
+            }
+            sysroot_ = expanded_arguments[++i];
             continue;
         }
 
@@ -709,12 +902,12 @@ void Cli::Run(int argc, char *argv[]) {
         }
 
         if (arg == "--stop-after" || arg == "--sysy-stop-after") {
-            if (i + 1 >= argc) {
+            if (i + 1 >= expanded_arguments.size()) {
                 emit_error("missing argument to '" + arg + "'");
                 return;
             }
 
-            const std::string stage_name = argv[++i];
+            const std::string stage_name = expanded_arguments[++i];
             if (!parse_stop_after_stage(stage_name, stop_after_stage_)) {
                 emit_error("invalid stop-after stage: " + stage_name);
                 return;
@@ -806,12 +999,12 @@ void Cli::Run(int argc, char *argv[]) {
         }
 
         if (arg == "-o") {
-            if (i + 1 >= argc) {
+            if (i + 1 >= expanded_arguments.size()) {
                 emit_error("missing argument to '-o'");
                 return;
             }
 
-            output_file_ = argv[++i];
+            output_file_ = expanded_arguments[++i];
             continue;
         }
 
@@ -821,37 +1014,93 @@ void Cli::Run(int argc, char *argv[]) {
         }
 
         if (arg == "-I") {
-            if (i + 1 >= argc) {
+            if (i + 1 >= expanded_arguments.size()) {
                 emit_error("missing argument to '-I'");
                 return;
             }
 
-            include_directories_.push_back(argv[++i]);
+            include_directories_.push_back(expanded_arguments[++i]);
             continue;
         }
 
-        if (arg == "-isystem") {
-            if (i + 1 >= argc) {
+        if (arg == "-iquote" ||
+            (arg.size() > std::string("-iquote").size() &&
+             arg.rfind("-iquote", 0) == 0)) {
+            const std::string quote_directory =
+                arg == "-iquote" ? (i + 1 < expanded_arguments.size()
+                                        ? expanded_arguments[++i]
+                                        : std::string())
+                                 : arg.substr(std::string("-iquote").size());
+            if (quote_directory.empty()) {
+                emit_error("missing argument to '-iquote'");
+                return;
+            }
+            quote_include_directories_.push_back(quote_directory);
+            continue;
+        }
+
+        if (arg == "-isystem" ||
+            (arg.size() > std::string("-isystem").size() &&
+             arg.rfind("-isystem", 0) == 0)) {
+            const std::string system_directory =
+                arg == "-isystem" ? (i + 1 < expanded_arguments.size()
+                                         ? expanded_arguments[++i]
+                                         : std::string())
+                                  : arg.substr(std::string("-isystem").size());
+            if (system_directory.empty()) {
                 emit_error("missing argument to '-isystem'");
                 return;
             }
+            system_include_directories_.push_back(system_directory);
+            continue;
+        }
 
-            system_include_directories_.push_back(argv[++i]);
+        if (arg == "-idirafter" ||
+            (arg.size() > std::string("-idirafter").size() &&
+             arg.rfind("-idirafter", 0) == 0)) {
+            const std::string after_directory =
+                arg == "-idirafter" ? (i + 1 < expanded_arguments.size()
+                                           ? expanded_arguments[++i]
+                                           : std::string())
+                                    : arg.substr(std::string("-idirafter").size());
+            if (after_directory.empty()) {
+                emit_error("missing argument to '-idirafter'");
+                return;
+            }
+            after_system_include_directories_.push_back(after_directory);
+            continue;
+        }
+
+        if (arg == "-isysroot" ||
+            (arg.size() > std::string("-isysroot").size() &&
+             arg.rfind("-isysroot", 0) == 0)) {
+            const std::string sdk_root =
+                arg == "-isysroot" ? (i + 1 < expanded_arguments.size()
+                                          ? expanded_arguments[++i]
+                                          : std::string())
+                                   : arg.substr(std::string("-isysroot").size());
+            if (sdk_root.empty()) {
+                emit_error("missing argument to '-isysroot'");
+                return;
+            }
+            isysroot_ = sdk_root;
             continue;
         }
 
         if (arg == "-include") {
-            if (i + 1 >= argc) {
+            if (i + 1 >= expanded_arguments.size()) {
                 emit_error("missing argument to '-include'");
                 return;
             }
-            forced_include_files_.push_back(argv[++i]);
+            forced_include_files_.push_back(expanded_arguments[++i]);
             continue;
         }
 
         if (arg == "-L" || (arg.size() > 2 && arg.rfind("-L", 0) == 0)) {
             const std::string search_directory =
-                arg == "-L" ? (i + 1 < argc ? argv[++i] : std::string())
+                arg == "-L" ? (i + 1 < expanded_arguments.size()
+                                   ? expanded_arguments[++i]
+                                   : std::string())
                             : arg.substr(2);
             if (search_directory.empty()) {
                 emit_error("missing argument to '-L'");
@@ -863,7 +1112,9 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-l" || (arg.size() > 2 && arg.rfind("-l", 0) == 0)) {
             const std::string library_name =
-                arg == "-l" ? (i + 1 < argc ? argv[++i] : std::string())
+                arg == "-l" ? (i + 1 < expanded_arguments.size()
+                                   ? expanded_arguments[++i]
+                                   : std::string())
                             : arg.substr(2);
             if (library_name.empty()) {
                 emit_error("missing argument to '-l'");
@@ -889,7 +1140,9 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-D" || (arg.size() > 2 && arg.rfind("-D", 0) == 0)) {
             const std::string define_argument =
-                arg == "-D" ? (i + 1 < argc ? argv[++i] : std::string())
+                arg == "-D" ? (i + 1 < expanded_arguments.size()
+                                   ? expanded_arguments[++i]
+                                   : std::string())
                             : arg.substr(2);
             if (define_argument.empty()) {
                 emit_error("missing argument to '-D'");
@@ -916,7 +1169,9 @@ void Cli::Run(int argc, char *argv[]) {
 
         if (arg == "-U" || (arg.size() > 2 && arg.rfind("-U", 0) == 0)) {
             const std::string undef_argument =
-                arg == "-U" ? (i + 1 < argc ? argv[++i] : std::string())
+                arg == "-U" ? (i + 1 < expanded_arguments.size()
+                                   ? expanded_arguments[++i]
+                                   : std::string())
                             : arg.substr(2);
             if (undef_argument.empty()) {
                 emit_error("missing argument to '-U'");
@@ -978,6 +1233,11 @@ void Cli::Run(int argc, char *argv[]) {
                 parse_warning_option_name(arg, "-W");
             warning_name.has_value()) {
             warning_policy_.enable_warning(*warning_name);
+            continue;
+        }
+
+        if (arg.rfind("-Wno-", 0) == 0 ||
+            arg == "-Wno-unused-command-line-argument") {
             continue;
         }
 

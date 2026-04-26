@@ -16,6 +16,7 @@ class IncludeResolver {
         const std::string &directive_line,
         const std::string &including_file_path,
         const std::vector<std::string> &include_directories,
+        const std::vector<std::string> &quote_include_directories,
         const std::vector<std::string> &system_include_directories,
         bool include_next,
         const std::string &include_token,

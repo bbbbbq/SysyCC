@@ -445,6 +445,7 @@ class CompilerContext {
     std::string input_file_;
     std::string preprocessed_file_path_;
     std::vector<std::string> include_directories_;
+    std::vector<std::string> quote_include_directories_;
     std::vector<std::string> system_include_directories_;
     std::vector<CommandLineMacroOption> command_line_macro_options_;
     std::vector<std::string> forced_include_files_;
@@ -533,6 +534,16 @@ class CompilerContext {
 
     void set_include_directories(std::vector<std::string> include_directories) {
         include_directories_ = std::move(include_directories);
+    }
+
+    const std::vector<std::string> &
+    get_quote_include_directories() const noexcept {
+        return quote_include_directories_;
+    }
+
+    void set_quote_include_directories(
+        std::vector<std::string> quote_include_directories) {
+        quote_include_directories_ = std::move(quote_include_directories);
     }
 
     const std::vector<std::string> &

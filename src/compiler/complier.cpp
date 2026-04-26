@@ -182,15 +182,32 @@ std::vector<std::string> build_dependency_scanner_arguments(
     if (option.get_no_stdinc()) {
         arguments.push_back("-nostdinc");
     }
+    if (!option.get_sysroot().empty()) {
+        arguments.push_back("--sysroot=" + option.get_sysroot());
+    }
+    if (!option.get_isysroot().empty()) {
+        arguments.push_back("-isysroot");
+        arguments.push_back(option.get_isysroot());
+    }
     for (const std::string &include_directory :
          option.get_include_directories()) {
         arguments.push_back("-I");
         arguments.push_back(include_directory);
     }
+    for (const std::string &quote_include_directory :
+         option.get_quote_include_directories()) {
+        arguments.push_back("-iquote");
+        arguments.push_back(quote_include_directory);
+    }
     for (const std::string &system_include_directory :
          option.get_system_include_directories()) {
         arguments.push_back("-isystem");
         arguments.push_back(system_include_directory);
+    }
+    for (const std::string &after_system_include_directory :
+         option.get_after_system_include_directories()) {
+        arguments.push_back("-idirafter");
+        arguments.push_back(after_system_include_directory);
     }
     for (const CommandLineMacroOption &macro_option :
          option.get_command_line_macro_options()) {
@@ -344,13 +361,22 @@ std::vector<std::string> build_full_compile_link_arguments(
     if (option.get_backend_options().get_debug_info()) {
         arguments.push_back("-g");
     }
+    if (!option.get_sysroot().empty()) {
+        arguments.push_back("--sysroot=" + option.get_sysroot());
+    }
+    if (!option.get_isysroot().empty()) {
+        arguments.push_back("-isysroot");
+        arguments.push_back(option.get_isysroot());
+    }
     for (const std::string &llvm_ir_file : llvm_ir_files) {
         arguments.push_back("-Wno-override-module");
         arguments.push_back("-x");
         arguments.push_back("ir");
         arguments.push_back(llvm_ir_file);
     }
-    if (!llvm_ir_files.empty() && !option.get_linker_input_files().empty()) {
+    if (!llvm_ir_files.empty() &&
+        (!option.get_linker_input_files().empty() ||
+         !option.get_linker_libraries().empty())) {
         arguments.push_back("-x");
         arguments.push_back("none");
     }
@@ -388,6 +414,22 @@ std::vector<std::string> effective_source_input_files(
     return {};
 }
 
+std::string default_compile_only_output_file_for_source(
+    const std::string &source_file) {
+    const std::filesystem::path input_path(source_file);
+    return input_path.stem().string() + ".o";
+}
+
+void append_child_diagnostics(const Complier &child_complier,
+                              CompilerContext &parent_context) {
+    const DiagnosticEngine &child_diagnostic_engine =
+        child_complier.get_context().get_diagnostic_engine();
+    for (const Diagnostic &diagnostic :
+         child_diagnostic_engine.get_diagnostics()) {
+        parent_context.get_diagnostic_engine().add_diagnostic(diagnostic);
+    }
+}
+
 bool compile_source_to_temporary_llvm_ir(const ComplierOption &option,
                                          const std::string &source_file,
                                          TemporaryFile &temporary_file,
@@ -416,12 +458,9 @@ bool compile_source_to_temporary_llvm_ir(const ComplierOption &option,
 
     Complier source_complier(std::move(source_option));
     PassResult compile_result = source_complier.Run();
+    append_child_diagnostics(source_complier, parent_context);
     const DiagnosticEngine &source_diagnostic_engine =
         source_complier.get_context().get_diagnostic_engine();
-    for (const Diagnostic &diagnostic :
-         source_diagnostic_engine.get_diagnostics()) {
-        parent_context.get_diagnostic_engine().add_diagnostic(diagnostic);
-    }
 
     if (!compile_result.ok) {
         error_message = "failed to compile source input '" + source_file +
@@ -449,6 +488,46 @@ bool compile_source_to_temporary_llvm_ir(const ComplierOption &option,
         return false;
     }
     return true;
+}
+
+PassResult compile_multiple_sources_to_objects(const ComplierOption &option,
+                                               CompilerContext &context) {
+    const std::vector<std::string> source_input_files =
+        effective_source_input_files(option);
+    for (const std::string &source_file : source_input_files) {
+        ComplierOption source_option = option;
+        source_option.set_input_file(source_file);
+        source_option.set_source_input_files({source_file});
+        source_option.set_linker_input_files({});
+        source_option.set_link_only(false);
+        source_option.set_output_file(
+            default_compile_only_output_file_for_source(source_file));
+        source_option.set_depfile_output_file("");
+        source_option.set_depfile_targets({});
+
+        BackendOptions backend_options = source_option.get_backend_options();
+        backend_options.set_output_file(source_option.get_output_file());
+        source_option.set_backend_options(std::move(backend_options));
+
+        Complier source_complier(std::move(source_option));
+        const PassResult result = source_complier.Run();
+        append_child_diagnostics(source_complier, context);
+        if (!result.ok) {
+            const std::string message =
+                "failed to compile source input '" + source_file +
+                "': " + result.message;
+            if (source_complier.get_context()
+                    .get_diagnostic_engine()
+                    .get_diagnostics()
+                    .empty()) {
+                context.get_diagnostic_engine().add_error(
+                    DiagnosticStage::Compiler, message);
+            }
+            return PassResult::Failure(message);
+        }
+    }
+
+    return PassResult::Success();
 }
 
 PassResult maybe_link_full_compile(const ComplierOption &option,
@@ -639,8 +718,14 @@ Complier::Complier(ComplierOption option) : option_(std::move(option)) {
 void Complier::sync_context_from_option() {
     context_.set_input_file(option_.get_input_file());
     context_.set_include_directories(option_.get_include_directories());
-    context_.set_system_include_directories(
-        option_.get_system_include_directories());
+    context_.set_quote_include_directories(option_.get_quote_include_directories());
+    std::vector<std::string> system_include_directories =
+        option_.get_system_include_directories();
+    system_include_directories.insert(
+        system_include_directories.end(),
+        option_.get_after_system_include_directories().begin(),
+        option_.get_after_system_include_directories().end());
+    context_.set_system_include_directories(std::move(system_include_directories));
     context_.set_command_line_macro_options(
         option_.get_command_line_macro_options());
     context_.set_forced_include_files(option_.get_forced_include_files());
@@ -833,11 +918,27 @@ PassResult Complier::validate_driver_configuration() {
         return PassResult::Success();
     case DriverAction::CompileOnly:
         if (source_input_files.size() > 1) {
-            const std::string message =
-                "multiple source inputs with -c are not supported yet; compile sources separately";
-            context_.get_diagnostic_engine().add_error(
-                DiagnosticStage::Compiler, message);
-            return PassResult::Failure(message);
+            if (!option_.get_output_file().empty()) {
+                const std::string message =
+                    "cannot specify '-o' with '-c' and multiple source inputs";
+                context_.get_diagnostic_engine().add_error(
+                    DiagnosticStage::Compiler, message);
+                return PassResult::Failure(message);
+            }
+            if (!option_.get_depfile_output_file().empty()) {
+                const std::string message =
+                    "'-MF' with '-c' and multiple source inputs is not supported yet; compile sources separately";
+                context_.get_diagnostic_engine().add_error(
+                    DiagnosticStage::Compiler, message);
+                return PassResult::Failure(message);
+            }
+            if (!option_.get_depfile_targets().empty()) {
+                const std::string message =
+                    "'-MT' and '-MQ' with '-c' and multiple source inputs are not supported yet; compile sources separately";
+                context_.get_diagnostic_engine().add_error(
+                    DiagnosticStage::Compiler, message);
+                return PassResult::Failure(message);
+            }
         }
         return PassResult::Success();
     case DriverAction::PreprocessOnly:
@@ -881,6 +982,10 @@ PassResult Complier::Run() {
     }
     if (option_.get_link_only()) {
         return maybe_link_full_compile(option_, context_);
+    }
+    if (option_.get_driver_action() == DriverAction::CompileOnly &&
+        effective_source_input_files(option_).size() > 1) {
+        return compile_multiple_sources_to_objects(option_, context_);
     }
     if (option_.get_driver_action() == DriverAction::FullCompile &&
         effective_source_input_files(option_).size() > 1) {

@@ -153,6 +153,9 @@ includes:
 - CLI coverage for GCC-like driver compatibility buckets, including supported
   `-x c`, safe-ignore build flags such as `-pipe` and `-Winvalid-pch`, and
   explicit failure coverage for unsupported `-x` modes
+- CLI coverage for response-file expansion and real build-system include roots,
+  including nested `@file` arguments, quoted paths, `-iquote`, `-idirafter`,
+  `--sysroot`, and `-isysroot`
 - CLI coverage for single-input full-compile external linking plus link-only
   host-object passthrough through `-L/-l/-pthread/-Wl,...`
 - compiler-stage coverage for small Make/Ninja projects invoking
@@ -161,8 +164,10 @@ includes:
 - compiler-stage coverage for the real-project driver path now includes
   `main.c helper.c -o app`, `main.c helper.o -o app`,
   `main.c libhelper.a -o app`, and stable diagnostics for unsupported
-  multi-source `-c` and
-  `-MD`/`-MMD` forms.
+  multi-source full-link `-MD`/`-MMD` forms.
+- compiler-stage coverage for `-c a.c b.c` now checks one object per source,
+  default per-source `-MMD` depfiles, and stable diagnostics for ambiguous
+  multi-source `-o`, `-MF`, and `-MT`/`-MQ` requests.
 - run-stage build-system coverage for multi-file Make and CMake+Ninja
   compile-only static-library builds plus depfile-driven incremental rebuild
   selection
@@ -879,6 +884,8 @@ Representative paths:
 - [tests/run/run_unsigned_bit_field_integer_promotion](/Users/caojunze424/code/SysyCC/tests/run/run_unsigned_bit_field_integer_promotion)
 - [tests/run/run_make_multifile_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_make_multifile_smoke)
 - [tests/cli/cli_depfile_matrix](/Users/caojunze424/code/SysyCC/tests/cli/cli_depfile_matrix)
+- [tests/cli/cli_response_file_include_search](/Users/caojunze424/code/SysyCC/tests/cli/cli_response_file_include_search)
+- [tests/compiler/compiler_multisource_compile_only_smoke](/Users/caojunze424/code/SysyCC/tests/compiler/compiler_multisource_compile_only_smoke)
 - [tests/run/run_depfile_incremental_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_depfile_incremental_smoke)
 - [tests/run/run_cmake_ninja_multifile_smoke](/Users/caojunze424/code/SysyCC/tests/run/run_cmake_ninja_multifile_smoke)
 - [tests/run/support/runtime_stub.c](/Users/caojunze424/code/SysyCC/tests/run/support/runtime_stub.c)

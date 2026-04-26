@@ -162,10 +162,14 @@ class ComplierOption {
     std::vector<DepfileTargetOption> depfile_targets_;
     bool depfile_add_phony_targets_ = false;
     std::vector<std::string> include_directories_;
+    std::vector<std::string> quote_include_directories_;
     std::vector<std::string> system_include_directories_ =
         detail::get_default_system_include_directories();
+    std::vector<std::string> after_system_include_directories_;
     std::vector<CommandLineMacroOption> command_line_macro_options_;
     std::vector<std::string> forced_include_files_;
+    std::string sysroot_;
+    std::string isysroot_;
     std::vector<std::string> linker_search_directories_;
     std::vector<std::string> linker_libraries_;
     std::vector<std::string> linker_passthrough_arguments_;
@@ -282,6 +286,16 @@ class ComplierOption {
     }
 
     const std::vector<std::string> &
+    get_quote_include_directories() const noexcept {
+        return quote_include_directories_;
+    }
+
+    void set_quote_include_directories(
+        std::vector<std::string> quote_include_directories) {
+        quote_include_directories_ = std::move(quote_include_directories);
+    }
+
+    const std::vector<std::string> &
     get_system_include_directories() const noexcept {
         return system_include_directories_;
     }
@@ -289,6 +303,17 @@ class ComplierOption {
     void set_system_include_directories(
         std::vector<std::string> system_include_directories) {
         system_include_directories_ = std::move(system_include_directories);
+    }
+
+    const std::vector<std::string> &
+    get_after_system_include_directories() const noexcept {
+        return after_system_include_directories_;
+    }
+
+    void set_after_system_include_directories(
+        std::vector<std::string> after_system_include_directories) {
+        after_system_include_directories_ =
+            std::move(after_system_include_directories);
     }
 
     const std::vector<CommandLineMacroOption> &
@@ -307,6 +332,16 @@ class ComplierOption {
 
     void set_forced_include_files(std::vector<std::string> forced_include_files) {
         forced_include_files_ = std::move(forced_include_files);
+    }
+
+    const std::string &get_sysroot() const noexcept { return sysroot_; }
+
+    void set_sysroot(std::string sysroot) { sysroot_ = std::move(sysroot); }
+
+    const std::string &get_isysroot() const noexcept { return isysroot_; }
+
+    void set_isysroot(std::string isysroot) {
+        isysroot_ = std::move(isysroot);
     }
 
     const std::vector<std::string> &get_linker_search_directories() const noexcept {

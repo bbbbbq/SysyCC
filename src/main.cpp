@@ -193,6 +193,9 @@ bool emit_driver_primary_output(const ClI::Cli &cli,
     }
 
     if (option.get_driver_action() == sysycc::DriverAction::CompileOnly) {
+        if (option.get_source_input_files().size() > 1) {
+            return true;
+        }
         return context.get_object_result() != nullptr;
     }
 
