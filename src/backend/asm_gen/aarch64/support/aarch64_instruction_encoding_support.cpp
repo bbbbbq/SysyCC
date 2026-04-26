@@ -1114,11 +1114,11 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         return encoded;
     }
 
-    if (mnemonic == "uxtb" || mnemonic == "uxth" || mnemonic == "sxtb" ||
-        mnemonic == "sxth" || mnemonic == "sxtw" || mnemonic == "ubfx" ||
-        mnemonic == "sbfx") {
+    if (mnemonic == "uxtb" || mnemonic == "uxth" || mnemonic == "uxtw" ||
+        mnemonic == "sxtb" || mnemonic == "sxth" || mnemonic == "sxtw" ||
+        mnemonic == "ubfx" || mnemonic == "sbfx") {
         if ((mnemonic == "uxtb" || mnemonic == "uxth" || mnemonic == "sxtb" ||
-             mnemonic == "sxth" || mnemonic == "sxtw") &&
+             mnemonic == "sxth" || mnemonic == "uxtw" || mnemonic == "sxtw") &&
             operands.size() != 2) {
             return unsupported("extend operand shape");
         }
@@ -1140,9 +1140,9 @@ std::optional<EncodedInstruction> encode_machine_instruction(
             imms = 7;
         } else if (mnemonic == "uxth" || mnemonic == "sxth") {
             imms = 15;
-        } else if (mnemonic == "sxtw") {
+        } else if (mnemonic == "uxtw" || mnemonic == "sxtw") {
             if (!rd->use_64bit) {
-                return unsupported("sxtw requires an x-register destination");
+                return unsupported(mnemonic + " requires an x-register destination");
             }
             imms = 31;
         } else {
@@ -1160,7 +1160,8 @@ std::optional<EncodedInstruction> encode_machine_instruction(
         }
 
         const std::uint32_t base =
-            (mnemonic == "uxtb" || mnemonic == "uxth" || mnemonic == "ubfx")
+            (mnemonic == "uxtb" || mnemonic == "uxth" || mnemonic == "uxtw" ||
+             mnemonic == "ubfx")
                 ? (rd->use_64bit ? 0xD3400000U : 0x53000000U)
                 : (rd->use_64bit ? 0x93400000U : 0x13000000U);
         encoded.word =

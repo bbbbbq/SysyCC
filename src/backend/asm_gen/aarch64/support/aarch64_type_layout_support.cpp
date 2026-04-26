@@ -206,7 +206,7 @@ bool is_supported_object_type(const CoreIrType *type) {
         return false;
     }
     if (is_vector_type(type)) {
-        return false;
+        return is_i32x4_vector_type(type);
     }
     if (is_supported_scalar_storage_type(type)) {
         return true;

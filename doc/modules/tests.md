@@ -99,6 +99,10 @@ round-tripping through emitted assembly.
 For direct object/link closure work, the `run` stage now also includes
 an AArch64 multi-object matrix:
 
+- `run_aarch64_multi_object_abi_matrix` for mixed cross-object ABI pressure:
+  function-pointer return/indirect call, small struct return/argument flow,
+  variadic integer arguments including stack-passed varargs, and i32x4 vector
+  argument/return flow
 - `run_aarch64_multi_object_func_call` for cross-object function-call ABI
 - `run_aarch64_multi_object_global_data` for external global read/write
 - `run_aarch64_multi_object_const_rodata` for exported constants/string rodata
@@ -108,7 +112,8 @@ Each case compiles two separate C sources to LLVM IR with host `clang`, emits
 two native AArch64 `.o` files through `sysycc-aarch64c -c -fPIC`, inspects the
 key relocation records for the cross-object references, then externally links
 and runs the resulting executable through qemu-user or the Docker AArch64
-runtime.
+runtime. The ABI matrix also guards direct object writer coverage for `uxtw`
+extension instructions and the short-vector V-register calling convention.
 
 `tests/compiler2025/` holds larger external-suite entry points that sit beside,
 rather than inside, the regular `tests/<stage>/<case>/run.sh` tree. The

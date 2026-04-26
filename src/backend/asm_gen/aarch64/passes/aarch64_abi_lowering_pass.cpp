@@ -108,6 +108,17 @@ AArch64AbiLoweringPass::classify_return(const CoreIrType *type) const {
         assignment.value_class = AArch64AbiValueClass::Void;
         return assignment;
     }
+    if (is_i32x4_vector_type(type)) {
+        assignment.value_class = AArch64AbiValueClass::FloatingScalar;
+        assignment.locations.push_back(AArch64AbiLocation{
+            AArch64AbiLocationKind::FloatingRegister,
+            static_cast<unsigned>(AArch64PhysicalReg::V0),
+            0,
+            0,
+            get_storage_size(type),
+            AArch64VirtualRegKind::Float128});
+        return assignment;
+    }
     if (const auto *float_type = as_float_type(type); float_type != nullptr) {
         assignment.value_class = AArch64AbiValueClass::FloatingScalar;
         assignment.locations.push_back(AArch64AbiLocation{
@@ -178,7 +189,20 @@ AArch64AbiAssignment AArch64AbiLoweringPass::classify_parameter(
     std::size_t &next_stack_offset) const {
     AArch64AbiAssignment assignment;
     assignment.type = type;
-    if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+    if (is_i32x4_vector_type(type)) {
+        assignment.value_class = AArch64AbiValueClass::FloatingScalar;
+        if (next_fpr < 8) {
+            assignment.locations.push_back(AArch64AbiLocation{
+                AArch64AbiLocationKind::FloatingRegister,
+                static_cast<unsigned>(AArch64PhysicalReg::V0) + next_fpr,
+                0,
+                0,
+                get_storage_size(type),
+                AArch64VirtualRegKind::Float128});
+            ++next_fpr;
+            return assignment;
+        }
+    } else if (const auto *float_type = as_float_type(type); float_type != nullptr) {
         assignment.value_class = AArch64AbiValueClass::FloatingScalar;
         const AArch64VirtualRegKind reg_kind =
             classify_float_reg_kind(float_type->get_float_kind());

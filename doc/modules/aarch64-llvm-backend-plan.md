@@ -156,6 +156,15 @@
   - `tests/compiler2025/run_arm_functional.sh` 与
     `tests/compiler2025/run_arm_performance.sh` 现已在主循环前增加
     一条最小 object/link 预检 smoke
+- 截至 `2026-04-26`，ABI/object/link gate 继续收紧：
+  - direct object writer 现已支持 `uxtw` bitfield-alias 编码，修复了
+    函数指针选择路径中 i32 -> i64 zero-extension 阻塞 `.o` emission 的问题
+  - i32x4 short-vector 类型现在可作为 native object 栈槽，并按 AArch64
+    V-register calling convention 分类到 `v0`-`v7`，避免错误走 GPR ABI
+  - 新增 `tests/run/run_aarch64_multi_object_abi_matrix`，覆盖
+    函数指针返回/间接调用、small struct return/argument、variadic integer
+    arguments（含 stack-passed varargs）以及 i32x4 vector argument/return 的
+    `.ll -> .o -> external link -> AArch64 run` 闭环
 
 后续按本计划继续推进时，应从 `Phase 2` 已落地的 public API 继续补 `Phase 3`
 的 LLVM IR reader，不要把新的长期入口重新做回 `CompilerContext` 专属接口。
@@ -169,6 +178,9 @@
 - `.text`、常见数据段、符号表、`.eh_frame`、`.debug_line` 的最小产物链路已可用。
 - 已有回归覆盖直接函数调用的 `R_AARCH64_CALL26`、页级地址物化、
   `:lo12:` 补充、以及 PIC 下的 GOT 型全局引用。
+- 已有回归覆盖跨对象函数指针、small struct return/argument、variadic
+  integer arguments、i32x4 short-vector argument/return，以及这些路径的
+  direct-object external link/run 行为。
 - 已有三条门禁分别覆盖：
   - imported single-source direct-object smoke
   - multi-object PIC link/run smoke
