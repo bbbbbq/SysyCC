@@ -1,6 +1,6 @@
 #include "backend/ir/analysis/cfg_analysis.hpp"
 
-#include <algorithm>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
@@ -12,33 +12,33 @@ namespace sysycc {
 
 namespace {
 
-void append_unique_block(std::vector<CoreIrBasicBlock *> &blocks,
-                         CoreIrBasicBlock *block) {
-    if (block == nullptr ||
-        std::find(blocks.begin(), blocks.end(), block) != blocks.end()) {
-        return;
-    }
-    blocks.push_back(block);
-}
-
-void connect_blocks(
-    std::unordered_map<const CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>> &
-        predecessors,
-    std::unordered_map<const CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>> &
-        successors,
-    CoreIrBasicBlock *from, CoreIrBasicBlock *to) {
+void connect_blocks_dense(
+    const std::unordered_map<const CoreIrBasicBlock *, std::size_t> &block_indices,
+    std::vector<std::vector<CoreIrBasicBlock *>> &predecessors,
+    std::vector<std::vector<CoreIrBasicBlock *>> &successors,
+    std::unordered_set<std::uint64_t> &edges, CoreIrBasicBlock *from,
+    CoreIrBasicBlock *to) {
     if (from == nullptr || to == nullptr) {
         return;
     }
 
-    auto successor_it = successors.find(from);
-    auto predecessor_it = predecessors.find(to);
-    if (successor_it == successors.end() || predecessor_it == predecessors.end()) {
+    auto from_it = block_indices.find(from);
+    auto to_it = block_indices.find(to);
+    if (from_it == block_indices.end() || to_it == block_indices.end()) {
         return;
     }
 
-    append_unique_block(successor_it->second, to);
-    append_unique_block(predecessor_it->second, from);
+    const std::size_t from_index = from_it->second;
+    const std::size_t to_index = to_it->second;
+    const auto edge_key =
+        (static_cast<std::uint64_t>(from_index) << 32U) |
+        static_cast<std::uint64_t>(to_index);
+    if (!edges.insert(edge_key).second) {
+        return;
+    }
+
+    successors[from_index].push_back(to);
+    predecessors[to_index].push_back(from);
 }
 
 } // namespace
@@ -86,72 +86,91 @@ bool CoreIrCfgAnalysisResult::is_reachable(const CoreIrBasicBlock *block) const 
 }
 
 CoreIrCfgAnalysisResult CoreIrCfgAnalysis::Run(const CoreIrFunction &function) const {
-    std::unordered_map<const CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
-        predecessors;
-    std::unordered_map<const CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
-        successors;
+    const auto &function_blocks = function.get_basic_blocks();
+    std::vector<CoreIrBasicBlock *> blocks;
+    blocks.reserve(function_blocks.size());
+    std::unordered_map<const CoreIrBasicBlock *, std::size_t> block_indices;
+    block_indices.reserve(function_blocks.size());
 
-    for (const auto &block : function.get_basic_blocks()) {
+    for (const auto &block : function_blocks) {
         if (block == nullptr) {
             continue;
         }
-        predecessors.emplace(block.get(), std::vector<CoreIrBasicBlock *>{});
-        successors.emplace(block.get(), std::vector<CoreIrBasicBlock *>{});
+        const std::size_t index = blocks.size();
+        blocks.push_back(block.get());
+        block_indices.emplace(block.get(), index);
     }
 
-    CoreIrBasicBlock *entry_block =
-        function.get_basic_blocks().empty() ? nullptr
-                                            : function.get_basic_blocks().front().get();
+    std::vector<std::vector<CoreIrBasicBlock *>> predecessor_vectors(blocks.size());
+    std::vector<std::vector<CoreIrBasicBlock *>> successor_vectors(blocks.size());
+    std::unordered_set<std::uint64_t> edges;
+    edges.reserve(blocks.size() * 2 + 1);
 
-    for (const auto &block : function.get_basic_blocks()) {
+    CoreIrBasicBlock *entry_block = blocks.empty() ? nullptr : blocks.front();
+
+    for (const auto &block : function_blocks) {
         if (block == nullptr || block->get_instructions().empty()) {
             continue;
         }
 
         CoreIrInstruction *terminator = block->get_instructions().back().get();
         if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator); jump != nullptr) {
-            connect_blocks(predecessors, successors, block.get(),
-                           jump->get_target_block());
+            connect_blocks_dense(block_indices, predecessor_vectors, successor_vectors,
+                                 edges, block.get(), jump->get_target_block());
             continue;
         }
 
         if (auto *cond_jump = dynamic_cast<CoreIrCondJumpInst *>(terminator);
             cond_jump != nullptr) {
-            connect_blocks(predecessors, successors, block.get(),
-                           cond_jump->get_true_block());
-            connect_blocks(predecessors, successors, block.get(),
-                           cond_jump->get_false_block());
+            connect_blocks_dense(block_indices, predecessor_vectors, successor_vectors,
+                                 edges, block.get(), cond_jump->get_true_block());
+            connect_blocks_dense(block_indices, predecessor_vectors, successor_vectors,
+                                 edges, block.get(), cond_jump->get_false_block());
             continue;
         }
 
         if (auto *indirect_jump = dynamic_cast<CoreIrIndirectJumpInst *>(terminator);
             indirect_jump != nullptr) {
             for (CoreIrBasicBlock *target : indirect_jump->get_target_blocks()) {
-                connect_blocks(predecessors, successors, block.get(), target);
+                connect_blocks_dense(block_indices, predecessor_vectors,
+                                     successor_vectors, edges, block.get(), target);
             }
         }
     }
 
     std::unordered_set<const CoreIrBasicBlock *> reachable_blocks;
+    reachable_blocks.reserve(blocks.size());
     if (entry_block != nullptr) {
-        std::vector<CoreIrBasicBlock *> worklist{entry_block};
+        std::vector<std::size_t> worklist{0};
+        std::vector<bool> reachable_flags(blocks.size(), false);
         while (!worklist.empty()) {
-            CoreIrBasicBlock *block = worklist.back();
+            const std::size_t block_index = worklist.back();
             worklist.pop_back();
-            if (block == nullptr || !reachable_blocks.insert(block).second) {
+            if (block_index >= blocks.size() || reachable_flags[block_index]) {
                 continue;
             }
+            reachable_flags[block_index] = true;
+            CoreIrBasicBlock *block = blocks[block_index];
+            reachable_blocks.insert(block);
 
-            const auto successor_it = successors.find(block);
-            if (successor_it == successors.end()) {
-                continue;
-            }
-            for (CoreIrBasicBlock *successor : successor_it->second) {
-                if (successor != nullptr) {
-                    worklist.push_back(successor);
+            for (CoreIrBasicBlock *successor : successor_vectors[block_index]) {
+                auto successor_it = block_indices.find(successor);
+                if (successor_it != block_indices.end()) {
+                    worklist.push_back(successor_it->second);
                 }
             }
         }
+    }
+
+    std::unordered_map<const CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
+        predecessors;
+    std::unordered_map<const CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
+        successors;
+    predecessors.reserve(blocks.size());
+    successors.reserve(blocks.size());
+    for (std::size_t index = 0; index < blocks.size(); ++index) {
+        predecessors.emplace(blocks[index], std::move(predecessor_vectors[index]));
+        successors.emplace(blocks[index], std::move(successor_vectors[index]));
     }
 
     return CoreIrCfgAnalysisResult(&function, entry_block, std::move(predecessors),
