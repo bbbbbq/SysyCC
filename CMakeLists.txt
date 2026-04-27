@@ -14,6 +14,55 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif()
 
+option(SYSYCC_USE_COMPILER_CACHE
+    "Use ccache/sccache as the C/C++ compiler launcher when available"
+    ON
+)
+
+option(SYSYCC_DEV_BUILD
+    "Use faster local-development Debug build flags that keep line tables"
+    ON
+)
+
+if(SYSYCC_USE_COMPILER_CACHE)
+    find_program(SYSYCC_CCACHE_PROGRAM ccache)
+    find_program(SYSYCC_SCCACHE_PROGRAM sccache)
+    if(SYSYCC_CCACHE_PROGRAM)
+        set(SYSYCC_COMPILER_CACHE_PROGRAM "${SYSYCC_CCACHE_PROGRAM}")
+    elseif(SYSYCC_SCCACHE_PROGRAM)
+        set(SYSYCC_COMPILER_CACHE_PROGRAM "${SYSYCC_SCCACHE_PROGRAM}")
+    endif()
+
+    if(SYSYCC_COMPILER_CACHE_PROGRAM)
+        if(NOT CMAKE_C_COMPILER_LAUNCHER)
+            set(CMAKE_C_COMPILER_LAUNCHER "${SYSYCC_COMPILER_CACHE_PROGRAM}"
+                CACHE STRING "C compiler launcher" FORCE)
+        endif()
+        if(NOT CMAKE_CXX_COMPILER_LAUNCHER)
+            set(CMAKE_CXX_COMPILER_LAUNCHER "${SYSYCC_COMPILER_CACHE_PROGRAM}"
+                CACHE STRING "C++ compiler launcher" FORCE)
+        endif()
+        message(STATUS "SysyCC compiler cache launcher: ${SYSYCC_COMPILER_CACHE_PROGRAM}")
+    else()
+        message(STATUS "SysyCC compiler cache launcher: not found")
+    endif()
+endif()
+
+if(SYSYCC_DEV_BUILD)
+    string(TOUPPER "${CMAKE_BUILD_TYPE}" SYSYCC_BUILD_TYPE_UPPER)
+    if(SYSYCC_BUILD_TYPE_UPPER STREQUAL "DEBUG" AND
+       (CMAKE_C_COMPILER_ID MATCHES "Clang|AppleClang" OR
+        CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang"))
+        add_compile_options(
+            "$<$<COMPILE_LANGUAGE:C>:-gline-tables-only>"
+            "$<$<COMPILE_LANGUAGE:CXX>:-gline-tables-only>"
+            "$<$<COMPILE_LANGUAGE:C>:-fno-standalone-debug>"
+            "$<$<COMPILE_LANGUAGE:CXX>:-fno-standalone-debug>"
+        )
+        message(STATUS "SysyCC dev build: using lightweight Debug debug-info flags")
+    endif()
+endif()
+
 find_package(BISON REQUIRED)
 find_package(FLEX REQUIRED)
 
@@ -237,9 +286,90 @@ target_link_libraries(sysycc-riscv64c
         sysycc_riscv64_codegen
 )
 
-add_executable(${PROJECT_NAME}
+set(SYSYCC_COMMON_SOURCES
+    src/common/diagnostic/diagnostic.cpp
+    src/common/diagnostic/diagnostic_engine.cpp
+    src/common/diagnostic/diagnostic_formatter.cpp
+    src/common/integer_literal.cpp
+    src/common/string_literal.cpp
+    src/common/source_line_map.cpp
+    src/common/source_location_service.cpp
+    src/common/source_mapping_view.cpp
+    src/common/source_manager.cpp
+    src/common/source_span.cpp
+)
+
+set(SYSYCC_FRONTEND_SOURCES
     ${BISON_SysyParser_OUTPUTS}
     ${FLEX_SysyLexer_OUTPUTS}
+    src/frontend/ast/ast_dump.cpp
+    src/frontend/ast/ast_node.cpp
+    src/frontend/ast/ast_pass.cpp
+    src/frontend/ast/detail/ast_builder.cpp
+    src/frontend/ast/detail/ast_builder_context.cpp
+    src/frontend/ast/detail/ast_feature_validator.cpp
+    src/frontend/ast/detail/parse_tree_matcher.cpp
+    src/frontend/attribute/attribute_analyzer.cpp
+    src/frontend/attribute/gnu_function_attribute_handler.cpp
+    src/frontend/attribute/attribute_parser.cpp
+    src/frontend/dialects/registries/ast_feature_registry.cpp
+    src/frontend/dialects/registries/attribute_semantic_handler_registry.cpp
+    src/frontend/dialects/registries/builtin_type_semantic_handler_registry.cpp
+    src/frontend/dialects/core/dialect_manager.cpp
+    src/frontend/dialects/registries/ir_extension_lowering_registry.cpp
+    src/frontend/dialects/registries/ir_feature_registry.cpp
+    src/frontend/dialects/registries/lexer_keyword_registry.cpp
+    src/frontend/dialects/registries/parser_feature_registry.cpp
+    src/frontend/dialects/registries/preprocess_directive_handler_registry.cpp
+    src/frontend/dialects/registries/preprocess_feature_registry.cpp
+    src/frontend/dialects/registries/preprocess_probe_handler_registry.cpp
+    src/frontend/dialects/registries/semantic_feature_registry.cpp
+    src/frontend/dialects/packs/builtin_types/builtin_type_extension_pack.cpp
+    src/frontend/dialects/packs/c99/c99_dialect.cpp
+    src/frontend/dialects/packs/clang/clang_dialect.cpp
+    src/frontend/dialects/packs/gnu/gnu_dialect.cpp
+    src/frontend/lexer/lexer.cpp
+    src/frontend/parser/parser.cpp
+    src/frontend/parser/parser_feature_validator.cpp
+    src/frontend/parser/parser_runtime.cpp
+    src/frontend/preprocess/preprocess.cpp
+    src/frontend/preprocess/detail/conditional_stack.cpp
+    src/frontend/preprocess/detail/conditional/builtin_probe_evaluator.cpp
+    src/frontend/preprocess/detail/conditional/clang_extension_provider.cpp
+    src/frontend/preprocess/detail/conditional/gnu_extension_provider.cpp
+    src/frontend/preprocess/detail/conditional/nonstandard_extension_manager.cpp
+    src/frontend/preprocess/detail/constant_expression_evaluator.cpp
+    src/frontend/preprocess/detail/directive/directive_executor.cpp
+    src/frontend/preprocess/detail/directive_parser.cpp
+    src/frontend/preprocess/detail/file_loader.cpp
+    src/frontend/preprocess/detail/include_resolver.cpp
+    src/frontend/preprocess/detail/macro_expander.cpp
+    src/frontend/preprocess/detail/macro_table.cpp
+    src/frontend/preprocess/detail/predefined_macro_initializer.cpp
+    src/frontend/preprocess/detail/preprocess_context.cpp
+    src/frontend/preprocess/detail/preprocess_runtime.cpp
+    src/frontend/preprocess/detail/source/source_mapper.cpp
+    src/frontend/preprocess/detail/preprocess_session.cpp
+    src/frontend/semantic/model/semantic_diagnostic.cpp
+    src/frontend/semantic/model/semantic_model.cpp
+    src/frontend/semantic/semantic_pass.cpp
+    src/frontend/semantic/model/semantic_symbol.cpp
+    src/frontend/semantic/model/semantic_type.cpp
+    src/frontend/semantic/support/builtin_symbols.cpp
+    src/frontend/semantic/type_system/constant_evaluator.cpp
+    src/frontend/semantic/type_system/conversion_checker.cpp
+    src/frontend/semantic/type_system/extended_builtin_type_semantic_handler.cpp
+    src/frontend/semantic/type_system/integer_conversion_service.cpp
+    src/frontend/semantic/analysis/decl_analyzer.cpp
+    src/frontend/semantic/analysis/expr_analyzer.cpp
+    src/frontend/semantic/support/scope_stack.cpp
+    src/frontend/semantic/analysis/semantic_analyzer.cpp
+    src/frontend/semantic/support/semantic_context.cpp
+    src/frontend/semantic/analysis/stmt_analyzer.cpp
+    src/frontend/semantic/type_system/type_resolver.cpp
+)
+
+set(SYSYCC_CORE_IR_SOURCES
     src/backend/asm_gen/aarch64/aarch64_asm_gen_pass.cpp
     src/backend/ir/analysis/analysis_manager.cpp
     src/backend/ir/analysis/alias_analysis.cpp
@@ -307,84 +437,53 @@ add_executable(${PROJECT_NAME}
     src/backend/ir/shared/detail/core_ir_rewrite_utils.cpp
     src/backend/ir/shared/detail/ir_context.cpp
     src/backend/ir/shared/detail/symbol_value_map.cpp
+)
+
+set(SYSYCC_COMPILER_DRIVER_SOURCES
     src/cli/cli.cpp
-    src/common/diagnostic/diagnostic.cpp
-    src/common/diagnostic/diagnostic_engine.cpp
-    src/common/diagnostic/diagnostic_formatter.cpp
-    src/common/integer_literal.cpp
-    src/common/string_literal.cpp
-    src/common/source_line_map.cpp
-    src/common/source_location_service.cpp
-    src/common/source_mapping_view.cpp
-    src/common/source_manager.cpp
-    src/common/source_span.cpp
     src/compiler/compiler.cpp
     src/compiler/pass/pass.cpp
-    src/frontend/ast/ast_dump.cpp
-    src/frontend/ast/ast_node.cpp
-    src/frontend/ast/ast_pass.cpp
-    src/frontend/ast/detail/ast_builder.cpp
-    src/frontend/ast/detail/ast_builder_context.cpp
-    src/frontend/ast/detail/ast_feature_validator.cpp
-    src/frontend/ast/detail/parse_tree_matcher.cpp
-    src/frontend/attribute/attribute_analyzer.cpp
-    src/frontend/attribute/gnu_function_attribute_handler.cpp
-    src/frontend/attribute/attribute_parser.cpp
-    src/frontend/dialects/registries/ast_feature_registry.cpp
-    src/frontend/dialects/registries/attribute_semantic_handler_registry.cpp
-    src/frontend/dialects/registries/builtin_type_semantic_handler_registry.cpp
-    src/frontend/dialects/core/dialect_manager.cpp
-    src/frontend/dialects/registries/ir_extension_lowering_registry.cpp
-    src/frontend/dialects/registries/ir_feature_registry.cpp
-    src/frontend/dialects/registries/lexer_keyword_registry.cpp
-    src/frontend/dialects/registries/parser_feature_registry.cpp
-    src/frontend/dialects/registries/preprocess_directive_handler_registry.cpp
-    src/frontend/dialects/registries/preprocess_feature_registry.cpp
-    src/frontend/dialects/registries/preprocess_probe_handler_registry.cpp
-    src/frontend/dialects/registries/semantic_feature_registry.cpp
-    src/frontend/dialects/packs/builtin_types/builtin_type_extension_pack.cpp
-    src/frontend/dialects/packs/c99/c99_dialect.cpp
-    src/frontend/dialects/packs/clang/clang_dialect.cpp
-    src/frontend/dialects/packs/gnu/gnu_dialect.cpp
-    src/frontend/lexer/lexer.cpp
-    src/frontend/parser/parser.cpp
-    src/frontend/parser/parser_feature_validator.cpp
-    src/frontend/parser/parser_runtime.cpp
-    src/frontend/preprocess/preprocess.cpp
-    src/frontend/preprocess/detail/conditional_stack.cpp
-    src/frontend/preprocess/detail/conditional/builtin_probe_evaluator.cpp
-    src/frontend/preprocess/detail/conditional/clang_extension_provider.cpp
-    src/frontend/preprocess/detail/conditional/gnu_extension_provider.cpp
-    src/frontend/preprocess/detail/conditional/nonstandard_extension_manager.cpp
-    src/frontend/preprocess/detail/constant_expression_evaluator.cpp
-    src/frontend/preprocess/detail/directive/directive_executor.cpp
-    src/frontend/preprocess/detail/directive_parser.cpp
-    src/frontend/preprocess/detail/file_loader.cpp
-    src/frontend/preprocess/detail/include_resolver.cpp
-    src/frontend/preprocess/detail/macro_expander.cpp
-    src/frontend/preprocess/detail/macro_table.cpp
-    src/frontend/preprocess/detail/predefined_macro_initializer.cpp
-    src/frontend/preprocess/detail/preprocess_context.cpp
-    src/frontend/preprocess/detail/preprocess_runtime.cpp
-    src/frontend/preprocess/detail/source/source_mapper.cpp
-    src/frontend/preprocess/detail/preprocess_session.cpp
-    src/frontend/semantic/model/semantic_diagnostic.cpp
-    src/frontend/semantic/model/semantic_model.cpp
-    src/frontend/semantic/semantic_pass.cpp
-    src/frontend/semantic/model/semantic_symbol.cpp
-    src/frontend/semantic/model/semantic_type.cpp
-    src/frontend/semantic/support/builtin_symbols.cpp
-    src/frontend/semantic/type_system/constant_evaluator.cpp
-    src/frontend/semantic/type_system/conversion_checker.cpp
-    src/frontend/semantic/type_system/extended_builtin_type_semantic_handler.cpp
-    src/frontend/semantic/type_system/integer_conversion_service.cpp
-    src/frontend/semantic/analysis/decl_analyzer.cpp
-    src/frontend/semantic/analysis/expr_analyzer.cpp
-    src/frontend/semantic/support/scope_stack.cpp
-    src/frontend/semantic/analysis/semantic_analyzer.cpp
-    src/frontend/semantic/support/semantic_context.cpp
-    src/frontend/semantic/analysis/stmt_analyzer.cpp
-    src/frontend/semantic/type_system/type_resolver.cpp
+)
+
+function(sysycc_set_internal_target_defaults target_name)
+    target_include_directories(${target_name}
+        PUBLIC
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+        PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}/generated
+    )
+endfunction()
+
+add_library(sysycc_common STATIC ${SYSYCC_COMMON_SOURCES})
+sysycc_set_internal_target_defaults(sysycc_common)
+
+add_library(sysycc_frontend STATIC ${SYSYCC_FRONTEND_SOURCES})
+sysycc_set_internal_target_defaults(sysycc_frontend)
+target_link_libraries(sysycc_frontend
+    PUBLIC
+        sysycc_common
+)
+
+add_library(sysycc_core_ir STATIC ${SYSYCC_CORE_IR_SOURCES})
+sysycc_set_internal_target_defaults(sysycc_core_ir)
+target_link_libraries(sysycc_core_ir
+    PUBLIC
+        sysycc_common
+        sysycc_frontend
+        sysycc_aarch64_codegen
+        sysycc_riscv64_codegen
+)
+
+add_library(sysycc_compiler_driver STATIC ${SYSYCC_COMPILER_DRIVER_SOURCES})
+sysycc_set_internal_target_defaults(sysycc_compiler_driver)
+target_link_libraries(sysycc_compiler_driver
+    PUBLIC
+        sysycc_common
+        sysycc_frontend
+        sysycc_core_ir
+)
+
+add_executable(${PROJECT_NAME}
     src/main.cpp
 )
 
@@ -396,8 +495,7 @@ target_include_directories(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
-        sysycc_aarch64_codegen
-        sysycc_riscv64_codegen
+        sysycc_compiler_driver
 )
 
 set_target_properties(${PROJECT_NAME}
@@ -409,6 +507,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:${PROJECT_NAME}>"
         "${CMAKE_CURRENT_BINARY_DIR}/SysyCC"
+    COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/refresh_host_compiler_object_compat.sh"
+        "${CMAKE_CURRENT_BINARY_DIR}"
     VERBATIM
 )
 

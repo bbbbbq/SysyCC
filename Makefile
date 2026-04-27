@@ -2,8 +2,18 @@ DEV_BUILD_DIR := build-ninja
 TARGET := $(DEV_BUILD_DIR)/SysyCC
 FORMAT_FILES := $(shell find src -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) 2>/dev/null)
 TEST_ARGS ?=
+SYSYCC_USE_COMPILER_CACHE ?= ON
+SYSYCC_DEV_BUILD ?= ON
+SYSYCC_COMPILER_CACHE ?= $(shell command -v ccache 2>/dev/null || command -v sccache 2>/dev/null)
+CMAKE_CONFIGURE_ARGS := -DSYSYCC_USE_COMPILER_CACHE=$(SYSYCC_USE_COMPILER_CACHE) -DSYSYCC_DEV_BUILD=$(SYSYCC_DEV_BUILD)
+ifeq ($(SYSYCC_USE_COMPILER_CACHE),ON)
+ifneq ($(SYSYCC_COMPILER_CACHE),)
+CMAKE_CONFIGURE_ARGS += -DCMAKE_C_COMPILER_LAUNCHER=$(SYSYCC_COMPILER_CACHE)
+CMAKE_CONFIGURE_ARGS += -DCMAKE_CXX_COMPILER_LAUNCHER=$(SYSYCC_COMPILER_CACHE)
+endif
+endif
 
-.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja test-tier1 test-tier2 test-full test-aarch64-ll test-aarch64-single-source test-aarch64-single-source-smoke test-aarch64-single-source-full lua-smoke lua-incremental pass-report-diff real-project-compile-times test clean clean-ninja format check
+.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja profile-self-build test-tier1 test-tier2 test-full test-aarch64-ll test-aarch64-single-source test-aarch64-single-source-smoke test-aarch64-single-source-full lua-smoke lua-incremental pass-report-diff real-project-compile-times test clean clean-ninja format check
 
 all: run
 
@@ -11,7 +21,7 @@ ensure-ninja:
 	@command -v ninja >/dev/null 2>&1 || { echo "error: ninja is required for the top-level development build entry" >&2; exit 1; }
 
 configure-ninja: ensure-ninja
-	cmake -S . -B $(DEV_BUILD_DIR) -G Ninja
+	cmake -S . -B $(DEV_BUILD_DIR) -G Ninja $(CMAKE_CONFIGURE_ARGS)
 
 build-ninja: configure-ninja
 	cmake --build $(DEV_BUILD_DIR)
@@ -22,6 +32,9 @@ run-ninja: build-ninja
 	./$(TARGET)
 
 run: run-ninja
+
+profile-self-build:
+	./scripts/profile_self_build.sh
 
 test-tier1:
 	./tests/run_tier1.sh $(TEST_ARGS)

@@ -585,6 +585,9 @@ build_project() {
         prune_stale_build_outputs "${project_root}" "${build_dir}"
 
         cmake --build "${build_dir}" --parallel "${build_jobs}"
+        if [[ -x "${project_root}/scripts/refresh_host_compiler_object_compat.sh" ]]; then
+            "${project_root}/scripts/refresh_host_compiler_object_compat.sh" "${build_dir}"
+        fi
         install_sysycc_test_binary_wrapper "${build_dir}"
     )
 }
