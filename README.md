@@ -1,92 +1,236 @@
-# complier2026
+# SysyCC
 
+SysyCC 是一个正在持续演进的 SysY22 / C-like 编译器项目。它已经具备较完整的前端、语义分析、Core IR 优化管线、LLVM IR lowering、AArch64 / RISC-V64 原生后端雏形、分层测试体系，以及真实 C 工程验证脚手架。
 
+当前阶段的主线目标不是继续铺宽语法功能，而是把 SysyCC 从“能产出 IR / 汇编”推进到“能被 Make / Ninja / CMake 等构建系统当作 C 编译器调用，并逐步编译真实 C 工程”。
 
-## Getting started
+## 当前能力
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- 支持预处理、词法、语法、AST、语义分析、Core IR 构建、Core IR 优化、LLVM IR lowering、原生汇编 / 对象输出等主流程。
+- 支持常见 GCC-like driver 形态，包括 `-E`、`-fsyntax-only`、`-S`、`-S -emit-llvm`、`-c`、`-o`、`-I`、`-D`、`-U`、`-include`、`-MD/-MMD/-MF/-MT/-MQ/-MP`、`@response-file`、`--sysroot`、`-isystem`、`-iquote`、`-idirafter`、`-pthread`、`-L`、`-l`、`-Wl,...` 等。
+- 支持单源和多源 full compile / link smoke，例如 `build-ninja/compiler main.c helper.c -Iinclude -DVALUE=1 -o app`。
+- 支持多源 compile-only 的基础形态，例如 `build-ninja/compiler -c a.c b.c` 会生成 `a.o` 和 `b.o`。
+- 系统头兼容正在扩面，当前重点覆盖 `stdlib.h`、`string.h`、`math.h`、`stddef.h`、`assert.h`、`time.h` 等真实工程高频头。
+- AArch64 是当前主战后端，重点推进 `.s -> .o -> link -> run` 的对象文件和链接闭环；RISC-V64 当前主要保不回退。
+- 已建立 Lua / MuJS 真实工程 probe，用于验证 SysyCC 是否能作为 `CC` 编译更接近真实世界的 C 项目。
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## 快速开始
 
-## Add your files
+推荐使用 Ninja 构建：
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
-
+```bash
+cmake -S . -B build-ninja -G Ninja
+cmake --build build-ninja
 ```
-cd existing_repo
-git remote add origin https://gitlab.eduxiji.net/T202610126209581/complier2026.git
-git branch -M main
-git push -uf origin main
+
+也可以使用顶层 Makefile：
+
+```bash
+make build
 ```
 
-## Integrate with your tools
+常用产物：
 
-- [ ] [Set up project integrations](https://gitlab.eduxiji.net/T202610126209581/complier2026/-/settings/integrations)
+- `build-ninja/compiler`: 主要 public driver。
+- `build-ninja/SysyCC`: 兼容旧脚本的本地入口。
+- `build-ninja/sysycc-aarch64c`: AArch64 原生后端开发入口。
+- `build-ninja/sysycc-riscv64c`: RISC-V64 原生后端开发入口。
 
-## Collaborate with your team
+## 使用示例
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Automatically merge when pipeline succeeds](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+编译并运行一个简单 C 程序：
 
-## Test and Deploy
+```bash
+cat > /tmp/hello.c <<'EOF'
+#include <stdio.h>
 
-Use the built-in continuous integration in GitLab.
+int main(void) {
+    puts("hello from SysyCC");
+    return 0;
+}
+EOF
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+build-ninja/compiler /tmp/hello.c -o /tmp/hello
+/tmp/hello
+```
 
-***
+生成对象文件：
 
-# Editing this README
+```bash
+build-ninja/compiler -c main.c -o main.o
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
+多源 full compile：
 
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```bash
+build-ninja/compiler main.c helper.c -Iinclude -DPROJECT_OFFSET=2 -o app
+```
 
-## Name
-Choose a self-explaining name for your project.
+生成 LLVM IR：
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+```bash
+build-ninja/compiler -S -emit-llvm main.c -o main.ll
+```
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+生成汇编：
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+```bash
+build-ninja/compiler -S main.c -o main.s
+```
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+调试阶段输出：
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```bash
+build-ninja/compiler --stop-after=parse --dump-parse main.c
+build-ninja/compiler --stop-after=core-ir --dump-core-ir main.c
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+## 测试
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+日常开发优先跑 tier1：
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```bash
+make test-tier1
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+更完整的分层回归：
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```bash
+make test-tier2
+make test-full
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+AArch64 后端相关入口：
+
+```bash
+make test-aarch64-ll
+make test-aarch64-single-source-smoke
+make test-aarch64-single-source-full
+```
+
+真实工程和性能调优辅助入口：
+
+```bash
+make lua-smoke
+make lua-incremental
+make lua-incremental TEST_ARGS="lvm.c"
+make real-project-compile-times
+make pass-report-diff TEST_ARGS="before.md after.md"
+```
+
+说明：
+
+- `test-tier1` 是快速主线门禁，覆盖 run / cli / dialects 等高价值 smoke。
+- `test-tier2` 覆盖更细的前端、语义、IR、后端测试。
+- `test-full` 用于更完整回归。
+- Lua / MuJS 真实工程 probe 是手动验证入口，不默认放入 tier1/tier2，因为它依赖 Docker、网络、外部仓库和更长运行时间。
+
+## 真实工程 Probe
+
+真实工程验证脚本位于：
+
+```text
+tests/manual/external_real_project_probe/
+```
+
+完整验证：
+
+```bash
+tests/manual/external_real_project_probe/verify.sh
+```
+
+默认脚本会优先复用 `qemu_dev` Docker 容器，在容器内构建 SysyCC、拉取 Lua / MuJS，并尝试将 SysyCC 作为 `CC` 编译这些项目。
+
+快速迭代常用：
+
+```bash
+make lua-smoke
+make lua-incremental TEST_ARGS="lvm.c"
+make real-project-compile-times TEST_ARGS=lua
+```
+
+更多说明见 [external real-project probe 文档](tests/manual/external_real_project_probe/README.md)。
+
+## 项目结构
+
+```text
+src/
+├── main.cpp
+├── cli/
+├── common/
+├── compiler/
+├── frontend/
+│   ├── ast/
+│   ├── attribute/
+│   ├── dialects/
+│   ├── lexer/
+│   ├── parser/
+│   ├── preprocess/
+│   └── semantic/
+├── backend/
+│   ├── asm_gen/
+│   ├── ir/
+│   └── ir_passes/
+└── pass/
+```
+
+主流程大致是：
+
+```text
+main
+  -> cli::Cli
+  -> compiler::Complier
+  -> compiler::PassManager
+      -> PreprocessPass
+      -> LexerPass
+      -> ParserPass
+      -> AstPass
+      -> SemanticPass
+      -> IRGen / Core IR pipeline
+      -> LLVM IR lowering / native backend
+```
+
+注意：仓库内部历史命名是 `Complier`，不是 `Compiler`。除非专门做全局命名迁移，不建议顺手改这个拼写。
+
+## 文档导航
+
+文档入口：
+
+- [doc/README.md](doc/README.md): 模块文档索引和当前状态总览。
+- [roadmap.md](roadmap.md): 阶段性路线图。
+- [AGENTS.md](AGENTS.md): 人类开发者和代码代理协作规范。
+
+核心模块文档：
+
+- [CLI](doc/modules/cli.md)
+- [Compiler Core](doc/modules/compiler.md)
+- [Preprocess](doc/modules/preprocess.md)
+- [Lexer](doc/modules/lexer.md)
+- [Parser](doc/modules/parser.md)
+- [AST](doc/modules/ast.md)
+- [Semantic](doc/modules/semantic.md)
+- [Core IR / Backend](doc/modules/ir.md)
+- [Tests](doc/modules/tests.md)
+- [AArch64 Backend Plan](doc/modules/aarch64-llvm-backend-plan.md)
+
+## 当前重点
+
+1. 让 SysyCC 更稳定地作为真实 C 工程的 `CC` 使用。
+2. 持续补齐系统头、builtin、GNU / Clang 常见 C 扩展兼容。
+3. 推进 AArch64 对象文件、ABI、relocation、PIC、外部链接和运行闭环。
+4. 用 Lua / MuJS 等真实工程反向驱动 driver、前端、IR 和后端修复。
+5. 在不降低优化正确性的前提下，优化 SysyCC 编译真实工程时的编译耗时。
+
+## 开发约定
+
+- 改行为必须补测试。
+- 改模块接口必须同步文档。
+- 小步提交，尽量让每个 commit 都可验证、可回滚。
+- 不要把生成文件当源码手改；lexer / parser 应优先改 `.l` / `.y` 源规则并通过构建再生成。
+- 当前主线优先级：真实工程可编译性 > AArch64 正确性闭环 > 编译耗时性能 > 新语言特性铺宽。
+
+更多协作细节见 [AGENTS.md](AGENTS.md)。
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+当前仓库未在根目录声明明确开源许可证。若要对外发布或接受外部贡献，建议先补充 `LICENSE` 文件并在本节同步说明。
