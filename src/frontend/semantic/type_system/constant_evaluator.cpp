@@ -9,23 +9,38 @@
 
 #include "common/integer_literal.hpp"
 #include "frontend/ast/ast_node.hpp"
-#include "frontend/semantic/model/semantic_symbol.hpp"
-#include "frontend/semantic/type_system/conversion_checker.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
+#include "frontend/semantic/model/semantic_symbol.hpp"
+#include "frontend/semantic/support/semantic_context.hpp"
+#include "frontend/semantic/type_system/conversion_checker.hpp"
 #include "frontend/semantic/type_system/integer_conversion_service.hpp"
 #include "frontend/semantic/type_system/type_layout.hpp"
-#include "frontend/semantic/support/semantic_context.hpp"
 
 namespace sysycc::detail {
 
 namespace {
 
+int hex_digit_value(char ch) noexcept {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return ch - 'A' + 10;
+    }
+    return -1;
+}
+
+bool is_octal_digit(char ch) noexcept { return ch >= '0' && ch <= '7'; }
+
 const SemanticType *strip_qualifiers(const SemanticType *type) {
     const SemanticType *current = type;
     while (current != nullptr &&
            current->get_kind() == SemanticTypeKind::Qualified) {
-        current =
-            static_cast<const QualifiedSemanticType *>(current)->get_base_type();
+        current = static_cast<const QualifiedSemanticType *>(current)
+                      ->get_base_type();
     }
     return current;
 }
@@ -53,7 +68,8 @@ bool is_integer_like_semantic_type(const SemanticType *type) {
 
 bool is_float_semantic_type(const SemanticType *type) {
     const SemanticType *unqualified = strip_qualifiers(type);
-    if (unqualified == nullptr || unqualified->get_kind() != SemanticTypeKind::Builtin) {
+    if (unqualified == nullptr ||
+        unqualified->get_kind() != SemanticTypeKind::Builtin) {
         return false;
     }
     const std::string &name =
@@ -70,7 +86,8 @@ bool is_pointer_semantic_type(const SemanticType *type) {
 
 bool is_character_semantic_type(const SemanticType *type) {
     const SemanticType *unqualified = strip_qualifiers(type);
-    if (unqualified == nullptr || unqualified->get_kind() != SemanticTypeKind::Builtin) {
+    if (unqualified == nullptr ||
+        unqualified->get_kind() != SemanticTypeKind::Builtin) {
         return false;
     }
     const std::string &name =
@@ -78,8 +95,8 @@ bool is_character_semantic_type(const SemanticType *type) {
     return name == "char" || name == "signed char" || name == "unsigned char";
 }
 
-bool consumes_array_subinitializer_directly(const Expr *expr,
-                                            const ArraySemanticType *array_type) {
+bool consumes_array_subinitializer_directly(
+    const Expr *expr, const ArraySemanticType *array_type) {
     if (expr == nullptr || array_type == nullptr) {
         return false;
     }
@@ -120,15 +137,17 @@ const SemanticType *get_member_owner_type(const SemanticType *base_type,
     return nullptr;
 }
 
-std::optional<std::size_t> get_struct_field_offset(
-    const StructSemanticType *struct_type, const std::string &field_name) {
+std::optional<std::size_t>
+get_struct_field_offset(const StructSemanticType *struct_type,
+                        const std::string &field_name) {
     if (struct_type == nullptr || struct_type->get_fields().empty()) {
         return std::nullopt;
     }
 
     std::size_t offset = 0;
     for (const auto &field : struct_type->get_fields()) {
-        const SemanticType *field_type = strip_layout_qualifiers(field.get_type());
+        const SemanticType *field_type =
+            strip_layout_qualifiers(field.get_type());
         const auto field_alignment = get_semantic_type_alignment(field_type);
         const auto field_size = get_semantic_type_size(field_type);
         if (!field_alignment.has_value() || !field_size.has_value()) {
@@ -158,9 +177,8 @@ evaluate_address_constant_expr(const Expr *expr,
 
     if (const auto *member_expr = dynamic_cast<const MemberExpr *>(expr);
         member_expr != nullptr) {
-        const auto base_address =
-            evaluate_address_constant_expr(member_expr->get_base(),
-                                           semantic_model);
+        const auto base_address = evaluate_address_constant_expr(
+            member_expr->get_base(), semantic_model);
         if (!base_address.has_value()) {
             return std::nullopt;
         }
@@ -189,8 +207,9 @@ evaluate_address_constant_expr(const Expr *expr,
     return ConstantEvaluator().get_integer_constant_value(expr, semantic_model);
 }
 
-std::optional<long long> apply_integer_like_constant_cast(
-    long long value, const SemanticType *target_type) {
+std::optional<long long>
+apply_integer_like_constant_cast(long long value,
+                                 const SemanticType *target_type) {
     target_type = strip_qualifiers(target_type);
     if (target_type == nullptr) {
         return std::nullopt;
@@ -203,7 +222,8 @@ std::optional<long long> apply_integer_like_constant_cast(
     }
 
     IntegerConversionService conversion_service;
-    const auto type_info = conversion_service.get_integer_type_info(target_type);
+    const auto type_info =
+        conversion_service.get_integer_type_info(target_type);
     if (!type_info.has_value()) {
         return value;
     }
@@ -214,8 +234,8 @@ std::optional<long long> apply_integer_like_constant_cast(
             (std::uint64_t{1} << type_info->get_bit_width()) - 1;
         bits &= mask;
         if (type_info->get_is_signed()) {
-            const std::uint64_t sign_bit =
-                std::uint64_t{1} << (type_info->get_bit_width() - 1);
+            const std::uint64_t sign_bit = std::uint64_t{1}
+                                           << (type_info->get_bit_width() - 1);
             if ((bits & sign_bit) != 0) {
                 bits |= ~mask;
             }
@@ -225,8 +245,8 @@ std::optional<long long> apply_integer_like_constant_cast(
     return static_cast<long long>(bits);
 }
 
-std::optional<long double> apply_scalar_constant_cast(
-    long double value, const SemanticType *target_type) {
+std::optional<long double>
+apply_scalar_constant_cast(long double value, const SemanticType *target_type) {
     target_type = strip_qualifiers(target_type);
     if (target_type == nullptr) {
         return std::nullopt;
@@ -236,9 +256,8 @@ std::optional<long double> apply_scalar_constant_cast(
     }
     if (is_integer_like_semantic_type(target_type) ||
         target_type->get_kind() == SemanticTypeKind::Pointer) {
-        const auto integer_value =
-            apply_integer_like_constant_cast(static_cast<long long>(value),
-                                             target_type);
+        const auto integer_value = apply_integer_like_constant_cast(
+            static_cast<long long>(value), target_type);
         return integer_value.has_value()
                    ? std::optional<long double>(*integer_value)
                    : std::nullopt;
@@ -250,13 +269,13 @@ std::optional<long double> apply_scalar_constant_cast(
 
 std::optional<long long> ConstantEvaluator::get_integer_constant_value(
     const AstNode *node, const SemanticContext &semantic_context) const {
-    return get_integer_constant_value(node, semantic_context.get_semantic_model());
+    return get_integer_constant_value(node,
+                                      semantic_context.get_semantic_model());
 }
 
 std::optional<long long> ConstantEvaluator::get_integer_constant_value(
     const AstNode *node, const SemanticModel &semantic_model) const {
-    const auto stored =
-        semantic_model.get_integer_constant_value(node);
+    const auto stored = semantic_model.get_integer_constant_value(node);
     if (stored.has_value()) {
         return stored;
     }
@@ -270,17 +289,20 @@ std::optional<long long> ConstantEvaluator::get_integer_constant_value(
 void ConstantEvaluator::bind_integer_constant_value(
     const AstNode *node, long long value,
     SemanticContext &semantic_context) const {
-    semantic_context.get_semantic_model().bind_integer_constant_value(node, value);
+    semantic_context.get_semantic_model().bind_integer_constant_value(node,
+                                                                      value);
 }
 
-std::optional<long long> ConstantEvaluator::get_scalar_constant_value_as_integer(
+std::optional<long long>
+ConstantEvaluator::get_scalar_constant_value_as_integer(
     const Expr *expr, const SemanticType *target_type,
     const SemanticContext &semantic_context) const {
     return get_scalar_constant_value_as_integer(
         expr, target_type, semantic_context.get_semantic_model());
 }
 
-std::optional<long long> ConstantEvaluator::get_scalar_constant_value_as_integer(
+std::optional<long long>
+ConstantEvaluator::get_scalar_constant_value_as_integer(
     const Expr *expr, const SemanticType *target_type,
     const SemanticModel &semantic_model) const {
     const auto value = evaluate_scalar_numeric_expr(expr, semantic_model);
@@ -301,7 +323,8 @@ bool ConstantEvaluator::is_integer_constant_expr(
     if (!conversion_checker.is_integer_like_type(type)) {
         return false;
     }
-    return get_integer_constant_value(expr, semantic_context.get_semantic_model())
+    return get_integer_constant_value(expr,
+                                      semantic_context.get_semantic_model())
         .has_value();
 }
 
@@ -313,7 +336,8 @@ std::optional<long double> ConstantEvaluator::get_scalar_numeric_constant_value(
 bool ConstantEvaluator::is_static_storage_initializer(
     const Expr *expr, const SemanticType *target_type,
     const SemanticModel &semantic_model) const {
-    return is_static_storage_initializer_impl(expr, target_type, semantic_model);
+    return is_static_storage_initializer_impl(expr, target_type,
+                                              semantic_model);
 }
 
 std::optional<long long> ConstantEvaluator::evaluate_integer_expr(
@@ -340,13 +364,14 @@ std::optional<long long> ConstantEvaluator::evaluate_integer_expr(
         return semantic_model.get_integer_constant_value(expr);
     case AstKind::CastExpr: {
         const auto *cast_expr = static_cast<const CastExpr *>(expr);
-        const auto operand =
-            evaluate_scalar_numeric_expr(cast_expr->get_operand(), semantic_model);
+        const auto operand = evaluate_scalar_numeric_expr(
+            cast_expr->get_operand(), semantic_model);
         if (!operand.has_value()) {
             return std::nullopt;
         }
         return apply_integer_like_constant_cast(
-            static_cast<long long>(*operand), semantic_model.get_node_type(expr));
+            static_cast<long long>(*operand),
+            semantic_model.get_node_type(expr));
     }
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
@@ -375,8 +400,10 @@ std::optional<long long> ConstantEvaluator::evaluate_integer_expr(
     }
     case AstKind::BinaryExpr: {
         const auto *binary_expr = static_cast<const BinaryExpr *>(expr);
-        const auto lhs = evaluate_integer_expr(binary_expr->get_lhs(), semantic_model);
-        const auto rhs = evaluate_integer_expr(binary_expr->get_rhs(), semantic_model);
+        const auto lhs =
+            evaluate_integer_expr(binary_expr->get_lhs(), semantic_model);
+        const auto rhs =
+            evaluate_integer_expr(binary_expr->get_rhs(), semantic_model);
         if (!lhs.has_value() || !rhs.has_value()) {
             return std::nullopt;
         }
@@ -440,7 +467,8 @@ std::optional<long long> ConstantEvaluator::evaluate_integer_expr(
         return std::nullopt;
     }
     case AstKind::ConditionalExpr: {
-        const auto *conditional_expr = static_cast<const ConditionalExpr *>(expr);
+        const auto *conditional_expr =
+            static_cast<const ConditionalExpr *>(expr);
         const auto condition = evaluate_scalar_numeric_expr(
             conditional_expr->get_condition(), semantic_model);
         if (!condition.has_value()) {
@@ -472,7 +500,8 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
     case AstKind::IntegerLiteralExpr: {
         const auto value = parse_integer_literal(
             static_cast<const IntegerLiteralExpr *>(expr)->get_value_text());
-        return value.has_value() ? std::optional<long double>(*value) : std::nullopt;
+        return value.has_value() ? std::optional<long double>(*value)
+                                 : std::nullopt;
     }
     case AstKind::FloatLiteralExpr: {
         const std::string &text =
@@ -487,20 +516,23 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
     case AstKind::CharLiteralExpr: {
         const auto value = parse_char_literal(
             static_cast<const CharLiteralExpr *>(expr)->get_value_text());
-        return value.has_value() ? std::optional<long double>(*value) : std::nullopt;
+        return value.has_value() ? std::optional<long double>(*value)
+                                 : std::nullopt;
     }
     case AstKind::IdentifierExpr: {
         const auto value = semantic_model.get_integer_constant_value(expr);
-        return value.has_value() ? std::optional<long double>(*value) : std::nullopt;
+        return value.has_value() ? std::optional<long double>(*value)
+                                 : std::nullopt;
     }
     case AstKind::SizeofTypeExpr: {
         const auto value = semantic_model.get_integer_constant_value(expr);
-        return value.has_value() ? std::optional<long double>(*value) : std::nullopt;
+        return value.has_value() ? std::optional<long double>(*value)
+                                 : std::nullopt;
     }
     case AstKind::CastExpr: {
         const auto *cast_expr = static_cast<const CastExpr *>(expr);
-        const auto operand =
-            evaluate_scalar_numeric_expr(cast_expr->get_operand(), semantic_model);
+        const auto operand = evaluate_scalar_numeric_expr(
+            cast_expr->get_operand(), semantic_model);
         if (!operand.has_value()) {
             return std::nullopt;
         }
@@ -510,9 +542,8 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
         if (unary_expr->get_operator_text() == "&") {
-            const auto address =
-                evaluate_address_constant_expr(unary_expr->get_operand(),
-                                               semantic_model);
+            const auto address = evaluate_address_constant_expr(
+                unary_expr->get_operand(), semantic_model);
             return address.has_value() ? std::optional<long double>(*address)
                                        : std::nullopt;
         }
@@ -521,8 +552,8 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
             return value.has_value() ? std::optional<long double>(*value)
                                      : std::nullopt;
         }
-        const auto operand =
-            evaluate_scalar_numeric_expr(unary_expr->get_operand(), semantic_model);
+        const auto operand = evaluate_scalar_numeric_expr(
+            unary_expr->get_operand(), semantic_model);
         if (!operand.has_value()) {
             return std::nullopt;
         }
@@ -537,8 +568,8 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
             return *operand == 0 ? 1.0L : 0.0L;
         }
         if (op == "~") {
-            const auto integer_operand =
-                evaluate_integer_expr(unary_expr->get_operand(), semantic_model);
+            const auto integer_operand = evaluate_integer_expr(
+                unary_expr->get_operand(), semantic_model);
             return integer_operand.has_value()
                        ? std::optional<long double>(~(*integer_operand))
                        : std::nullopt;
@@ -547,10 +578,10 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
     }
     case AstKind::BinaryExpr: {
         const auto *binary_expr = static_cast<const BinaryExpr *>(expr);
-        const auto lhs =
-            evaluate_scalar_numeric_expr(binary_expr->get_lhs(), semantic_model);
-        const auto rhs =
-            evaluate_scalar_numeric_expr(binary_expr->get_rhs(), semantic_model);
+        const auto lhs = evaluate_scalar_numeric_expr(binary_expr->get_lhs(),
+                                                      semantic_model);
+        const auto rhs = evaluate_scalar_numeric_expr(binary_expr->get_rhs(),
+                                                      semantic_model);
         if (!lhs.has_value() || !rhs.has_value()) {
             return std::nullopt;
         }
@@ -577,24 +608,24 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
             return static_cast<long double>(lhs_int % rhs_int);
         }
         if (op == "<<") {
-            return static_cast<long double>(
-                static_cast<long long>(*lhs) << static_cast<long long>(*rhs));
+            return static_cast<long double>(static_cast<long long>(*lhs)
+                                            << static_cast<long long>(*rhs));
         }
         if (op == ">>") {
-            return static_cast<long double>(
-                static_cast<long long>(*lhs) >> static_cast<long long>(*rhs));
+            return static_cast<long double>(static_cast<long long>(*lhs) >>
+                                            static_cast<long long>(*rhs));
         }
         if (op == "&") {
-            return static_cast<long double>(
-                static_cast<long long>(*lhs) & static_cast<long long>(*rhs));
+            return static_cast<long double>(static_cast<long long>(*lhs) &
+                                            static_cast<long long>(*rhs));
         }
         if (op == "|") {
-            return static_cast<long double>(
-                static_cast<long long>(*lhs) | static_cast<long long>(*rhs));
+            return static_cast<long double>(static_cast<long long>(*lhs) |
+                                            static_cast<long long>(*rhs));
         }
         if (op == "^") {
-            return static_cast<long double>(
-                static_cast<long long>(*lhs) ^ static_cast<long long>(*rhs));
+            return static_cast<long double>(static_cast<long long>(*lhs) ^
+                                            static_cast<long long>(*rhs));
         }
         if (op == "&&") {
             return (*lhs != 0 && *rhs != 0) ? 1.0L : 0.0L;
@@ -623,15 +654,16 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
         return std::nullopt;
     }
     case AstKind::ConditionalExpr: {
-        const auto *conditional_expr = static_cast<const ConditionalExpr *>(expr);
+        const auto *conditional_expr =
+            static_cast<const ConditionalExpr *>(expr);
         const auto condition = evaluate_scalar_numeric_expr(
             conditional_expr->get_condition(), semantic_model);
         if (!condition.has_value()) {
             return std::nullopt;
         }
-        const Expr *selected_expr =
-            *condition != 0 ? conditional_expr->get_true_expr()
-                            : conditional_expr->get_false_expr();
+        const Expr *selected_expr = *condition != 0
+                                        ? conditional_expr->get_true_expr()
+                                        : conditional_expr->get_false_expr();
         const auto selected_value =
             evaluate_scalar_numeric_expr(selected_expr, semantic_model);
         if (!selected_value.has_value()) {
@@ -657,19 +689,23 @@ bool ConstantEvaluator::is_static_address_lvalue_expr(
     }
     if (const auto *identifier = dynamic_cast<const IdentifierExpr *>(expr);
         identifier != nullptr) {
-        const SemanticSymbol *symbol = semantic_model.get_symbol_binding(identifier);
+        const SemanticSymbol *symbol =
+            semantic_model.get_symbol_binding(identifier);
         return is_global_storage_symbol(symbol, semantic_model);
     }
     if (const auto *member_expr = dynamic_cast<const MemberExpr *>(expr);
         member_expr != nullptr) {
         return member_expr->get_operator_text() == "." &&
-               is_static_address_lvalue_expr(member_expr->get_base(), semantic_model);
+               is_static_address_lvalue_expr(member_expr->get_base(),
+                                             semantic_model);
     }
     if (const auto *index_expr = dynamic_cast<const IndexExpr *>(expr);
         index_expr != nullptr) {
-        return get_integer_constant_value(index_expr->get_index(), semantic_model)
+        return get_integer_constant_value(index_expr->get_index(),
+                                          semantic_model)
                    .has_value() &&
-               is_static_address_value_expr(index_expr->get_base(), semantic_model);
+               is_static_address_value_expr(index_expr->get_base(),
+                                            semantic_model);
     }
     return false;
 }
@@ -690,8 +726,8 @@ bool ConstantEvaluator::is_static_address_value_expr(
     if (const auto *unary_expr = dynamic_cast<const UnaryExpr *>(expr);
         unary_expr != nullptr) {
         if (unary_expr->get_operator_text() == "&&") {
-            return dynamic_cast<const IdentifierExpr *>(unary_expr->get_operand()) !=
-                   nullptr;
+            return dynamic_cast<const IdentifierExpr *>(
+                       unary_expr->get_operand()) != nullptr;
         }
         if (unary_expr->get_operator_text() == "&") {
             return is_static_address_lvalue_expr(unary_expr->get_operand(),
@@ -703,18 +739,19 @@ bool ConstantEvaluator::is_static_address_value_expr(
         binary_expr != nullptr) {
         const std::string &op = binary_expr->get_operator_text();
         if (op == "+" || op == "-") {
-            const bool lhs_address =
-                is_static_address_value_expr(binary_expr->get_lhs(), semantic_model);
-            const bool rhs_address =
-                is_static_address_value_expr(binary_expr->get_rhs(), semantic_model);
-            const bool lhs_integer =
-                get_integer_constant_value(binary_expr->get_lhs(), semantic_model)
-                    .has_value();
-            const bool rhs_integer =
-                get_integer_constant_value(binary_expr->get_rhs(), semantic_model)
-                    .has_value();
+            const bool lhs_address = is_static_address_value_expr(
+                binary_expr->get_lhs(), semantic_model);
+            const bool rhs_address = is_static_address_value_expr(
+                binary_expr->get_rhs(), semantic_model);
+            const bool lhs_integer = get_integer_constant_value(
+                                         binary_expr->get_lhs(), semantic_model)
+                                         .has_value();
+            const bool rhs_integer = get_integer_constant_value(
+                                         binary_expr->get_rhs(), semantic_model)
+                                         .has_value();
             if (op == "+") {
-                return (lhs_address && rhs_integer) || (lhs_integer && rhs_address);
+                return (lhs_address && rhs_integer) ||
+                       (lhs_integer && rhs_address);
             }
             return lhs_address && rhs_integer;
         }
@@ -731,7 +768,8 @@ bool ConstantEvaluator::is_static_address_value_expr(
 
     if (const auto *identifier = dynamic_cast<const IdentifierExpr *>(expr);
         identifier != nullptr) {
-        const SemanticSymbol *symbol = semantic_model.get_symbol_binding(identifier);
+        const SemanticSymbol *symbol =
+            semantic_model.get_symbol_binding(identifier);
         return symbol != nullptr && symbol->get_kind() == SymbolKind::Function;
     }
 
@@ -766,7 +804,8 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
 
     switch (target_type->get_kind()) {
     case SemanticTypeKind::Array: {
-        const auto *array_type = static_cast<const ArraySemanticType *>(target_type);
+        const auto *array_type =
+            static_cast<const ArraySemanticType *>(target_type);
         if (expr->get_kind() == AstKind::StringLiteralExpr &&
             is_character_semantic_type(array_type->get_element_type())) {
             return true;
@@ -781,9 +820,11 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
                 [&](const ArraySemanticType *current_array_type,
                     const InitListExpr *current_init_list,
                     std::size_t &cursor) -> bool {
-            const auto *nested_array_type = dynamic_cast<const ArraySemanticType *>(
-                strip_qualifiers(current_array_type->get_element_type()));
-            const std::vector<int> &dimensions = current_array_type->get_dimensions();
+            const auto *nested_array_type =
+                dynamic_cast<const ArraySemanticType *>(
+                    strip_qualifiers(current_array_type->get_element_type()));
+            const std::vector<int> &dimensions =
+                current_array_type->get_dimensions();
             const std::size_t element_count =
                 !dimensions.empty() && dimensions.front() > 0
                     ? static_cast<std::size_t>(dimensions.front())
@@ -793,11 +834,12 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
                     cursor < current_init_list->get_elements().size()
                         ? current_init_list->get_elements()[cursor].get()
                         : nullptr;
-                if (nested_array_type != nullptr && element_initializer != nullptr &&
+                if (nested_array_type != nullptr &&
+                    element_initializer != nullptr &&
                     !consumes_array_subinitializer_directly(
                         element_initializer, nested_array_type)) {
-                    if (!validate_array_initializer(nested_array_type,
-                                                    current_init_list, cursor)) {
+                    if (!validate_array_initializer(
+                            nested_array_type, current_init_list, cursor)) {
                         return false;
                     }
                     continue;
@@ -806,7 +848,8 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
                     ++cursor;
                 }
                 if (!is_static_storage_initializer_impl(
-                        element_initializer, current_array_type->get_element_type(),
+                        element_initializer,
+                        current_array_type->get_element_type(),
                         semantic_model)) {
                     return false;
                 }
@@ -837,9 +880,8 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
             if (field_initializer != nullptr) {
                 ++cursor;
             }
-            if (!is_static_storage_initializer_impl(field_initializer,
-                                                    field.get_type(),
-                                                    semantic_model)) {
+            if (!is_static_storage_initializer_impl(
+                    field_initializer, field.get_type(), semantic_model)) {
                 return false;
             }
         }
@@ -849,12 +891,14 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
         if (expr->get_kind() != AstKind::InitListExpr) {
             return false;
         }
-        const auto *union_type = static_cast<const UnionSemanticType *>(target_type);
+        const auto *union_type =
+            static_cast<const UnionSemanticType *>(target_type);
         const auto *init_list = static_cast<const InitListExpr *>(expr);
         if (init_list->get_elements().size() > 1) {
             return false;
         }
-        if (union_type->get_fields().empty() || init_list->get_elements().empty()) {
+        if (union_type->get_fields().empty() ||
+            init_list->get_elements().empty()) {
             return true;
         }
         return is_static_storage_initializer_impl(
@@ -866,7 +910,8 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
     }
 
     if (is_pointer_semantic_type(target_type)) {
-        const auto integer_value = get_integer_constant_value(expr, semantic_model);
+        const auto integer_value =
+            get_integer_constant_value(expr, semantic_model);
         if (integer_value.has_value() && *integer_value == 0) {
             return true;
         }
@@ -874,7 +919,8 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
     }
     if (is_integer_like_semantic_type(target_type) ||
         is_float_semantic_type(target_type)) {
-        return get_scalar_numeric_constant_value(expr, semantic_model).has_value();
+        return get_scalar_numeric_constant_value(expr, semantic_model)
+            .has_value();
     }
     return false;
 }
@@ -882,15 +928,16 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
 std::optional<long long>
 ConstantEvaluator::convert_scalar_numeric_value_to_integer(
     long double value, const SemanticType *target_type) const {
-    if (value > static_cast<long double>(std::numeric_limits<long long>::max()) ||
-        value < static_cast<long double>(std::numeric_limits<long long>::min())) {
+    if (value >
+            static_cast<long double>(std::numeric_limits<long long>::max()) ||
+        value <
+            static_cast<long double>(std::numeric_limits<long long>::min())) {
         return std::nullopt;
     }
 
     detail::IntegerConversionService integer_conversion_service;
-    const auto type_info =
-        integer_conversion_service.get_integer_type_info(
-            strip_qualifiers(target_type));
+    const auto type_info = integer_conversion_service.get_integer_type_info(
+        strip_qualifiers(target_type));
     if (!type_info.has_value()) {
         return static_cast<long long>(value);
     }
@@ -902,8 +949,8 @@ ConstantEvaluator::convert_scalar_numeric_value_to_integer(
             (std::uint64_t{1} << type_info->get_bit_width()) - 1;
         bits &= mask;
         if (type_info->get_is_signed()) {
-            const std::uint64_t sign_bit =
-                std::uint64_t{1} << (type_info->get_bit_width() - 1);
+            const std::uint64_t sign_bit = std::uint64_t{1}
+                                           << (type_info->get_bit_width() - 1);
             if ((bits & sign_bit) != 0) {
                 bits |= ~mask;
             }
@@ -947,8 +994,42 @@ ConstantEvaluator::parse_char_literal(const std::string &value_text) const {
         return '\'';
     case '"':
         return '"';
+    case 'x': {
+        unsigned int value = 0;
+        bool consumed_digit = false;
+        for (std::size_t index = 3; index + 1 < value_text.size(); ++index) {
+            const int digit = hex_digit_value(value_text[index]);
+            if (digit < 0) {
+                break;
+            }
+            consumed_digit = true;
+            value = (value << 4) | static_cast<unsigned int>(digit);
+        }
+        if (!consumed_digit) {
+            return static_cast<long long>(
+                static_cast<unsigned char>(value_text[2]));
+        }
+        return static_cast<long long>(value & 0xffU);
+    }
     case '0':
-        return '\0';
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6':
+    case '7': {
+        unsigned int value = static_cast<unsigned int>(value_text[2] - '0');
+        int digits = 1;
+        for (std::size_t index = 3;
+             digits < 3 && index + 1 < value_text.size() &&
+             is_octal_digit(value_text[index]);
+             ++index, ++digits) {
+            value = (value << 3) |
+                    static_cast<unsigned int>(value_text[index] - '0');
+        }
+        return static_cast<long long>(value & 0xffU);
+    }
     default:
         return static_cast<long long>(
             static_cast<unsigned char>(value_text[2]));

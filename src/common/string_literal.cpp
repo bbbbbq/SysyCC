@@ -2,6 +2,25 @@
 
 namespace sysycc {
 
+namespace {
+
+int hex_digit_value(char ch) noexcept {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return ch - 'A' + 10;
+    }
+    return -1;
+}
+
+bool is_octal_digit(char ch) noexcept { return ch >= '0' && ch <= '7'; }
+
+} // namespace
+
 std::string decode_string_literal_token(std::string token_text) {
     if (token_text.size() >= 2 && token_text.front() == '"' &&
         token_text.back() == '"') {
@@ -41,9 +60,43 @@ std::string decode_string_literal_token(std::string token_text) {
             case 'v':
                 decoded.push_back('\v');
                 break;
-            case '0':
-                decoded.push_back('\0');
+            case 'x': {
+                unsigned int value = 0;
+                bool consumed_digit = false;
+                while (index + 1 < token_text.size()) {
+                    const int digit = hex_digit_value(token_text[index + 1]);
+                    if (digit < 0) {
+                        break;
+                    }
+                    consumed_digit = true;
+                    value = (value << 4) | static_cast<unsigned int>(digit);
+                    ++index;
+                }
+                decoded.push_back(consumed_digit
+                                      ? static_cast<char>(value & 0xffU)
+                                      : escaped);
                 break;
+            }
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7': {
+                unsigned int value = static_cast<unsigned int>(escaped - '0');
+                int digits = 1;
+                while (digits < 3 && index + 1 < token_text.size() &&
+                       is_octal_digit(token_text[index + 1])) {
+                    value = (value << 3) | static_cast<unsigned int>(
+                                               token_text[index + 1] - '0');
+                    ++index;
+                    ++digits;
+                }
+                decoded.push_back(static_cast<char>(value & 0xffU));
+                break;
+            }
             default:
                 decoded.push_back(escaped);
                 break;
