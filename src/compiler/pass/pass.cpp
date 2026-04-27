@@ -7,6 +7,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -74,6 +75,10 @@ bool env_flag_enabled(const char *name) {
 
 bool trace_passes_enabled() { return env_flag_enabled("SYSYCC_TRACE_PASSES"); }
 
+bool force_core_ir_verification_enabled() {
+    return env_flag_enabled("SYSYCC_VERIFY_CORE_IR");
+}
+
 std::size_t count_core_ir_blocks(const CompilerContext &context) {
     const CoreIrBuildResult *build_result = context.get_core_ir_build_result();
     const CoreIrModule *module =
@@ -109,8 +114,12 @@ void trace_pass_leave(const Pass &pass, bool changed, bool stopped,
               << '\n';
 }
 
-bool contains_float_leaf_type(const CoreIrType *type) {
+bool contains_float_leaf_type(const CoreIrType *type,
+                              std::unordered_set<const CoreIrType *> &visiting) {
     if (type == nullptr) {
+        return false;
+    }
+    if (!visiting.insert(type).second) {
         return false;
     }
     switch (type->get_kind()) {
@@ -118,15 +127,17 @@ bool contains_float_leaf_type(const CoreIrType *type) {
         return true;
     case CoreIrTypeKind::Pointer:
         return contains_float_leaf_type(
-            static_cast<const CoreIrPointerType *>(type)->get_pointee_type());
+            static_cast<const CoreIrPointerType *>(type)->get_pointee_type(),
+            visiting);
     case CoreIrTypeKind::Array:
         return contains_float_leaf_type(
-            static_cast<const CoreIrArrayType *>(type)->get_element_type());
+            static_cast<const CoreIrArrayType *>(type)->get_element_type(),
+            visiting);
     case CoreIrTypeKind::Struct: {
         const auto &elements =
             static_cast<const CoreIrStructType *>(type)->get_element_types();
         for (const CoreIrType *element_type : elements) {
-            if (contains_float_leaf_type(element_type)) {
+            if (contains_float_leaf_type(element_type, visiting)) {
                 return true;
             }
         }
@@ -139,6 +150,11 @@ bool contains_float_leaf_type(const CoreIrType *type) {
         return false;
     }
     return false;
+}
+
+bool contains_float_leaf_type(const CoreIrType *type) {
+    std::unordered_set<const CoreIrType *> visiting;
+    return contains_float_leaf_type(type, visiting);
 }
 
 bool function_has_float_aggregate_pointer_parameter(const CoreIrFunction &function) {
@@ -286,6 +302,11 @@ bool verify_core_ir_after_pass(CompilerContext &context, const Pass &pass,
     if (!metadata.verify_after_success) {
         return true;
     }
+    constexpr std::size_t kDefaultCoreIrVerifyBlockLimit = 500;
+    if (!force_core_ir_verification_enabled() &&
+        count_core_ir_blocks(context) > kDefaultCoreIrVerifyBlockLimit) {
+        return true;
+    }
 
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
     CoreIrModule *module =
@@ -302,6 +323,11 @@ bool verify_core_ir_after_pass(CompilerContext &context, const Pass &pass,
     if (metadata.produces_core_ir) {
         return emit_core_ir_verify_result(
             context, verifier.verify_module(*module), pass.Name());
+    }
+
+    if (result.core_ir_effects.has_value() &&
+        !result.core_ir_effects->has_changes()) {
+        return true;
     }
 
     if (result.core_ir_effects.has_value() &&

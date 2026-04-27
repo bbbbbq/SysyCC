@@ -1389,8 +1389,11 @@ bool simplify_nested_gep(CoreIrBasicBlock &block, CoreIrGetElementPtrInst &gep) 
         }
     }
 
+    const CoreIrType *source_pointee_type =
+        get_structural_gep_source_pointee_type(gep);
     auto replacement = std::make_unique<CoreIrGetElementPtrInst>(
-        gep.get_type(), gep.get_name(), root_base, merged_indices);
+        gep.get_type(), gep.get_name(), root_base, merged_indices,
+        source_pointee_type);
     replacement->set_source_span(gep.get_source_span());
     CoreIrInstruction *replacement_ptr =
         replace_instruction(block, &gep, std::move(replacement));
@@ -1545,19 +1548,28 @@ std::vector<CoreIrInstruction *> collect_function_instructions(CoreIrFunction &f
     return worklist;
 }
 
-bool instruction_is_live_in_function(const CoreIrFunction &function,
-                                     const CoreIrInstruction *instruction) {
+void refresh_live_instruction_set(
+    CoreIrFunction &function,
+    std::unordered_set<CoreIrInstruction *> &live_instructions) {
+    std::size_t instruction_count = 0;
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block != nullptr) {
+            instruction_count += block->get_instructions().size();
+        }
+    }
+
+    live_instructions.clear();
+    live_instructions.reserve(instruction_count * 2 + 1);
     for (const auto &block : function.get_basic_blocks()) {
         if (block == nullptr) {
             continue;
         }
         for (const auto &candidate : block->get_instructions()) {
-            if (candidate.get() == instruction) {
-                return true;
+            if (candidate != nullptr) {
+                live_instructions.insert(candidate.get());
             }
         }
     }
-    return false;
 }
 
 struct InstCombineWorklist {
@@ -1712,13 +1724,15 @@ bool run_instcombine_on_function(CoreIrContext &context, CoreIrFunction &functio
     for (CoreIrInstruction *instruction : collect_function_instructions(function)) {
         enqueue_instruction(worklist, instruction);
     }
+    std::unordered_set<CoreIrInstruction *> live_instructions;
+    refresh_live_instruction_set(function, live_instructions);
 
     while (!worklist.queue.empty()) {
         CoreIrInstruction *instruction = worklist.queue.front();
         worklist.queue.pop_front();
         worklist.queued.erase(instruction);
         if (instruction == nullptr ||
-            !instruction_is_live_in_function(function, instruction)) {
+            live_instructions.find(instruction) == live_instructions.end()) {
             continue;
         }
         ++worklist.stats.visited_instructions;
@@ -1736,6 +1750,7 @@ bool run_instcombine_on_function(CoreIrContext &context, CoreIrFunction &functio
         if (simplify_instruction(context, *block, *instruction)) {
             changed = true;
             ++worklist.stats.rewrites;
+            refresh_live_instruction_set(function, live_instructions);
             enqueue_impacted_instructions(worklist, *block, original_uses,
                                           original_operand_definitions);
         }

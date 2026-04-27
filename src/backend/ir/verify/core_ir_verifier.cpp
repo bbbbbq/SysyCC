@@ -5,6 +5,7 @@
 #include <fstream>
 #include <memory>
 #include <unordered_set>
+#include <vector>
 
 #include "backend/ir/analysis/cfg_analysis.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
@@ -30,15 +31,87 @@ void add_issue(CoreIrVerifyResult &result, CoreIrVerifyIssueKind kind,
                                        block, instruction});
 }
 
-bool contains_use(const CoreIrValue &value, const CoreIrInstruction &user,
-                  std::size_t operand_index) {
-    for (const CoreIrUse &use : value.get_uses()) {
-        if (use.get_user() == &user &&
-            use.get_operand_index() == operand_index) {
-            return true;
+struct UseIndexKey {
+    const CoreIrValue *value = nullptr;
+    const CoreIrInstruction *user = nullptr;
+    std::size_t operand_index = 0;
+
+    bool operator==(const UseIndexKey &other) const noexcept {
+        return value == other.value && user == other.user &&
+               operand_index == other.operand_index;
+    }
+};
+
+bool use_index_key_less(const UseIndexKey &lhs,
+                        const UseIndexKey &rhs) noexcept {
+    if (lhs.value != rhs.value) {
+        return std::less<const CoreIrValue *>{}(lhs.value, rhs.value);
+    }
+    if (lhs.user != rhs.user) {
+        return std::less<const CoreIrInstruction *>{}(lhs.user, rhs.user);
+    }
+    return lhs.operand_index < rhs.operand_index;
+}
+
+std::vector<UseIndexKey> build_use_index(const CoreIrFunction &function) {
+    std::size_t instruction_count = 0;
+    std::size_t operand_count = 0;
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        instruction_count += block->get_instructions().size();
+        for (const auto &instruction : block->get_instructions()) {
+            if (instruction != nullptr) {
+                operand_count += instruction->get_operands().size();
+            }
         }
     }
-    return false;
+
+    std::vector<const CoreIrValue *> values;
+    values.reserve(instruction_count + operand_count + 1);
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction : block->get_instructions()) {
+            if (instruction == nullptr) {
+                continue;
+            }
+            values.push_back(instruction.get());
+            for (CoreIrValue *operand : instruction->get_operands()) {
+                if (operand != nullptr) {
+                    values.push_back(operand);
+                }
+            }
+        }
+    }
+    std::sort(values.begin(), values.end(),
+              [](const CoreIrValue *lhs, const CoreIrValue *rhs) {
+                  return std::less<const CoreIrValue *>{}(lhs, rhs);
+              });
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+
+    std::size_t use_count = 0;
+    for (const CoreIrValue *value : values) {
+        if (value != nullptr) {
+            use_count += value->get_uses().size();
+        }
+    }
+
+    std::vector<UseIndexKey> use_index;
+    use_index.reserve(use_count + 1);
+    for (const CoreIrValue *value : values) {
+        if (value == nullptr) {
+            continue;
+        }
+        for (const CoreIrUse &use : value->get_uses()) {
+            use_index.push_back(
+                UseIndexKey{value, use.get_user(), use.get_operand_index()});
+        }
+    }
+    std::sort(use_index.begin(), use_index.end(), use_index_key_less);
+    return use_index;
 }
 
 bool operand_matches_use(const CoreIrInstruction &user, const CoreIrUse &use,
@@ -68,6 +141,7 @@ void verify_value_uses(CoreIrVerifyResult &result, const CoreIrValue &value,
 void verify_instruction_operands(
     CoreIrVerifyResult &result, const CoreIrInstruction &instruction,
     const CoreIrFunction &function,
+    const std::vector<UseIndexKey> &use_index,
     std::unordered_set<const CoreIrValue *> &seen_values) {
     for (std::size_t operand_index = 0;
          operand_index < instruction.get_operands().size(); ++operand_index) {
@@ -79,7 +153,9 @@ void verify_instruction_operands(
             continue;
         }
         seen_values.insert(operand);
-        if (!contains_use(*operand, instruction, operand_index)) {
+        const UseIndexKey key{operand, &instruction, operand_index};
+        if (!std::binary_search(use_index.begin(), use_index.end(), key,
+                                use_index_key_less)) {
             add_issue(result, CoreIrVerifyIssueKind::UseDefMismatch,
                       "operand is missing reciprocal use entry", &function,
                       instruction.get_parent(), &instruction);
@@ -90,7 +166,8 @@ void verify_instruction_operands(
 void verify_phi(CoreIrVerifyResult &result, const CoreIrPhiInst &phi,
                 const CoreIrFunction &function,
                 const CoreIrCfgAnalysisResult &cfg_analysis) {
-    std::unordered_set<const CoreIrBasicBlock *> incoming_blocks;
+    std::vector<const CoreIrBasicBlock *> incoming_blocks;
+    incoming_blocks.reserve(phi.get_incoming_count() + 1);
     for (std::size_t index = 0; index < phi.get_incoming_count(); ++index) {
         CoreIrBasicBlock *incoming_block = phi.get_incoming_block(index);
         CoreIrValue *incoming_value = phi.get_incoming_value(index);
@@ -100,11 +177,17 @@ void verify_phi(CoreIrVerifyResult &result, const CoreIrPhiInst &phi,
                       &function, phi.get_parent(), &phi);
             continue;
         }
-        if (!incoming_blocks.insert(incoming_block).second) {
+        incoming_blocks.push_back(incoming_block);
+    }
+    std::sort(incoming_blocks.begin(), incoming_blocks.end(),
+              [](const CoreIrBasicBlock *lhs, const CoreIrBasicBlock *rhs) {
+                  return std::less<const CoreIrBasicBlock *>{}(lhs, rhs);
+              });
+    if (std::adjacent_find(incoming_blocks.begin(), incoming_blocks.end()) !=
+        incoming_blocks.end()) {
             add_issue(result, CoreIrVerifyIssueKind::PhiIncomingMismatch,
                       "phi contains duplicate incoming predecessor", &function,
                       phi.get_parent(), &phi);
-        }
     }
 
     const CoreIrBasicBlock *parent_block = phi.get_parent();
@@ -119,7 +202,11 @@ void verify_phi(CoreIrVerifyResult &result, const CoreIrPhiInst &phi,
         return;
     }
     for (CoreIrBasicBlock *predecessor : predecessors) {
-        if (incoming_blocks.find(predecessor) == incoming_blocks.end()) {
+        if (!std::binary_search(
+                incoming_blocks.begin(), incoming_blocks.end(), predecessor,
+                [](const CoreIrBasicBlock *lhs, const CoreIrBasicBlock *rhs) {
+                    return std::less<const CoreIrBasicBlock *>{}(lhs, rhs);
+                })) {
             add_issue(result, CoreIrVerifyIssueKind::PhiIncomingMismatch,
                       "phi incoming blocks do not match CFG predecessors",
                       &function, parent_block, &phi);
@@ -373,6 +460,8 @@ CoreIrVerifyResult CoreIrVerifier::verify_function(
         return result;
     }
 
+    const std::vector<UseIndexKey> use_index = build_use_index(function);
+
     for (const auto &block : function.get_basic_blocks()) {
         if (block == nullptr) {
             add_issue(result, CoreIrVerifyIssueKind::BlockOwnership,
@@ -404,7 +493,7 @@ CoreIrVerifyResult CoreIrVerifier::verify_function(
             const CoreIrInstruction &instruction = *instruction_ptr;
             seen_values.insert(&instruction);
             verify_value_uses(result, instruction, function);
-            verify_instruction_operands(result, instruction, function,
+            verify_instruction_operands(result, instruction, function, use_index,
                                         seen_values);
             verify_instruction_references(result, instruction, function, module,
                                           context);
