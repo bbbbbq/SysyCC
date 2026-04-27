@@ -27,11 +27,12 @@ const SemanticType *register_builtin_typedef(SemanticModel &semantic_model,
 const SemanticSymbol *register_builtin_function(
     SemanticModel &semantic_model, ScopeStack &scope_stack,
     const std::string &name, const SemanticType *return_type,
-    std::vector<const SemanticType *> parameter_types) {
+    std::vector<const SemanticType *> parameter_types,
+    bool is_variadic = false) {
     const auto *function_type = semantic_model.own_type(
         std::make_unique<FunctionSemanticType>(return_type,
                                                std::move(parameter_types),
-                                               false));
+                                               is_variadic));
     const auto *symbol = semantic_model.own_symbol(std::make_unique<SemanticSymbol>(
         SymbolKind::Function, name, function_type, nullptr));
     scope_stack.define(symbol);
@@ -108,10 +109,22 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
         std::make_unique<BuiltinSemanticType>("unsigned long long"));
     const auto *long_type = semantic_model.own_type(
         std::make_unique<BuiltinSemanticType>("long int"));
-    const auto *va_list_type = semantic_model.own_type(
-        std::make_unique<PointerSemanticType>(char_type));
     const auto *void_ptr_type = semantic_model.own_type(
         std::make_unique<PointerSemanticType>(void_type));
+    const auto *va_list_struct_type = semantic_model.own_type(
+        std::make_unique<StructSemanticType>(
+            "__sysycc_va_list",
+            std::vector<SemanticFieldInfo>{
+                SemanticFieldInfo("__stack", void_ptr_type),
+                SemanticFieldInfo("__gr_top", void_ptr_type),
+                SemanticFieldInfo("__vr_top", void_ptr_type),
+                SemanticFieldInfo("__gr_offs", int_type),
+                SemanticFieldInfo("__vr_offs", int_type)}));
+    const auto *va_list_type = semantic_model.own_type(
+        std::make_unique<ArraySemanticType>(va_list_struct_type,
+                                            std::vector<int>{1}));
+    const auto *va_list_pointer_type = semantic_model.own_type(
+        std::make_unique<PointerSemanticType>(va_list_struct_type));
     const auto *char_ptr_type = semantic_model.own_type(
         std::make_unique<PointerSemanticType>(char_type));
     const auto *int_ptr_type = semantic_model.own_type(
@@ -194,6 +207,13 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
                               "__builtin___memcpy_chk", void_ptr_type,
                               {void_ptr_type, void_ptr_type, unsigned_long_type,
                                unsigned_long_type});
+    register_builtin_function(semantic_model, scope_stack, "__builtin_va_start",
+                              void_type, {va_list_pointer_type}, true);
+    register_builtin_function(semantic_model, scope_stack, "__builtin_va_end",
+                              void_type, {va_list_pointer_type});
+    register_builtin_function(semantic_model, scope_stack, "__builtin_va_copy",
+                              void_type,
+                              {va_list_pointer_type, va_list_pointer_type});
 }
 
 } // namespace sysycc::detail

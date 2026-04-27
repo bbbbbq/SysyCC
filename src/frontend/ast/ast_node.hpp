@@ -680,6 +680,21 @@ class SizeofTypeExpr : public Expr {
     const TypeNode *get_target_type() const noexcept;
 };
 
+// Represents __builtin_va_arg(ap, type-name).
+class BuiltinVaArgExpr : public Expr {
+  private:
+    std::unique_ptr<Expr> va_list_expr_;
+    std::unique_ptr<TypeNode> target_type_;
+
+  public:
+    BuiltinVaArgExpr(std::unique_ptr<Expr> va_list_expr,
+                     std::unique_ptr<TypeNode> target_type,
+                     SourceSpan source_span = {});
+
+    const Expr *get_va_list_expr() const noexcept;
+    const TypeNode *get_target_type() const noexcept;
+};
+
 // Represents a unary operator expression such as -x, !x, &x, or *p.
 class UnaryExpr : public Expr {
   private:

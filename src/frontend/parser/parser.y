@@ -59,7 +59,7 @@ char *yyget_text(void *yyscanner);
 %type <node> expr const_expr cond argument_expr_list
 %type <node> assignment_expr conditional_expr logical_or_expr logical_and_expr bit_or_expr
 %type <node> bit_xor_expr bit_and_expr eq_expr rel_expr shift_expr add_expr
-%type <node> mul_expr cast_expr unary_expr postfix_expr primary_expr
+%type <node> mul_expr cast_expr unary_expr postfix_expr primary_expr builtin_va_arg_expr
 %type <node> cast_target_type sizeof_type_name sizeof_type_suffix_opt abstract_array_suffix_list
 %type <node> init_val init_val_list
 
@@ -1305,6 +1305,8 @@ unary_expr
 postfix_expr
     : primary_expr
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1}); }
+    | builtin_va_arg_expr
+      { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1}); }
     | postfix_expr LBRACKET expr RBRACKET
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2, $3, $4}); }
     | postfix_expr LPAREN RPAREN
@@ -1319,6 +1321,11 @@ postfix_expr
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2}); }
     | postfix_expr DEC
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2}); }
+    ;
+
+builtin_va_arg_expr
+    : IDENTIFIER LPAREN assignment_expr COMMA sizeof_type_name RPAREN
+      { $$ = sysycc::make_nonterminal_node("builtin_va_arg_expr", {$1, $2, $3, $4, $5, $6}); }
     ;
 
 primary_expr

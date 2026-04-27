@@ -1030,6 +1030,10 @@ class CoreIrBuildSession {
             call_expr != nullptr) {
             return build_call_expr(*call_expr);
         }
+        if (const auto *va_arg_expr = dynamic_cast<const BuiltinVaArgExpr *>(expr);
+            va_arg_expr != nullptr) {
+            return build_builtin_va_arg_expr(*va_arg_expr);
+        }
         if (const auto *binary_expr = dynamic_cast<const BinaryExpr *>(expr);
             binary_expr != nullptr) {
             return build_binary_expr(*binary_expr);
@@ -3446,6 +3450,50 @@ class CoreIrBuildSession {
     }
 
     CoreIrValue *build_call_expr(const CallExpr &expr) {
+        if (const auto *callee_identifier =
+                dynamic_cast<const IdentifierExpr *>(expr.get_callee());
+            callee_identifier != nullptr &&
+            (callee_identifier->get_name() == "__builtin_va_start" ||
+             callee_identifier->get_name() == "__builtin_va_end" ||
+             callee_identifier->get_name() == "__builtin_va_copy")) {
+            std::vector<CoreIrValue *> arguments;
+            const std::size_t required_argument_count =
+                callee_identifier->get_name() == "__builtin_va_copy" ? 2 : 1;
+            if (expr.get_arguments().size() < required_argument_count) {
+                add_error("core ir generation found malformed va_list builtin",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            arguments.reserve(required_argument_count);
+            for (std::size_t index = 0; index < required_argument_count; ++index) {
+                CoreIrValue *argument_value =
+                    build_expr(expr.get_arguments()[index].get());
+                if (argument_value == nullptr) {
+                    return nullptr;
+                }
+                arguments.push_back(argument_value);
+            }
+            const std::string intrinsic_name =
+                callee_identifier->get_name() == "__builtin_va_start"
+                    ? "llvm.va_start"
+                    : (callee_identifier->get_name() == "__builtin_va_end"
+                           ? "llvm.va_end"
+                           : "llvm.va_copy");
+            std::vector<const CoreIrType *> parameter_types;
+            parameter_types.reserve(arguments.size());
+            for (CoreIrValue *argument : arguments) {
+                parameter_types.push_back(argument->get_type());
+            }
+            const auto *callee_type =
+                core_ir_context_->create_type<CoreIrFunctionType>(
+                    void_type_, std::move(parameter_types), false);
+            auto *call = current_block_->create_instruction<CoreIrCallInst>(
+                void_type_, std::string(), intrinsic_name, callee_type,
+                std::move(arguments));
+            call->set_source_span(expr.get_source_span());
+            return call;
+        }
+
         const FunctionSemanticType *callee_semantic_type =
             get_function_semantic_type(get_node_type(expr.get_callee()));
         if (callee_semantic_type == nullptr) {
@@ -3533,6 +3581,27 @@ class CoreIrBuildSession {
         auto *call = current_block_->create_instruction<CoreIrCallInst>(
             result_type, std::move(result_name), callee_value,
             callee_function_type, std::move(arguments));
+        call->set_source_span(expr.get_source_span());
+        return call;
+    }
+
+    CoreIrValue *build_builtin_va_arg_expr(const BuiltinVaArgExpr &expr) {
+        CoreIrValue *va_list_value = build_expr(expr.get_va_list_expr());
+        if (va_list_value == nullptr) {
+            return nullptr;
+        }
+        const CoreIrType *result_type = get_or_create_type(get_node_type(&expr));
+        if (result_type == nullptr) {
+            add_error("core ir generation could not resolve va_arg result type",
+                      expr.get_source_span());
+            return nullptr;
+        }
+        auto *call = current_block_->create_instruction<CoreIrCallInst>(
+            result_type, next_temp_name(), "__sysycc.va_arg",
+            core_ir_context_->create_type<CoreIrFunctionType>(
+                result_type, std::vector<const CoreIrType *>{va_list_value->get_type()},
+                false),
+            std::vector<CoreIrValue *>{va_list_value});
         call->set_source_span(expr.get_source_span());
         return call;
     }

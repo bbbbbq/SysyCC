@@ -601,6 +601,21 @@ const TypeNode *SizeofTypeExpr::get_target_type() const noexcept {
     return target_type_.get();
 }
 
+BuiltinVaArgExpr::BuiltinVaArgExpr(std::unique_ptr<Expr> va_list_expr,
+                                   std::unique_ptr<TypeNode> target_type,
+                                   SourceSpan source_span)
+    : Expr(AstKind::BuiltinVaArgExpr, source_span),
+      va_list_expr_(std::move(va_list_expr)),
+      target_type_(std::move(target_type)) {}
+
+const Expr *BuiltinVaArgExpr::get_va_list_expr() const noexcept {
+    return va_list_expr_.get();
+}
+
+const TypeNode *BuiltinVaArgExpr::get_target_type() const noexcept {
+    return target_type_.get();
+}
+
 UnaryExpr::UnaryExpr(std::string operator_text, std::unique_ptr<Expr> operand,
                      SourceSpan source_span)
     : Expr(AstKind::UnaryExpr, source_span),

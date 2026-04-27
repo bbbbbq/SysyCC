@@ -1,0 +1,38 @@
+#include <stdarg.h>
+
+int pick_int(int tag, ...) {
+    va_list ap;
+    va_start(ap, tag);
+    int value = va_arg(ap, int);
+    va_end(ap);
+    return value;
+}
+
+unsigned long pick_ulong(int tag, ...) {
+    va_list ap;
+    va_start(ap, tag);
+    unsigned long value = va_arg(ap, unsigned long);
+    va_end(ap);
+    return value;
+}
+
+double pick_double(int tag, ...) {
+    va_list ap;
+    va_start(ap, tag);
+    double value = va_arg(ap, double);
+    va_end(ap);
+    return value;
+}
+
+int main(void) {
+    if (pick_int(0, 7) != 7) {
+        return 1;
+    }
+    if (pick_ulong(0, 9UL) != 9UL) {
+        return 2;
+    }
+    if (pick_double(0, 2.5) < 2.0) {
+        return 3;
+    }
+    return 0;
+}

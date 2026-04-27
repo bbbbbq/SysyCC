@@ -50,6 +50,7 @@ enum class AstKind : uint8_t {
     StringLiteralExpr,
     IdentifierExpr,
     SizeofTypeExpr,
+    BuiltinVaArgExpr,
     UnaryExpr,
     PrefixExpr,
     PostfixExpr,

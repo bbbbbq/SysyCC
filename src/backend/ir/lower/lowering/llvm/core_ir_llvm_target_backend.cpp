@@ -468,6 +468,15 @@ CoreIrLlvmTargetBackend::get_emitted_block_name(const CoreIrBasicBlock *block) {
     return name;
 }
 
+std::string CoreIrLlvmTargetBackend::get_emitted_phi_incoming_block_name(
+    const CoreIrBasicBlock *block) {
+    const auto tail_it = emitted_block_tail_names_.find(block);
+    if (tail_it != emitted_block_tail_names_.end()) {
+        return tail_it->second;
+    }
+    return get_emitted_block_name(block);
+}
+
 std::string CoreIrLlvmTargetBackend::get_emitted_stack_slot_name(
     const CoreIrStackSlot *stack_slot) {
     if (stack_slot == nullptr) {
@@ -753,7 +762,7 @@ bool CoreIrLlvmTargetBackend::append_instruction(
             text += "[ ";
             text += format_value_ref(incoming_value);
             text += ", %";
-            text += get_emitted_block_name(incoming_block);
+            text += get_emitted_phi_incoming_block_name(incoming_block);
             text += " ]";
         }
         text += "\n";
@@ -1197,6 +1206,100 @@ bool CoreIrLlvmTargetBackend::append_instruction(
     case CoreIrOpcode::Call: {
         const auto &call_instruction =
             static_cast<const CoreIrCallInst &>(instruction);
+        if (call_instruction.get_is_direct_call() &&
+            call_instruction.get_callee_name() == "__sysycc.va_arg") {
+            const auto &arguments = call_instruction.get_operands();
+            if (arguments.empty() || arguments[0] == nullptr) {
+                diagnostic_engine.add_error(
+                    DiagnosticStage::Compiler,
+                    "core ir llvm lowering found malformed va_arg call",
+                    call_instruction.get_source_span());
+                return false;
+            }
+
+            const bool use_fp_area = is_float_type(call_instruction.get_type());
+            const int offset_field = use_fp_area ? 4 : 3;
+            const int area_field = use_fp_area ? 2 : 1;
+            const int register_step = use_fp_area ? 16 : 8;
+            const std::string prefix = get_emitted_value_name(&call_instruction);
+            const std::string offset_ptr = "%" + prefix + ".offs.ptr";
+            const std::string offset_value = "%" + prefix + ".offs";
+            const std::string has_no_registers = "%" + prefix + ".stack.cmp";
+            const std::string updated_offset = "%" + prefix + ".offs.next";
+            const std::string still_in_registers = "%" + prefix + ".reg.cmp";
+            const std::string area_ptr = "%" + prefix + ".area.ptr";
+            const std::string area_base = "%" + prefix + ".area";
+            const std::string register_address = "%" + prefix + ".reg.addr";
+            const std::string stack_ptr = "%" + prefix + ".stack.ptr";
+            const std::string stack_address = "%" + prefix + ".stack";
+            const std::string next_stack_address = "%" + prefix + ".stack.next";
+            const std::string value_address = "%" + prefix + ".addr";
+            const std::string stack_label = next_helper_name("va_stack");
+            const std::string register_label = next_helper_name("va_reg");
+            const std::string register_load_label =
+                next_helper_name("va_reg_load");
+            const std::string continue_label = next_helper_name("va_cont");
+
+            text += "  " + offset_ptr +
+                    " = getelementptr inbounds { ptr, ptr, ptr, i32, i32 }, ptr ";
+            text += format_value_ref(arguments[0]);
+            text += ", i32 0, i32 " + std::to_string(offset_field) + "\n";
+            text += "  " + offset_value + " = load i32, ptr " + offset_ptr;
+            text += use_fp_area ? ", align 4\n" : ", align 8\n";
+            text += "  " + has_no_registers + " = icmp sge i32 " +
+                    offset_value + ", 0\n";
+            text += "  br i1 " + has_no_registers + ", label %" +
+                    stack_label + ", label %" + register_label + "\n";
+
+            text += register_label + ":\n";
+            text += "  " + updated_offset + " = add i32 " + offset_value +
+                    ", " + std::to_string(register_step) + "\n";
+            text += "  store i32 " + updated_offset + ", ptr " + offset_ptr;
+            text += use_fp_area ? ", align 4\n" : ", align 8\n";
+            text += "  " + still_in_registers + " = icmp sle i32 " +
+                    updated_offset + ", 0\n";
+            text += "  br i1 " + still_in_registers + ", label %" +
+                    register_load_label + ", label %" + stack_label + "\n";
+
+            text += register_load_label + ":\n";
+            text += "  " + area_ptr +
+                    " = getelementptr inbounds { ptr, ptr, ptr, i32, i32 }, ptr ";
+            text += format_value_ref(arguments[0]);
+            text += ", i32 0, i32 " + std::to_string(area_field) + "\n";
+            text += "  " + area_base + " = load ptr, ptr " + area_ptr +
+                    ", align 8\n";
+            text += "  " + register_address +
+                    " = getelementptr inbounds i8, ptr " + area_base +
+                    ", i32 " + offset_value + "\n";
+            text += "  br label %" + continue_label + "\n";
+
+            text += stack_label + ":\n";
+            text += "  " + stack_ptr +
+                    " = getelementptr inbounds { ptr, ptr, ptr, i32, i32 }, ptr ";
+            text += format_value_ref(arguments[0]);
+            text += ", i32 0, i32 0\n";
+            text += "  " + stack_address + " = load ptr, ptr " + stack_ptr +
+                    ", align 8\n";
+            text += "  " + next_stack_address +
+                    " = getelementptr inbounds i8, ptr " + stack_address +
+                    ", i64 8\n";
+            text += "  store ptr " + next_stack_address + ", ptr " + stack_ptr +
+                    ", align 8\n";
+            text += "  br label %" + continue_label + "\n";
+
+            text += continue_label + ":\n";
+            text += "  " + value_address + " = phi ptr [ " + register_address +
+                    ", %" + register_load_label + " ], [ " + stack_address +
+                    ", %" + stack_label + " ]\n";
+            text += "  %" + prefix + " = load ";
+            text += format_type(call_instruction.get_type());
+            text += ", ptr " + value_address + ", align 8\n";
+            if (current_emitting_block_ != nullptr) {
+                emitted_block_tail_names_[current_emitting_block_] =
+                    continue_label;
+            }
+            return true;
+        }
         text += "  ";
         if (!call_instruction.get_name().empty()) {
             text += "%" + get_emitted_value_name(&call_instruction);
@@ -1364,6 +1467,7 @@ bool CoreIrLlvmTargetBackend::append_function(
 
     emitted_value_names_.clear();
     emitted_block_names_.clear();
+    emitted_block_tail_names_.clear();
     emitted_stack_slot_names_.clear();
     used_block_names_.clear();
     used_stack_slot_names_.clear();
@@ -1420,6 +1524,7 @@ bool CoreIrLlvmTargetBackend::append_function(
                                   ? nullptr
                                   : function.get_basic_blocks().front().get();
     for (const auto &basic_block : function.get_basic_blocks()) {
+        current_emitting_block_ = basic_block.get();
         text += get_emitted_block_name(basic_block.get());
         text += ":\n";
         if (basic_block.get() == entry_block) {
@@ -1448,6 +1553,7 @@ bool CoreIrLlvmTargetBackend::append_function(
             }
         }
     }
+    current_emitting_block_ = nullptr;
     text += "}\n";
     return true;
 }

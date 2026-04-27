@@ -104,14 +104,6 @@ void initialize_predefined_macros(
         macro_table, "__builtin_offsetof",
         "((unsigned long)(&(((__type *)0)->__member)))",
         {"__type", "__member"});
-    define_function_like_macro(macro_table, "__builtin_va_start", "((void)0)",
-                               {"__ap", "__last"});
-    define_function_like_macro(macro_table, "__builtin_va_end", "((void)0)",
-                               {"__ap"});
-    define_function_like_macro(macro_table, "__builtin_va_copy", "((void)0)",
-                               {"__dst", "__src"});
-    define_function_like_macro(macro_table, "__builtin_va_arg",
-                               "((__type)0)", {"__ap", "__type"});
     if (!preprocess_feature_registry.has_feature(
             PreprocessFeature::GnuPredefinedMacros)) {
         define_object_like_macro(macro_table, "__STRICT_ANSI__", "1");

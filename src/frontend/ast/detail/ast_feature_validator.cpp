@@ -353,6 +353,13 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
         }
         return true;
     }
+    case AstKind::BuiltinVaArgExpr: {
+        const auto *va_arg_expr = static_cast<const BuiltinVaArgExpr *>(node);
+        return validate_node(va_arg_expr->get_va_list_expr(), feature_registry,
+                             error_info) &&
+               validate_node(va_arg_expr->get_target_type(), feature_registry,
+                             error_info);
+    }
     case AstKind::StructType: {
         const auto *struct_type = static_cast<const StructTypeNode *>(node);
         for (const auto &field : struct_type->get_fields()) {

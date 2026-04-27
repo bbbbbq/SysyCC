@@ -2168,6 +2168,26 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
     }
 
     if (ParseTreeMatcher::label_equals(node, "postfix_expr") &&
+        node->children.size() == 1 &&
+        ParseTreeMatcher::label_equals(node->children[0].get(),
+                                       "builtin_va_arg_expr")) {
+        return build_expr(node->children[0].get());
+    }
+
+    if (ParseTreeMatcher::label_equals(node, "builtin_va_arg_expr") &&
+        node->children.size() == 6) {
+        const std::string callee_name =
+            ParseTreeMatcher::extract_terminal_suffix(node->children[0].get(),
+                                                      "IDENTIFIER");
+        if (callee_name == "__builtin_va_arg") {
+            return std::make_unique<BuiltinVaArgExpr>(
+                build_expr(node->children[2].get()),
+                build_cast_target_type(node->children[4].get()),
+                get_node_source_span(node));
+        }
+    }
+
+    if (ParseTreeMatcher::label_equals(node, "postfix_expr") &&
         node->children.size() == 3 &&
         ParseTreeMatcher::label_starts_with(node->children[1].get(), "LPAREN") &&
         ParseTreeMatcher::label_starts_with(node->children[2].get(), "RPAREN")) {

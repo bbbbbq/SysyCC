@@ -266,6 +266,11 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         const auto *sizeof_type_expr = static_cast<const SizeofTypeExpr *>(node);
         return ast_contains_unknown_nodes(sizeof_type_expr->get_target_type());
     }
+    case AstKind::BuiltinVaArgExpr: {
+        const auto *va_arg_expr = static_cast<const BuiltinVaArgExpr *>(node);
+        return ast_contains_unknown_nodes(va_arg_expr->get_va_list_expr()) ||
+               ast_contains_unknown_nodes(va_arg_expr->get_target_type());
+    }
     case AstKind::PrefixExpr: {
         const auto *prefix_expr = static_cast<const PrefixExpr *>(node);
         return ast_contains_unknown_nodes(prefix_expr->get_operand());

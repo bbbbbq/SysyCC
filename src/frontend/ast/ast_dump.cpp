@@ -300,6 +300,19 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         dump_sizeof_type_expr(static_cast<const SizeofTypeExpr *>(node), os,
                               indent);
         return;
+    case AstKind::BuiltinVaArgExpr: {
+        const auto *va_arg_expr = static_cast<const BuiltinVaArgExpr *>(node);
+        write_indent(os, indent);
+        os << "BuiltinVaArgExpr\n";
+        dump_source_span(node, os, indent + 2);
+        write_indent(os, indent + 2);
+        os << "VaList\n";
+        dump_node(va_arg_expr->get_va_list_expr(), os, indent + 4);
+        write_indent(os, indent + 2);
+        os << "TargetType\n";
+        dump_node(va_arg_expr->get_target_type(), os, indent + 4);
+        return;
+    }
     case AstKind::UnaryExpr:
         dump_unary_expr(static_cast<const UnaryExpr *>(node), os, indent);
         return;

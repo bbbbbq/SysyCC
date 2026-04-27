@@ -916,6 +916,21 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             sizeof_type_expr, static_cast<long long>(*type_size), semantic_context);
         return;
     }
+    case AstKind::BuiltinVaArgExpr: {
+        const auto *va_arg_expr = static_cast<const BuiltinVaArgExpr *>(expr);
+        analyze_expr(va_arg_expr->get_va_list_expr(), semantic_context,
+                     scope_stack);
+        const SemanticType *target_type = type_resolver_.resolve_type(
+            va_arg_expr->get_target_type(), semantic_context, &scope_stack);
+        if (target_type == nullptr) {
+            add_error(semantic_context,
+                      "__builtin_va_arg requires a valid target type",
+                      va_arg_expr->get_source_span());
+            return;
+        }
+        semantic_model.bind_node_type(va_arg_expr, target_type);
+        return;
+    }
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
         if (unary_expr->get_operator_text() == "&&") {
