@@ -415,11 +415,21 @@ CoreIrLlvmTargetBackend::next_helper_name(const std::string &prefix) {
     if (prefix == "t") {
         return next_value_name();
     }
-    return prefix + std::to_string(helper_id_++);
+    while (true) {
+        std::string name = prefix + std::to_string(helper_id_++);
+        if (used_local_names_.insert(name).second) {
+            return name;
+        }
+    }
 }
 
 std::string CoreIrLlvmTargetBackend::next_value_name() {
-    return "t" + std::to_string(next_value_id_++);
+    while (true) {
+        std::string name = "t" + std::to_string(next_value_id_++);
+        if (used_local_names_.insert(name).second) {
+            return name;
+        }
+    }
 }
 
 std::string
@@ -447,8 +457,11 @@ CoreIrLlvmTargetBackend::get_emitted_block_name(const CoreIrBasicBlock *block) {
     }
     std::string name = block->get_name();
     if (name.empty() || name.size() > 255 ||
-        used_block_names_.find(name) != used_block_names_.end()) {
+        used_block_names_.find(name) != used_block_names_.end() ||
+        used_local_names_.find(name) != used_local_names_.end()) {
         name = next_helper_name("bb");
+    } else {
+        used_local_names_.insert(name);
     }
     emitted_block_names_.emplace(block, name);
     used_block_names_.insert(name);
@@ -466,8 +479,11 @@ std::string CoreIrLlvmTargetBackend::get_emitted_stack_slot_name(
     }
     std::string name = stack_slot->get_name();
     if (name.empty() || name.size() > 255 ||
-        used_stack_slot_names_.find(name) != used_stack_slot_names_.end()) {
+        used_stack_slot_names_.find(name) != used_stack_slot_names_.end() ||
+        used_local_names_.find(name) != used_local_names_.end()) {
         name = next_value_name();
+    } else {
+        used_local_names_.insert(name);
     }
     emitted_stack_slot_names_.emplace(stack_slot, name);
     used_stack_slot_names_.insert(name);
@@ -701,7 +717,7 @@ CoreIrLlvmTargetBackend::format_value_ref(const CoreIrValue *value) {
         }
         return "%" + get_emitted_value_name(value);
     }
-    return "%" + value->get_name();
+    return "%" + get_emitted_value_name(value);
 }
 
 std::string
@@ -1342,6 +1358,15 @@ bool CoreIrLlvmTargetBackend::append_function(
         return true;
     }
 
+    emitted_value_names_.clear();
+    emitted_block_names_.clear();
+    emitted_stack_slot_names_.clear();
+    used_block_names_.clear();
+    used_stack_slot_names_.clear();
+    used_local_names_.clear();
+    next_value_id_ = 0;
+    helper_id_ = 0;
+
     text += "define ";
     if (function.get_is_internal_linkage()) {
         text += "internal ";
@@ -1366,7 +1391,7 @@ bool CoreIrLlvmTargetBackend::append_function(
             text += " readonly";
         }
         text += " %";
-        text += parameters[index]->get_name();
+        text += get_emitted_value_name(parameters[index].get());
     }
     if (function.get_is_variadic()) {
         if (!parameters.empty()) {
@@ -1386,13 +1411,6 @@ bool CoreIrLlvmTargetBackend::append_function(
         text += " writeonly";
     }
     text += " {\n";
-    emitted_value_names_.clear();
-    emitted_block_names_.clear();
-    emitted_stack_slot_names_.clear();
-    used_block_names_.clear();
-    used_stack_slot_names_.clear();
-    next_value_id_ = 0;
-    helper_id_ = 0;
 
     const auto *entry_block = function.get_basic_blocks().empty()
                                   ? nullptr

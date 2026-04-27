@@ -29,6 +29,7 @@ class CoreIrLlvmTargetBackend final : public CoreIrTargetBackend {
     std::unordered_map<const CoreIrStackSlot *, std::string> emitted_stack_slot_names_;
     std::unordered_set<std::string> used_block_names_;
     std::unordered_set<std::string> used_stack_slot_names_;
+    std::unordered_set<std::string> used_local_names_;
 
     std::string next_helper_name(const std::string &prefix);
     std::string next_value_name();
