@@ -48,6 +48,18 @@ std::string decode_string_literal_token(std::string token_text) {
             case 'r':
                 decoded.push_back('\r');
                 break;
+            case 'a':
+                decoded.push_back('\a');
+                break;
+            case 'b':
+                decoded.push_back('\b');
+                break;
+            case 'f':
+                decoded.push_back('\f');
+                break;
+            case 'v':
+                decoded.push_back('\v');
+                break;
             case '0':
                 decoded.push_back('\0');
                 break;

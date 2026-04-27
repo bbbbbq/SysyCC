@@ -275,6 +275,18 @@ class ExpressionParser {
             case 'r':
                 parsed_value = '\r';
                 break;
+            case 'a':
+                parsed_value = '\a';
+                break;
+            case 'b':
+                parsed_value = '\b';
+                break;
+            case 'f':
+                parsed_value = '\f';
+                break;
+            case 'v':
+                parsed_value = '\v';
+                break;
             case '\\':
                 parsed_value = '\\';
                 break;

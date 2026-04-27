@@ -1,4 +1,22 @@
 int main(void) {
+    if ('\a' != 7) {
+        return 1;
+    }
+    if ('\b' != 8) {
+        return 2;
+    }
+    if ('\f' != 12) {
+        return 3;
+    }
+    if ('\v' != 11) {
+        return 4;
+    }
+    switch ('f') {
+    case '\f':
+        return 5;
+    default:
+        break;
+    }
     putint('a');
     putch('\n');
     return 0;

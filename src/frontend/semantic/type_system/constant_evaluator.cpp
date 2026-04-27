@@ -933,6 +933,14 @@ ConstantEvaluator::parse_char_literal(const std::string &value_text) const {
         return '\t';
     case 'r':
         return '\r';
+    case 'a':
+        return '\a';
+    case 'b':
+        return '\b';
+    case 'f':
+        return '\f';
+    case 'v':
+        return '\v';
     case '\\':
         return '\\';
     case '\'':
