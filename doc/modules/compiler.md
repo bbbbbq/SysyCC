@@ -11,9 +11,45 @@ shared context, and the pass manager.
 - [compiler.cpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler.cpp)
 - [compiler_option.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp)
 - [compiler_context.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
+- [token_kind.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/token_kind.hpp)
 - [pass.hpp](/Users/caojunze424/code/SysyCC/src/compiler/pass/pass.hpp)
+- [pass_result.hpp](/Users/caojunze424/code/SysyCC/src/compiler/pass/pass_result.hpp)
 - [pass.cpp](/Users/caojunze424/code/SysyCC/src/compiler/pass/pass.cpp)
 - [dialect_manager.hpp](/Users/caojunze424/code/SysyCC/src/frontend/dialects/core/dialect_manager.hpp)
+
+## Build Targets
+
+The public `compiler` executable is intentionally thin. The implementation is
+split across internal static libraries so common incremental edits avoid
+rebuilding one monolithic executable target:
+
+- `sysycc_common`: diagnostics, source management, and shared literal helpers.
+- `sysycc_frontend`: generated lexer/parser outputs, AST, dialects,
+  preprocess, parser, and semantic analysis.
+- `sysycc_core_ir`: Core IR analyses, optimization passes, lowering, and the
+  native backend bridge pass.
+- `sysycc_compiler_driver`: CLI parsing, `Compiler`, and pass orchestration.
+
+The top-level CMake configuration also auto-detects `ccache` first and
+`sccache` second when `SYSYCC_USE_COMPILER_CACHE=ON`, unless the caller already
+sets `CMAKE_C_COMPILER_LAUNCHER` or `CMAKE_CXX_COMPILER_LAUNCHER`.
+
+For local Debug builds, `SYSYCC_DEV_BUILD=ON` enables lightweight debug-info
+flags on Clang / AppleClang (`-gline-tables-only -fno-standalone-debug`). This
+keeps usable line tables for crash stacks while reducing compile and link work.
+Turn it off when a full symbolic debugging session needs complete type
+information.
+
+Self-build profiling is available through:
+
+```bash
+make profile-self-build
+```
+
+The script writes `build/self_build_profile.md` and captures configure,
+no-op build, representative `.cpp` touches, one high-fanout IR header touch,
+and ccache before/after stats. Use `SYSYCC_SELF_PROFILE_SKIP_CLEAN=1` when a
+quick incremental-only report is enough.
 
 ## Key Objects
 
@@ -96,6 +132,14 @@ CoreIrInstCombinePass -> CoreIrMem2RegPass ->
 ## Notes
 
 - The historical misspelling has been migrated to `Compiler`.
+- The public [compiler.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler.hpp)
+  now forward-declares `CompilerContext`, `PassManager`, `Pass`, and
+  `FrontendDialect` instead of exposing the full pass/context graph to every
+  user of the compiler facade.
+- `TokenKind` lives in
+  [token_kind.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/token_kind.hpp)
+  so lexer and dialect keyword code can share token identities without pulling
+  in all of `CompilerContext`.
 - `PassResult` carries pass success state and a short message.
 - [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   also owns one shared diagnostic engine so passes can emit stage-tagged

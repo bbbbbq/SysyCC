@@ -23,11 +23,30 @@ cmake -S . -B build-ninja -G Ninja
 cmake --build build-ninja
 ```
 
+默认配置会在可用时自动使用 `ccache`，找不到时再尝试 `sccache`。
+如果需要排查原始编译器行为，可以关闭缓存：
+
+```bash
+cmake -S . -B build-ninja -G Ninja -DSYSYCC_USE_COMPILER_CACHE=OFF
+```
+
+Debug 构建默认开启 `SYSYCC_DEV_BUILD=ON`。在 Clang / AppleClang 下它会使用
+轻量调试信息参数，只保留行号级调试信息，降低本体增量编译和链接成本；如果需要
+完整调试信息，可以关闭：
+
+```bash
+cmake -S . -B build-ninja -G Ninja -DSYSYCC_DEV_BUILD=OFF
+```
+
 也可以使用顶层 Makefile：
 
 ```bash
 make build
 ```
+
+`make build` 同样会配置 Ninja 开发构建，并默认启用编译缓存探测；
+可用 `make build SYSYCC_USE_COMPILER_CACHE=OFF` 关闭缓存，或用
+`make build SYSYCC_DEV_BUILD=OFF` 关闭轻量 Debug 参数。
 
 常用产物：
 
@@ -35,6 +54,10 @@ make build
 - `build-ninja/SysyCC`: 兼容旧脚本的本地入口。
 - `build-ninja/sysycc-aarch64c`: AArch64 原生后端开发入口。
 - `build-ninja/sysycc-riscv64c`: RISC-V64 原生后端开发入口。
+
+内部构建拆分为 `sysycc_common`、`sysycc_frontend`、`sysycc_core_ir`、
+`sysycc_compiler_driver` 等静态库，主 executable 只负责链接这些库和
+`src/main.cpp`，以降低本体增量编译时的重编和重链成本。
 
 ## 使用示例
 
@@ -111,6 +134,7 @@ make test-aarch64-single-source-full
 真实工程和性能调优辅助入口：
 
 ```bash
+make profile-self-build
 make lua-smoke
 make lua-incremental
 make lua-incremental TEST_ARGS="lvm.c"
@@ -123,6 +147,8 @@ make pass-report-diff TEST_ARGS="before.md after.md"
 - `test-tier1` 是快速主线门禁，覆盖 run / cli / dialects 等高价值 smoke。
 - `test-tier2` 覆盖更细的前端、语义、IR、后端测试。
 - `test-full` 用于更完整回归。
+- `profile-self-build` 会生成 `build/self_build_profile.md`，记录 configure、
+  no-op build、触碰高频源文件/头文件后的增量构建耗时和 ccache 统计。
 - Lua / MuJS 真实工程 probe 是手动验证入口，不默认放入 tier1/tier2，因为它依赖 Docker、网络、外部仓库和更长运行时间。
 
 ## 真实工程 Probe
