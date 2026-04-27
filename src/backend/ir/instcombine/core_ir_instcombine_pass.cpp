@@ -33,6 +33,13 @@ using namespace detail;
 
 std::size_t g_instcombine_temp_counter = 0;
 
+struct InstCombineEraseTracker {
+    std::unordered_set<CoreIrInstruction *> *live_instructions = nullptr;
+    std::vector<std::unique_ptr<CoreIrInstruction>> erased_instructions;
+};
+
+thread_local InstCombineEraseTracker *g_instcombine_erase_tracker = nullptr;
+
 PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
     const std::string message =
         std::string(pass_name) + " requires a built core ir result";
@@ -45,6 +52,37 @@ std::string next_instcombine_name(const std::string &prefix) {
     return prefix + std::to_string(g_instcombine_temp_counter++);
 }
 
+bool erase_instcombine_instruction(CoreIrBasicBlock &block,
+                                   CoreIrInstruction *instruction) {
+    if (instruction == nullptr) {
+        return false;
+    }
+
+    InstCombineEraseTracker *tracker = g_instcombine_erase_tracker;
+    if (tracker == nullptr) {
+        return detail::erase_instruction(block, instruction);
+    }
+
+    auto &instructions = block.get_instructions();
+    auto it = std::find_if(
+        instructions.begin(), instructions.end(),
+        [instruction](const std::unique_ptr<CoreIrInstruction> &candidate) {
+            return candidate.get() == instruction;
+        });
+    if (it == instructions.end()) {
+        return false;
+    }
+
+    if (tracker->live_instructions != nullptr) {
+        tracker->live_instructions->erase(instruction);
+    }
+    (*it)->detach_operands();
+    (*it)->set_parent(nullptr);
+    tracker->erased_instructions.push_back(std::move(*it));
+    instructions.erase(it);
+    return true;
+}
+
 bool erase_instruction_if_dead(CoreIrBasicBlock &block,
                                CoreIrInstruction *instruction) {
     if (instruction == nullptr ||
@@ -52,7 +90,7 @@ bool erase_instruction_if_dead(CoreIrBasicBlock &block,
         !instruction->get_uses().empty()) {
         return false;
     }
-    return erase_instruction(block, instruction);
+    return erase_instcombine_instruction(block, instruction);
 }
 
 void erase_dead_instruction_tree(CoreIrValue *value) {
@@ -65,7 +103,8 @@ void erase_dead_instruction_tree(CoreIrValue *value) {
 
     std::vector<CoreIrValue *> operands = instruction->get_operands();
     CoreIrBasicBlock *parent = instruction->get_parent();
-    if (parent == nullptr || !erase_instruction(*parent, instruction)) {
+    if (parent == nullptr ||
+        !erase_instcombine_instruction(*parent, instruction)) {
         return;
     }
 
@@ -84,7 +123,7 @@ void erase_dead_address_chain(CoreIrBasicBlock &block, CoreIrValue *value) {
             gep != nullptr) {
             next = gep->get_base();
         }
-        if (!erase_instruction(block, instruction)) {
+        if (!erase_instcombine_instruction(block, instruction)) {
             break;
         }
         instruction = dynamic_cast<CoreIrInstruction *>(next);
@@ -763,7 +802,7 @@ bool simplify_phi_of_identical_incoming_binaries(CoreIrBasicBlock &block,
     }
 
     phi.replace_all_uses_with(replacement_inst);
-    if (!erase_instruction(block, &phi)) {
+    if (!erase_instcombine_instruction(block, &phi)) {
         return false;
     }
 
@@ -1096,7 +1135,7 @@ bool simplify_binary_identity(CoreIrContext &context, CoreIrBasicBlock &block,
     }
 
     binary.replace_all_uses_with(replacement);
-    erase_instruction(block, &binary);
+    erase_instcombine_instruction(block, &binary);
     return true;
 }
 
@@ -1122,7 +1161,7 @@ bool simplify_signed_half_div_rem(CoreIrContext &context,
             return false;
         }
         binary.replace_all_uses_with(replacement);
-        erase_instruction(block, &binary);
+        erase_instcombine_instruction(block, &binary);
         return true;
     }
 
@@ -1139,7 +1178,7 @@ bool simplify_signed_half_div_rem(CoreIrContext &context,
     }
 
     binary.replace_all_uses_with(replacement);
-    erase_instruction(block, &binary);
+    erase_instcombine_instruction(block, &binary);
     return true;
 }
 
@@ -1170,7 +1209,7 @@ bool simplify_even_branch_signed_half_expansion(CoreIrContext &context,
 
     CoreIrValue *old_lhs = binary.get_lhs();
     binary.replace_all_uses_with(replacement);
-    erase_instruction(block, &binary);
+    erase_instcombine_instruction(block, &binary);
     erase_dead_instruction_tree(old_lhs);
     return true;
 }
@@ -1181,7 +1220,7 @@ bool simplify_identity_cast(CoreIrBasicBlock &block, CoreIrCastInst &cast) {
         return false;
     }
     cast.replace_all_uses_with(operand);
-    erase_instruction(block, &cast);
+    erase_instcombine_instruction(block, &cast);
     return true;
 }
 
@@ -1211,7 +1250,7 @@ bool simplify_integer_cast(CoreIrBasicBlock &block, CoreIrCastInst &cast) {
             operand_integer_type->get_is_signed() ==
                 cast_integer_type->get_is_signed()) {
             cast.replace_all_uses_with(operand);
-            erase_instruction(block, &cast);
+            erase_instcombine_instruction(block, &cast);
             return true;
         }
         return false;
@@ -1253,7 +1292,7 @@ bool simplify_integer_cast(CoreIrBasicBlock &block, CoreIrCastInst &cast) {
          inner_kind == CoreIrCastKind::ZeroExtend) &&
         *cast_width == *inner_operand_width) {
         cast.replace_all_uses_with(inner_operand);
-        erase_instruction(block, &cast);
+        erase_instcombine_instruction(block, &cast);
         erase_instruction_if_dead(block, inner_cast);
         return true;
     }
@@ -1358,7 +1397,7 @@ bool simplify_gep(CoreIrBasicBlock &block, CoreIrGetElementPtrInst &gep) {
     }
     CoreIrValue *base = gep.get_base();
     gep.replace_all_uses_with(base);
-    erase_instruction(block, &gep);
+    erase_instcombine_instruction(block, &gep);
     return true;
 }
 
@@ -1572,6 +1611,16 @@ void refresh_live_instruction_set(
     }
 }
 
+void add_block_live_instructions(
+    CoreIrBasicBlock &block,
+    std::unordered_set<CoreIrInstruction *> &live_instructions) {
+    for (const auto &instruction : block.get_instructions()) {
+        if (instruction != nullptr) {
+            live_instructions.insert(instruction.get());
+        }
+    }
+}
+
 struct InstCombineWorklist {
     std::deque<CoreIrInstruction *> queue;
     std::unordered_set<CoreIrInstruction *> queued;
@@ -1627,7 +1676,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
     if (auto *phi = dynamic_cast<CoreIrPhiInst *>(&instruction); phi != nullptr) {
         if (CoreIrValue *replacement = try_fold_phi(*phi); replacement != nullptr) {
             phi->replace_all_uses_with(replacement);
-            erase_instruction(block, phi);
+            erase_instcombine_instruction(block, phi);
             return true;
         }
         return simplify_phi_of_identical_incoming_binaries(block, *phi);
@@ -1637,7 +1686,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
         if (CoreIrValue *replacement = try_fold_binary(context, *binary);
             replacement != nullptr) {
             binary->replace_all_uses_with(replacement);
-            erase_instruction(block, binary);
+            erase_instcombine_instruction(block, binary);
             return true;
         }
         return simplify_even_branch_signed_half_expansion(context, block, *binary) ||
@@ -1650,7 +1699,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
         if (CoreIrValue *replacement = try_fold_unary(context, *unary);
             replacement != nullptr) {
             unary->replace_all_uses_with(replacement);
-            erase_instruction(block, unary);
+            erase_instcombine_instruction(block, unary);
             return true;
         }
         return false;
@@ -1660,7 +1709,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
         if (CoreIrValue *replacement = try_fold_cast(context, *cast);
             replacement != nullptr) {
             cast->replace_all_uses_with(replacement);
-            erase_instruction(block, cast);
+            erase_instcombine_instruction(block, cast);
             return true;
         }
         return simplify_identity_cast(block, *cast) ||
@@ -1672,7 +1721,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
         if (CoreIrValue *replacement = try_fold_compare(context, *compare);
             replacement != nullptr) {
             compare->replace_all_uses_with(replacement);
-            erase_instruction(block, compare);
+            erase_instcombine_instruction(block, compare);
             return true;
         }
         if (compare->get_lhs() == compare->get_rhs()) {
@@ -1690,7 +1739,7 @@ bool simplify_instruction(CoreIrContext &context, CoreIrBasicBlock &block,
                     ? 1
                     : 0);
             compare->replace_all_uses_with(replacement);
-            erase_instruction(block, compare);
+            erase_instcombine_instruction(block, compare);
             return true;
         }
         return simplify_compare_boolean_wrapper(block, *compare) ||
@@ -1726,6 +1775,11 @@ bool run_instcombine_on_function(CoreIrContext &context, CoreIrFunction &functio
     }
     std::unordered_set<CoreIrInstruction *> live_instructions;
     refresh_live_instruction_set(function, live_instructions);
+    InstCombineEraseTracker erase_tracker;
+    erase_tracker.live_instructions = &live_instructions;
+    InstCombineEraseTracker *previous_erase_tracker =
+        g_instcombine_erase_tracker;
+    g_instcombine_erase_tracker = &erase_tracker;
 
     while (!worklist.queue.empty()) {
         CoreIrInstruction *instruction = worklist.queue.front();
@@ -1750,11 +1804,12 @@ bool run_instcombine_on_function(CoreIrContext &context, CoreIrFunction &functio
         if (simplify_instruction(context, *block, *instruction)) {
             changed = true;
             ++worklist.stats.rewrites;
-            refresh_live_instruction_set(function, live_instructions);
+            add_block_live_instructions(*block, live_instructions);
             enqueue_impacted_instructions(worklist, *block, original_uses,
                                           original_operand_definitions);
         }
     }
+    g_instcombine_erase_tracker = previous_erase_tracker;
     if (stats != nullptr) {
         *stats = worklist.stats;
     }
