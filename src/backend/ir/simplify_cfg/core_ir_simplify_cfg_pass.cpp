@@ -54,6 +54,18 @@ std::vector<CoreIrBasicBlock *> collect_terminator_successors(
             cond_jump->get_false_block() != cond_jump->get_true_block()) {
             successors.push_back(cond_jump->get_false_block());
         }
+        return successors;
+    }
+
+    if (auto *indirect_jump = dynamic_cast<CoreIrIndirectJumpInst *>(terminator);
+        indirect_jump != nullptr) {
+        for (CoreIrBasicBlock *target : indirect_jump->get_target_blocks()) {
+            if (target != nullptr &&
+                std::find(successors.begin(), successors.end(), target) ==
+                    successors.end()) {
+                successors.push_back(target);
+            }
+        }
     }
     return successors;
 }
@@ -77,6 +89,21 @@ void remove_phi_incoming_from_predecessor(CoreIrBasicBlock *successor,
             break;
         }
         phi->remove_incoming_block(predecessor);
+    }
+}
+
+void remove_phi_incoming_from_predecessors(
+    CoreIrBasicBlock *successor,
+    const std::unordered_set<CoreIrBasicBlock *> &predecessors) {
+    if (successor == nullptr || predecessors.empty()) {
+        return;
+    }
+    for (const auto &instruction : successor->get_instructions()) {
+        auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction.get());
+        if (phi == nullptr) {
+            break;
+        }
+        phi->remove_incoming_blocks(predecessors);
     }
 }
 
@@ -307,9 +334,16 @@ bool remove_unreachable_blocks(CoreIrFunction &function,
             if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
                 continue;
             }
-            for (CoreIrBasicBlock *unreachable_block : unreachable_blocks) {
-                remove_phi_incoming_from_predecessor(block.get(), unreachable_block);
+            std::unordered_set<CoreIrBasicBlock *> unreachable_predecessors;
+            for (CoreIrBasicBlock *predecessor :
+                 cfg_analysis.get_predecessors(block.get())) {
+                if (predecessor != nullptr &&
+                    !cfg_analysis.is_reachable(predecessor)) {
+                    unreachable_predecessors.insert(predecessor);
+                }
             }
+            remove_phi_incoming_from_predecessors(block.get(),
+                                                  unreachable_predecessors);
         }
     }
 

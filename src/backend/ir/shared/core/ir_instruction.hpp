@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "backend/ir/shared/core/ir_type.hpp"
@@ -214,14 +215,45 @@ class CoreIrPhiInst final : public CoreIrInstruction {
     }
 
     void remove_incoming_block(CoreIrBasicBlock *block) {
-        for (std::size_t index = 0; index < incoming_blocks_.size();) {
+        for (std::size_t index = incoming_blocks_.size(); index > 0;) {
+            --index;
             if (incoming_blocks_[index] != block) {
-                ++index;
                 continue;
             }
             incoming_blocks_.erase(incoming_blocks_.begin() +
                                    static_cast<std::ptrdiff_t>(index));
             erase_operand(index);
+        }
+    }
+
+    void remove_incoming_blocks(
+        const std::unordered_set<CoreIrBasicBlock *> &blocks) {
+        if (blocks.empty()) {
+            return;
+        }
+
+        std::vector<CoreIrBasicBlock *> kept_blocks;
+        std::vector<CoreIrValue *> kept_values;
+        kept_blocks.reserve(incoming_blocks_.size());
+        kept_values.reserve(get_operands().size());
+        bool changed = false;
+        for (std::size_t index = 0; index < incoming_blocks_.size(); ++index) {
+            CoreIrBasicBlock *incoming_block = incoming_blocks_[index];
+            if (blocks.find(incoming_block) != blocks.end()) {
+                changed = true;
+                continue;
+            }
+            kept_blocks.push_back(incoming_block);
+            kept_values.push_back(get_incoming_value(index));
+        }
+        if (!changed) {
+            return;
+        }
+
+        detach_operands();
+        incoming_blocks_ = std::move(kept_blocks);
+        for (CoreIrValue *value : kept_values) {
+            append_operand(value);
         }
     }
 
@@ -533,12 +565,17 @@ class CoreIrAddressOfStackSlotInst final : public CoreIrInstruction {
 };
 
 class CoreIrGetElementPtrInst final : public CoreIrInstruction {
+  private:
+    const CoreIrType *source_pointee_type_ = nullptr;
+
   public:
     CoreIrGetElementPtrInst(const CoreIrType *type, std::string name,
                             CoreIrValue *base,
-                            std::vector<CoreIrValue *> indices)
+                            std::vector<CoreIrValue *> indices,
+                            const CoreIrType *source_pointee_type = nullptr)
         : CoreIrInstruction(CoreIrOpcode::GetElementPtr, type,
-                            std::move(name)) {
+                            std::move(name)),
+          source_pointee_type_(source_pointee_type) {
         append_operand(base);
         for (CoreIrValue *index : indices) {
             append_operand(index);
@@ -558,6 +595,10 @@ class CoreIrGetElementPtrInst final : public CoreIrInstruction {
             return nullptr;
         }
         return get_operands()[index + 1];
+    }
+
+    const CoreIrType *get_source_pointee_type() const noexcept {
+        return source_pointee_type_;
     }
 
     bool get_has_side_effect() const noexcept override { return false; }

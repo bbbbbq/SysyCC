@@ -60,13 +60,14 @@ class CoreIrValue {
     }
 
     void remove_use(CoreIrInstruction *user, std::size_t operand_index) {
-        uses_.erase(
-            std::remove_if(uses_.begin(), uses_.end(),
-                           [user, operand_index](const CoreIrUse &use) {
-                               return use.get_user() == user &&
-                                      use.get_operand_index() == operand_index;
-                           }),
-            uses_.end());
+        auto it = std::find_if(uses_.begin(), uses_.end(),
+                               [user, operand_index](const CoreIrUse &use) {
+                                   return use.get_user() == user &&
+                                          use.get_operand_index() == operand_index;
+                               });
+        if (it != uses_.end()) {
+            uses_.erase(it);
+        }
     }
 };
 
