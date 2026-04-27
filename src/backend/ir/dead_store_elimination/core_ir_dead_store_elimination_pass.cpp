@@ -1,8 +1,9 @@
 #include "backend/ir/dead_store_elimination/core_ir_dead_store_elimination_pass.hpp"
 
 #include <algorithm>
-#include <unordered_set>
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "backend/ir/analysis/alias_analysis.hpp"
@@ -46,6 +47,12 @@ std::size_t find_instruction_index(const CoreIrBasicBlock &block,
 
 struct PendingStoreInfo {
     CoreIrStoreInst *store = nullptr;
+};
+
+struct StackSlotUseInfo {
+    bool has_load = false;
+    std::vector<CoreIrStoreInst *> stores;
+    std::vector<CoreIrAddressOfStackSlotInst *> addresses;
 };
 
 void clear_pending_stores(std::vector<PendingStoreInfo> &pending_stores) {
@@ -232,6 +239,48 @@ bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
 
     bool changed = false;
     auto &stack_slots = function.get_stack_slots();
+    std::unordered_map<CoreIrStackSlot *, StackSlotUseInfo> stack_slot_uses;
+    stack_slot_uses.reserve(stack_slots.size());
+
+    for (const auto &block_ptr : function.get_basic_blocks()) {
+        CoreIrBasicBlock *block = block_ptr.get();
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr) {
+                continue;
+            }
+            switch (instruction->get_opcode()) {
+            case CoreIrOpcode::Load: {
+                auto *load = static_cast<CoreIrLoadInst *>(instruction);
+                if (load->get_stack_slot() != nullptr) {
+                    stack_slot_uses[load->get_stack_slot()].has_load = true;
+                }
+                break;
+            }
+            case CoreIrOpcode::Store: {
+                auto *store = static_cast<CoreIrStoreInst *>(instruction);
+                if (store->get_stack_slot() != nullptr) {
+                    stack_slot_uses[store->get_stack_slot()].stores.push_back(store);
+                }
+                break;
+            }
+            case CoreIrOpcode::AddressOfStackSlot: {
+                auto *address =
+                    static_cast<CoreIrAddressOfStackSlotInst *>(instruction);
+                if (address->get_stack_slot() != nullptr) {
+                    stack_slot_uses[address->get_stack_slot()].addresses.push_back(
+                        address);
+                }
+                break;
+            }
+            default:
+                break;
+            }
+        }
+    }
 
     for (std::size_t slot_index = 0; slot_index < stack_slots.size();) {
         CoreIrStackSlot *stack_slot = stack_slots[slot_index].get();
@@ -247,42 +296,27 @@ bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
         std::vector<CoreIrStoreInst *> stores;
         std::vector<CoreIrInstruction *> removable_address_instructions;
         std::unordered_set<CoreIrInstruction *> visited_address_users;
-        for (const auto &block_ptr : function.get_basic_blocks()) {
-            CoreIrBasicBlock *block = block_ptr.get();
-            if (block == nullptr) {
-                continue;
-            }
-            for (const auto &instruction_ptr : block->get_instructions()) {
-                CoreIrInstruction *instruction = instruction_ptr.get();
-                if (instruction == nullptr) {
-                    continue;
-                }
-                if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
-                    load != nullptr && load->get_stack_slot() == stack_slot) {
-                    has_load = true;
-                    break;
-                }
-                if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
-                    store != nullptr && store->get_stack_slot() == stack_slot) {
-                    stores.push_back(store);
-                    continue;
-                }
-                if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(instruction);
-                    address != nullptr && address->get_stack_slot() == stack_slot) {
+        auto use_it = stack_slot_uses.find(stack_slot);
+        if (use_it != stack_slot_uses.end()) {
+            StackSlotUseInfo &use_info = use_it->second;
+            has_load = use_info.has_load;
+            stores = use_info.stores;
+            if (!has_load) {
+                for (CoreIrAddressOfStackSlotInst *address : use_info.addresses) {
+                    if (address == nullptr) {
+                        continue;
+                    }
                     if (visited_address_users.insert(address).second) {
                         removable_address_instructions.push_back(address);
                     }
                     if (!collect_address_only_dead_uses(
                             address, collect_address_only_dead_uses,
-                            visited_address_users,
-                            removable_address_instructions, stores)) {
+                            visited_address_users, removable_address_instructions,
+                            stores)) {
                         has_address_use = true;
                         break;
                     }
                 }
-            }
-            if (has_load || has_address_use) {
-                break;
             }
         }
 

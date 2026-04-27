@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -41,6 +42,62 @@ struct BlockSummary {
     bool has_def = false;
     bool has_use_before_def = false;
 };
+
+struct PromotableCfgWorkset {
+    static constexpr std::size_t npos = std::numeric_limits<std::size_t>::max();
+
+    std::vector<const CoreIrBasicBlock *> blocks;
+    std::unordered_map<const CoreIrBasicBlock *, std::size_t> block_indices;
+    std::vector<std::size_t> reachable_indices;
+    std::vector<std::vector<std::size_t>> predecessor_indices;
+    std::vector<std::vector<std::size_t>> successor_indices;
+    std::size_t entry_index = npos;
+};
+
+PromotableCfgWorkset
+build_promotable_cfg_workset(const CoreIrFunction &function,
+                             const CoreIrCfgAnalysisResult &cfg_analysis) {
+    PromotableCfgWorkset workset;
+    const auto &function_blocks = function.get_basic_blocks();
+    workset.blocks.reserve(function_blocks.size());
+    workset.block_indices.reserve(function_blocks.size());
+
+    for (const auto &block : function_blocks) {
+        if (block == nullptr) {
+            continue;
+        }
+        const std::size_t index = workset.blocks.size();
+        workset.blocks.push_back(block.get());
+        workset.block_indices.emplace(block.get(), index);
+        if (block.get() == cfg_analysis.get_entry_block()) {
+            workset.entry_index = index;
+        }
+    }
+
+    workset.predecessor_indices.resize(workset.blocks.size());
+    workset.successor_indices.resize(workset.blocks.size());
+    workset.reachable_indices.reserve(workset.blocks.size());
+    for (std::size_t index = 0; index < workset.blocks.size(); ++index) {
+        const CoreIrBasicBlock *block = workset.blocks[index];
+        if (cfg_analysis.is_reachable(block)) {
+            workset.reachable_indices.push_back(index);
+        }
+        for (CoreIrBasicBlock *predecessor : cfg_analysis.get_predecessors(block)) {
+            auto predecessor_it = workset.block_indices.find(predecessor);
+            if (predecessor_it != workset.block_indices.end()) {
+                workset.predecessor_indices[index].push_back(predecessor_it->second);
+            }
+        }
+        for (CoreIrBasicBlock *successor : cfg_analysis.get_successors(block)) {
+            auto successor_it = workset.block_indices.find(successor);
+            if (successor_it != workset.block_indices.end()) {
+                workset.successor_indices[index].push_back(successor_it->second);
+            }
+        }
+    }
+
+    return workset;
+}
 
 struct BlockedPrefix {
     std::vector<std::uint64_t> access_path;
@@ -224,13 +281,11 @@ bool paths_overlap(const std::vector<std::uint64_t> &lhs,
 
 bool unit_is_definitely_defined_on_all_paths(
     const CoreIrPromotionUnitInfo &unit_info,
-    const CoreIrCfgAnalysisResult &cfg_analysis,
     const CoreIrDominanceFrontierAnalysisResult &dominance_frontier,
-    const std::vector<const CoreIrBasicBlock *> &reachable_blocks,
+    const PromotableCfgWorkset &cfg_workset,
     const std::unordered_map<const CoreIrInstruction *, std::size_t>
         &instruction_order) {
-    const CoreIrBasicBlock *entry_block = cfg_analysis.get_entry_block();
-    if (entry_block == nullptr) {
+    if (cfg_workset.entry_index == PromotableCfgWorkset::npos) {
         return false;
     }
 
@@ -238,8 +293,14 @@ bool unit_is_definitely_defined_on_all_paths(
         std::size_t order = 0;
         bool is_store = false;
     };
-    std::unordered_map<const CoreIrBasicBlock *, std::vector<OrderedAccess>>
-        accesses_by_block;
+    std::vector<std::vector<OrderedAccess>> accesses_by_block(
+        cfg_workset.blocks.size());
+    std::vector<bool> is_reachable(cfg_workset.blocks.size(), false);
+    for (std::size_t block_index : cfg_workset.reachable_indices) {
+        if (block_index < is_reachable.size()) {
+            is_reachable[block_index] = true;
+        }
+    }
     for (CoreIrLoadInst *load : unit_info.loads) {
         if (load == nullptr || load->get_parent() == nullptr) {
             continue;
@@ -248,8 +309,12 @@ bool unit_is_definitely_defined_on_all_paths(
         if (order_it == instruction_order.end()) {
             continue;
         }
-        accesses_by_block[load->get_parent()].push_back(
-            OrderedAccess{order_it->second, false});
+        auto block_it = cfg_workset.block_indices.find(load->get_parent());
+        if (block_it != cfg_workset.block_indices.end() &&
+            is_reachable[block_it->second]) {
+            accesses_by_block[block_it->second].push_back(
+                OrderedAccess{order_it->second, false});
+        }
     }
     for (CoreIrStoreInst *store : unit_info.stores) {
         if (store == nullptr || store->get_parent() == nullptr) {
@@ -259,17 +324,21 @@ bool unit_is_definitely_defined_on_all_paths(
         if (order_it == instruction_order.end()) {
             continue;
         }
-        accesses_by_block[store->get_parent()].push_back(
-            OrderedAccess{order_it->second, true});
+        auto block_it = cfg_workset.block_indices.find(store->get_parent());
+        if (block_it != cfg_workset.block_indices.end() &&
+            is_reachable[block_it->second]) {
+            accesses_by_block[block_it->second].push_back(
+                OrderedAccess{order_it->second, true});
+        }
     }
 
-    std::unordered_map<const CoreIrBasicBlock *, BlockSummary> block_summaries;
-    for (auto &entry : accesses_by_block) {
-        const CoreIrBasicBlock *block = entry.first;
-        if (block == nullptr || !cfg_analysis.is_reachable(block)) {
+    std::vector<BlockSummary> block_summaries(cfg_workset.blocks.size());
+    for (std::size_t block_index = 0; block_index < accesses_by_block.size();
+         ++block_index) {
+        std::vector<OrderedAccess> &accesses = accesses_by_block[block_index];
+        if (accesses.empty()) {
             continue;
         }
-        std::vector<OrderedAccess> &accesses = entry.second;
         std::sort(accesses.begin(), accesses.end(),
                   [](const OrderedAccess &lhs, const OrderedAccess &rhs) {
                       return lhs.order < rhs.order;
@@ -286,89 +355,73 @@ bool unit_is_definitely_defined_on_all_paths(
                 summary.has_def = true;
             }
         }
-        block_summaries.emplace(block, summary);
+        block_summaries[block_index] = summary;
     }
 
-    std::unordered_map<const CoreIrBasicBlock *, bool> in_defined;
-    std::unordered_map<const CoreIrBasicBlock *, bool> out_defined;
-    for (const CoreIrBasicBlock *block : reachable_blocks) {
-        if (block == nullptr) {
-            continue;
-        }
-        const bool starts_defined = block != entry_block;
-        in_defined.emplace(block, starts_defined);
-        out_defined.emplace(block, starts_defined);
+    std::vector<bool> in_defined(cfg_workset.blocks.size(), false);
+    std::vector<bool> out_defined(cfg_workset.blocks.size(), false);
+    for (std::size_t block_index : cfg_workset.reachable_indices) {
+        const bool starts_defined = block_index != cfg_workset.entry_index;
+        in_defined[block_index] = starts_defined;
+        out_defined[block_index] = starts_defined;
     }
 
     bool changed = true;
     while (changed) {
         changed = false;
-        for (const CoreIrBasicBlock *block : reachable_blocks) {
-            if (block == nullptr) {
-                continue;
-            }
-
+        for (std::size_t block_index : cfg_workset.reachable_indices) {
             bool next_in = false;
-            if (block != entry_block) {
-                const auto &predecessors = cfg_analysis.get_predecessors(block);
+            if (block_index != cfg_workset.entry_index) {
+                const auto &predecessors =
+                    cfg_workset.predecessor_indices[block_index];
                 next_in = !predecessors.empty();
-                for (CoreIrBasicBlock *predecessor : predecessors) {
-                    auto out_it = out_defined.find(predecessor);
-                    next_in = next_in &&
-                              out_it != out_defined.end() && out_it->second;
+                for (std::size_t predecessor_index : predecessors) {
+                    next_in = next_in && is_reachable[predecessor_index] &&
+                              out_defined[predecessor_index];
                 }
             }
 
             const bool next_out =
-                block_summaries[block].has_def ? true : next_in;
-            if (in_defined[block] != next_in ||
-                out_defined[block] != next_out) {
-                in_defined[block] = next_in;
-                out_defined[block] = next_out;
+                block_summaries[block_index].has_def ? true : next_in;
+            if (in_defined[block_index] != next_in ||
+                out_defined[block_index] != next_out) {
+                in_defined[block_index] = next_in;
+                out_defined[block_index] = next_out;
                 changed = true;
             }
         }
     }
 
-    for (const CoreIrBasicBlock *block : reachable_blocks) {
-        if (block == nullptr) {
-            continue;
-        }
-        const BlockSummary &summary = block_summaries[block];
-        if (summary.has_use_before_def && !in_defined[block]) {
+    for (std::size_t block_index : cfg_workset.reachable_indices) {
+        const BlockSummary &summary = block_summaries[block_index];
+        if (summary.has_use_before_def && !in_defined[block_index]) {
             return false;
         }
     }
 
-    std::unordered_map<const CoreIrBasicBlock *, bool> live_in;
-    for (const CoreIrBasicBlock *block : reachable_blocks) {
-        if (block == nullptr) {
-            continue;
-        }
-        live_in.emplace(block, block_summaries[block].has_use_before_def);
+    std::vector<bool> live_in(cfg_workset.blocks.size(), false);
+    for (std::size_t block_index : cfg_workset.reachable_indices) {
+        live_in[block_index] = block_summaries[block_index].has_use_before_def;
     }
 
     changed = true;
     while (changed) {
         changed = false;
-        for (const CoreIrBasicBlock *block : reachable_blocks) {
-            if (block == nullptr) {
-                continue;
-            }
-            const BlockSummary &summary = block_summaries[block];
+        for (std::size_t block_index : cfg_workset.reachable_indices) {
+            const BlockSummary &summary = block_summaries[block_index];
             bool next_live_in = summary.has_use_before_def;
             if (!next_live_in && !summary.has_def) {
-                for (CoreIrBasicBlock *successor :
-                     cfg_analysis.get_successors(block)) {
-                    auto live_it = live_in.find(successor);
-                    if (live_it != live_in.end() && live_it->second) {
+                for (std::size_t successor_index :
+                     cfg_workset.successor_indices[block_index]) {
+                    if (is_reachable[successor_index] &&
+                        live_in[successor_index]) {
                         next_live_in = true;
                         break;
                     }
                 }
             }
-            if (live_in[block] != next_live_in) {
-                live_in[block] = next_live_in;
+            if (live_in[block_index] != next_live_in) {
+                live_in[block_index] = next_live_in;
                 changed = true;
             }
         }
@@ -386,12 +439,15 @@ bool unit_is_definitely_defined_on_all_paths(
         }
         for (CoreIrBasicBlock *frontier_block :
              dominance_frontier.get_frontier(block)) {
-            if (frontier_block == nullptr || !live_in[frontier_block]) {
+            auto frontier_it = cfg_workset.block_indices.find(frontier_block);
+            if (frontier_block == nullptr ||
+                frontier_it == cfg_workset.block_indices.end() ||
+                !live_in[frontier_it->second]) {
                 continue;
             }
-            for (CoreIrBasicBlock *predecessor :
-                 cfg_analysis.get_predecessors(frontier_block)) {
-                if (predecessor != nullptr && !out_defined[predecessor]) {
+            for (std::size_t predecessor_index :
+                 cfg_workset.predecessor_indices[frontier_it->second]) {
+                if (!out_defined[predecessor_index]) {
                     return false;
                 }
             }
@@ -655,13 +711,8 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
         CoreIrCfgAnalysis cfg_analysis_runner;
         const CoreIrCfgAnalysisResult cfg_analysis =
             cfg_analysis_runner.Run(function);
-        std::vector<const CoreIrBasicBlock *> reachable_blocks;
-        reachable_blocks.reserve(function.get_basic_blocks().size());
-        for (const auto &block : function.get_basic_blocks()) {
-            if (block != nullptr && cfg_analysis.is_reachable(block.get())) {
-                reachable_blocks.push_back(block.get());
-            }
-        }
+        const PromotableCfgWorkset cfg_workset =
+            build_promotable_cfg_workset(function, cfg_analysis);
         CoreIrDominatorTreeAnalysis dominator_tree_runner;
         const CoreIrDominatorTreeAnalysisResult dominator_tree =
             dominator_tree_runner.Run(function, cfg_analysis);
@@ -686,12 +737,11 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
         unit_infos.erase(
             std::remove_if(
                 unit_infos.begin(), unit_infos.end(),
-                [&cfg_analysis, &dominance_frontier, &reachable_blocks,
-                 &instruction_order,
+                [&dominance_frontier, &cfg_workset, &instruction_order,
                  &rejected_slot_list](const CoreIrPromotionUnitInfo &unit_info) {
                     if (unit_is_definitely_defined_on_all_paths(
-                            unit_info, cfg_analysis, dominance_frontier,
-                            reachable_blocks, instruction_order)) {
+                            unit_info, dominance_frontier, cfg_workset,
+                            instruction_order)) {
                         return false;
                     }
                     rejected_slot_list.push_back(
