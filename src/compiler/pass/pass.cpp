@@ -19,6 +19,7 @@
 #include "backend/ir/shared/core/ir_type.hpp"
 #include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 #include "backend/ir/verify/core_ir_verifier.hpp"
+#include "compiler/compiler_context/compiler_context.hpp"
 
 namespace sysycc {
 

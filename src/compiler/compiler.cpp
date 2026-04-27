@@ -34,7 +34,10 @@
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
+#include "compiler/compiler_context/compiler_context.hpp"
+#include "compiler/pass/pass.hpp"
 #include "frontend/ast/ast_pass.hpp"
+#include "frontend/dialects/core/dialect.hpp"
 #include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser.hpp"
 #include "frontend/preprocess/preprocess.hpp"
@@ -825,38 +828,51 @@ PassResult maybe_generate_depfile(const CompilerOption &option,
 
 } // namespace
 
-Compiler::Compiler(CompilerOption option) : option_(std::move(option)) {
+Compiler::Compiler()
+    : context_(std::make_unique<CompilerContext>()),
+      pass_manager_(std::make_unique<PassManager>()) {}
+
+Compiler::Compiler(CompilerOption option)
+    : option_(std::move(option)),
+      context_(std::make_unique<CompilerContext>()),
+      pass_manager_(std::make_unique<PassManager>()) {
     sync_context_from_option();
 }
 
+Compiler::~Compiler() = default;
+
+Compiler::Compiler(Compiler &&) noexcept = default;
+
+Compiler &Compiler::operator=(Compiler &&) noexcept = default;
+
 void Compiler::sync_context_from_option() {
-    context_.set_input_file(option_.get_input_file());
-    context_.set_include_directories(option_.get_include_directories());
-    context_.set_quote_include_directories(option_.get_quote_include_directories());
+    context_->set_input_file(option_.get_input_file());
+    context_->set_include_directories(option_.get_include_directories());
+    context_->set_quote_include_directories(option_.get_quote_include_directories());
     std::vector<std::string> system_include_directories =
         option_.get_system_include_directories();
     system_include_directories.insert(
         system_include_directories.end(),
         option_.get_after_system_include_directories().begin(),
         option_.get_after_system_include_directories().end());
-    context_.set_system_include_directories(std::move(system_include_directories));
-    context_.set_command_line_macro_options(
+    context_->set_system_include_directories(std::move(system_include_directories));
+    context_->set_command_line_macro_options(
         option_.get_command_line_macro_options());
-    context_.set_forced_include_files(option_.get_forced_include_files());
-    context_.set_no_stdinc(option_.get_no_stdinc());
-    context_.set_dump_tokens(option_.dump_tokens());
-    context_.set_dump_parse(option_.dump_parse());
-    context_.set_dump_ast(option_.dump_ast());
-    context_.set_dump_ir(option_.dump_ir());
-    context_.set_dump_core_ir(option_.dump_core_ir());
-    context_.set_emit_asm(option_.emit_asm());
-    context_.set_emit_object(option_.emit_object());
-    context_.set_stop_after_stage(option_.get_stop_after_stage());
-    context_.set_optimization_level(option_.get_optimization_level());
-    context_.set_backend_options(option_.get_backend_options());
-    context_.get_diagnostic_engine().set_warning_policy(
+    context_->set_forced_include_files(option_.get_forced_include_files());
+    context_->set_no_stdinc(option_.get_no_stdinc());
+    context_->set_dump_tokens(option_.dump_tokens());
+    context_->set_dump_parse(option_.dump_parse());
+    context_->set_dump_ast(option_.dump_ast());
+    context_->set_dump_ir(option_.dump_ir());
+    context_->set_dump_core_ir(option_.dump_core_ir());
+    context_->set_emit_asm(option_.emit_asm());
+    context_->set_emit_object(option_.emit_object());
+    context_->set_stop_after_stage(option_.get_stop_after_stage());
+    context_->set_optimization_level(option_.get_optimization_level());
+    context_->set_backend_options(option_.get_backend_options());
+    context_->get_diagnostic_engine().set_warning_policy(
         option_.get_warning_policy());
-    context_.configure_dialects(option_.get_enable_gnu_dialect(),
+    context_->configure_dialects(option_.get_enable_gnu_dialect(),
                                 option_.get_enable_clang_dialect(),
                                 option_.get_enable_builtin_type_extension_pack());
 }
@@ -867,20 +883,20 @@ void Compiler::InitializePasses() {
     }
 
     const BackendKind backend_kind =
-        context_.get_backend_options().get_backend_kind();
-    const StopAfterStage stop_after_stage = context_.get_stop_after_stage();
+        context_->get_backend_options().get_backend_kind();
+    const StopAfterStage stop_after_stage = context_->get_stop_after_stage();
 
-    pass_manager_.AddPass(std::make_unique<PreprocessPass>());
-    pass_manager_.AddPass(std::make_unique<LexerPass>());
-    pass_manager_.AddPass(std::make_unique<ParserPass>());
-    pass_manager_.AddPass(std::make_unique<AstPass>());
-    pass_manager_.AddPass(std::make_unique<SemanticPass>());
-    append_default_core_ir_pipeline(pass_manager_, backend_kind);
+    pass_manager_->AddPass(std::make_unique<PreprocessPass>());
+    pass_manager_->AddPass(std::make_unique<LexerPass>());
+    pass_manager_->AddPass(std::make_unique<ParserPass>());
+    pass_manager_->AddPass(std::make_unique<AstPass>());
+    pass_manager_->AddPass(std::make_unique<SemanticPass>());
+    append_default_core_ir_pipeline(*pass_manager_, backend_kind);
     if (!(is_native_backend(backend_kind) &&
           stop_after_stage == StopAfterStage::CoreIr)) {
-        pass_manager_.AddPass(std::make_unique<AArch64AsmGenPass>());
+        pass_manager_->AddPass(std::make_unique<AArch64AsmGenPass>());
         auto riscv64_pass = std::make_unique<Riscv64AsmGenPass>();
-        pass_manager_.AddPass(std::move(riscv64_pass));
+        pass_manager_->AddPass(std::move(riscv64_pass));
     }
     pipeline_initialized_ = true;
 }
@@ -892,10 +908,10 @@ void Compiler::set_option(CompilerOption option) {
 
 const CompilerOption &Compiler::get_option() const noexcept { return option_; }
 
-CompilerContext &Compiler::get_context() noexcept { return context_; }
+CompilerContext &Compiler::get_context() noexcept { return *context_; }
 
 const CompilerContext &Compiler::get_context() const noexcept {
-    return context_;
+    return *context_;
 }
 
 void Compiler::register_dialect(std::unique_ptr<FrontendDialect> dialect) {
@@ -906,48 +922,48 @@ void Compiler::register_dialect(std::unique_ptr<FrontendDialect> dialect) {
 }
 
 void Compiler::AddPass(std::unique_ptr<Pass> pass) {
-    pass_manager_.AddPass(std::move(pass));
+    pass_manager_->AddPass(std::move(pass));
 }
 
 PassResult Compiler::validate_dialect_configuration() {
     const auto &registration_errors =
-        context_.get_dialect_manager().get_registration_errors();
+        context_->get_dialect_manager().get_registration_errors();
     if (registration_errors.empty()) {
         return PassResult::Success();
     }
 
     const std::string summary =
         "invalid dialect configuration: registration conflicts detected";
-    context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+    context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                summary);
     for (const std::string &registration_error : registration_errors) {
-        context_.get_diagnostic_engine().add_note(DiagnosticStage::Compiler,
+        context_->get_diagnostic_engine().add_note(DiagnosticStage::Compiler,
                                                   registration_error);
     }
     return PassResult::Failure(summary);
 }
 
 PassResult Compiler::validate_backend_configuration() {
-    const BackendOptions &backend_options = context_.get_backend_options();
+    const BackendOptions &backend_options = context_->get_backend_options();
     const BackendKind backend_kind = backend_options.get_backend_kind();
     const std::string &target_triple = backend_options.get_target_triple();
 
     if (is_native_backend(backend_kind)) {
-        if (!context_.get_emit_asm()) {
-            if (!context_.get_emit_object()) {
+        if (!context_->get_emit_asm()) {
+            if (!context_->get_emit_object()) {
                 const std::string message =
                     std::string("--backend=") + backend_kind_name(backend_kind) +
                     " currently requires -S or -c";
-                context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                            message);
                 return PassResult::Failure(message);
             }
         }
-        if (context_.get_emit_asm() && context_.get_emit_object()) {
+        if (context_->get_emit_asm() && context_->get_emit_object()) {
             const std::string message =
                 std::string("--backend=") + backend_kind_name(backend_kind) +
                 " cannot emit asm and object at the same time";
-            context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+            context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                        message);
             return PassResult::Failure(message);
         }
@@ -956,56 +972,56 @@ PassResult Compiler::validate_backend_configuration() {
             const std::string message =
                 "unsupported " + std::string(backend_kind_name(backend_kind)) +
                 " target triple: " + target_triple;
-            context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+            context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                        message);
             return PassResult::Failure(message);
         }
-        if (context_.get_stop_after_stage() == StopAfterStage::IR) {
+        if (context_->get_stop_after_stage() == StopAfterStage::IR) {
             const std::string message =
                 std::string("--stop-after=ir is incompatible with --backend=") +
                 backend_kind_name(backend_kind);
-            context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+            context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                        message);
             return PassResult::Failure(message);
         }
-        if (context_.get_dump_ir()) {
+        if (context_->get_dump_ir()) {
             const std::string message =
                 std::string("--dump-ir is incompatible with --backend=") +
                 backend_kind_name(backend_kind);
-            context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+            context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                        message);
             return PassResult::Failure(message);
         }
         return PassResult::Success();
     }
 
-    if (context_.get_emit_object() &&
+    if (context_->get_emit_object() &&
         option_.get_driver_action() != DriverAction::CompileOnly) {
         const std::string message =
             "object emission with --backend=llvm-ir is only supported through -c";
-        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+        context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                    message);
         return PassResult::Failure(message);
     }
 
-    if (context_.get_emit_asm()) {
+    if (context_->get_emit_asm()) {
         const std::string message =
             "-S currently requires --backend=aarch64-native or --backend=riscv64-native";
-        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+        context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                    message);
         return PassResult::Failure(message);
     }
     if (!target_triple.empty()) {
         const std::string message =
             "--target is only supported with --backend=aarch64-native or --backend=riscv64-native";
-        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+        context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                    message);
         return PassResult::Failure(message);
     }
-    if (context_.get_stop_after_stage() == StopAfterStage::Asm) {
+    if (context_->get_stop_after_stage() == StopAfterStage::Asm) {
         const std::string message =
             "--stop-after=asm requires --backend=aarch64-native or --backend=riscv64-native together with -S";
-        context_.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+        context_->get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
                                                    message);
         return PassResult::Failure(message);
     }
@@ -1023,7 +1039,7 @@ PassResult Compiler::validate_driver_configuration() {
         if (source_input_files.size() > 1 && option_.get_generate_depfile()) {
             const std::string message =
                 "dependency generation with multiple source inputs is not supported yet; compile sources separately";
-            context_.get_diagnostic_engine().add_error(
+            context_->get_diagnostic_engine().add_error(
                 DiagnosticStage::Compiler, message);
             return PassResult::Failure(message);
         }
@@ -1033,21 +1049,21 @@ PassResult Compiler::validate_driver_configuration() {
             if (!option_.get_output_file().empty()) {
                 const std::string message =
                     "cannot specify '-o' with '-c' and multiple source inputs";
-                context_.get_diagnostic_engine().add_error(
+                context_->get_diagnostic_engine().add_error(
                     DiagnosticStage::Compiler, message);
                 return PassResult::Failure(message);
             }
             if (!option_.get_depfile_output_file().empty()) {
                 const std::string message =
                     "'-MF' with '-c' and multiple source inputs is not supported yet; compile sources separately";
-                context_.get_diagnostic_engine().add_error(
+                context_->get_diagnostic_engine().add_error(
                     DiagnosticStage::Compiler, message);
                 return PassResult::Failure(message);
             }
             if (!option_.get_depfile_targets().empty()) {
                 const std::string message =
                     "'-MT' and '-MQ' with '-c' and multiple source inputs are not supported yet; compile sources separately";
-                context_.get_diagnostic_engine().add_error(
+                context_->get_diagnostic_engine().add_error(
                     DiagnosticStage::Compiler, message);
                 return PassResult::Failure(message);
             }
@@ -1064,20 +1080,20 @@ PassResult Compiler::validate_driver_configuration() {
 }
 
 PassResult Compiler::Run() {
-    context_.clear_diagnostic_engine();
-    context_.clear_core_ir_build_result();
-    context_.clear_ir_result();
-    context_.clear_asm_result();
-    context_.clear_object_result();
-    context_.set_core_ir_dump_file_path("");
-    context_.set_ir_dump_file_path("");
-    context_.set_llvm_ir_text_artifact_file_path("");
-    context_.set_llvm_ir_bitcode_artifact_file_path("");
-    context_.set_asm_dump_file_path("");
-    context_.set_object_dump_file_path("");
+    context_->clear_diagnostic_engine();
+    context_->clear_core_ir_build_result();
+    context_->clear_ir_result();
+    context_->clear_asm_result();
+    context_->clear_object_result();
+    context_->set_core_ir_dump_file_path("");
+    context_->set_ir_dump_file_path("");
+    context_->set_llvm_ir_text_artifact_file_path("");
+    context_->set_llvm_ir_bitcode_artifact_file_path("");
+    context_->set_asm_dump_file_path("");
+    context_->set_object_dump_file_path("");
     sync_context_from_option();
     for (auto &dialect : extra_dialects_) {
-        context_.get_dialect_manager().register_dialect(std::move(dialect));
+        context_->get_dialect_manager().register_dialect(std::move(dialect));
     }
     extra_dialects_.clear();
     PassResult driver_validation_result = validate_driver_configuration();
@@ -1093,38 +1109,40 @@ PassResult Compiler::Run() {
         return backend_validation_result;
     }
     if (option_.get_link_only()) {
-        return maybe_link_full_compile(option_, context_);
+        return maybe_link_full_compile(option_, *context_);
     }
     if (option_.get_driver_action() == DriverAction::CompileOnly &&
         effective_source_input_files(option_).size() > 1) {
-        return compile_multiple_sources_to_objects(option_, context_);
+        return compile_multiple_sources_to_objects(option_, *context_);
     }
     if (option_.get_driver_action() == DriverAction::FullCompile &&
         effective_source_input_files(option_).size() > 1) {
-        return maybe_link_full_compile(option_, context_);
+        return maybe_link_full_compile(option_, *context_);
     }
     InitializePasses();
-    PassResult pipeline_result = pass_manager_.Run(context_);
+    PassResult pipeline_result = pass_manager_->Run(*context_);
     if (!pipeline_result.ok) {
         return pipeline_result;
     }
     if (option_.get_driver_action() == DriverAction::CompileOnly &&
         option_.get_backend_options().get_backend_kind() == BackendKind::LlvmIr) {
-        PassResult object_result = compile_llvm_ir_to_host_object(option_, context_);
+        PassResult object_result =
+            compile_llvm_ir_to_host_object(option_, *context_);
         if (!object_result.ok) {
             return object_result;
         }
-        PassResult depfile_result = maybe_generate_depfile(option_, context_);
+        PassResult depfile_result = maybe_generate_depfile(option_, *context_);
         if (!depfile_result.ok) {
             return depfile_result;
         }
         return object_result;
     }
-    PassResult full_compile_link_result = maybe_link_full_compile(option_, context_);
+    PassResult full_compile_link_result =
+        maybe_link_full_compile(option_, *context_);
     if (!full_compile_link_result.ok) {
         return full_compile_link_result;
     }
-    return maybe_generate_depfile(option_, context_);
+    return maybe_generate_depfile(option_, *context_);
 }
 
 } // namespace sysycc

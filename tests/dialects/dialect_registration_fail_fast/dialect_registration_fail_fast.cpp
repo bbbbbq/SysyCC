@@ -3,6 +3,8 @@
 #include <string_view>
 
 #include "compiler/compiler.hpp"
+#include "compiler/compiler_context/compiler_context.hpp"
+#include "compiler/compiler_context/token_kind.hpp"
 #include "frontend/dialects/core/dialect.hpp"
 
 using namespace sysycc;

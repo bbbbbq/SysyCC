@@ -1,6 +1,7 @@
 #include "cli/cli.hpp"
 #include "common/diagnostic/diagnostic_formatter.hpp"
 #include "compiler/compiler.hpp"
+#include "compiler/compiler_context/compiler_context.hpp"
 #include "compiler/compiler_option.hpp"
 
 #include <filesystem>

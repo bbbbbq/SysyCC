@@ -5,6 +5,7 @@
 #include "common/source_mapping_view.hpp"
 #include "common/source_span.hpp"
 #include "compiler/pass/pass.hpp"
+#include "compiler/compiler_context/token_kind.hpp"
 #include "frontend/dialects/registries/lexer_keyword_registry.hpp"
 
 typedef void *yyscan_t;

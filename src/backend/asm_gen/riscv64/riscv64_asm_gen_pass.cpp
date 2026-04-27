@@ -9,6 +9,7 @@
 #include "backend/asm_gen/backend_kind.hpp"
 #include "backend/asm_gen/riscv64/api/riscv64_codegen_api.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
+#include "compiler/compiler_context/compiler_context.hpp"
 
 namespace sysycc {
 
