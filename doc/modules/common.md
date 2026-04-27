@@ -147,7 +147,8 @@ It is currently used by:
 
 [string_literal.hpp](/Users/caojunze424/code/SysyCC/src/common/string_literal.hpp)
 now provides one shared helper that decodes one tokenized string literal body
-into its byte sequence, including the currently modeled simple escape set.
+into its byte sequence, including the simple escape set, C hexadecimal escapes
+such as `\x1b`, and up-to-three-digit octal escapes such as `\031`.
 
 It is currently used by:
 

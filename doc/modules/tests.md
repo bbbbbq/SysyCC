@@ -1193,6 +1193,16 @@ Representative `tests/run/` execution regressions also cover host-linked
 - [tests/run/run_stdio_printf_string](/Users/caojunze424/code/SysyCC/tests/run/run_stdio_printf_string)
 - [tests/run/run_stdio_printf_string_and_int](/Users/caojunze424/code/SysyCC/tests/run/run_stdio_printf_string_and_int)
 - [tests/run/run_char_literal_expr](/Users/caojunze424/code/SysyCC/tests/run/run_char_literal_expr)
+- [tests/run/run_hex_escape_string_literal](/Users/caojunze424/code/SysyCC/tests/run/run_hex_escape_string_literal)
+- [tests/run/run_float_negative_zero](/Users/caojunze424/code/SysyCC/tests/run/run_float_negative_zero)
+- [tests/run/run_loop_outparam_write_in_loop](/Users/caojunze424/code/SysyCC/tests/run/run_loop_outparam_write_in_loop)
+
+Lua-driven real-project regressions are currently represented by minimal
+compiler-facing cases for the bugs they exposed: nested aggregate `sizeof`
+folding in
+[tests/semantic/semantic_nested_aggregate_sizeof_dimension](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_nested_aggregate_sizeof_dimension),
+hex/octal string literal byte decoding, floating negative zero, and loop
+out-parameter writes that must remain visible across calls.
 
 ### `tests/asm/`
 

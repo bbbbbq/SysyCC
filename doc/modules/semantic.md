@@ -316,6 +316,12 @@ The current implementation has a first batch of real semantic rules:
   produced during AST traversal
 - integer constant-expression queries now fall back to recursive AST evaluation
   for character literals and unary/binary operator trees
+- aggregate field constant-expression analysis now descends into nested
+  anonymous `struct` / `union` type nodes, so array dimensions such as Lua's
+  `char b[16 * sizeof(void *) * sizeof(double)]` inside a nested aggregate are
+  folded before outer `sizeof(struct T)` layout queries run
+- character constant folding now understands C hexadecimal and octal escapes,
+  matching the byte decoding used for string literals
 - if the current AST is not complete yet, `SemanticPass` stores a semantic
   model but skips strict rule checking so incomplete lowering does not block
   ordinary frontend smoke tests

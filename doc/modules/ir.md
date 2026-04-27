@@ -886,3 +886,6 @@ LLVM IR lowering path:
 - Integer coercion is still limited to the currently modeled builtin integer
   family; it is not yet a complete ISO C99 implicit-conversion
   implementation.
+- LLVM lowering emits floating unary negation as `fneg` rather than
+  `fsub 0.0, x`, preserving IEEE negative zero for real-program cases such as
+  Lua's `-0.0` formatting and division behavior.
