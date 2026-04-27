@@ -37,5 +37,21 @@ Expected checks:
 - MuJS builds its `release` target with `HAVE_READLINE=no` and runs a small
   JavaScript smoke that prints `mujs-ok 33`.
 
+Fast iteration helpers:
+
+```bash
+make lua-smoke
+make real-project-compile-times
+make real-project-compile-times TEST_ARGS=lua
+make real-project-compile-times TEST_ARGS=mujs
+```
+
+- `lua_smoke.sh` reuses an already-built SysyCC Lua binary and runs the current
+  behavior smoke only: table operations, closures, coroutines, `io.tmpfile`,
+  `string.pack/unpack`, `string.dump/load`, and `-0.0`.
+- `profile_compile_times.sh` wraps `CC` while building Lua and/or MuJS with
+  `-j1`, records every SysyCC compile invocation, and writes sorted Markdown
+  reports under `build/external-real-project-probe/reports/`.
+
 This probe is intentionally manual instead of tier1/tier2: it depends on Docker,
 network access, package installation, and external repositories.

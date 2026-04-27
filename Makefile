@@ -3,7 +3,7 @@ TARGET := $(DEV_BUILD_DIR)/SysyCC
 FORMAT_FILES := $(shell find src -type f \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) 2>/dev/null)
 TEST_ARGS ?=
 
-.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja test-tier1 test-tier2 test-full test-aarch64-ll test-aarch64-single-source test-aarch64-single-source-smoke test-aarch64-single-source-full test clean clean-ninja format check
+.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja test-tier1 test-tier2 test-full test-aarch64-ll test-aarch64-single-source test-aarch64-single-source-smoke test-aarch64-single-source-full lua-smoke real-project-compile-times test clean clean-ninja format check
 
 all: run
 
@@ -43,6 +43,12 @@ test-aarch64-single-source-smoke:
 
 test-aarch64-single-source-full:
 	./tests/aarch64_backend_single_source/imported_suite/run.sh $(TEST_ARGS)
+
+lua-smoke:
+	./tests/manual/external_real_project_probe/lua_smoke.sh $(TEST_ARGS)
+
+real-project-compile-times:
+	./tests/manual/external_real_project_probe/profile_compile_times.sh $(TEST_ARGS)
 
 test: test-tier1
 

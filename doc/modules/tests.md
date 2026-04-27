@@ -860,6 +860,14 @@ that should stay in tier1 but is too driver-specific for pure runtime cases:
   Ubuntu 24.04 container and then uses it as `CC` for Lua and MuJS. This stays
   manual because it needs Docker, network access, package installation, and
   external repositories.
+- `make lua-smoke` reuses the existing real-project Docker/container setup and
+  runs only the fast Lua behavior smoke covering table operations, closures,
+  coroutines, `io.tmpfile`, `string.pack/unpack`, `string.dump/load`, and
+  `-0.0`.
+- `make real-project-compile-times` builds Lua and MuJS through a timed `CC`
+  wrapper and writes per-source compile-time reports under
+  `build/external-real-project-probe/reports/`; pass `TEST_ARGS=lua` or
+  `TEST_ARGS=mujs` to profile just one project.
 
 ### `tests/run/`
 
