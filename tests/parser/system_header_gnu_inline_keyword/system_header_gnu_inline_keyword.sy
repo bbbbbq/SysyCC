@@ -1,0 +1,10 @@
+typedef unsigned short __uint16_t;
+
+static __inline __uint16_t
+compat_bswap_16(__uint16_t value) {
+    return value;
+}
+
+int main(void) {
+    return compat_bswap_16(0);
+}

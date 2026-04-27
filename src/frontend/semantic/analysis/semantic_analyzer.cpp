@@ -314,9 +314,10 @@ void SemanticAnalyzer::analyze_function_decl(
         !conversion_checker.is_void_type(
             resolved_function_type->get_return_type()) &&
         !stmt_guarantees_return(function_decl->get_body())) {
-        add_error(semantic_context,
-                  "non-void function may exit without returning a value",
-                  function_decl->get_source_span());
+        add_warning(semantic_context,
+                    "non-void function may exit without returning a value",
+                    function_decl->get_source_span(),
+                    warning_options::kReturnType);
     }
     semantic_context.end_function_labels();
     semantic_context.set_current_function(nullptr);

@@ -40,10 +40,10 @@ inline constexpr std::array<BuiltinTypedefInventoryEntry, 47>
         {"uint32_t", BuiltinTypedefGroup::UnsignedInt},
         {"__int32_t", BuiltinTypedefGroup::Int},
         {"__uint32_t", BuiltinTypedefGroup::UnsignedInt},
-        {"int64_t", BuiltinTypedefGroup::LongLong},
-        {"uint64_t", BuiltinTypedefGroup::UnsignedLongLong},
-        {"__int64_t", BuiltinTypedefGroup::LongLong},
-        {"__uint64_t", BuiltinTypedefGroup::UnsignedLongLong},
+        {"int64_t", BuiltinTypedefGroup::Long},
+        {"uint64_t", BuiltinTypedefGroup::UnsignedLong},
+        {"__int64_t", BuiltinTypedefGroup::Long},
+        {"__uint64_t", BuiltinTypedefGroup::UnsignedLong},
         {"__int128_t", BuiltinTypedefGroup::LongLong},
         {"__uint128_t", BuiltinTypedefGroup::UnsignedLongLong},
         {"intptr_t", BuiltinTypedefGroup::Long},
@@ -89,6 +89,15 @@ inline constexpr std::array<BuiltinTypedefInventoryEntry, 2>
         {"__darwin_time_t", BuiltinTypedefGroup::Long},
     }};
 
+inline constexpr std::array<BuiltinTypedefInventoryEntry, 5>
+    kBuiltinTypedefInventoryTail3 = {{
+        {"__Float32x4_t", BuiltinTypedefGroup::LongLong},
+        {"__Float64x2_t", BuiltinTypedefGroup::LongLong},
+        {"__SVFloat32_t", BuiltinTypedefGroup::LongLong},
+        {"__SVFloat64_t", BuiltinTypedefGroup::LongLong},
+        {"__SVBool_t", BuiltinTypedefGroup::LongLong},
+    }};
+
 template <typename Callback>
 inline void for_each_builtin_typedef_inventory_entry(Callback &&callback) {
     for (const auto &entry : kBuiltinTypedefInventory) {
@@ -98,6 +107,9 @@ inline void for_each_builtin_typedef_inventory_entry(Callback &&callback) {
         callback(entry);
     }
     for (const auto &entry : kBuiltinTypedefInventoryTail2) {
+        callback(entry);
+    }
+    for (const auto &entry : kBuiltinTypedefInventoryTail3) {
         callback(entry);
     }
 }

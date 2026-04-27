@@ -97,7 +97,7 @@ bool is_void_type_name(const SemanticType *type) {
            static_cast<const BuiltinSemanticType *>(type)->get_name() == "void";
 }
 
-bool is_void_pointer_type(const SemanticType *type) {
+bool is_void_pointer_type_impl(const SemanticType *type) {
     const SemanticType *unqualified_type = strip_qualifiers(type);
     if (unqualified_type == nullptr ||
         unqualified_type->get_kind() != SemanticTypeKind::Pointer) {
@@ -220,9 +220,21 @@ bool ConversionChecker::is_same_type(const SemanticType *lhs,
     case SemanticTypeKind::Array: {
         const auto *lhs_array = static_cast<const ArraySemanticType *>(lhs);
         const auto *rhs_array = static_cast<const ArraySemanticType *>(rhs);
-        return lhs_array->get_dimensions() == rhs_array->get_dimensions() &&
-               is_same_type(lhs_array->get_element_type(),
-                            rhs_array->get_element_type());
+        if (!is_same_type(lhs_array->get_element_type(),
+                          rhs_array->get_element_type()) ||
+            lhs_array->get_dimensions().size() !=
+                rhs_array->get_dimensions().size()) {
+            return false;
+        }
+        const auto &lhs_dimensions = lhs_array->get_dimensions();
+        const auto &rhs_dimensions = rhs_array->get_dimensions();
+        for (std::size_t index = 0; index < lhs_dimensions.size(); ++index) {
+            if (lhs_dimensions[index] != rhs_dimensions[index] &&
+                lhs_dimensions[index] != 0 && rhs_dimensions[index] != 0) {
+                return false;
+            }
+        }
+        return true;
     }
     case SemanticTypeKind::Function: {
         const auto *lhs_function = static_cast<const FunctionSemanticType *>(lhs);
@@ -286,8 +298,8 @@ bool ConversionChecker::is_assignable_type(const SemanticType *target,
                 return true;
             }
         }
-        if (is_void_pointer_type(unqualified_target) ||
-            is_void_pointer_type(unqualified_value)) {
+        if (is_void_pointer_type_impl(unqualified_target) ||
+            is_void_pointer_type_impl(unqualified_value)) {
             return true;
         }
         return false;
@@ -376,6 +388,9 @@ bool ConversionChecker::is_compatible_equality_type(
     if (lhs == nullptr || rhs == nullptr) {
         return false;
     }
+    SemanticModel &semantic_model = semantic_context.get_semantic_model();
+    lhs = get_decayed_type(lhs, semantic_model);
+    rhs = get_decayed_type(rhs, semantic_model);
     if (is_arithmetic_type(lhs) && is_arithmetic_type(rhs)) {
         return true;
     }
@@ -623,6 +638,10 @@ bool ConversionChecker::is_void_type(const SemanticType *type) const {
 bool ConversionChecker::is_pointer_type(const SemanticType *type) const {
     type = strip_qualifiers(type);
     return type != nullptr && type->get_kind() == SemanticTypeKind::Pointer;
+}
+
+bool ConversionChecker::is_void_pointer_type(const SemanticType *type) const {
+    return is_void_pointer_type_impl(type);
 }
 
 bool ConversionChecker::is_struct_type(const SemanticType *type) const {

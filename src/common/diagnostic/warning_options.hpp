@@ -18,13 +18,14 @@ inline constexpr char kConstantCondition[] = "constant-condition";
 inline constexpr char kUnreachableCode[] = "unreachable-code";
 inline constexpr char kIncompatiblePointerTypes[] = "incompatible-pointer-types";
 inline constexpr char kUnknownType[] = "unknown-type";
+inline constexpr char kReturnType[] = "return-type";
 
-inline constexpr std::array<std::string_view, 12> kKnownOptions = {
+inline constexpr std::array<std::string_view, 13> kKnownOptions = {
     kUnusedVariable,       kUnusedParameter,   kUnusedLabel,
     kUnusedButSetVariable, kUnusedFunction,    kUnusedValue,
     kSignCompare,          kConversion,        kConstantCondition,
     kUnreachableCode,      kIncompatiblePointerTypes,
-    kUnknownType,
+    kUnknownType,          kReturnType,
 };
 
 inline bool is_known_warning_option(std::string_view option) {

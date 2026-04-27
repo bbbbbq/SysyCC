@@ -43,6 +43,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::KwExtern;
     case STATIC:
         return TokenKind::KwStatic;
+    case REGISTER:
+        return TokenKind::KwRegister;
     case ATTRIBUTE:
         return TokenKind::KwAttribute;
     case ASM:

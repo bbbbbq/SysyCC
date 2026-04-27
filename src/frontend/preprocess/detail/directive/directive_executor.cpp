@@ -6,6 +6,16 @@
 
 namespace sysycc::preprocess::detail {
 
+namespace {
+
+bool is_direct_header_name_token(const std::string &token) {
+    return token.size() >= 2 &&
+           ((token.front() == '<' && token.back() == '>') ||
+            (token.front() == '"' && token.back() == '"'));
+}
+
+} // namespace
+
 DirectiveExecutor::DirectiveExecutor(
     PreprocessContext &preprocess_context,
     ConstantExpressionEvaluator &constant_expression_evaluator,
@@ -234,8 +244,10 @@ PassResult DirectiveExecutor::handle_include_directive(
     }
 
     const std::string expanded_include_token =
-        macro_expander_.expand_line(arguments[0],
-                                    preprocess_context_.get_macro_table());
+        is_direct_header_name_token(arguments[0])
+            ? arguments[0]
+            : macro_expander_.expand_line(arguments[0],
+                                          preprocess_context_.get_macro_table());
 
     std::string resolved_file_path;
     PassResult resolve_result = include_resolver_.resolve_include(

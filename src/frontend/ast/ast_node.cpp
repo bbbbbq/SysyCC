@@ -521,8 +521,20 @@ GotoStmt::GotoStmt(std::string target_label, SourceSpan source_span)
     : Stmt(AstKind::GotoStmt, source_span),
       target_label_(std::move(target_label)) {}
 
+GotoStmt::GotoStmt(std::unique_ptr<Expr> indirect_target, SourceSpan source_span)
+    : Stmt(AstKind::GotoStmt, source_span),
+      indirect_target_(std::move(indirect_target)) {}
+
 const std::string &GotoStmt::get_target_label() const noexcept {
     return target_label_;
+}
+
+const Expr *GotoStmt::get_indirect_target() const noexcept {
+    return indirect_target_.get();
+}
+
+bool GotoStmt::get_is_indirect() const noexcept {
+    return indirect_target_ != nullptr;
 }
 
 ReturnStmt::ReturnStmt(std::unique_ptr<Expr> value, SourceSpan source_span)

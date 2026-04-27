@@ -1,0 +1,19 @@
+struct lua_longjmp;
+
+struct State {
+    struct lua_longjmp *errorJmp;
+};
+
+typedef struct lua_longjmp {
+    struct lua_longjmp *previous;
+    int status;
+} lua_longjmp;
+
+int read_status(struct State *state) {
+    state->errorJmp->status = 1;
+    return state->errorJmp->previous == 0 ? state->errorJmp->status : 0;
+}
+
+int main(void) {
+    return 0;
+}

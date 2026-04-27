@@ -438,6 +438,7 @@ const SemanticType *get_common_arithmetic_type(
 
 const SemanticType *get_pointer_decay_or_self(const SemanticType *type,
                                               SemanticModel &semantic_model) {
+    type = strip_qualifiers(type);
     if (type == nullptr) {
         return nullptr;
     }
@@ -553,6 +554,59 @@ const SemanticType *apply_member_object_qualifiers(
         field_qualifiers.is_volatile || owner_qualifiers.is_volatile,
         field_qualifiers.is_restrict || owner_qualifiers.is_restrict,
         semantic_model);
+}
+
+const SemanticType *
+resolve_completed_named_aggregate_type(const SemanticType *type,
+                                       const ScopeStack &scope_stack) {
+    const SemanticType *unqualified_type = strip_qualifiers(type);
+    if (unqualified_type == nullptr) {
+        return type;
+    }
+
+    if (unqualified_type->get_kind() == SemanticTypeKind::Struct) {
+        const auto *struct_type =
+            static_cast<const StructSemanticType *>(unqualified_type);
+        if (!struct_type->get_fields().empty()) {
+            return type;
+        }
+        const SemanticSymbol *tag_symbol =
+            scope_stack.lookup_tag(struct_type->get_name());
+        if (tag_symbol != nullptr &&
+            tag_symbol->get_kind() == SymbolKind::StructName &&
+            tag_symbol->get_type() != nullptr) {
+            const auto *completed_type =
+                dynamic_cast<const StructSemanticType *>(strip_qualifiers(
+                    tag_symbol->get_type()));
+            if (completed_type != nullptr &&
+                !completed_type->get_fields().empty()) {
+                return tag_symbol->get_type();
+            }
+        }
+    }
+
+    if (unqualified_type->get_kind() == SemanticTypeKind::Union) {
+        const auto *union_type =
+            static_cast<const UnionSemanticType *>(unqualified_type);
+        if (!union_type->get_fields().empty()) {
+            return type;
+        }
+        const SemanticSymbol *tag_symbol =
+            scope_stack.lookup_tag(union_type->get_name());
+        if (tag_symbol != nullptr &&
+            tag_symbol->get_kind() == SymbolKind::UnionName &&
+            tag_symbol->get_type() != nullptr) {
+            const auto *completed_type =
+                dynamic_cast<const UnionSemanticType *>(strip_qualifiers(
+                    tag_symbol->get_type()));
+            if (completed_type != nullptr &&
+                !completed_type->get_fields().empty()) {
+                return tag_symbol->get_type();
+            }
+        }
+    }
+
+    return type;
 }
 
 const SemanticType *find_direct_union_field_type(const SemanticType *owner_type,
@@ -849,7 +903,9 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             sizeof_type_expr->get_target_type(), semantic_context, &scope_stack);
         semantic_model.bind_node_type(sizeof_type_expr,
                                       get_size_t_semantic_type(semantic_model));
-        const auto type_size = get_semantic_type_size(target_type);
+        const SemanticType *layout_target_type =
+            resolve_completed_named_aggregate_type(target_type, scope_stack);
+        const auto type_size = get_semantic_type_size(layout_target_type);
         if (!type_size.has_value()) {
             add_error(semantic_context,
                       "operator 'sizeof' requires a complete object type",
@@ -862,6 +918,25 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
     }
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
+        if (unary_expr->get_operator_text() == "&&") {
+            const auto *label_expr =
+                dynamic_cast<const IdentifierExpr *>(unary_expr->get_operand());
+            if (label_expr == nullptr) {
+                add_error(semantic_context,
+                          "GNU label address operator requires a label name",
+                          unary_expr->get_source_span());
+                return;
+            }
+            semantic_context.record_goto_reference(label_expr->get_name(),
+                                                   unary_expr->get_source_span());
+            const auto *void_type =
+                semantic_model.own_type(std::make_unique<BuiltinSemanticType>("void"));
+            semantic_model.bind_node_type(
+                unary_expr,
+                semantic_model.own_type(
+                    std::make_unique<PointerSemanticType>(void_type)));
+            return;
+        }
         analyze_expr(unary_expr->get_operand(), semantic_context, scope_stack);
         const SemanticType *operand_type =
             semantic_model.get_node_type(unary_expr->get_operand());
@@ -871,7 +946,9 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         if (unary_expr->get_operator_text() == "sizeof") {
             semantic_model.bind_node_type(unary_expr,
                                           get_size_t_semantic_type(semantic_model));
-            const auto operand_size = get_semantic_type_size(operand_type);
+            const SemanticType *layout_operand_type =
+                resolve_completed_named_aggregate_type(operand_type, scope_stack);
+            const auto operand_size = get_semantic_type_size(layout_operand_type);
             if (!operand_size.has_value()) {
                 add_error(semantic_context,
                           "operator 'sizeof' requires a complete object type",
@@ -899,7 +976,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         }
         if (unary_expr->get_operator_text() == "*") {
             const SemanticType *unqualified_operand_type =
-                strip_qualifiers(operand_type);
+                strip_qualifiers(conversion_checker_.get_decayed_type(
+                    operand_type, semantic_model));
             if (unqualified_operand_type == nullptr ||
                 unqualified_operand_type->get_kind() !=
                     SemanticTypeKind::Pointer) {
@@ -910,8 +988,10 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             }
             semantic_model.bind_node_type(
                 unary_expr,
-                static_cast<const PointerSemanticType *>(unqualified_operand_type)
-                    ->get_pointee_type());
+                resolve_completed_named_aggregate_type(
+                    static_cast<const PointerSemanticType *>(unqualified_operand_type)
+                        ->get_pointee_type(),
+                    scope_stack));
             return;
         }
         if (unary_expr->get_operator_text() == "!") {
@@ -1088,9 +1168,7 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                 return;
             }
             if (operator_text == "-" && lhs_pointer_like != nullptr &&
-                rhs_pointer_like != nullptr &&
-                conversion_checker_.is_same_type(lhs_pointer_like,
-                                                 rhs_pointer_like)) {
+                rhs_pointer_like != nullptr) {
                 semantic_model.bind_node_type(
                     binary_expr, get_ptrdiff_semantic_type(semantic_model));
                 return;
@@ -1218,6 +1296,15 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
 
         if (operator_text == "<" || operator_text == "<=" ||
             operator_text == ">" || operator_text == ">=") {
+            if (lhs_pointer_like != nullptr && rhs_pointer_like != nullptr &&
+                (conversion_checker_.is_same_type(lhs_pointer_like,
+                                                  rhs_pointer_like) ||
+                 conversion_checker_.is_void_pointer_type(lhs_pointer_like) ||
+                 conversion_checker_.is_void_pointer_type(rhs_pointer_like))) {
+                semantic_model.bind_node_type(binary_expr,
+                                              get_int_semantic_type(semantic_model));
+                return;
+            }
             if (!conversion_checker_.is_arithmetic_type(lhs_type) ||
                 !conversion_checker_.is_arithmetic_type(rhs_type)) {
                 add_error(semantic_context,
@@ -1323,7 +1410,10 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             return;
         }
 
-        if (!conversion_checker_.is_castable_type(target_type, operand_type)) {
+        const SemanticType *cast_operand_type =
+            conversion_checker_.get_decayed_type(operand_type, semantic_model);
+        if (!conversion_checker_.is_castable_type(target_type,
+                                                  cast_operand_type)) {
             add_error(semantic_context, "unsupported cast between operand types",
                       cast_expr->get_source_span());
             return;
@@ -1368,22 +1458,36 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         }
 
         const SemanticType *result_type = nullptr;
+        const SemanticType *true_value_type =
+            conversion_checker_.get_decayed_type(true_type, semantic_model);
+        const SemanticType *false_value_type =
+            conversion_checker_.get_decayed_type(false_type, semantic_model);
         if (conversion_checker_.is_arithmetic_type(true_type) &&
             conversion_checker_.is_arithmetic_type(false_type)) {
             result_type = get_common_arithmetic_type(
                 true_type, false_type, semantic_model, conversion_checker_);
-        } else if (conversion_checker_.is_same_type(true_type, false_type)) {
-            result_type = true_type;
-        } else if (conversion_checker_.is_pointer_type(true_type) &&
+        } else if (conversion_checker_.is_same_type(true_value_type,
+                                                    false_value_type)) {
+            result_type = true_value_type;
+        } else if (conversion_checker_.is_pointer_type(true_value_type) &&
                    conversion_checker_.is_null_pointer_constant(
                        conditional_expr->get_false_expr(), semantic_context,
                        constant_evaluator_)) {
-            result_type = true_type;
-        } else if (conversion_checker_.is_pointer_type(false_type) &&
+            result_type = true_value_type;
+        } else if (conversion_checker_.is_pointer_type(false_value_type) &&
                    conversion_checker_.is_null_pointer_constant(
                        conditional_expr->get_true_expr(), semantic_context,
                        constant_evaluator_)) {
-            result_type = false_type;
+            result_type = false_value_type;
+        } else if (conversion_checker_.is_pointer_type(true_value_type) &&
+                   conversion_checker_.is_pointer_type(false_value_type)) {
+            if (conversion_checker_.is_assignable_type(true_value_type,
+                                                       false_value_type)) {
+                result_type = true_value_type;
+            } else if (conversion_checker_.is_assignable_type(false_value_type,
+                                                              true_value_type)) {
+                result_type = false_value_type;
+            }
         }
 
         if (result_type == nullptr) {
@@ -1663,20 +1767,41 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             const SemanticSymbol *struct_symbol =
                 scope_stack.lookup_tag(struct_name);
             if (struct_symbol != nullptr &&
-                struct_symbol->get_kind() == SymbolKind::StructName &&
-                struct_symbol->get_decl_node() != nullptr &&
-                struct_symbol->get_decl_node()->get_kind() == AstKind::StructDecl) {
+                struct_symbol->get_kind() == SymbolKind::StructName) {
+                if (const SemanticType *field_type =
+                        find_direct_struct_field_type(
+                            struct_symbol->get_type(),
+                            member_expr->get_member_name());
+                    field_type != nullptr) {
+                    semantic_model.bind_node_type(
+                        expr, apply_member_object_qualifiers(
+                                  field_type, owner_object_type, semantic_model));
+                    return;
+                }
+                if (struct_symbol->get_decl_node() == nullptr ||
+                    struct_symbol->get_decl_node()->get_kind() !=
+                        AstKind::StructDecl) {
+                    add_error(semantic_context,
+                              "member '" + member_expr->get_member_name() +
+                                  "' does not exist in struct '" + struct_name + "'",
+                              member_expr->get_source_span());
+                    return;
+                }
                 const auto *struct_decl =
                     static_cast<const StructDecl *>(struct_symbol->get_decl_node());
                 for (const auto &field : struct_decl->get_fields()) {
                     const auto *field_decl =
                         static_cast<const FieldDecl *>(field.get());
                     if (field_decl->get_name() == member_expr->get_member_name()) {
+                        const SemanticType *resolved_field_type =
+                            type_resolver_.apply_array_dimensions(
+                                type_resolver_.resolve_type(
+                                    field_decl->get_declared_type(),
+                                    semantic_context, &scope_stack),
+                                field_decl->get_dimensions(), semantic_context);
                         semantic_model.bind_node_type(
                             expr, apply_member_object_qualifiers(
-                                      type_resolver_.resolve_type(
-                                          field_decl->get_declared_type(),
-                                          semantic_context, &scope_stack),
+                                      resolved_field_type,
                                       owner_object_type, semantic_model));
                         return;
                     }
@@ -1695,20 +1820,41 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             const SemanticSymbol *union_symbol =
                 scope_stack.lookup_tag(union_name);
             if (union_symbol != nullptr &&
-                union_symbol->get_kind() == SymbolKind::UnionName &&
-                union_symbol->get_decl_node() != nullptr &&
-                union_symbol->get_decl_node()->get_kind() == AstKind::UnionDecl) {
+                union_symbol->get_kind() == SymbolKind::UnionName) {
+                if (const SemanticType *field_type =
+                        find_direct_union_field_type(
+                            union_symbol->get_type(),
+                            member_expr->get_member_name());
+                    field_type != nullptr) {
+                    semantic_model.bind_node_type(
+                        expr, apply_member_object_qualifiers(
+                                  field_type, owner_object_type, semantic_model));
+                    return;
+                }
+                if (union_symbol->get_decl_node() == nullptr ||
+                    union_symbol->get_decl_node()->get_kind() !=
+                        AstKind::UnionDecl) {
+                    add_error(semantic_context,
+                              "member '" + member_expr->get_member_name() +
+                                  "' does not exist in union '" + union_name + "'",
+                              member_expr->get_source_span());
+                    return;
+                }
                 const auto *union_decl =
                     static_cast<const UnionDecl *>(union_symbol->get_decl_node());
                 for (const auto &field : union_decl->get_fields()) {
                     const auto *field_decl =
                         static_cast<const FieldDecl *>(field.get());
                     if (field_decl->get_name() == member_expr->get_member_name()) {
+                        const SemanticType *resolved_field_type =
+                            type_resolver_.apply_array_dimensions(
+                                type_resolver_.resolve_type(
+                                    field_decl->get_declared_type(),
+                                    semantic_context, &scope_stack),
+                                field_decl->get_dimensions(), semantic_context);
                         semantic_model.bind_node_type(
                             expr, apply_member_object_qualifiers(
-                                      type_resolver_.resolve_type(
-                                          field_decl->get_declared_type(),
-                                          semantic_context, &scope_stack),
+                                      resolved_field_type,
                                       owner_object_type, semantic_model));
                         return;
                     }

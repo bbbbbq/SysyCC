@@ -1,0 +1,9 @@
+#include <compat_math.h>
+
+int main(void) {
+    double nan_value = NAN;
+    double finite_value = 3.0;
+    double inf_value = INFINITY;
+    return isnan(nan_value) || isfinite(finite_value) ||
+           isinf(inf_value) || signbit(-0.0) ? 0 : 1;
+}

@@ -578,11 +578,16 @@ class ContinueStmt : public Stmt {
 class GotoStmt : public Stmt {
   private:
     std::string target_label_;
+    std::unique_ptr<Expr> indirect_target_;
 
   public:
     explicit GotoStmt(std::string target_label, SourceSpan source_span = {});
+    explicit GotoStmt(std::unique_ptr<Expr> indirect_target,
+                      SourceSpan source_span = {});
 
     const std::string &get_target_label() const noexcept;
+    const Expr *get_indirect_target() const noexcept;
+    bool get_is_indirect() const noexcept;
 };
 
 // Represents a return statement.

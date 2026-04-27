@@ -1,0 +1,18 @@
+int main() {
+    int opcode = 1;
+    static const void *const dispatch[3] = {
+        &&L0,
+        &&L1,
+        &&L2
+    };
+
+    goto *dispatch[opcode];
+    {
+L0:
+        return 10;
+L1:
+        return 0;
+L2:
+        return 20;
+    }
+}

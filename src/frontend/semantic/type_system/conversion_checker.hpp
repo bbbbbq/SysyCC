@@ -70,6 +70,7 @@ class ConversionChecker {
     bool is_incrementable_type(const SemanticType *type) const;
     bool is_void_type(const SemanticType *type) const;
     bool is_pointer_type(const SemanticType *type) const;
+    bool is_void_pointer_type(const SemanticType *type) const;
     bool is_struct_type(const SemanticType *type) const;
     bool is_union_type(const SemanticType *type) const;
     bool is_pointer_to_struct_type(const SemanticType *type) const;

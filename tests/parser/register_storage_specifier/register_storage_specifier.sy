@@ -1,0 +1,4 @@
+int main(void) {
+    register const char *p = "mujs";
+    return *p == 'm' ? 0 : 1;
+}

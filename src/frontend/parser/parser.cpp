@@ -1,10 +1,12 @@
 #include "frontend/parser/parser.hpp"
 
 #include <cstdio>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/diagnostic/diagnostic_engine.hpp"
 #include "common/intermediate_results_path.hpp"
@@ -52,6 +54,180 @@ std::string FormatParserErrorMessage(const ParserErrorInfo &error_info) {
     return message;
 }
 
+bool IsIdentifierStart(char ch) {
+    return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+bool IsIdentifierContinue(char ch) {
+    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+void RegisterLastIdentifierInChunk(const std::string &chunk) {
+    std::string last_identifier;
+    int paren_depth = 0;
+    int brace_depth = 0;
+    int bracket_depth = 0;
+    for (std::size_t index = 0; index < chunk.size();) {
+        const char ch = chunk[index];
+        if (ch == '(') {
+            ++paren_depth;
+            ++index;
+            continue;
+        }
+        if (ch == ')' && paren_depth > 0) {
+            --paren_depth;
+            ++index;
+            continue;
+        }
+        if (ch == '{') {
+            ++brace_depth;
+            ++index;
+            continue;
+        }
+        if (ch == '}' && brace_depth > 0) {
+            --brace_depth;
+            ++index;
+            continue;
+        }
+        if (ch == '[') {
+            ++bracket_depth;
+            ++index;
+            continue;
+        }
+        if (ch == ']' && bracket_depth > 0) {
+            --bracket_depth;
+            ++index;
+            continue;
+        }
+        if (!IsIdentifierStart(chunk[index])) {
+            ++index;
+            continue;
+        }
+        const std::size_t start = index;
+        ++index;
+        while (index < chunk.size() && IsIdentifierContinue(chunk[index])) {
+            ++index;
+        }
+        if (paren_depth == 0 && brace_depth == 0 && bracket_depth == 0) {
+            last_identifier = chunk.substr(start, index - start);
+        }
+    }
+    register_typedef_name(last_identifier);
+}
+
+void RegisterFunctionPointerTypedefNames(const std::string &decl) {
+    for (std::size_t index = 0; index < decl.size(); ++index) {
+        if (decl[index] != '(') {
+            continue;
+        }
+        std::size_t cursor = index + 1;
+        while (cursor < decl.size() &&
+               std::isspace(static_cast<unsigned char>(decl[cursor])) != 0) {
+            ++cursor;
+        }
+        bool saw_pointer = false;
+        while (cursor < decl.size() && decl[cursor] == '*') {
+            saw_pointer = true;
+            ++cursor;
+            while (cursor < decl.size() &&
+                   std::isspace(static_cast<unsigned char>(decl[cursor])) != 0) {
+                ++cursor;
+            }
+        }
+        if (!saw_pointer || cursor >= decl.size() ||
+            !IsIdentifierStart(decl[cursor])) {
+            continue;
+        }
+        const std::size_t name_start = cursor;
+        ++cursor;
+        while (cursor < decl.size() && IsIdentifierContinue(decl[cursor])) {
+            ++cursor;
+        }
+        register_typedef_name(decl.substr(name_start, cursor - name_start));
+    }
+}
+
+void RegisterTopLevelTypedefDeclarators(const std::string &decl) {
+    std::size_t chunk_start = 0;
+    int paren_depth = 0;
+    int brace_depth = 0;
+    int bracket_depth = 0;
+    for (std::size_t index = 0; index <= decl.size(); ++index) {
+        const char ch = index < decl.size() ? decl[index] : ',';
+        if (ch == '(') {
+            ++paren_depth;
+        } else if (ch == ')' && paren_depth > 0) {
+            --paren_depth;
+        } else if (ch == '{') {
+            ++brace_depth;
+        } else if (ch == '}' && brace_depth > 0) {
+            --brace_depth;
+        } else if (ch == '[') {
+            ++bracket_depth;
+        } else if (ch == ']' && bracket_depth > 0) {
+            --bracket_depth;
+        }
+        if ((ch == ',' || index == decl.size()) && paren_depth == 0 &&
+            brace_depth == 0 && bracket_depth == 0) {
+            const std::string chunk = decl.substr(chunk_start,
+                                                  index - chunk_start);
+            if (chunk.find("(*") == std::string::npos) {
+                RegisterLastIdentifierInChunk(chunk);
+            }
+            chunk_start = index + 1;
+        }
+    }
+}
+
+void PrimeTypedefNamesFromSource(const std::string &path) {
+    std::ifstream input(path);
+    if (!input.is_open()) {
+        return;
+    }
+    const std::string source((std::istreambuf_iterator<char>(input)),
+                             std::istreambuf_iterator<char>());
+    for (std::size_t index = 0; index < source.size();) {
+        if ((index > 0 && IsIdentifierContinue(source[index - 1])) ||
+            source.compare(index, 7, "typedef") != 0 ||
+            (index + 7 < source.size() &&
+             IsIdentifierContinue(source[index + 7]))) {
+            ++index;
+            continue;
+        }
+        std::size_t cursor = index + 7;
+        int paren_depth = 0;
+        int brace_depth = 0;
+        int bracket_depth = 0;
+        for (; cursor < source.size(); ++cursor) {
+            const char ch = source[cursor];
+            if (ch == '(') {
+                ++paren_depth;
+            } else if (ch == ')' && paren_depth > 0) {
+                --paren_depth;
+            } else if (ch == '{') {
+                ++brace_depth;
+            } else if (ch == '}' && brace_depth > 0) {
+                --brace_depth;
+            } else if (ch == '[') {
+                ++bracket_depth;
+            } else if (ch == ']' && bracket_depth > 0) {
+                --bracket_depth;
+            } else if (ch == ';' && paren_depth == 0 && brace_depth == 0 &&
+                       bracket_depth == 0) {
+                break;
+            }
+        }
+        if (cursor >= source.size()) {
+            return;
+        }
+        const std::string decl =
+            source.substr(index + 7, cursor - (index + 7));
+        RegisterFunctionPointerTypedefNames(decl);
+        RegisterTopLevelTypedefDeclarators(decl);
+        index = cursor + 1;
+    }
+}
+
 } // namespace
 
 PassKind ParserPass::Kind() const { return PassKind::Parse; }
@@ -65,6 +241,7 @@ PassResult ParserPass::Run(CompilerContext &context) {
         context.get_preprocessed_file_path().empty()
             ? context.get_input_file()
             : context.get_preprocessed_file_path();
+    PrimeTypedefNamesFromSource(parser_input_file);
     std::FILE *input = std::fopen(parser_input_file.c_str(), "r");
     if (input == nullptr) {
         const std::string message = "failed to open input file for parser";

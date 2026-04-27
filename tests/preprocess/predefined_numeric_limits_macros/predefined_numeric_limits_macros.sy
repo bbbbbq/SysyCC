@@ -1,4 +1,2 @@
-int i32_max_value = INT32_MAX;
-unsigned int u32_max_value = UINT32_MAX;
-float float_min_value = __FLT_MIN__;
-double double_max_value = __DBL_MAX__;
+int i32_max_value = __INT32_MAX__;
+unsigned int u32_max_value = __UINT32_MAX__;

@@ -112,6 +112,8 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
         std::make_unique<PointerSemanticType>(char_type));
     const auto *void_ptr_type = semantic_model.own_type(
         std::make_unique<PointerSemanticType>(void_type));
+    const auto *char_ptr_type = semantic_model.own_type(
+        std::make_unique<PointerSemanticType>(char_type));
     const auto *int_ptr_type = semantic_model.own_type(
         std::make_unique<PointerSemanticType>(int_type));
     const auto *float_ptr_type = semantic_model.own_type(
@@ -165,6 +167,26 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
                               double_type, {});
     register_builtin_function(semantic_model, scope_stack, "__builtin_infl",
                               long_double_type, {});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_huge_valf", float_type, {});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_huge_val", double_type, {});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_huge_vall", long_double_type, {});
+    register_builtin_function(semantic_model, scope_stack, "__builtin_nanf",
+                              float_type, {char_ptr_type});
+    register_builtin_function(semantic_model, scope_stack, "__builtin_nan",
+                              double_type, {char_ptr_type});
+    register_builtin_function(semantic_model, scope_stack, "__builtin_nanl",
+                              long_double_type, {char_ptr_type});
+    register_builtin_function(semantic_model, scope_stack, "__builtin_isnan",
+                              int_type, {double_type});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_isfinite", int_type, {double_type});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_isinf_sign", int_type, {double_type});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_signbit", int_type, {double_type});
     register_builtin_function(semantic_model, scope_stack,
                               "__builtin_object_size", unsigned_long_type,
                               {void_ptr_type, int_type});

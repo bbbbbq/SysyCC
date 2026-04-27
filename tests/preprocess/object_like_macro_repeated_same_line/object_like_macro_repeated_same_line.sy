@@ -1,0 +1,9 @@
+#define FLAG (1u << 3)
+#define SAVE(status, value) ((status) = ((value) ? (status) | FLAG : (status) & ~FLAG))
+
+unsigned int status = 0;
+
+int main() {
+    SAVE(status, 0);
+    return status == 0 ? 0 : 1;
+}

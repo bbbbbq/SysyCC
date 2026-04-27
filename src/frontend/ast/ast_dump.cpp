@@ -706,6 +706,14 @@ void AstDumper::dump_label_stmt(const LabelStmt *node, std::ostream &os,
 void AstDumper::dump_goto_stmt(const GotoStmt *node, std::ostream &os,
                                int indent) const {
     write_indent(os, indent);
+    if (node->get_is_indirect()) {
+        os << "GotoStmt indirect\n";
+        dump_source_span(node, os, indent + 2);
+        write_indent(os, indent + 2);
+        os << "Target\n";
+        dump_node(node->get_indirect_target(), os, indent + 4);
+        return;
+    }
     os << "GotoStmt " << node->get_target_label() << "\n";
     dump_source_span(node, os, indent + 2);
 }

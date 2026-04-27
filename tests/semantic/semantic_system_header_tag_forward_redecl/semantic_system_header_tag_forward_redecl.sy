@@ -1,0 +1,17 @@
+struct sigevent {
+    int signal_number;
+};
+struct sigevent;
+
+union wait_status {
+    int status;
+};
+union wait_status;
+
+int main() {
+    struct sigevent event;
+    union wait_status status;
+    event.signal_number = 7;
+    status.status = event.signal_number;
+    return status.status - 7;
+}

@@ -65,6 +65,108 @@ std::string build_logical_line(const std::vector<std::string> &lines,
     return logical_line;
 }
 
+bool needs_function_macro_continuation(const std::string &line,
+                                       const MacroTable &macro_table) {
+    std::size_t first_non_space = 0;
+    while (first_non_space < line.size() &&
+           std::isspace(static_cast<unsigned char>(line[first_non_space])) !=
+               0) {
+        ++first_non_space;
+    }
+    if (first_non_space < line.size() && line[first_non_space] == '#') {
+        return false;
+    }
+
+    bool in_string_literal = false;
+    bool in_char_literal = false;
+    bool escaping = false;
+    int active_macro_depth = 0;
+    std::size_t index = 0;
+    while (index < line.size()) {
+        const char current = line[index];
+        if (in_string_literal) {
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '"') {
+                in_string_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (in_char_literal) {
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '\'') {
+                in_char_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (current == '"') {
+            in_string_literal = true;
+            ++index;
+            continue;
+        }
+
+        if (current == '\'') {
+            in_char_literal = true;
+            ++index;
+            continue;
+        }
+
+        if (active_macro_depth > 0) {
+            if (current == '(') {
+                ++active_macro_depth;
+            } else if (current == ')') {
+                --active_macro_depth;
+            }
+            ++index;
+            continue;
+        }
+
+        if (!is_identifier_start(current)) {
+            ++index;
+            continue;
+        }
+
+        const std::size_t identifier_begin = index;
+        ++index;
+        while (index < line.size() && is_identifier_char(line[index])) {
+            ++index;
+        }
+
+        const std::string identifier =
+            line.substr(identifier_begin, index - identifier_begin);
+        const MacroDefinition *definition =
+            macro_table.get_macro_definition(identifier);
+        if (definition == nullptr || !definition->get_is_function_like()) {
+            continue;
+        }
+
+        std::size_t next_index = index;
+        while (next_index < line.size() &&
+               std::isspace(static_cast<unsigned char>(line[next_index])) !=
+                   0) {
+            ++next_index;
+        }
+        if (next_index >= line.size()) {
+            return true;
+        }
+        if (line[next_index] == '(') {
+            active_macro_depth = 1;
+            index = next_index + 1;
+        }
+    }
+
+    return active_macro_depth > 0;
+}
+
 bool has_line_location_prefix(const std::string &message) {
     const std::size_t first_colon = message.find(':');
     if (first_colon == std::string::npos || first_colon + 1 >= message.size()) {
@@ -434,7 +536,16 @@ PassResult PreprocessSession::preprocess_file(const std::string &file_path,
 
     for (std::size_t index = 0; index < lines.size(); ++index) {
         const int line_number = static_cast<int>(index + 1);
-        const std::string logical_line = build_logical_line(lines, index);
+        std::string logical_line = build_logical_line(lines, index);
+        while (index + 1 < lines.size() &&
+               needs_function_macro_continuation(
+                   logical_line, preprocess_context_.get_macro_table())) {
+            ++index;
+            std::size_t continuation_index = index;
+            logical_line += " ";
+            logical_line += build_logical_line(lines, continuation_index);
+            index = continuation_index;
+        }
         PassResult result =
             process_line(logical_line, line_number, file_path);
         if (!result.ok) {

@@ -13,6 +13,7 @@
 #include "frontend/semantic/type_system/conversion_checker.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
 #include "frontend/semantic/type_system/integer_conversion_service.hpp"
+#include "frontend/semantic/type_system/type_layout.hpp"
 #include "frontend/semantic/support/semantic_context.hpp"
 
 namespace sysycc::detail {
@@ -99,6 +100,93 @@ bool is_global_storage_symbol(const SemanticSymbol *symbol,
     }
     const VariableSemanticInfo *info = semantic_model.get_variable_info(symbol);
     return info != nullptr && info->get_is_global_storage();
+}
+
+const SemanticType *get_member_owner_type(const SemanticType *base_type,
+                                          const std::string &operator_text) {
+    const SemanticType *unqualified_base_type = strip_qualifiers(base_type);
+    if (operator_text == "->") {
+        if (unqualified_base_type == nullptr ||
+            unqualified_base_type->get_kind() != SemanticTypeKind::Pointer) {
+            return nullptr;
+        }
+        const auto *pointer_type =
+            static_cast<const PointerSemanticType *>(unqualified_base_type);
+        return strip_qualifiers(pointer_type->get_pointee_type());
+    }
+    if (operator_text == ".") {
+        return unqualified_base_type;
+    }
+    return nullptr;
+}
+
+std::optional<std::size_t> get_struct_field_offset(
+    const StructSemanticType *struct_type, const std::string &field_name) {
+    if (struct_type == nullptr || struct_type->get_fields().empty()) {
+        return std::nullopt;
+    }
+
+    std::size_t offset = 0;
+    for (const auto &field : struct_type->get_fields()) {
+        const SemanticType *field_type = strip_layout_qualifiers(field.get_type());
+        const auto field_alignment = get_semantic_type_alignment(field_type);
+        const auto field_size = get_semantic_type_size(field_type);
+        if (!field_alignment.has_value() || !field_size.has_value()) {
+            return std::nullopt;
+        }
+        offset = align_layout_offset(offset, *field_alignment);
+        if (field.get_name() == field_name) {
+            return offset;
+        }
+        offset += *field_size;
+    }
+    return std::nullopt;
+}
+
+std::optional<long long>
+evaluate_address_constant_expr(const Expr *expr,
+                               const SemanticModel &semantic_model) {
+    if (expr == nullptr) {
+        return std::nullopt;
+    }
+
+    if (const auto *cast_expr = dynamic_cast<const CastExpr *>(expr);
+        cast_expr != nullptr) {
+        return evaluate_address_constant_expr(cast_expr->get_operand(),
+                                              semantic_model);
+    }
+
+    if (const auto *member_expr = dynamic_cast<const MemberExpr *>(expr);
+        member_expr != nullptr) {
+        const auto base_address =
+            evaluate_address_constant_expr(member_expr->get_base(),
+                                           semantic_model);
+        if (!base_address.has_value()) {
+            return std::nullopt;
+        }
+        const SemanticType *owner_type = get_member_owner_type(
+            semantic_model.get_node_type(member_expr->get_base()),
+            member_expr->get_operator_text());
+        owner_type = strip_qualifiers(owner_type);
+        if (owner_type == nullptr) {
+            return std::nullopt;
+        }
+        if (owner_type->get_kind() == SemanticTypeKind::Union) {
+            return *base_address;
+        }
+        if (owner_type->get_kind() != SemanticTypeKind::Struct) {
+            return std::nullopt;
+        }
+        const auto field_offset = get_struct_field_offset(
+            static_cast<const StructSemanticType *>(owner_type),
+            member_expr->get_member_name());
+        if (!field_offset.has_value()) {
+            return std::nullopt;
+        }
+        return *base_address + static_cast<long long>(*field_offset);
+    }
+
+    return ConstantEvaluator().get_integer_constant_value(expr, semantic_model);
 }
 
 std::optional<long long> apply_integer_like_constant_cast(
@@ -421,6 +509,13 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
     }
     case AstKind::UnaryExpr: {
         const auto *unary_expr = static_cast<const UnaryExpr *>(expr);
+        if (unary_expr->get_operator_text() == "&") {
+            const auto address =
+                evaluate_address_constant_expr(unary_expr->get_operand(),
+                                               semantic_model);
+            return address.has_value() ? std::optional<long double>(*address)
+                                       : std::nullopt;
+        }
         if (unary_expr->get_operator_text() == "sizeof") {
             const auto value = semantic_model.get_integer_constant_value(expr);
             return value.has_value() ? std::optional<long double>(*value)
@@ -440,6 +535,13 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
         }
         if (op == "!") {
             return *operand == 0 ? 1.0L : 0.0L;
+        }
+        if (op == "~") {
+            const auto integer_operand =
+                evaluate_integer_expr(unary_expr->get_operand(), semantic_model);
+            return integer_operand.has_value()
+                       ? std::optional<long double>(~(*integer_operand))
+                       : std::nullopt;
         }
         return std::nullopt;
     }
@@ -577,6 +679,9 @@ bool ConstantEvaluator::is_static_address_value_expr(
     if (expr == nullptr) {
         return false;
     }
+    if (dynamic_cast<const StringLiteralExpr *>(expr) != nullptr) {
+        return true;
+    }
     if (const auto *cast_expr = dynamic_cast<const CastExpr *>(expr);
         cast_expr != nullptr) {
         return is_static_address_value_expr(cast_expr->get_operand(),
@@ -584,6 +689,10 @@ bool ConstantEvaluator::is_static_address_value_expr(
     }
     if (const auto *unary_expr = dynamic_cast<const UnaryExpr *>(expr);
         unary_expr != nullptr) {
+        if (unary_expr->get_operator_text() == "&&") {
+            return dynamic_cast<const IdentifierExpr *>(unary_expr->get_operand()) !=
+                   nullptr;
+        }
         if (unary_expr->get_operator_text() == "&") {
             return is_static_address_lvalue_expr(unary_expr->get_operand(),
                                                  semantic_model);
@@ -676,7 +785,7 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
                 strip_qualifiers(current_array_type->get_element_type()));
             const std::vector<int> &dimensions = current_array_type->get_dimensions();
             const std::size_t element_count =
-                !dimensions.empty() && dimensions.front() >= 0
+                !dimensions.empty() && dimensions.front() > 0
                     ? static_cast<std::size_t>(dimensions.front())
                     : current_init_list->get_elements().size();
             for (std::size_t index = 0; index < element_count; ++index) {

@@ -39,6 +39,7 @@ enum class TokenKind : uint8_t {
     KwVolatile,
     KwExtern,
     KwStatic,
+    KwRegister,
     KwAttribute,
     KwAsm,
     KwInline,
@@ -157,6 +158,7 @@ class Token {
         case TokenKind::KwVolatile:
         case TokenKind::KwExtern:
         case TokenKind::KwStatic:
+        case TokenKind::KwRegister:
         case TokenKind::KwAttribute:
         case TokenKind::KwAsm:
         case TokenKind::KwInline:
@@ -268,6 +270,8 @@ class Token {
             return "KwExtern";
         case TokenKind::KwStatic:
             return "KwStatic";
+        case TokenKind::KwRegister:
+            return "KwRegister";
         case TokenKind::KwAttribute:
             return "KwAttribute";
         case TokenKind::KwAsm:

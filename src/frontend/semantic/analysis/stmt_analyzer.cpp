@@ -499,6 +499,22 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         return;
     case AstKind::GotoStmt: {
         const auto *goto_stmt = static_cast<const GotoStmt *>(stmt);
+        if (goto_stmt->get_is_indirect()) {
+            expr_analyzer_.analyze_expr(goto_stmt->get_indirect_target(),
+                                        semantic_context, scope_stack);
+            const SemanticType *target_type =
+                semantic_model.get_node_type(goto_stmt->get_indirect_target());
+            const SemanticType *unqualified_target_type =
+                strip_qualifiers(target_type);
+            if (unqualified_target_type == nullptr ||
+                unqualified_target_type->get_kind() !=
+                    SemanticTypeKind::Pointer) {
+                add_error(semantic_context,
+                          "indirect goto requires a pointer target",
+                          goto_stmt->get_source_span());
+            }
+            return;
+        }
         semantic_context.record_goto_reference(goto_stmt->get_target_label(),
                                                goto_stmt->get_source_span());
         return;

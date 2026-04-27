@@ -1,0 +1,15 @@
+struct Usage {
+    long before;
+    union {
+        long value;
+        long word;
+    };
+    long after;
+};
+
+int main() {
+    struct Usage usage;
+    usage.before = 1;
+    usage.after = 2;
+    return usage.before + usage.after - 3;
+}

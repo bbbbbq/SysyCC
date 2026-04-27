@@ -19,8 +19,8 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
     --dump-parse
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
 
-grep -q 'TYPE_NAME __PTRDIFF_TYPE__' "${BUILD_DIR}/intermediate_results/${TEST_NAME}.parse.txt"
-grep -q 'TYPE_NAME __SIZE_TYPE__' "${BUILD_DIR}/intermediate_results/${TEST_NAME}.parse.txt"
+grep -q '^typedef long compat_ptrdiff_t;$' "${BUILD_DIR}/intermediate_results/${TEST_NAME}.preprocessed.sy"
+grep -q '^typedef unsigned long compat_size_t;$' "${BUILD_DIR}/intermediate_results/${TEST_NAME}.preprocessed.sy"
 grep -q 'TYPE_NAME __uint128_t' "${BUILD_DIR}/intermediate_results/${TEST_NAME}.parse.txt"
 
-echo "verified: builtin type-macro spellings and __uint128_t survive system-header semantic analysis"
+echo "verified: builtin type macros expand and __uint128_t survives system-header semantic analysis"

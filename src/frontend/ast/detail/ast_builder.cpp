@@ -249,6 +249,18 @@ bool has_union_field_list(const ParseTreeNode *node) {
     return field_list != nullptr && !field_list->children.empty();
 }
 
+bool has_enumerator_list(const ParseTreeNode *node) {
+    const ParseTreeNode *enum_specifier =
+        ParseTreeMatcher::find_first_child_with_label(node, "enum_specifier");
+    if (enum_specifier == nullptr) {
+        return false;
+    }
+    const ParseTreeNode *enumerator_list =
+        ParseTreeMatcher::find_first_child_with_label(enum_specifier,
+                                                      "enumerator_list_opt");
+    return enumerator_list != nullptr && !enumerator_list->children.empty();
+}
+
 } // namespace
 
 std::unique_ptr<TranslationUnit>
@@ -548,6 +560,9 @@ AstBuilder::build_const_decls(const ParseTreeNode *node) const {
     if (has_union_field_list(type_specifier)) {
         decls.push_back(build_union_decl(type_specifier));
     }
+    if (has_enumerator_list(type_specifier)) {
+        decls.push_back(build_enum_decl(type_specifier));
+    }
 
     std::vector<const ParseTreeNode *> declarators;
     std::vector<const ParseTreeNode *> stack;
@@ -579,7 +594,7 @@ AstBuilder::build_const_decls(const ParseTreeNode *node) const {
                                                           "init_val");
         decls.push_back(std::make_unique<ConstDecl>(
             extract_declarator_name(declarator),
-            build_declared_type(type_specifier, declarator),
+            build_declared_type(type_specifier, declarator, true),
             collect_declarator_dimensions(declarator),
             build_expr(initializer), get_node_source_span(declarator_node)));
     }
@@ -680,6 +695,8 @@ AstBuilder::build_typedef_decls(const ParseTreeNode *node) const {
         ParseTreeMatcher::find_first_child_with_label(node, "type_specifier");
     const ParseTreeNode *declarator_list =
         ParseTreeMatcher::find_first_child_with_label(node, "declarator_list");
+    const ParseTreeNode *function_declarator =
+        ParseTreeMatcher::find_first_child_with_label(node, "function_declarator");
     if (node != nullptr) {
         for (const auto &child : node->children) {
             if (ParseTreeMatcher::label_equals(child.get(),
@@ -696,6 +713,9 @@ AstBuilder::build_typedef_decls(const ParseTreeNode *node) const {
     }
     if (has_union_field_list(type_specifier)) {
         decls.push_back(build_union_decl(type_specifier));
+    }
+    if (has_enumerator_list(type_specifier)) {
+        decls.push_back(build_enum_decl(type_specifier));
     }
     std::vector<const ParseTreeNode *> declarators;
     std::vector<const ParseTreeNode *> stack;
@@ -727,6 +747,27 @@ AstBuilder::build_typedef_decls(const ParseTreeNode *node) const {
                                 leading_qualifiers.is_volatile),
             collect_declarator_dimensions(declarator),
             get_node_source_span(declarator)));
+    }
+
+    if (declarators.empty() && function_declarator != nullptr) {
+        TypeQualifierFlags return_qualifiers = leading_qualifiers;
+        const ParseTreeNode *return_pointer =
+            ParseTreeMatcher::find_first_child_with_label(function_declarator,
+                                                          "pointer");
+        auto return_type = build_declared_type(type_specifier, return_pointer,
+                                               return_qualifiers.is_const,
+                                               return_qualifiers.is_volatile);
+        const ParseTreeNode *parameter_list_like_node =
+            find_parameter_list_node(function_declarator);
+        decls.push_back(std::make_unique<TypedefDecl>(
+            extract_declarator_name(function_declarator),
+            std::make_unique<FunctionTypeNode>(
+                std::move(return_type),
+                build_function_parameter_types(parameter_list_like_node),
+                has_variadic_marker(parameter_list_like_node),
+                get_node_source_span(function_declarator)),
+            std::vector<std::unique_ptr<Expr>>(),
+            get_node_source_span(function_declarator)));
     }
 
     if (decls.empty()) {
@@ -869,6 +910,46 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
             return std::make_unique<BuiltinTypeNode>(
                 "signed char", get_node_source_span(node));
         }
+        if (basic_type->children.size() == 2 &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
+                                                "SIGNED") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
+                                                "LONG")) {
+            return std::make_unique<BuiltinTypeNode>(
+                "long int", get_node_source_span(node));
+        }
+        if (basic_type->children.size() == 3 &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
+                                                "SIGNED") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
+                                                "LONG") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
+                                                "INT")) {
+            return std::make_unique<BuiltinTypeNode>(
+                "long int", get_node_source_span(node));
+        }
+        if (basic_type->children.size() == 3 &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
+                                                "SIGNED") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
+                                                "LONG") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
+                                                "LONG")) {
+            return std::make_unique<BuiltinTypeNode>(
+                "long long int", get_node_source_span(node));
+        }
+        if (basic_type->children.size() == 4 &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
+                                                "SIGNED") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
+                                                "LONG") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
+                                                "LONG") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[3].get(),
+                                                "INT")) {
+            return std::make_unique<BuiltinTypeNode>(
+                "long long int", get_node_source_span(node));
+        }
         if (basic_type->children.size() == 1 &&
             ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
                                                 "SHORT")) {
@@ -998,6 +1079,18 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
                                                 "LONG") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
                                                 "LONG")) {
+            return std::make_unique<BuiltinTypeNode>(
+                "unsigned long long", get_node_source_span(node));
+        }
+        if (basic_type->children.size() == 4 &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
+                                                "UNSIGNED") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
+                                                "LONG") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
+                                                "LONG") &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[3].get(),
+                                                "INT")) {
             return std::make_unique<BuiltinTypeNode>(
                 "unsigned long long", get_node_source_span(node));
         }
@@ -1144,6 +1237,26 @@ std::unique_ptr<TypeNode> AstBuilder::build_declarator_type(
     }
 
     std::unique_ptr<TypeNode> declared_type = std::move(base_type);
+    if (pointer_node != nullptr && direct_declarator != nullptr &&
+        direct_declarator->children.size() == 7 &&
+        ParseTreeMatcher::label_starts_with(
+            direct_declarator->children[0].get(), "LPAREN") &&
+        ParseTreeMatcher::label_equals(direct_declarator->children[1].get(),
+                                       "pointer") &&
+        ParseTreeMatcher::label_equals(direct_declarator->children[2].get(),
+                                       "direct_declarator") &&
+        ParseTreeMatcher::label_starts_with(
+            direct_declarator->children[3].get(), "RPAREN") &&
+        ParseTreeMatcher::label_starts_with(
+            direct_declarator->children[4].get(), "LPAREN") &&
+        is_parameter_list_node(direct_declarator->children[5].get()) &&
+        ParseTreeMatcher::label_starts_with(
+            direct_declarator->children[6].get(), "RPAREN")) {
+        declared_type = build_pointer_type(std::move(declared_type), pointer_node);
+        return build_direct_declarator_type(std::move(declared_type),
+                                            direct_declarator);
+    }
+
     if (direct_declarator != nullptr) {
         declared_type =
             build_direct_declarator_type(std::move(declared_type),
@@ -1282,6 +1395,33 @@ std::unique_ptr<TypeNode> AstBuilder::build_direct_declarator_type(
             get_node_source_span(direct_declarator));
         return build_declarator_type(std::move(function_type),
                                      direct_declarator->children[1].get());
+    }
+
+    if (direct_declarator->children.size() == 7 &&
+        ParseTreeMatcher::label_starts_with(direct_declarator->children[0].get(),
+                                            "LPAREN") &&
+        ParseTreeMatcher::label_equals(direct_declarator->children[1].get(),
+                                       "pointer") &&
+        ParseTreeMatcher::label_equals(direct_declarator->children[2].get(),
+                                       "direct_declarator") &&
+        ParseTreeMatcher::label_starts_with(direct_declarator->children[3].get(),
+                                            "RPAREN") &&
+        ParseTreeMatcher::label_starts_with(direct_declarator->children[4].get(),
+                                            "LPAREN") &&
+        is_parameter_list_node(direct_declarator->children[5].get()) &&
+        ParseTreeMatcher::label_starts_with(direct_declarator->children[6].get(),
+                                            "RPAREN")) {
+        std::unique_ptr<TypeNode> function_type = std::make_unique<FunctionTypeNode>(
+            std::move(base_type),
+            build_function_parameter_types(
+                direct_declarator->children[5].get()),
+            has_variadic_marker(direct_declarator->children[5].get()),
+            get_node_source_span(direct_declarator));
+        std::unique_ptr<TypeNode> pointer_to_function =
+            build_pointer_type(std::move(function_type),
+                               direct_declarator->children[1].get());
+        return build_direct_declarator_type(
+            std::move(pointer_to_function), direct_declarator->children[2].get());
     }
 
     return base_type;
@@ -1461,6 +1601,14 @@ AstBuilder::build_struct_fields(const ParseTreeNode *node) const {
         std::vector<const ParseTreeNode *> declarator_stack;
         if (declarator_list != nullptr) {
             declarator_stack.push_back(declarator_list);
+        } else {
+            fields.push_back(std::make_unique<FieldDecl>(
+                "", build_declared_type(type_specifier, nullptr,
+                                        leading_qualifiers.is_const,
+                                        leading_qualifiers.is_volatile),
+                std::vector<std::unique_ptr<Expr>>(), nullptr,
+                get_node_source_span(field_node)));
+            continue;
         }
         while (!declarator_stack.empty()) {
             const ParseTreeNode *current = declarator_stack.back();
@@ -1550,6 +1698,14 @@ AstBuilder::build_union_fields(const ParseTreeNode *node) const {
         std::vector<const ParseTreeNode *> declarator_stack;
         if (declarator_list != nullptr) {
             declarator_stack.push_back(declarator_list);
+        } else {
+            fields.push_back(std::make_unique<FieldDecl>(
+                "", build_declared_type(type_specifier, nullptr,
+                                        leading_qualifiers.is_const,
+                                        leading_qualifiers.is_volatile),
+                std::vector<std::unique_ptr<Expr>>(), nullptr,
+                get_node_source_span(field_node)));
+            continue;
         }
         while (!declarator_stack.empty()) {
             const ParseTreeNode *current = declarator_stack.back();
@@ -1835,6 +1991,16 @@ std::unique_ptr<Stmt> AstBuilder::build_stmt(const ParseTreeNode *node) const {
             get_node_source_span(stmt_node));
     }
 
+    if (stmt_node->children.size() == 4 &&
+        ParseTreeMatcher::label_starts_with(stmt_node->children[0].get(),
+                                            "GOTO") &&
+        ParseTreeMatcher::label_starts_with(stmt_node->children[1].get(),
+                                            "MUL")) {
+        return std::make_unique<GotoStmt>(
+            build_expr(stmt_node->children[2].get()),
+            get_node_source_span(stmt_node));
+    }
+
     for (const auto &child : stmt_node->children) {
         if (ParseTreeMatcher::label_starts_with(child.get(), "RETURN")) {
             const ParseTreeNode *expr_opt =
@@ -1890,6 +2056,11 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
             get_node_source_span(node));
     }
 
+    if (ParseTreeMatcher::label_equals(node, "string_literal_seq")) {
+        return std::make_unique<StringLiteralExpr>(
+            build_string_literal_sequence_text(node), get_node_source_span(node));
+    }
+
     if (ParseTreeMatcher::label_starts_with(node, "IDENTIFIER")) {
         const std::string name =
             ParseTreeMatcher::extract_terminal_suffix(node, "IDENTIFIER");
@@ -1911,6 +2082,7 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
             ParseTreeMatcher::label_starts_with(node->children[0].get(), "NOT") ||
             ParseTreeMatcher::label_starts_with(node->children[0].get(), "BITNOT") ||
             ParseTreeMatcher::label_starts_with(node->children[0].get(), "BITAND") ||
+            ParseTreeMatcher::label_starts_with(node->children[0].get(), "AND") ||
             ParseTreeMatcher::label_starts_with(node->children[0].get(), "MUL") ||
             ParseTreeMatcher::label_starts_with(node->children[0].get(), "SIZEOF")) {
             return std::make_unique<UnaryExpr>(

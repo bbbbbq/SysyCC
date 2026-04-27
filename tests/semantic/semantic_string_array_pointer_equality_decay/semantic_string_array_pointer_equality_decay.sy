@@ -1,0 +1,10 @@
+static const char strlocal[] = "local";
+static const char strupval[] = "upvalue";
+
+int is_known(const char *what) {
+    return what != strlocal && what != strupval;
+}
+
+int main(void) {
+    return is_known("other");
+}

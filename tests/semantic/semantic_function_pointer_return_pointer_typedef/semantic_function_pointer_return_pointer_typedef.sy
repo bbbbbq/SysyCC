@@ -1,0 +1,17 @@
+typedef unsigned long size_t;
+typedef void *(*Alloc)(void *ud, void *ptr, size_t old_size, size_t new_size);
+
+struct G {
+    Alloc frealloc;
+    void *ud;
+};
+
+void *try_again(struct G *g, void *block, size_t osize, size_t nsize) {
+    return ((*g->frealloc)(g->ud, block, osize, nsize));
+}
+
+void *realloc_like(struct G *g, void *block, size_t osize, size_t nsize) {
+    void *newblock;
+    newblock = ((*g->frealloc)(g->ud, block, osize, nsize));
+    return newblock;
+}

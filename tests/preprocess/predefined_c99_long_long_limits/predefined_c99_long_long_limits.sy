@@ -1,0 +1,13 @@
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#define LOCAL_LLONG_MAX __LONG_LONG_MAX__
+#endif
+
+#if defined(LOCAL_LLONG_MAX)
+int selected = 1;
+#else
+#error missing C99 long long limit predefined macros
+#endif
+
+int main() {
+    return selected == 1 ? 0 : 1;
+}

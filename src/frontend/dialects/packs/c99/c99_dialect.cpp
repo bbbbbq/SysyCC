@@ -12,7 +12,10 @@ void C99Dialect::contribute_lexer_keywords(
     registry.add_keyword("volatile", TokenKind::KwVolatile);
     registry.add_keyword("extern", TokenKind::KwExtern);
     registry.add_keyword("static", TokenKind::KwStatic);
+    registry.add_keyword("register", TokenKind::KwRegister);
     registry.add_keyword("inline", TokenKind::KwInline);
+    registry.add_keyword("__inline", TokenKind::KwInline);
+    registry.add_keyword("__inline__", TokenKind::KwInline);
     registry.add_keyword("restrict", TokenKind::KwRestrict);
     registry.add_keyword("long", TokenKind::KwLong);
     registry.add_keyword("signed", TokenKind::KwSigned);

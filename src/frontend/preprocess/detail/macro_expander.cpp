@@ -43,6 +43,27 @@ bool is_token_char(char ch) {
     return is_identifier_char(ch);
 }
 
+bool is_single_identifier(const std::string &text) {
+    const std::string trimmed_text = trim(text);
+    if (trimmed_text.empty() || !is_identifier_start(trimmed_text.front())) {
+        return false;
+    }
+    for (char ch : trimmed_text.substr(1)) {
+        if (!is_identifier_char(ch)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool is_followed_by_invocation(const std::string &line, std::size_t index) {
+    while (index < line.size() &&
+           std::isspace(static_cast<unsigned char>(line[index])) != 0) {
+        ++index;
+    }
+    return index < line.size() && line[index] == '(';
+}
+
 } // namespace
 
 std::string MacroExpander::stringify_argument(const std::string &argument) const {
@@ -290,15 +311,34 @@ std::string MacroExpander::expand_text(
             continue;
         }
 
-        active_macros.insert(identifier);
-
         if (!definition->get_is_function_like()) {
-            output += expand_text(definition->get_replacement(), macro_table,
-                                  active_macros, depth + 1);
+            const std::string &replacement = definition->get_replacement();
+            const std::string replacement_identifier = trim(replacement);
+            const MacroDefinition *replacement_definition =
+                is_single_identifier(replacement_identifier)
+                    ? macro_table.get_macro_definition(replacement_identifier)
+                    : nullptr;
+            if (replacement_definition != nullptr &&
+                replacement_definition->get_is_function_like() &&
+                is_followed_by_invocation(line, end)) {
+                std::unordered_set<std::string> replacement_active_macros =
+                    active_macros;
+                replacement_active_macros.insert(identifier);
+                output += expand_text(replacement + line.substr(end),
+                                      macro_table, replacement_active_macros,
+                                      depth + 1);
+                return output;
+            }
+
+            active_macros.insert(identifier);
+            output += expand_text(replacement, macro_table, active_macros,
+                                  depth + 1);
             active_macros.erase(identifier);
             index = end;
             continue;
         }
+
+        active_macros.insert(identifier);
 
         std::size_t next_index = end;
         while (next_index < line.size() &&

@@ -49,11 +49,6 @@ void initialize_predefined_macros(
     MacroTable &macro_table,
     const PreprocessFeatureRegistry &preprocess_feature_registry,
     const std::string &primary_input_file) {
-    if (!preprocess_feature_registry.has_feature(
-            PreprocessFeature::GnuPredefinedMacros)) {
-        return;
-    }
-
     const std::string input_file_name =
         primary_input_file.empty()
             ? std::string("<unknown>")
@@ -70,8 +65,64 @@ void initialize_predefined_macros(
                              escape_string_literal(input_file_name));
     define_object_like_macro(macro_table, "__LINE__", "1");
     define_object_like_macro(macro_table, "__func__", "\"\"");
+    define_object_like_macro(macro_table, "__FUNCTION__", "\"\"");
+    define_object_like_macro(macro_table, "__PRETTY_FUNCTION__", "\"\"");
     define_function_like_macro(macro_table, "__builtin_expect", "(__value)",
                                {"__value", "__expected"});
+    define_function_like_macro(macro_table, "__builtin_huge_valf",
+                               "(1.0f / 0.0f)", {});
+    define_function_like_macro(macro_table, "__builtin_huge_val",
+                               "(1.0 / 0.0)", {});
+    define_function_like_macro(macro_table, "__builtin_huge_vall",
+                               "(1.0L / 0.0L)", {});
+    define_function_like_macro(macro_table, "__builtin_inff",
+                               "(1.0f / 0.0f)", {});
+    define_function_like_macro(macro_table, "__builtin_inf",
+                               "(1.0 / 0.0)", {});
+    define_function_like_macro(macro_table, "__builtin_infl",
+                               "(1.0L / 0.0L)", {});
+    define_function_like_macro(macro_table, "__builtin_nanf",
+                               "(0.0f / 0.0f)", {"__tag"});
+    define_function_like_macro(macro_table, "__builtin_nan",
+                               "(0.0 / 0.0)", {"__tag"});
+    define_function_like_macro(macro_table, "__builtin_nanl",
+                               "(0.0L / 0.0L)", {"__tag"});
+    define_function_like_macro(macro_table, "__builtin_isnan",
+                               "((__value) != (__value))", {"__value"});
+    define_function_like_macro(
+        macro_table, "__builtin_isfinite",
+        "(((__value) == (__value)) && ((__value) != (1.0 / 0.0)) && ((__value) != (-1.0 / 0.0)))",
+        {"__value"});
+    define_function_like_macro(
+        macro_table, "__builtin_isinf_sign",
+        "(((__value) == (1.0 / 0.0)) ? 1 : (((__value) == (-1.0 / 0.0)) ? -1 : 0))",
+        {"__value"});
+    define_function_like_macro(
+        macro_table, "__builtin_signbit",
+        "(((__value) < 0) || ((1.0 / (__value)) < 0))", {"__value"});
+    define_function_like_macro(
+        macro_table, "__builtin_offsetof",
+        "((unsigned long)(&(((__type *)0)->__member)))",
+        {"__type", "__member"});
+    define_function_like_macro(macro_table, "__builtin_va_start", "((void)0)",
+                               {"__ap", "__last"});
+    define_function_like_macro(macro_table, "__builtin_va_end", "((void)0)",
+                               {"__ap"});
+    define_function_like_macro(macro_table, "__builtin_va_copy", "((void)0)",
+                               {"__dst", "__src"});
+    define_function_like_macro(macro_table, "__builtin_va_arg",
+                               "((__type)0)", {"__ap", "__type"});
+    if (!preprocess_feature_registry.has_feature(
+            PreprocessFeature::GnuPredefinedMacros)) {
+        define_object_like_macro(macro_table, "__STRICT_ANSI__", "1");
+        define_function_like_macro(macro_table, "__attribute__", "",
+                                   {"__attrs"});
+        define_function_like_macro(macro_table, "__attribute", "",
+                                   {"__attrs"});
+        define_function_like_macro(macro_table, "__asm__", "", {"__label"});
+        define_function_like_macro(macro_table, "__asm", "", {"__label"});
+        define_object_like_macro(macro_table, "__extension__", "");
+    }
 
 #if defined(__APPLE__)
     define_object_like_macro(macro_table, "__APPLE__", "1");
@@ -166,14 +217,25 @@ void initialize_predefined_macros(
     define_object_like_macro(macro_table, "__INT32_MAX__",
                              SYSYCC_STRINGIZE(__INT32_MAX__));
 #endif
+    define_object_like_macro(macro_table, "__UINT32_MAX__", "4294967295U");
 #if defined(__INT64_MAX__)
     define_object_like_macro(macro_table, "__INT64_MAX__",
                              SYSYCC_STRINGIZE(__INT64_MAX__));
 #endif
+    define_object_like_macro(macro_table, "__UINT64_MAX__",
+                             "18446744073709551615ULL");
 #if defined(__SIZE_MAX__)
     define_object_like_macro(macro_table, "__SIZE_MAX__",
                              SYSYCC_STRINGIZE(__SIZE_MAX__));
 #endif
+    define_object_like_macro(macro_table, "__SIZE_TYPE__", "unsigned long");
+    define_object_like_macro(macro_table, "__PTRDIFF_TYPE__", "long");
+    define_object_like_macro(macro_table, "__INTPTR_TYPE__", "long");
+    define_object_like_macro(macro_table, "__UINTPTR_TYPE__", "unsigned long");
+    define_object_like_macro(macro_table, "__INTMAX_TYPE__", "long");
+    define_object_like_macro(macro_table, "__UINTMAX_TYPE__", "unsigned long");
+    define_object_like_macro(macro_table, "__WCHAR_TYPE__", "int");
+    define_object_like_macro(macro_table, "__WINT_TYPE__", "unsigned int");
 #if defined(__FLT_RADIX__)
     define_object_like_macro(macro_table, "__FLT_RADIX__",
                              SYSYCC_STRINGIZE(__FLT_RADIX__));
@@ -206,6 +268,90 @@ void initialize_predefined_macros(
     define_object_like_macro(macro_table, "__LDBL_DIG__",
                              SYSYCC_STRINGIZE(__LDBL_DIG__));
 #endif
+#if defined(__FLT_MIN_EXP__)
+    define_object_like_macro(macro_table, "__FLT_MIN_EXP__",
+                             SYSYCC_STRINGIZE(__FLT_MIN_EXP__));
+#elif defined(FLT_MIN_EXP)
+    define_object_like_macro(macro_table, "__FLT_MIN_EXP__",
+                             SYSYCC_STRINGIZE(FLT_MIN_EXP));
+#endif
+#if defined(__DBL_MIN_EXP__)
+    define_object_like_macro(macro_table, "__DBL_MIN_EXP__",
+                             SYSYCC_STRINGIZE(__DBL_MIN_EXP__));
+#elif defined(DBL_MIN_EXP)
+    define_object_like_macro(macro_table, "__DBL_MIN_EXP__",
+                             SYSYCC_STRINGIZE(DBL_MIN_EXP));
+#endif
+#if defined(__LDBL_MIN_EXP__)
+    define_object_like_macro(macro_table, "__LDBL_MIN_EXP__",
+                             SYSYCC_STRINGIZE(__LDBL_MIN_EXP__));
+#elif defined(LDBL_MIN_EXP)
+    define_object_like_macro(macro_table, "__LDBL_MIN_EXP__",
+                             SYSYCC_STRINGIZE(LDBL_MIN_EXP));
+#endif
+#if defined(__FLT_MAX_EXP__)
+    define_object_like_macro(macro_table, "__FLT_MAX_EXP__",
+                             SYSYCC_STRINGIZE(__FLT_MAX_EXP__));
+#elif defined(FLT_MAX_EXP)
+    define_object_like_macro(macro_table, "__FLT_MAX_EXP__",
+                             SYSYCC_STRINGIZE(FLT_MAX_EXP));
+#endif
+#if defined(__DBL_MAX_EXP__)
+    define_object_like_macro(macro_table, "__DBL_MAX_EXP__",
+                             SYSYCC_STRINGIZE(__DBL_MAX_EXP__));
+#elif defined(DBL_MAX_EXP)
+    define_object_like_macro(macro_table, "__DBL_MAX_EXP__",
+                             SYSYCC_STRINGIZE(DBL_MAX_EXP));
+#endif
+#if defined(__LDBL_MAX_EXP__)
+    define_object_like_macro(macro_table, "__LDBL_MAX_EXP__",
+                             SYSYCC_STRINGIZE(__LDBL_MAX_EXP__));
+#elif defined(LDBL_MAX_EXP)
+    define_object_like_macro(macro_table, "__LDBL_MAX_EXP__",
+                             SYSYCC_STRINGIZE(LDBL_MAX_EXP));
+#endif
+#if defined(__FLT_MIN_10_EXP__)
+    define_object_like_macro(macro_table, "__FLT_MIN_10_EXP__",
+                             SYSYCC_STRINGIZE(__FLT_MIN_10_EXP__));
+#elif defined(FLT_MIN_10_EXP)
+    define_object_like_macro(macro_table, "__FLT_MIN_10_EXP__",
+                             SYSYCC_STRINGIZE(FLT_MIN_10_EXP));
+#endif
+#if defined(__DBL_MIN_10_EXP__)
+    define_object_like_macro(macro_table, "__DBL_MIN_10_EXP__",
+                             SYSYCC_STRINGIZE(__DBL_MIN_10_EXP__));
+#elif defined(DBL_MIN_10_EXP)
+    define_object_like_macro(macro_table, "__DBL_MIN_10_EXP__",
+                             SYSYCC_STRINGIZE(DBL_MIN_10_EXP));
+#endif
+#if defined(__LDBL_MIN_10_EXP__)
+    define_object_like_macro(macro_table, "__LDBL_MIN_10_EXP__",
+                             SYSYCC_STRINGIZE(__LDBL_MIN_10_EXP__));
+#elif defined(LDBL_MIN_10_EXP)
+    define_object_like_macro(macro_table, "__LDBL_MIN_10_EXP__",
+                             SYSYCC_STRINGIZE(LDBL_MIN_10_EXP));
+#endif
+#if defined(__FLT_MAX_10_EXP__)
+    define_object_like_macro(macro_table, "__FLT_MAX_10_EXP__",
+                             SYSYCC_STRINGIZE(__FLT_MAX_10_EXP__));
+#elif defined(FLT_MAX_10_EXP)
+    define_object_like_macro(macro_table, "__FLT_MAX_10_EXP__",
+                             SYSYCC_STRINGIZE(FLT_MAX_10_EXP));
+#endif
+#if defined(__DBL_MAX_10_EXP__)
+    define_object_like_macro(macro_table, "__DBL_MAX_10_EXP__",
+                             SYSYCC_STRINGIZE(__DBL_MAX_10_EXP__));
+#elif defined(DBL_MAX_10_EXP)
+    define_object_like_macro(macro_table, "__DBL_MAX_10_EXP__",
+                             SYSYCC_STRINGIZE(DBL_MAX_10_EXP));
+#endif
+#if defined(__LDBL_MAX_10_EXP__)
+    define_object_like_macro(macro_table, "__LDBL_MAX_10_EXP__",
+                             SYSYCC_STRINGIZE(__LDBL_MAX_10_EXP__));
+#elif defined(LDBL_MAX_10_EXP)
+    define_object_like_macro(macro_table, "__LDBL_MAX_10_EXP__",
+                             SYSYCC_STRINGIZE(LDBL_MAX_10_EXP));
+#endif
 #if defined(__FLT_EPSILON__)
     define_object_like_macro(macro_table, "__FLT_EPSILON__",
                              SYSYCC_STRINGIZE(__FLT_EPSILON__));
@@ -217,141 +363,6 @@ void initialize_predefined_macros(
 #if defined(__LDBL_EPSILON__)
     define_object_like_macro(macro_table, "__LDBL_EPSILON__",
                              SYSYCC_STRINGIZE(__LDBL_EPSILON__));
-#endif
-
-#if defined(INT8_MIN)
-    define_object_like_macro(macro_table, "INT8_MIN", SYSYCC_STRINGIZE(INT8_MIN));
-#endif
-#if defined(CHAR_BIT)
-    define_object_like_macro(macro_table, "CHAR_BIT",
-                             SYSYCC_STRINGIZE(CHAR_BIT));
-#endif
-#if defined(SCHAR_MIN)
-    define_object_like_macro(macro_table, "SCHAR_MIN",
-                             SYSYCC_STRINGIZE(SCHAR_MIN));
-#endif
-#if defined(SCHAR_MAX)
-    define_object_like_macro(macro_table, "SCHAR_MAX",
-                             SYSYCC_STRINGIZE(SCHAR_MAX));
-#endif
-#if defined(UCHAR_MAX)
-    define_object_like_macro(macro_table, "UCHAR_MAX",
-                             SYSYCC_STRINGIZE(UCHAR_MAX));
-#endif
-#if defined(CHAR_MIN)
-    define_object_like_macro(macro_table, "CHAR_MIN",
-                             SYSYCC_STRINGIZE(CHAR_MIN));
-#endif
-#if defined(CHAR_MAX)
-    define_object_like_macro(macro_table, "CHAR_MAX",
-                             SYSYCC_STRINGIZE(CHAR_MAX));
-#endif
-#if defined(SHRT_MIN)
-    define_object_like_macro(macro_table, "SHRT_MIN",
-                             SYSYCC_STRINGIZE(SHRT_MIN));
-#endif
-#if defined(SHRT_MAX)
-    define_object_like_macro(macro_table, "SHRT_MAX",
-                             SYSYCC_STRINGIZE(SHRT_MAX));
-#endif
-#if defined(USHRT_MAX)
-    define_object_like_macro(macro_table, "USHRT_MAX",
-                             SYSYCC_STRINGIZE(USHRT_MAX));
-#endif
-#if defined(INT_MIN)
-    define_object_like_macro(macro_table, "INT_MIN",
-                             SYSYCC_STRINGIZE(INT_MIN));
-#endif
-#if defined(INT_MAX)
-    define_object_like_macro(macro_table, "INT_MAX",
-                             SYSYCC_STRINGIZE(INT_MAX));
-#endif
-#if defined(UINT_MAX)
-    define_object_like_macro(macro_table, "UINT_MAX",
-                             SYSYCC_STRINGIZE(UINT_MAX));
-#endif
-#if defined(LONG_MIN)
-    define_object_like_macro(macro_table, "LONG_MIN",
-                             SYSYCC_STRINGIZE(LONG_MIN));
-#endif
-#if defined(LONG_MAX)
-    define_object_like_macro(macro_table, "LONG_MAX",
-                             SYSYCC_STRINGIZE(LONG_MAX));
-#endif
-#if defined(ULONG_MAX)
-    define_object_like_macro(macro_table, "ULONG_MAX",
-                             SYSYCC_STRINGIZE(ULONG_MAX));
-#endif
-#if defined(LLONG_MIN)
-    define_object_like_macro(macro_table, "LLONG_MIN",
-                             SYSYCC_STRINGIZE(LLONG_MIN));
-#endif
-#if defined(LLONG_MAX)
-    define_object_like_macro(macro_table, "LLONG_MAX",
-                             SYSYCC_STRINGIZE(LLONG_MAX));
-#endif
-#if defined(ULLONG_MAX)
-    define_object_like_macro(macro_table, "ULLONG_MAX",
-                             SYSYCC_STRINGIZE(ULLONG_MAX));
-#endif
-#if defined(INT8_MAX)
-    define_object_like_macro(macro_table, "INT8_MAX", SYSYCC_STRINGIZE(INT8_MAX));
-#endif
-#if defined(UINT8_MAX)
-    define_object_like_macro(macro_table, "UINT8_MAX",
-                             SYSYCC_STRINGIZE(UINT8_MAX));
-#endif
-#if defined(INT16_MIN)
-    define_object_like_macro(macro_table, "INT16_MIN",
-                             SYSYCC_STRINGIZE(INT16_MIN));
-#endif
-#if defined(INT16_MAX)
-    define_object_like_macro(macro_table, "INT16_MAX",
-                             SYSYCC_STRINGIZE(INT16_MAX));
-#endif
-#if defined(UINT16_MAX)
-    define_object_like_macro(macro_table, "UINT16_MAX",
-                             SYSYCC_STRINGIZE(UINT16_MAX));
-#endif
-#if defined(INT32_MIN)
-    define_object_like_macro(macro_table, "INT32_MIN",
-                             SYSYCC_STRINGIZE(INT32_MIN));
-#endif
-#if defined(INT32_MAX)
-    define_object_like_macro(macro_table, "INT32_MAX",
-                             SYSYCC_STRINGIZE(INT32_MAX));
-#endif
-#if defined(UINT32_MAX)
-    define_object_like_macro(macro_table, "UINT32_MAX",
-                             SYSYCC_STRINGIZE(UINT32_MAX));
-#endif
-#if defined(INT64_MIN)
-    define_object_like_macro(macro_table, "INT64_MIN",
-                             SYSYCC_STRINGIZE(INT64_MIN));
-#endif
-#if defined(INT64_MAX)
-    define_object_like_macro(macro_table, "INT64_MAX",
-                             SYSYCC_STRINGIZE(INT64_MAX));
-#endif
-#if defined(UINT64_MAX)
-    define_object_like_macro(macro_table, "UINT64_MAX",
-                             SYSYCC_STRINGIZE(UINT64_MAX));
-#endif
-#if defined(INTPTR_MIN)
-    define_object_like_macro(macro_table, "INTPTR_MIN",
-                             SYSYCC_STRINGIZE(INTPTR_MIN));
-#endif
-#if defined(INTPTR_MAX)
-    define_object_like_macro(macro_table, "INTPTR_MAX",
-                             SYSYCC_STRINGIZE(INTPTR_MAX));
-#endif
-#if defined(UINTPTR_MAX)
-    define_object_like_macro(macro_table, "UINTPTR_MAX",
-                             SYSYCC_STRINGIZE(UINTPTR_MAX));
-#endif
-#if defined(SIZE_MAX)
-    define_object_like_macro(macro_table, "SIZE_MAX",
-                             SYSYCC_STRINGIZE(SIZE_MAX));
 #endif
 
 #if defined(FLT_MIN)

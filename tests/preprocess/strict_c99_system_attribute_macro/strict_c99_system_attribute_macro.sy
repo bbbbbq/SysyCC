@@ -1,0 +1,10 @@
+int accepts_attr(int *ptr) __attribute__ ((__nonnull__ (1)));
+
+int accepts_attr(int *ptr) {
+    return *ptr;
+}
+
+int main(void) {
+    int value = 3;
+    return accepts_attr(&value) == 3 ? 0 : 1;
+}

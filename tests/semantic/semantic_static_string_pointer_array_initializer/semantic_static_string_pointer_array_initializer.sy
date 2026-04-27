@@ -1,0 +1,10 @@
+static const char *const names[] = {
+    "MOVE",
+    "LOADI",
+    "RETURN",
+    0
+};
+
+int main(void) {
+    return names[0][0] == 'M' ? 0 : 1;
+}

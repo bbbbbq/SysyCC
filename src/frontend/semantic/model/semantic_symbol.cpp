@@ -15,6 +15,8 @@ const std::string &SemanticSymbol::get_name() const noexcept { return name_; }
 
 const SemanticType *SemanticSymbol::get_type() const noexcept { return type_; }
 
+void SemanticSymbol::set_type(const SemanticType *type) noexcept { type_ = type; }
+
 const AstNode *SemanticSymbol::get_decl_node() const noexcept {
     return decl_node_;
 }

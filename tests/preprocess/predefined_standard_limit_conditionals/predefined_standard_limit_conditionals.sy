@@ -1,4 +1,4 @@
-#if INT16_MAX >= INT_MAX
+#if __INT16_MAX__ >= __INT_MAX__
 int int16_ge_int() {
     return 1;
 }
@@ -8,7 +8,7 @@ int int16_ge_int() {
 }
 #endif
 
-#if INT32_MAX >= INT_MAX
+#if __INT32_MAX__ >= __INT_MAX__
 int int32_ge_int() {
     return 1;
 }
@@ -18,7 +18,7 @@ int int32_ge_int() {
 }
 #endif
 
-#if CHAR_BIT == 8
+#if __CHAR_BIT__ == 8
 int char_bit_is_eight() {
     return 1;
 }

@@ -1,0 +1,5 @@
+#ifdef __STRICT_ANSI__
+int strict_ansi_enabled = 1;
+#else
+int strict_ansi_enabled = -1;
+#endif

@@ -90,17 +90,34 @@ const ParserErrorInfo &get_parser_error_info() noexcept {
     return g_parser_error_info;
 }
 
+void register_typedef_name(const std::string &name) {
+    if (!name.empty()) {
+        g_typedef_names.insert(name);
+    }
+}
+
 void register_typedef_names_from_declarator_list(const ParseTreeNode *node) {
     if (node == nullptr) {
         return;
     }
-    if (node->label.rfind("IDENTIFIER ", 0) == 0) {
-        g_typedef_names.insert(node->label.substr(std::string("IDENTIFIER ").size()));
+    if (node->label == "parameter_decl" ||
+        node->label == "parameter_list" ||
+        node->label == "function_parameter_list_opt") {
         return;
     }
-    if (node->label.rfind("TYPE_NAME ", 0) == 0) {
-        g_typedef_names.insert(node->label.substr(std::string("TYPE_NAME ").size()));
-        return;
+    if (node->label == "declarator_identifier") {
+        for (const auto &child : node->children) {
+            if (child->label.rfind("IDENTIFIER ", 0) == 0) {
+                register_typedef_name(
+                    child->label.substr(std::string("IDENTIFIER ").size()));
+                return;
+            }
+            if (child->label.rfind("TYPE_NAME ", 0) == 0) {
+                register_typedef_name(
+                    child->label.substr(std::string("TYPE_NAME ").size()));
+                return;
+            }
+        }
     }
     for (const auto &child : node->children) {
         register_typedef_names_from_declarator_list(child.get());

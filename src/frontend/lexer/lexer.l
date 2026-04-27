@@ -40,6 +40,8 @@ static int get_keyword_parser_token(sysycc::TokenKind kind) {
         return EXTERN;
     case sysycc::TokenKind::KwStatic:
         return STATIC;
+    case sysycc::TokenKind::KwRegister:
+        return REGISTER;
     case sysycc::TokenKind::KwAttribute:
         return ATTRIBUTE;
     case sysycc::TokenKind::KwAsm:
@@ -119,6 +121,8 @@ static const char *get_keyword_token_label(int token) {
         return "EXTERN";
     case STATIC:
         return "STATIC";
+    case REGISTER:
+        return "REGISTER";
     case ATTRIBUTE:
         return "ATTRIBUTE";
     case ASM:

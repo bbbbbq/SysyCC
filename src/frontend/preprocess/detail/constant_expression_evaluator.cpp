@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <string>
 
+#include "frontend/preprocess/detail/macro_expander.hpp"
+
 namespace sysycc::preprocess::detail {
 
 namespace {
@@ -102,6 +104,78 @@ class ExpressionParser {
         return true;
     }
 
+    bool find_macro_invocation_end(std::size_t open_paren_index,
+                                   std::size_t &end_index) const {
+        if (open_paren_index >= expression_.size() ||
+            expression_[open_paren_index] != '(') {
+            return false;
+        }
+
+        int depth = 1;
+        bool in_string_literal = false;
+        bool in_char_literal = false;
+        bool escaping = false;
+        std::size_t index = open_paren_index + 1;
+        while (index < expression_.size()) {
+            const char ch = expression_[index];
+            if (in_string_literal) {
+                if (escaping) {
+                    escaping = false;
+                } else if (ch == '\\') {
+                    escaping = true;
+                } else if (ch == '"') {
+                    in_string_literal = false;
+                }
+                ++index;
+                continue;
+            }
+
+            if (in_char_literal) {
+                if (escaping) {
+                    escaping = false;
+                } else if (ch == '\\') {
+                    escaping = true;
+                } else if (ch == '\'') {
+                    in_char_literal = false;
+                }
+                ++index;
+                continue;
+            }
+
+            if (ch == '"') {
+                in_string_literal = true;
+                ++index;
+                continue;
+            }
+
+            if (ch == '\'') {
+                in_char_literal = true;
+                ++index;
+                continue;
+            }
+
+            if (ch == '(') {
+                ++depth;
+                ++index;
+                continue;
+            }
+
+            if (ch == ')') {
+                --depth;
+                ++index;
+                if (depth == 0) {
+                    end_index = index;
+                    return true;
+                }
+                continue;
+            }
+
+            ++index;
+        }
+
+        return false;
+    }
+
     PassResult parse_number(long long &value) {
         skip_spaces();
         if (index_ >= expression_.size()) {
@@ -158,7 +232,76 @@ class ExpressionParser {
         return PassResult::Success();
     }
 
+    PassResult parse_character_literal(long long &value) {
+        skip_spaces();
+        if (index_ >= expression_.size()) {
+            return PassResult::Failure("expected character literal");
+        }
+
+        if ((expression_[index_] == 'L' || expression_[index_] == 'u' ||
+             expression_[index_] == 'U') &&
+            index_ + 1 < expression_.size() && expression_[index_ + 1] == '\'') {
+            ++index_;
+        }
+        if (index_ >= expression_.size() || expression_[index_] != '\'') {
+            return PassResult::Failure("expected character literal");
+        }
+        ++index_;
+        if (index_ >= expression_.size()) {
+            return PassResult::Failure("unterminated character literal");
+        }
+
+        unsigned char parsed_value = 0;
+        if (expression_[index_] == '\\') {
+            ++index_;
+            if (index_ >= expression_.size()) {
+                return PassResult::Failure("unterminated character literal");
+            }
+            const char escape = expression_[index_++];
+            switch (escape) {
+            case '0':
+                parsed_value = 0;
+                while (index_ < expression_.size() &&
+                       expression_[index_] >= '0' && expression_[index_] <= '7') {
+                    ++index_;
+                }
+                break;
+            case 'n':
+                parsed_value = '\n';
+                break;
+            case 't':
+                parsed_value = '\t';
+                break;
+            case 'r':
+                parsed_value = '\r';
+                break;
+            case '\\':
+                parsed_value = '\\';
+                break;
+            case '\'':
+                parsed_value = '\'';
+                break;
+            default:
+                parsed_value = static_cast<unsigned char>(escape);
+                break;
+            }
+        } else {
+            parsed_value = static_cast<unsigned char>(expression_[index_++]);
+        }
+
+        while (index_ < expression_.size() && expression_[index_] != '\'') {
+            ++index_;
+        }
+        if (index_ >= expression_.size()) {
+            return PassResult::Failure("unterminated character literal");
+        }
+        ++index_;
+        value = parsed_value;
+        return PassResult::Success();
+    }
+
     PassResult evaluate_macro_replacement(const std::string &identifier,
+                                          std::size_t identifier_begin,
                                           long long &value) {
         const MacroDefinition *definition =
             macro_table_.get_macro_definition(identifier);
@@ -167,12 +310,42 @@ class ExpressionParser {
             return PassResult::Success();
         }
 
-        // Function-like macros only participate in #if expression replacement
-        // when they are actually invoked. A bare identifier must behave like
-        // any other leftover identifier and evaluate to 0.
         if (definition->get_is_function_like()) {
-            value = 0;
-            return PassResult::Success();
+            std::size_t next_index = index_;
+            while (next_index < expression_.size() &&
+                   std::isspace(static_cast<unsigned char>(
+                       expression_[next_index])) != 0) {
+                ++next_index;
+            }
+            std::size_t invocation_end = next_index;
+            if (next_index >= expression_.size() ||
+                expression_[next_index] != '(' ||
+                !find_macro_invocation_end(next_index, invocation_end)) {
+                // Function-like macros only participate in #if expression
+                // replacement when they are actually invoked. A bare
+                // identifier behaves like any other leftover identifier.
+                value = 0;
+                return PassResult::Success();
+            }
+
+            if (depth_ > 16) {
+                return PassResult::Failure(
+                    "macro expansion too deep in #if expression");
+            }
+
+            const std::string invocation = expression_.substr(
+                identifier_begin, invocation_end - identifier_begin);
+            const MacroExpander macro_expander;
+            const std::string expanded_invocation =
+                macro_expander.expand_line(invocation, macro_table_);
+            index_ = invocation_end;
+
+            ExpressionParser nested_parser(
+                expanded_invocation, macro_table_, builtin_probe_evaluator_,
+                current_file_path_, include_directories_,
+                quote_include_directories_, system_include_directories_,
+                dialect_manager_, depth_ + 1);
+            return nested_parser.parse_complete_expression(value);
         }
 
         if (depth_ > 16) {
@@ -207,12 +380,22 @@ class ExpressionParser {
             return parse_number(value);
         }
 
+        if (index_ < expression_.size() &&
+            (expression_[index_] == '\'' ||
+             ((expression_[index_] == 'L' || expression_[index_] == 'u' ||
+               expression_[index_] == 'U') &&
+              index_ + 1 < expression_.size() &&
+              expression_[index_ + 1] == '\''))) {
+            return parse_character_literal(value);
+        }
+
+        const std::size_t identifier_begin = index_;
         std::string identifier;
         if (!parse_identifier(identifier)) {
             return PassResult::Failure("invalid token in #if expression");
         }
 
-        return evaluate_macro_replacement(identifier, value);
+        return evaluate_macro_replacement(identifier, identifier_begin, value);
     }
 
     PassResult parse_unary(long long &value) {

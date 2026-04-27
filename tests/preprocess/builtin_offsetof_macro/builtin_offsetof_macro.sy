@@ -1,0 +1,8 @@
+struct Header {
+    int tag;
+    char payload[8];
+};
+
+int main(void) {
+    return (int)__builtin_offsetof(struct Header, payload);
+}

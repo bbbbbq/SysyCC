@@ -1,0 +1,16 @@
+typedef struct CallInfo CallInfo;
+typedef struct lua_State lua_State;
+typedef int (*lua_KFunction) (lua_State *L, int status);
+
+struct lua_State {
+    CallInfo *ci;
+};
+
+static int read_ci(lua_State *L) {
+    CallInfo *ci = L->ci;
+    return ci == 0;
+}
+
+int main(void) {
+    return 0;
+}

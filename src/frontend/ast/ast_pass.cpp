@@ -199,6 +199,10 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         const auto *label_stmt = static_cast<const LabelStmt *>(node);
         return ast_contains_unknown_nodes(label_stmt->get_body());
     }
+    case AstKind::GotoStmt: {
+        const auto *goto_stmt = static_cast<const GotoStmt *>(node);
+        return ast_contains_unknown_nodes(goto_stmt->get_indirect_target());
+    }
     case AstKind::ReturnStmt: {
         const auto *return_stmt = static_cast<const ReturnStmt *>(node);
         return ast_contains_unknown_nodes(return_stmt->get_value());
@@ -327,7 +331,6 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
     case AstKind::EnumType:
     case AstKind::BreakStmt:
     case AstKind::ContinueStmt:
-    case AstKind::GotoStmt:
     case AstKind::IntegerLiteralExpr:
     case AstKind::FloatLiteralExpr:
     case AstKind::CharLiteralExpr:

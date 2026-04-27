@@ -1,0 +1,12 @@
+#define __GLIBC_USE(feature) __GLIBC_USE_##feature
+#define __GLIBC_USE_ISOC2X 1
+
+#if __GLIBC_USE (ISOC2X)
+int selected = 7;
+#else
+int selected = 0;
+#endif
+
+int main() {
+    return selected == 7 ? 0 : 1;
+}

@@ -34,6 +34,8 @@ void GnuDialect::contribute_lexer_keywords(
     registry.add_keyword("__attribute__", TokenKind::KwAttribute);
     registry.add_keyword("__asm", TokenKind::KwAsm);
     registry.add_keyword("__asm__", TokenKind::KwAsm);
+    registry.add_keyword("__inline", TokenKind::KwInline);
+    registry.add_keyword("__inline__", TokenKind::KwInline);
     registry.add_keyword("__const", TokenKind::KwConst);
     registry.add_keyword("__const__", TokenKind::KwConst);
     registry.add_keyword("__volatile", TokenKind::KwVolatile);

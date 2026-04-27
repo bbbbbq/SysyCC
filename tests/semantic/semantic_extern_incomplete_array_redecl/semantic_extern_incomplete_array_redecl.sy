@@ -1,0 +1,7 @@
+extern const char lua_ident[];
+
+const char lua_ident[] = "lua";
+
+int main(void) {
+    return lua_ident[0] == 'l' ? 0 : 1;
+}

@@ -36,6 +36,7 @@ class SemanticSymbol {
     SymbolKind get_kind() const noexcept;
     const std::string &get_name() const noexcept;
     const SemanticType *get_type() const noexcept;
+    void set_type(const SemanticType *type) noexcept;
     const AstNode *get_decl_node() const noexcept;
 };
 

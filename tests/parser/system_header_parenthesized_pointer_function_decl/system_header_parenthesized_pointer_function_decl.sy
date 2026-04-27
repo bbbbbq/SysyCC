@@ -1,0 +1,9 @@
+typedef struct lua_State lua_State;
+
+extern lua_State *(lua_newthread) (lua_State *L);
+extern void       (lua_close) (lua_State *L);
+extern const char *(lua_tolstring) (lua_State *L, int idx, unsigned long *len);
+
+int main(void) {
+    return 0;
+}

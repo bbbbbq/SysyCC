@@ -24,7 +24,8 @@ inline WarningCatalogLevel get_warning_catalog_level(
         warning_option == kUnusedButSetVariable ||
         warning_option == kUnusedFunction ||
         warning_option == kIncompatiblePointerTypes ||
-        warning_option == kUnknownType) {
+        warning_option == kUnknownType ||
+        warning_option == kReturnType) {
         return WarningCatalogLevel::DefaultOn;
     }
 
