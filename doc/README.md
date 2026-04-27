@@ -86,7 +86,7 @@ Its high-level flow is:
 ```text
 main
   -> Cli
-  -> Complier
+  -> Compiler
   -> PassManager
       -> PreprocessPass
       -> LexerPass

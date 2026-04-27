@@ -16,8 +16,8 @@
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
 #include "backend/ir/shared/ir_result.hpp"
 #include "backend/ir/lower/lower_ir_pass.hpp"
-#include "compiler/complier.hpp"
-#include "compiler/complier_option.hpp"
+#include "compiler/compiler.hpp"
+#include "compiler/compiler_option.hpp"
 #include "compiler/pass/pass.hpp"
 
 using namespace sysycc;
@@ -57,14 +57,14 @@ std::string get_expected_target_datalayout() {
 int main(int argc, char **argv) {
     assert(argc == 2);
 
-    ComplierOption option(argv[1]);
+    CompilerOption option(argv[1]);
     option.set_stop_after_stage(StopAfterStage::Semantic);
 
-    Complier complier(option);
-    PassResult frontend_result = complier.Run();
+    Compiler compiler(option);
+    PassResult frontend_result = compiler.Run();
     assert(frontend_result.ok);
 
-    CompilerContext &context = complier.get_context();
+    CompilerContext &context = compiler.get_context();
     BuildCoreIrPass build_pass;
     CoreIrCanonicalizePass canonicalize_pass;
     CoreIrSimplifyCfgPass simplify_cfg_pass;

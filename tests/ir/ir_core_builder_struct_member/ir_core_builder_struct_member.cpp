@@ -4,8 +4,8 @@
 
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
-#include "compiler/complier.hpp"
-#include "compiler/complier_option.hpp"
+#include "compiler/compiler.hpp"
+#include "compiler/compiler_option.hpp"
 #include "compiler/pass/pass.hpp"
 
 using namespace sysycc;
@@ -13,14 +13,14 @@ using namespace sysycc;
 int main(int argc, char **argv) {
     assert(argc == 2);
 
-    ComplierOption option(argv[1]);
+    CompilerOption option(argv[1]);
     option.set_stop_after_stage(StopAfterStage::Semantic);
 
-    Complier complier(option);
-    PassResult frontend_result = complier.Run();
+    Compiler compiler(option);
+    PassResult frontend_result = compiler.Run();
     assert(frontend_result.ok);
 
-    CompilerContext &context = complier.get_context();
+    CompilerContext &context = compiler.get_context();
     CoreIrBuilder builder;
     std::unique_ptr<CoreIrBuildResult> build_result = builder.Build(context);
     assert(build_result != nullptr);

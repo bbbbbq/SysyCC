@@ -11,7 +11,7 @@
 ```text
 main
   -> cli::Cli
-  -> compiler::Complier
+  -> compiler::Compiler
   -> compiler::PassManager
       -> PreprocessPass
       -> LexerPass
@@ -73,7 +73,7 @@ main
 禁止修改的模块范围：
 
 - `src/cli/**`
-- `src/compiler/complier.cpp`
+- `src/compiler/compiler.cpp`
 - `src/frontend/**`
 - `src/backend/ir/**`，除非是极窄的 backend bridge 必要改动
 - `Makefile` 中与 driver / build-system 相关的逻辑
@@ -193,7 +193,7 @@ src/
 ### 3.2 `src/cli/`
 
 - 命令行参数解析。
-- 将用户输入映射为 `ComplierOption`。
+- 将用户输入映射为 `CompilerOption`。
 - 这里负责“怎么启动编译”，不负责“怎么做编译”。
 
 ### 3.3 `src/common/`
@@ -212,8 +212,8 @@ src/
 
 - 编译器主控层。
 - 核心对象包括：
-  - `Complier`
-  - `ComplierOption`
+  - `Compiler`
+  - `CompilerOption`
   - `CompilerContext`
   - `compiler/pass/*`
 - 负责：
@@ -224,8 +224,8 @@ src/
 
 注意：
 
-- 当前仓库真实命名是 `Complier`，不是 `Compiler`。
-- 除非用户明确要求做一次全局命名修正，否则不要顺手改这个拼写。
+- 历史误拼写已迁移为 `Compiler`。
+- 新增代码和文档应统一使用 `Compiler` / `CompilerOption`。
 
 ### 3.5 `src/frontend/`
 
@@ -304,7 +304,7 @@ CLI Layer
 
 ### 4.3 关键共享对象
 
-- `ComplierOption`
+- `CompilerOption`
   - 一次编译任务的外部输入配置。
 - `CompilerContext`
   - 一次编译过程中的共享内部状态。
@@ -607,7 +607,7 @@ make check
 ### 11.5 禁止修改的模块范围
 
 1. `src/cli/**`
-2. `src/compiler/complier.cpp`
+2. `src/compiler/compiler.cpp`
 3. `src/backend/**`
 4. `tests/aarch64_backend_single_source/**`
 5. `tests/compiler2025/run_arm_*.sh`

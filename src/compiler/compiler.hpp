@@ -4,16 +4,16 @@
 #include <vector>
 
 #include "compiler/compiler_context/compiler_context.hpp"
-#include "compiler/complier_option.hpp"
+#include "compiler/compiler_option.hpp"
 #include "compiler/pass/pass.hpp"
 #include "frontend/dialects/core/dialect.hpp"
 
 namespace sysycc {
 
 // Owns the compiler pipeline and drives all registered passes.
-class Complier {
+class Compiler {
   private:
-    ComplierOption option_;
+    CompilerOption option_;
     CompilerContext context_;
     PassManager pass_manager_;
     std::vector<std::unique_ptr<FrontendDialect>> extra_dialects_;
@@ -26,11 +26,11 @@ class Complier {
     PassResult validate_backend_configuration();
 
   public:
-    Complier() = default;
-    explicit Complier(ComplierOption option);
+    Compiler() = default;
+    explicit Compiler(CompilerOption option);
 
-    void set_option(ComplierOption option);
-    const ComplierOption &get_option() const noexcept;
+    void set_option(CompilerOption option);
+    const CompilerOption &get_option() const noexcept;
 
     CompilerContext &get_context() noexcept;
     const CompilerContext &get_context() const noexcept;

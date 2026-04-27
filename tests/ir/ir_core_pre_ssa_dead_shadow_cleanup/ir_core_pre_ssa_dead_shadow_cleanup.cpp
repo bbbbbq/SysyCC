@@ -24,8 +24,8 @@
 #include "backend/ir/sroa/core_ir_sroa_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
 #include "backend/ir/verify/core_ir_verifier.hpp"
-#include "compiler/complier.hpp"
-#include "compiler/complier_option.hpp"
+#include "compiler/compiler.hpp"
+#include "compiler/compiler_option.hpp"
 #include "compiler/pass/pass.hpp"
 
 using namespace sysycc;
@@ -105,15 +105,15 @@ int main(int argc, char **argv) {
 
     verify_address_taken_store_only_slot_cleanup();
 
-    ComplierOption option(argv[1]);
+    CompilerOption option(argv[1]);
     option.set_stop_after_stage(StopAfterStage::Semantic);
     option.set_optimization_level(OptimizationLevel::O1);
 
-    Complier complier(option);
-    PassResult frontend_result = complier.Run();
+    Compiler compiler(option);
+    PassResult frontend_result = compiler.Run();
     assert(frontend_result.ok);
 
-    CompilerContext &compiler_context = complier.get_context();
+    CompilerContext &compiler_context = compiler.get_context();
     PassManager pass_manager;
     pass_manager.AddPass(std::make_unique<BuildCoreIrPass>());
     pass_manager.AddPass(std::make_unique<CoreIrCanonicalizePass>());

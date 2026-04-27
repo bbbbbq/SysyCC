@@ -23,7 +23,7 @@
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
 #include "backend/ir/verify/core_ir_verifier.hpp"
-#include "compiler/complier.hpp"
+#include "compiler/compiler.hpp"
 #include "frontend/ast/ast_pass.hpp"
 #include "frontend/lexer/lexer.hpp"
 #include "frontend/parser/parser.hpp"
@@ -348,7 +348,7 @@ PassResult AArch64AsmGenPass::Run(CompilerContext &) {
 
 namespace {
 
-ComplierOption make_option(std::string input_file,
+CompilerOption make_option(std::string input_file,
                            std::vector<std::string> include_directories,
                            std::vector<std::string> system_include_directories,
                            bool dump_tokens, bool dump_parse, bool dump_ast,
@@ -359,7 +359,7 @@ ComplierOption make_option(std::string input_file,
                            bool enable_gnu_dialect,
                            bool enable_clang_dialect,
                            bool enable_builtin_type_extension_pack) {
-    ComplierOption option(std::move(input_file));
+    CompilerOption option(std::move(input_file));
     option.set_include_directories(std::move(include_directories));
     option.set_system_include_directories(std::move(system_include_directories));
     option.set_dump_tokens(dump_tokens);
@@ -382,7 +382,7 @@ ComplierOption make_option(std::string input_file,
 }
 
 void assert_context_matches(const CompilerContext &context,
-                            const ComplierOption &option,
+                            const CompilerOption &option,
                             const std::vector<std::string> &dialect_names) {
     assert(context.get_input_file() == option.get_input_file());
     assert(context.get_include_directories() == option.get_include_directories());
@@ -408,38 +408,38 @@ void assert_context_matches(const CompilerContext &context,
 } // namespace
 
 int main() {
-    const ComplierOption constructor_option =
+    const CompilerOption constructor_option =
         make_option("constructor_input.sy", {"include/constructor"},
                     {"system/constructor"}, true, false, true, false, false,
                     false, StopAfterStage::Parse, OptimizationLevel::O0,
                     BackendKind::LlvmIr, "",
                     false, false, false);
-    Complier complier(constructor_option);
-    assert_context_matches(complier.get_context(), constructor_option, {"c99"});
+    Compiler compiler(constructor_option);
+    assert_context_matches(compiler.get_context(), constructor_option, {"c99"});
 
-    const ComplierOption assigned_option =
+    const CompilerOption assigned_option =
         make_option("assigned_input.sy", {"include/assigned"},
                     {"system/assigned"}, false, true, false, false, true,
                     true, StopAfterStage::Asm, OptimizationLevel::O1,
                     BackendKind::AArch64Native,
                     "aarch64-unknown-linux-gnu", true, false, true);
-    complier.set_option(assigned_option);
-    assert_context_matches(complier.get_context(), assigned_option,
+    compiler.set_option(assigned_option);
+    assert_context_matches(compiler.get_context(), assigned_option,
                            {"c99", "gnu-c", "extended-builtin-types"});
 
-    const PassResult run_result = complier.Run();
+    const PassResult run_result = compiler.Run();
     assert(run_result.ok);
-    assert_context_matches(complier.get_context(), assigned_option,
+    assert_context_matches(compiler.get_context(), assigned_option,
                            {"c99", "gnu-c", "extended-builtin-types"});
 
-    const ComplierOption riscv_option =
+    const CompilerOption riscv_option =
         make_option("riscv_input.sy", {"include/riscv"}, {"system/riscv"},
                     false, false, false, false, false, false,
                     StopAfterStage::Asm, OptimizationLevel::O1,
                     BackendKind::Riscv64Native,
                     "riscv64-unknown-linux-gnu", true, false, true);
-    complier.set_option(riscv_option);
-    assert_context_matches(complier.get_context(), riscv_option,
+    compiler.set_option(riscv_option);
+    assert_context_matches(compiler.get_context(), riscv_option,
                            {"c99", "gnu-c", "extended-builtin-types"});
 
     return 0;

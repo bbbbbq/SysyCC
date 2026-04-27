@@ -2,7 +2,7 @@
 #include <string>
 
 #include "cli/cli.hpp"
-#include "compiler/complier_option.hpp"
+#include "compiler/compiler_option.hpp"
 
 using namespace sysycc;
 
@@ -16,7 +16,7 @@ int main() {
         ClI::Cli cli;
         cli.Run(4, argv);
         assert(!cli.get_has_error());
-        ComplierOption option;
+        CompilerOption option;
         cli.set_compiler_option(option);
         assert(option.get_driver_action() == DriverAction::SyntaxOnly);
         assert(option.get_stop_after_stage() == StopAfterStage::Semantic);
@@ -36,7 +36,7 @@ int main() {
         ClI::Cli cli;
         cli.Run(5, argv);
         assert(!cli.get_has_error());
-        ComplierOption option;
+        CompilerOption option;
         cli.set_compiler_option(option);
         assert(option.get_driver_action() == DriverAction::SyntaxOnly);
         assert(option.get_enable_gnu_dialect());
@@ -55,7 +55,7 @@ int main() {
         ClI::Cli cli;
         cli.Run(6, argv);
         assert(!cli.get_has_error());
-        ComplierOption option;
+        CompilerOption option;
         cli.set_compiler_option(option);
         assert(option.get_language_mode() == LanguageMode::Gnu99);
         assert(option.get_enable_gnu_dialect());
@@ -74,7 +74,7 @@ int main() {
         ClI::Cli cli;
         cli.Run(6, argv);
         assert(!cli.get_has_error());
-        ComplierOption option;
+        CompilerOption option;
         cli.set_compiler_option(option);
         assert(option.get_driver_action() == DriverAction::EmitLlvmIr);
         assert(!option.emit_asm());
@@ -94,7 +94,7 @@ int main() {
         ClI::Cli cli;
         cli.Run(5, argv);
         assert(!cli.get_has_error());
-        ComplierOption option;
+        CompilerOption option;
         cli.set_compiler_option(option);
         assert(option.get_driver_action() == DriverAction::EmitAssembly);
         assert(option.emit_asm());
@@ -118,7 +118,7 @@ int main() {
         ClI::Cli cli;
         cli.Run(6, argv);
         assert(!cli.get_has_error());
-        ComplierOption option;
+        CompilerOption option;
         cli.set_compiler_option(option);
         assert(option.get_driver_action() == DriverAction::EmitAssembly);
         assert(option.emit_asm());
@@ -147,7 +147,7 @@ int main() {
         ClI::Cli cli;
         cli.Run(10, argv);
         assert(!cli.get_has_error());
-        ComplierOption option;
+        CompilerOption option;
         cli.set_compiler_option(option);
         assert(option.get_no_stdinc());
         assert(option.get_command_line_macro_options().size() == 2U);

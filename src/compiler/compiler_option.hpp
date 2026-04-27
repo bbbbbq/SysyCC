@@ -277,7 +277,7 @@ class CommandLineMacroOption {
 };
 
 // Stores the configuration for one compiler invocation.
-class ComplierOption {
+class CompilerOption {
   private:
     std::string input_file_;
     std::vector<std::string> source_input_files_;
@@ -321,12 +321,12 @@ class ComplierOption {
     BackendOptions backend_options_;
 
   public:
-    ComplierOption() = default;
+    CompilerOption() = default;
 
-    explicit ComplierOption(std::string input_file)
+    explicit CompilerOption(std::string input_file)
         : input_file_(std::move(input_file)) {}
 
-    ComplierOption(std::string input_file, std::string output_file)
+    CompilerOption(std::string input_file, std::string output_file)
         : input_file_(std::move(input_file)),
           output_file_(std::move(output_file)) {}
 

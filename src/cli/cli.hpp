@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "backend/asm_gen/backend_kind.hpp"
-#include "compiler/complier_option.hpp"
+#include "compiler/compiler_option.hpp"
 
 namespace ClI {
 // Parses command line arguments and translates them into compiler options.
@@ -157,7 +157,7 @@ class Cli {
         std::cout << program_name_ << " version " << version_ << '\n';
     }
 
-    void set_compiler_option(sysycc::ComplierOption &option) const {
+    void set_compiler_option(sysycc::CompilerOption &option) const {
         option.set_input_file(input_file_);
         option.set_source_input_files(source_input_files_);
         option.set_linker_input_files(linker_input_files_);

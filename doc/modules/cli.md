@@ -38,7 +38,7 @@ The CLI module converts `argv` into a compiler configuration object.
 - select native object / PIC / debug emission modes such as `-c`, `-fPIC`,
   and `-g`
 - print help, version, and verbose driver configuration information
-- fill [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
+- fill [CompilerOption](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp)
 
 ## Input and Output
 
@@ -50,7 +50,7 @@ Input:
 Output:
 
 - `ClI::Cli` internal state
-- [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
+- [CompilerOption](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp)
 
 ## Notes
 
@@ -124,7 +124,7 @@ Output:
 - `@response-file` arguments are expanded before normal option parsing. The
   response parser supports whitespace splitting, single and double quotes,
   backslash escaping, and nested response files with a recursion limit.
-- `-I<dir>` and `-I <dir>` are both accepted and stored in [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp).
+- `-I<dir>` and `-I <dir>` are both accepted and stored in [CompilerOption](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp).
 - `-iquote <dir>` is accepted for quoted-include-only search before `-I`.
 - `-isystem <dir>` is accepted and merged ahead of the default system include directories unless `-nostdinc` disables the default search roots.
 - `-idirafter <dir>` is accepted and searched after the ordinary system include
@@ -217,7 +217,7 @@ Output:
 | `-ansi`, `-pedantic`, `-pedantic-errors` | safe ignore | Accepted for build-system compatibility until strict conformance diagnostics are implemented. |
 | `-pipe`, `-ffunction-sections`, `-fdata-sections`, `-fno-common`, `-fno-strict-aliasing`, `-fstrict-aliasing`, `-fno-strict-overflow`, `-fno-delete-null-pointer-checks`, `-fno-tree-vectorize`, `-fno-inline`, `-fwrapv`, `-funsigned-char`, `-fsigned-char`, `-ffreestanding`, `-fhosted`, `-fno-plt`, `-fno-lto`, unwind-table toggles, merge-constants toggles, `-fno-ident`, math-errno / trapping-math toggles, `-fno-builtin`, stack-protector toggles, frame-pointer toggles, `-fvisibility=hidden`, `-fvisibility=default`, `-fvisibility=internal`, prefix-map flags, diagnostic-color flags, machine tuning flags such as `-march=native`, `-Qunused-arguments`, `-m64`, `-mno-red-zone`, `-Winvalid-pch`, `-arch arm64`, `-arch aarch64` | safe ignore | Accepted for build-system compatibility without changing the current output mode. |
 | `-Wshadow`, `-Wundef`, `-Wfatal-errors`, `-Wdisabled-optimization`, `-Wformat`, `-Wformat=2`, `-Wformat-security`, `-Werror=format`, `-Wstrict-prototypes`, `-Wmissing-prototypes`, `-Wc++-compat`, `-Wcast-align`, `-Wpointer-arith`, and related common project warning flags | safe ignore | Accepted until SysyCC implements equivalent diagnostics. |
-| `-pthread`, `-L`, `-l`, `-Wl,...`, `-shared` | pass through | Stored on [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp) and forwarded to the external host link driver when a link stage runs. |
+| `-pthread`, `-L`, `-l`, `-Wl,...`, `-shared` | pass through | Stored on [CompilerOption](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp) and forwarded to the external host link driver when a link stage runs. |
 | unsupported `-x <lang>` | explicit error | Only `-x c` is currently accepted. |
 | unsupported `-arch <arch>` | explicit error | Only `arm64` and `aarch64` are accepted as compatibility spellings. |
 | unsupported `-fvisibility=<mode>` | explicit error | Only `hidden`, `default`, and `internal` are currently accepted as safe-ignore compatibility spellings. |

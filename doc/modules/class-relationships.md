@@ -20,8 +20,8 @@ classDiagram
         +set_compiler_option(option)
     }
 
-    class Complier {
-        -ComplierOption option_
+    class Compiler {
+        -CompilerOption option_
         -CompilerContext context_
         -PassManager pass_manager_
         -sync_context_from_option()
@@ -29,7 +29,7 @@ classDiagram
         +Run()
     }
 
-    class ComplierOption {
+    class CompilerOption {
         -input_file_
         -output_file_
         -include_directories_
@@ -1135,10 +1135,10 @@ classDiagram
         +get_elements()
     }
 
-    Cli ..> ComplierOption : fills
-    Complier *-- ComplierOption
-    Complier *-- CompilerContext
-    Complier *-- PassManager
+    Cli ..> CompilerOption : fills
+    Compiler *-- CompilerOption
+    Compiler *-- CompilerContext
+    Compiler *-- PassManager
     PassManager *-- Pass
     Pass <|-- PreprocessPass
     Pass <|-- LexerPass
@@ -1184,7 +1184,7 @@ classDiagram
     LexerPass ..> DialectManager
     ParserPass ..> DialectManager
     SemanticAnalyzer ..> DialectManager
-    Complier ..> DialectManager
+    Compiler ..> DialectManager
     ParserPass ..> ParserFeatureValidator
     ParserPass ..> CompilerContext : writes parse tree
     AstPass ..> CompilerContext : writes ast root
@@ -1373,8 +1373,8 @@ The active runtime flow is:
 ```text
 main
   -> Cli
-  -> ComplierOption
-  -> Complier
+  -> CompilerOption
+  -> Compiler
   -> PassManager
       -> PreprocessPass
       -> LexerPass
@@ -1400,17 +1400,17 @@ Role:
 
 - parse command line arguments
 - store temporary CLI state
-- translate CLI state into [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
+- translate CLI state into [CompilerOption](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp)
 - collect user include directories from `-I`
 - collect system include directories from `-isystem`
 - translate dialect-selection flags such as strict C99 mode and optional pack
   toggles into compiler options
 
-### `sysycc::ComplierOption`
+### `sysycc::CompilerOption`
 
 Defined in:
 
-- [complier_option.hpp](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
+- [compiler_option.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp)
 
 Role:
 
@@ -1418,12 +1418,12 @@ Role:
 - carry file paths, user/system include search directories, and dump switches
 - carry per-invocation dialect-pack enable/disable flags
 
-### `sysycc::Complier`
+### `sysycc::Compiler`
 
 Defined in:
 
-- [complier.hpp](/Users/caojunze424/code/SysyCC/src/compiler/complier.hpp)
-- [complier.cpp](/Users/caojunze424/code/SysyCC/src/compiler/complier.cpp)
+- [compiler.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler.hpp)
+- [compiler.cpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler.cpp)
 
 Role:
 
@@ -1434,7 +1434,7 @@ Role:
 
 Owned objects:
 
-- `ComplierOption`
+- `CompilerOption`
 - `CompilerContext`
 - `PassManager`
 

@@ -886,7 +886,7 @@ graph TD
 - 已实现默认 dialect set 组装
 - 已实现严格 C99 模式
 - 已实现 GNU / Clang / builtin-type pack 的显式开关
-- 已通过 CLI 与 `ComplierOption` 进入主执行链
+- 已通过 CLI 与 `CompilerOption` 进入主执行链
 
 ### 阶段 7：测试与文档体系收口
 

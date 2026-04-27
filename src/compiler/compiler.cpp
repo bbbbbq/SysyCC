@@ -1,4 +1,4 @@
-#include "complier.hpp"
+#include "compiler.hpp"
 
 #include <cerrno>
 #include <cstdlib>
@@ -75,7 +75,7 @@ const char *expected_target_triple(BackendKind backend_kind) {
     return "";
 }
 
-std::string default_output_file_for_action(const ComplierOption &option) {
+std::string default_output_file_for_action(const CompilerOption &option) {
     const std::filesystem::path input_path(option.get_input_file());
     switch (option.get_driver_action()) {
     case DriverAction::FullCompile:
@@ -91,13 +91,13 @@ std::string default_output_file_for_action(const ComplierOption &option) {
     }
 }
 
-std::string effective_primary_output_file(const ComplierOption &option) {
+std::string effective_primary_output_file(const CompilerOption &option) {
     return option.get_output_file().empty()
                ? default_output_file_for_action(option)
                : option.get_output_file();
 }
 
-std::string effective_depfile_output_file(const ComplierOption &option) {
+std::string effective_depfile_output_file(const CompilerOption &option) {
     if (!option.get_depfile_output_file().empty()) {
         return option.get_depfile_output_file();
     }
@@ -107,7 +107,7 @@ std::string effective_depfile_output_file(const ComplierOption &option) {
     return depfile_path.string();
 }
 
-std::string dependency_scanner_language_flag(const ComplierOption &option) {
+std::string dependency_scanner_language_flag(const CompilerOption &option) {
     switch (option.get_language_mode()) {
     case LanguageMode::C99:
         return "-std=c99";
@@ -147,7 +147,7 @@ void append_command_line_macro_argument(
 }
 
 void append_depfile_target_arguments(std::vector<std::string> &arguments,
-                                     const ComplierOption &option,
+                                     const CompilerOption &option,
                                      const std::string &primary_output_file) {
     if (option.get_depfile_targets().empty()) {
         arguments.push_back("-MQ");
@@ -162,7 +162,7 @@ void append_depfile_target_arguments(std::vector<std::string> &arguments,
 }
 
 std::vector<std::string> build_dependency_scanner_arguments(
-    const ComplierOption &option, const std::string &depfile_output_file,
+    const CompilerOption &option, const std::string &depfile_output_file,
     const std::string &primary_output_file) {
     std::vector<std::string> arguments;
     arguments.push_back("-x");
@@ -355,7 +355,7 @@ bool create_temporary_llvm_ir_file(const std::string &llvm_ir_text,
 }
 
 std::vector<std::string> build_full_compile_link_arguments(
-    const ComplierOption &option,
+    const CompilerOption &option,
     const std::vector<std::string> &llvm_ir_files,
     const std::string &output_file) {
     std::vector<std::string> arguments;
@@ -405,7 +405,7 @@ std::vector<std::string> build_full_compile_link_arguments(
 }
 
 std::vector<std::string> effective_source_input_files(
-    const ComplierOption &option) {
+    const CompilerOption &option) {
     if (!option.get_source_input_files().empty()) {
         return option.get_source_input_files();
     }
@@ -466,7 +466,7 @@ PassResult run_host_c_driver_arguments(
     return PassResult::Failure(last_failure_message);
 }
 
-PassResult compile_llvm_ir_to_host_object(const ComplierOption &option,
+PassResult compile_llvm_ir_to_host_object(const CompilerOption &option,
                                           CompilerContext &context) {
     const IRResult *ir_result = context.get_ir_result();
     if (ir_result == nullptr) {
@@ -534,22 +534,22 @@ std::string default_compile_only_output_file_for_source(
     return input_path.stem().string() + ".o";
 }
 
-void append_child_diagnostics(const Complier &child_complier,
+void append_child_diagnostics(const Compiler &child_compiler,
                               CompilerContext &parent_context) {
     const DiagnosticEngine &child_diagnostic_engine =
-        child_complier.get_context().get_diagnostic_engine();
+        child_compiler.get_context().get_diagnostic_engine();
     for (const Diagnostic &diagnostic :
          child_diagnostic_engine.get_diagnostics()) {
         parent_context.get_diagnostic_engine().add_diagnostic(diagnostic);
     }
 }
 
-bool compile_source_to_temporary_llvm_ir(const ComplierOption &option,
+bool compile_source_to_temporary_llvm_ir(const CompilerOption &option,
                                          const std::string &source_file,
                                          TemporaryFile &temporary_file,
                                          CompilerContext &parent_context,
                                          std::string &error_message) {
-    ComplierOption source_option = option;
+    CompilerOption source_option = option;
     source_option.set_input_file(source_file);
     source_option.set_source_input_files({source_file});
     source_option.set_linker_input_files({});
@@ -570,11 +570,11 @@ bool compile_source_to_temporary_llvm_ir(const ComplierOption &option,
     backend_options.set_output_file("");
     source_option.set_backend_options(std::move(backend_options));
 
-    Complier source_complier(std::move(source_option));
-    PassResult compile_result = source_complier.Run();
-    append_child_diagnostics(source_complier, parent_context);
+    Compiler source_compiler(std::move(source_option));
+    PassResult compile_result = source_compiler.Run();
+    append_child_diagnostics(source_compiler, parent_context);
     const DiagnosticEngine &source_diagnostic_engine =
-        source_complier.get_context().get_diagnostic_engine();
+        source_compiler.get_context().get_diagnostic_engine();
 
     if (!compile_result.ok) {
         error_message = "failed to compile source input '" + source_file +
@@ -586,7 +586,7 @@ bool compile_source_to_temporary_llvm_ir(const ComplierOption &option,
         return false;
     }
 
-    const IRResult *ir_result = source_complier.get_context().get_ir_result();
+    const IRResult *ir_result = source_compiler.get_context().get_ir_result();
     if (ir_result == nullptr) {
         error_message = "missing LLVM IR output for source input '" +
                         source_file + "'";
@@ -604,12 +604,12 @@ bool compile_source_to_temporary_llvm_ir(const ComplierOption &option,
     return true;
 }
 
-PassResult compile_multiple_sources_to_objects(const ComplierOption &option,
+PassResult compile_multiple_sources_to_objects(const CompilerOption &option,
                                                CompilerContext &context) {
     const std::vector<std::string> source_input_files =
         effective_source_input_files(option);
     for (const std::string &source_file : source_input_files) {
-        ComplierOption source_option = option;
+        CompilerOption source_option = option;
         source_option.set_input_file(source_file);
         source_option.set_source_input_files({source_file});
         source_option.set_linker_input_files({});
@@ -623,14 +623,14 @@ PassResult compile_multiple_sources_to_objects(const ComplierOption &option,
         backend_options.set_output_file(source_option.get_output_file());
         source_option.set_backend_options(std::move(backend_options));
 
-        Complier source_complier(std::move(source_option));
-        const PassResult result = source_complier.Run();
-        append_child_diagnostics(source_complier, context);
+        Compiler source_compiler(std::move(source_option));
+        const PassResult result = source_compiler.Run();
+        append_child_diagnostics(source_compiler, context);
         if (!result.ok) {
             const std::string message =
                 "failed to compile source input '" + source_file +
                 "': " + result.message;
-            if (source_complier.get_context()
+            if (source_compiler.get_context()
                     .get_diagnostic_engine()
                     .get_diagnostics()
                     .empty()) {
@@ -644,7 +644,7 @@ PassResult compile_multiple_sources_to_objects(const ComplierOption &option,
     return PassResult::Success();
 }
 
-PassResult maybe_link_full_compile(const ComplierOption &option,
+PassResult maybe_link_full_compile(const CompilerOption &option,
                                    CompilerContext &context) {
     if (option.get_driver_action() != DriverAction::FullCompile) {
         return PassResult::Success();
@@ -754,7 +754,7 @@ PassResult maybe_link_full_compile(const ComplierOption &option,
     return PassResult::Failure(last_failure_message);
 }
 
-PassResult maybe_generate_depfile(const ComplierOption &option,
+PassResult maybe_generate_depfile(const CompilerOption &option,
                                   CompilerContext &context) {
     if (!option.get_generate_depfile()) {
         return PassResult::Success();
@@ -825,11 +825,11 @@ PassResult maybe_generate_depfile(const ComplierOption &option,
 
 } // namespace
 
-Complier::Complier(ComplierOption option) : option_(std::move(option)) {
+Compiler::Compiler(CompilerOption option) : option_(std::move(option)) {
     sync_context_from_option();
 }
 
-void Complier::sync_context_from_option() {
+void Compiler::sync_context_from_option() {
     context_.set_input_file(option_.get_input_file());
     context_.set_include_directories(option_.get_include_directories());
     context_.set_quote_include_directories(option_.get_quote_include_directories());
@@ -861,7 +861,7 @@ void Complier::sync_context_from_option() {
                                 option_.get_enable_builtin_type_extension_pack());
 }
 
-void Complier::InitializePasses() {
+void Compiler::InitializePasses() {
     if (pipeline_initialized_) {
         return;
     }
@@ -885,31 +885,31 @@ void Complier::InitializePasses() {
     pipeline_initialized_ = true;
 }
 
-void Complier::set_option(ComplierOption option) {
+void Compiler::set_option(CompilerOption option) {
     option_ = std::move(option);
     sync_context_from_option();
 }
 
-const ComplierOption &Complier::get_option() const noexcept { return option_; }
+const CompilerOption &Compiler::get_option() const noexcept { return option_; }
 
-CompilerContext &Complier::get_context() noexcept { return context_; }
+CompilerContext &Compiler::get_context() noexcept { return context_; }
 
-const CompilerContext &Complier::get_context() const noexcept {
+const CompilerContext &Compiler::get_context() const noexcept {
     return context_;
 }
 
-void Complier::register_dialect(std::unique_ptr<FrontendDialect> dialect) {
+void Compiler::register_dialect(std::unique_ptr<FrontendDialect> dialect) {
     if (dialect == nullptr) {
         return;
     }
     extra_dialects_.push_back(std::move(dialect));
 }
 
-void Complier::AddPass(std::unique_ptr<Pass> pass) {
+void Compiler::AddPass(std::unique_ptr<Pass> pass) {
     pass_manager_.AddPass(std::move(pass));
 }
 
-PassResult Complier::validate_dialect_configuration() {
+PassResult Compiler::validate_dialect_configuration() {
     const auto &registration_errors =
         context_.get_dialect_manager().get_registration_errors();
     if (registration_errors.empty()) {
@@ -927,7 +927,7 @@ PassResult Complier::validate_dialect_configuration() {
     return PassResult::Failure(summary);
 }
 
-PassResult Complier::validate_backend_configuration() {
+PassResult Compiler::validate_backend_configuration() {
     const BackendOptions &backend_options = context_.get_backend_options();
     const BackendKind backend_kind = backend_options.get_backend_kind();
     const std::string &target_triple = backend_options.get_target_triple();
@@ -1013,7 +1013,7 @@ PassResult Complier::validate_backend_configuration() {
     return PassResult::Success();
 }
 
-PassResult Complier::validate_driver_configuration() {
+PassResult Compiler::validate_driver_configuration() {
     const std::vector<std::string> source_input_files =
         effective_source_input_files(option_);
     switch (option_.get_driver_action()) {
@@ -1063,7 +1063,7 @@ PassResult Complier::validate_driver_configuration() {
     return PassResult::Success();
 }
 
-PassResult Complier::Run() {
+PassResult Compiler::Run() {
     context_.clear_diagnostic_engine();
     context_.clear_core_ir_build_result();
     context_.clear_ir_result();

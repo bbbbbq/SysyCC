@@ -7,9 +7,9 @@ shared context, and the pass manager.
 
 ## Main Files
 
-- [complier.hpp](/Users/caojunze424/code/SysyCC/src/compiler/complier.hpp)
-- [complier.cpp](/Users/caojunze424/code/SysyCC/src/compiler/complier.cpp)
-- [complier_option.hpp](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
+- [compiler.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler.hpp)
+- [compiler.cpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler.cpp)
+- [compiler_option.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp)
 - [compiler_context.hpp](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 - [pass.hpp](/Users/caojunze424/code/SysyCC/src/compiler/pass/pass.hpp)
 - [pass.cpp](/Users/caojunze424/code/SysyCC/src/compiler/pass/pass.cpp)
@@ -17,17 +17,17 @@ shared context, and the pass manager.
 
 ## Key Objects
 
-### `Complier`
+### `Compiler`
 
 The compiler orchestrator. It owns:
 
-- one [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
+- one [CompilerOption](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp)
 - one [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
 - one `PassManager`
 - one shared internal option-to-context synchronization step used by the
   constructor, `set_option()`, and `Run()` before pass execution
 
-### `ComplierOption`
+### `CompilerOption`
 
 The run configuration for one compilation task. It stores:
 
@@ -95,7 +95,7 @@ CoreIrInstCombinePass -> CoreIrMem2RegPass ->
 
 ## Notes
 
-- The file and class names currently use `Complier` instead of `Compiler`.
+- The historical misspelling has been migrated to `Compiler`.
 - `PassResult` carries pass success state and a short message.
 - [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   also owns one shared diagnostic engine so passes can emit stage-tagged
@@ -110,7 +110,7 @@ CoreIrInstCombinePass -> CoreIrMem2RegPass ->
 - the executable now also prints non-fatal shared diagnostics, such as
   preprocess `#warning`, on successful compilation runs.
 - CLI-provided `-isystem` directories are merged into
-  [ComplierOption](/Users/caojunze424/code/SysyCC/src/compiler/complier_option.hpp)
+  [CompilerOption](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp)
   ahead of the default system include directories and then copied into
   [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   for preprocess include resolution.
@@ -186,7 +186,7 @@ CoreIrInstCombinePass -> CoreIrMem2RegPass ->
   a validated function or global later fails during backend emission, the
   compiler records a compiler-stage diagnostic and aborts IR generation
   instead of returning a truncated module.
-- `ComplierOption` and
+- `CompilerOption` and
   [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   now also carry backend-selection state, native-asm emission intent, one
   optional target triple, and one optimized-Core-IR dump switch in addition to
@@ -208,15 +208,15 @@ CoreIrInstCombinePass -> CoreIrMem2RegPass ->
   registries. The same service now also exposes the first preprocess-probe,
   preprocess-directive, attribute-semantic, builtin-type-semantic, and
   IR-extension handler ownership registries.
-- `Complier::Run()` now validates dialect registration state before pass
+- `Compiler::Run()` now validates dialect registration state before pass
   execution. If keyword or handler ownership conflicts were recorded during
   dialect registration, the compiler emits compiler-stage diagnostics and
   fails fast instead of starting the pipeline with an inconsistent dialect
   configuration.
-- `ComplierOption` now also carries dialect-pack selection flags, and
-  `Complier` reconfigures the compiler context's dialect set per invocation
+- `CompilerOption` now also carries dialect-pack selection flags, and
+  `Compiler` reconfigures the compiler context's dialect set per invocation
   before validation and pass execution.
-- `ComplierOption` and
+- `CompilerOption` and
   [CompilerContext](/Users/caojunze424/code/SysyCC/src/compiler/compiler_context/compiler_context.hpp)
   now also carry one stop-after stage, and
   [PassManager](/Users/caojunze424/code/SysyCC/src/compiler/pass/pass.hpp)

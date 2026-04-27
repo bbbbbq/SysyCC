@@ -413,7 +413,7 @@ Representative paths:
 - [tests/dialects/strict_c99_dialect_configuration](/Users/caojunze424/code/SysyCC/tests/dialects/strict_c99_dialect_configuration)
 - [tests/dialects/optional_dialect_pack_switches](/Users/caojunze424/code/SysyCC/tests/dialects/optional_dialect_pack_switches)
 - [tests/dialects/cli_dialect_option_mapping](/Users/caojunze424/code/SysyCC/tests/dialects/cli_dialect_option_mapping)
-- [tests/dialects/complier_option_context_sync](/Users/caojunze424/code/SysyCC/tests/dialects/complier_option_context_sync)
+- [tests/dialects/compiler_option_context_sync](/Users/caojunze424/code/SysyCC/tests/dialects/compiler_option_context_sync)
 
 ### `tests/preprocess/`
 

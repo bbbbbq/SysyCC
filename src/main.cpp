@@ -1,7 +1,7 @@
 #include "cli/cli.hpp"
 #include "common/diagnostic/diagnostic_formatter.hpp"
-#include "compiler/complier.hpp"
-#include "compiler/complier_option.hpp"
+#include "compiler/compiler.hpp"
+#include "compiler/compiler_option.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -78,7 +78,7 @@ std::string driver_action_name(sysycc::DriverAction driver_action) {
 }
 
 void print_verbose_configuration(const ClI::Cli &cli,
-                                 const sysycc::ComplierOption &option) {
+                                 const sysycc::CompilerOption &option) {
     std::cerr << cli.get_program_name() << " version " << cli.get_version()
               << '\n';
     std::cerr << "driver action: "
@@ -160,7 +160,7 @@ bool emit_primary_text_output(const std::string &program_name,
 }
 
 std::string default_output_file_for_action(
-    const sysycc::ComplierOption &option) {
+    const sysycc::CompilerOption &option) {
     const std::filesystem::path input_path(option.get_input_file());
     switch (option.get_driver_action()) {
     case sysycc::DriverAction::EmitLlvmIr:
@@ -175,7 +175,7 @@ std::string default_output_file_for_action(
 }
 
 bool emit_driver_primary_output(const ClI::Cli &cli,
-                                const sysycc::ComplierOption &option,
+                                const sysycc::CompilerOption &option,
                                 const sysycc::CompilerContext &context) {
     if (option.get_driver_action() == sysycc::DriverAction::PreprocessOnly) {
         std::string preprocessed_text;
@@ -228,16 +228,16 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    sysycc::ComplierOption option;
+    sysycc::CompilerOption option;
     cli.set_compiler_option(option);
     if (option.get_verbose()) {
         print_verbose_configuration(cli, option);
     }
-    sysycc::Complier complier(option);
+    sysycc::Compiler compiler(option);
 
-    sysycc::PassResult result = complier.Run();
+    sysycc::PassResult result = compiler.Run();
     const sysycc::DiagnosticEngine &diagnostic_engine =
-        complier.get_context().get_diagnostic_engine();
+        compiler.get_context().get_diagnostic_engine();
     if (!result.ok) {
         if (!diagnostic_engine.get_diagnostics().empty()) {
             sysycc::DiagnosticFormatter::print_diagnostics(std::cerr,
@@ -257,7 +257,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    if (!emit_driver_primary_output(cli, option, complier.get_context())) {
+    if (!emit_driver_primary_output(cli, option, compiler.get_context())) {
         return 1;
     }
 

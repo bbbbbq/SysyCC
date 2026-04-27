@@ -16,7 +16,7 @@
 #include "common/source_mapping_view.hpp"
 #include "common/source_manager.hpp"
 #include "common/source_span.hpp"
-#include "compiler/complier_option.hpp"
+#include "compiler/compiler_option.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/dialects/core/dialect_manager.hpp"
 #include "frontend/dialects/packs/c99/c99_dialect.hpp"

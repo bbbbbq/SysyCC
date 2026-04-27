@@ -179,7 +179,7 @@ src/
 ```text
 main
   -> cli::Cli
-  -> compiler::Complier
+  -> compiler::Compiler
   -> compiler::PassManager
       -> PreprocessPass
       -> LexerPass
@@ -190,7 +190,7 @@ main
       -> LLVM IR lowering / native backend
 ```
 
-注意：仓库内部历史命名是 `Complier`，不是 `Compiler`。除非专门做全局命名迁移，不建议顺手改这个拼写。
+注意：仓库内部历史误拼写已完成迁移，新增代码请统一使用 `Compiler` / `CompilerOption`。
 
 ## 文档导航
 

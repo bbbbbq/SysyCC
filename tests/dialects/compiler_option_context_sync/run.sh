@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 TEST_BUILD_DIR="${SCRIPT_DIR}/build"
-TEST_BINARY="${TEST_BUILD_DIR}/complier_option_context_sync"
-TEST_SOURCE="${SCRIPT_DIR}/complier_option_context_sync.cpp"
+TEST_BINARY="${TEST_BUILD_DIR}/compiler_option_context_sync"
+TEST_SOURCE="${SCRIPT_DIR}/compiler_option_context_sync.cpp"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
@@ -23,7 +23,7 @@ clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${PROJECT_ROOT}/src/common/source_location_service.cpp" \
     "${PROJECT_ROOT}/src/common/source_mapping_view.cpp" \
     "${PROJECT_ROOT}/src/common/source_manager.cpp" \
-    "${PROJECT_ROOT}/src/compiler/complier.cpp" \
+    "${PROJECT_ROOT}/src/compiler/compiler.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/registries/ast_feature_registry.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/registries/attribute_semantic_handler_registry.cpp" \
     "${PROJECT_ROOT}/src/frontend/dialects/registries/builtin_type_semantic_handler_registry.cpp" \

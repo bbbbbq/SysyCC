@@ -2,7 +2,7 @@
 #include <memory>
 #include <string_view>
 
-#include "compiler/complier.hpp"
+#include "compiler/compiler.hpp"
 #include "frontend/dialects/core/dialect.hpp"
 
 using namespace sysycc;
@@ -34,17 +34,17 @@ class SecondConflictDialect : public FrontendDialect {
 } // namespace
 
 int main() {
-    Complier complier;
-    complier.register_dialect(std::make_unique<FirstConflictDialect>());
-    complier.register_dialect(std::make_unique<SecondConflictDialect>());
+    Compiler compiler;
+    compiler.register_dialect(std::make_unique<FirstConflictDialect>());
+    compiler.register_dialect(std::make_unique<SecondConflictDialect>());
 
-    PassResult result = complier.Run();
+    PassResult result = compiler.Run();
     assert(!result.ok);
     assert(result.message.find("invalid dialect configuration") !=
            std::string::npos);
 
     const auto &diagnostics =
-        complier.get_context().get_diagnostic_engine().get_diagnostics();
+        compiler.get_context().get_diagnostic_engine().get_diagnostics();
     assert(!diagnostics.empty());
     assert(diagnostics.front().get_stage() == DiagnosticStage::Compiler);
     assert(diagnostics.front().get_message().find("invalid dialect configuration") !=

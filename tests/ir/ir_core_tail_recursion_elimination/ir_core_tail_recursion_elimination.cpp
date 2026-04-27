@@ -19,8 +19,8 @@
 #include "backend/ir/stack_slot_forward/core_ir_stack_slot_forward_pass.hpp"
 #include "backend/ir/tail_recursion_elimination/core_ir_tail_recursion_elimination_pass.hpp"
 #include "backend/ir/verify/core_ir_verifier.hpp"
-#include "compiler/complier.hpp"
-#include "compiler/complier_option.hpp"
+#include "compiler/compiler.hpp"
+#include "compiler/compiler_option.hpp"
 #include "compiler/pass/pass.hpp"
 
 using namespace sysycc;
@@ -48,14 +48,14 @@ std::string extract_llvm_function(std::string_view text, std::string_view header
 int main(int argc, char **argv) {
     assert(argc == 2);
 
-    ComplierOption option(argv[1]);
+    CompilerOption option(argv[1]);
     option.set_stop_after_stage(StopAfterStage::Semantic);
     option.set_optimization_level(OptimizationLevel::O1);
 
-    Complier complier(option);
-    assert(complier.Run().ok);
+    Compiler compiler(option);
+    assert(compiler.Run().ok);
 
-    CompilerContext &compiler_context = complier.get_context();
+    CompilerContext &compiler_context = compiler.get_context();
     PassManager pass_manager;
     pass_manager.AddPass(std::make_unique<BuildCoreIrPass>());
     pass_manager.AddPass(std::make_unique<CoreIrCanonicalizePass>());

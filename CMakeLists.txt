@@ -318,7 +318,7 @@ add_executable(${PROJECT_NAME}
     src/common/source_mapping_view.cpp
     src/common/source_manager.cpp
     src/common/source_span.cpp
-    src/compiler/complier.cpp
+    src/compiler/compiler.cpp
     src/compiler/pass/pass.cpp
     src/frontend/ast/ast_dump.cpp
     src/frontend/ast/ast_node.cpp
