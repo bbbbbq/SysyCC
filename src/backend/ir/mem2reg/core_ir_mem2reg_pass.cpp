@@ -65,11 +65,12 @@ void erase_dead_address_chain(CoreIrBasicBlock &block, CoreIrValue *value) {
 
 struct UnitRenameContext {
     const CoreIrPromotionUnitInfo *unit_info = nullptr;
+    const std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
+        *dominator_children = nullptr;
     std::unordered_map<CoreIrBasicBlock *, CoreIrPhiInst *> inserted_phis;
-    std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
-        dominator_children;
     std::unordered_map<CoreIrBasicBlock *, CoreIrValue *> outgoing_values;
     std::vector<CoreIrValue *> value_stack;
+    CoreIrValue *default_value = nullptr;
     bool changed = false;
 };
 
@@ -209,8 +210,7 @@ void add_phi_incoming_for_successors(CoreIrBasicBlock &block,
     }
 
     CoreIrValue *incoming_value = rename_context.value_stack.empty()
-                                      ? create_default_promoted_value(
-                                            *rename_context.unit_info)
+                                      ? rename_context.default_value
                                       : rename_context.value_stack.back();
     if (incoming_value == nullptr) {
         return;
@@ -258,8 +258,7 @@ void complete_phi_incomings_for_unit(
     UnitRenameContext &rename_context) {
     const CoreIrCfgAnalysisResult &cfg_analysis =
         analysis_manager.get_or_compute<CoreIrCfgAnalysis>(function);
-    CoreIrValue *default_value =
-        create_default_promoted_value(*rename_context.unit_info);
+    CoreIrValue *default_value = rename_context.default_value;
 
     for (const auto &[block, phi] : rename_context.inserted_phis) {
         if (block == nullptr || phi == nullptr) {
@@ -341,11 +340,16 @@ bool rename_promoted_unit(CoreIrBasicBlock &block, UnitRenameContext &rename_con
 
     rename_context.outgoing_values[&block] =
         rename_context.value_stack.empty()
-            ? create_default_promoted_value(unit_info)
+            ? rename_context.default_value
             : rename_context.value_stack.back();
     add_phi_incoming_for_successors(block, rename_context);
-    for (CoreIrBasicBlock *child : rename_context.dominator_children[&block]) {
-        rename_promoted_unit(*child, rename_context);
+    if (rename_context.dominator_children != nullptr) {
+        auto children_it = rename_context.dominator_children->find(&block);
+        if (children_it != rename_context.dominator_children->end()) {
+            for (CoreIrBasicBlock *child : children_it->second) {
+                rename_promoted_unit(*child, rename_context);
+            }
+        }
     }
 
     while (rename_context.value_stack.size() > saved_depth) {
@@ -355,43 +359,71 @@ bool rename_promoted_unit(CoreIrBasicBlock &block, UnitRenameContext &rename_con
 }
 
 void remove_fully_promoted_stack_slots(CoreIrFunction &function) {
+    std::unordered_set<CoreIrStackSlot *> referenced_slots;
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction : block->get_instructions()) {
+            if (instruction == nullptr) {
+                continue;
+            }
+            switch (instruction->get_opcode()) {
+            case CoreIrOpcode::AddressOfStackSlot: {
+                auto *address =
+                    static_cast<CoreIrAddressOfStackSlotInst *>(instruction.get());
+                if (address->get_stack_slot() != nullptr) {
+                    referenced_slots.insert(address->get_stack_slot());
+                }
+                break;
+            }
+            case CoreIrOpcode::Load: {
+                auto *load = static_cast<CoreIrLoadInst *>(instruction.get());
+                if (load->get_stack_slot() != nullptr) {
+                    referenced_slots.insert(load->get_stack_slot());
+                }
+                break;
+            }
+            case CoreIrOpcode::Store: {
+                auto *store = static_cast<CoreIrStoreInst *>(instruction.get());
+                if (store->get_stack_slot() != nullptr) {
+                    referenced_slots.insert(store->get_stack_slot());
+                }
+                break;
+            }
+            case CoreIrOpcode::Phi:
+            case CoreIrOpcode::Binary:
+            case CoreIrOpcode::Unary:
+            case CoreIrOpcode::Compare:
+            case CoreIrOpcode::Select:
+            case CoreIrOpcode::Cast:
+            case CoreIrOpcode::ExtractElement:
+            case CoreIrOpcode::InsertElement:
+            case CoreIrOpcode::ShuffleVector:
+            case CoreIrOpcode::VectorReduceAdd:
+            case CoreIrOpcode::AddressOfFunction:
+            case CoreIrOpcode::AddressOfGlobal:
+            case CoreIrOpcode::GetElementPtr:
+            case CoreIrOpcode::Call:
+            case CoreIrOpcode::Jump:
+            case CoreIrOpcode::CondJump:
+            case CoreIrOpcode::IndirectJump:
+            case CoreIrOpcode::Return:
+                break;
+            }
+        }
+    }
+
     auto &stack_slots = function.get_stack_slots();
     stack_slots.erase(
         std::remove_if(stack_slots.begin(), stack_slots.end(),
-                       [&function](const std::unique_ptr<CoreIrStackSlot> &slot) {
+                       [&referenced_slots](
+                           const std::unique_ptr<CoreIrStackSlot> &slot) {
                            if (slot == nullptr) {
                                return true;
                            }
-                           for (const auto &block : function.get_basic_blocks()) {
-                               if (block == nullptr) {
-                                   continue;
-                               }
-                               for (const auto &instruction : block->get_instructions()) {
-                                   if (instruction == nullptr) {
-                                       continue;
-                                   }
-                                   if (auto *address =
-                                           dynamic_cast<CoreIrAddressOfStackSlotInst *>(
-                                               instruction.get());
-                                       address != nullptr &&
-                                       address->get_stack_slot() == slot.get()) {
-                                       return false;
-                                   }
-                                   if (auto *load = dynamic_cast<CoreIrLoadInst *>(
-                                           instruction.get());
-                                       load != nullptr &&
-                                       load->get_stack_slot() == slot.get()) {
-                                       return false;
-                                   }
-                                   if (auto *store = dynamic_cast<CoreIrStoreInst *>(
-                                           instruction.get());
-                                       store != nullptr &&
-                                       store->get_stack_slot() == slot.get()) {
-                                       return false;
-                                   }
-                               }
-                           }
-                           return true;
+                           return referenced_slots.find(slot.get()) ==
+                                  referenced_slots.end();
                        }),
         stack_slots.end());
 }
@@ -424,6 +456,15 @@ PassResult CoreIrMem2RegPass::Run(CompilerContext &context) {
         }
 
         bool function_changed = false;
+        std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
+            dominator_children;
+        build_dominator_children(*function, *analysis_manager,
+                                 dominator_children);
+        const CoreIrCfgAnalysisResult &cfg_analysis =
+            analysis_manager->get_or_compute<CoreIrCfgAnalysis>(*function);
+        CoreIrBasicBlock *entry_block = const_cast<CoreIrBasicBlock *>(
+            cfg_analysis.get_entry_block());
+
         for (const CoreIrPromotionUnitInfo &unit_info :
              promotable_units.get_unit_infos()) {
             if (should_skip_complex_pointer_unit(unit_info)) {
@@ -431,13 +472,10 @@ PassResult CoreIrMem2RegPass::Run(CompilerContext &context) {
             }
             UnitRenameContext rename_context;
             rename_context.unit_info = &unit_info;
-            build_dominator_children(*function, *analysis_manager,
-                                     rename_context.dominator_children);
+            rename_context.dominator_children = &dominator_children;
+            rename_context.default_value =
+                create_default_promoted_value(unit_info);
             insert_mem2reg_phis(*function, *analysis_manager, rename_context);
-            const CoreIrCfgAnalysisResult &cfg_analysis =
-                analysis_manager->get_or_compute<CoreIrCfgAnalysis>(*function);
-            CoreIrBasicBlock *entry_block = const_cast<CoreIrBasicBlock *>(
-                cfg_analysis.get_entry_block());
             if (entry_block != nullptr) {
                 rename_promoted_unit(*entry_block, rename_context);
                 complete_phi_incomings_for_unit(*function, *analysis_manager,

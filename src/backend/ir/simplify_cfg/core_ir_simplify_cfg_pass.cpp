@@ -1,6 +1,9 @@
 #include "backend/ir/simplify_cfg/core_ir_simplify_cfg_pass.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
+#include <iostream>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -18,7 +21,8 @@ namespace sysycc {
 
 namespace {
 
-PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
+PassResult fail_missing_core_ir(CompilerContext &context,
+                                const char *pass_name) {
     const std::string message =
         std::string(pass_name) + " requires a built core ir result";
     context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
@@ -30,15 +34,32 @@ const CoreIrConstantInt *as_integer_constant(const CoreIrValue *value) {
     return dynamic_cast<const CoreIrConstantInt *>(value);
 }
 
-std::vector<CoreIrBasicBlock *> collect_terminator_successors(
-    CoreIrBasicBlock &block) {
+bool simplify_cfg_profile_enabled() {
+    const char *value = std::getenv("SYSYCC_PROFILE_SIMPLIFY_CFG");
+    if (value == nullptr) {
+        return false;
+    }
+    const std::string text(value);
+    return text == "1" || text == "true" || text == "TRUE" || text == "yes" ||
+           text == "YES" || text == "on" || text == "ON";
+}
+
+double elapsed_ms(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<double, std::milli>(
+               std::chrono::steady_clock::now() - start)
+        .count();
+}
+
+std::vector<CoreIrBasicBlock *>
+collect_terminator_successors(CoreIrBasicBlock &block) {
     std::vector<CoreIrBasicBlock *> successors;
     if (block.get_instructions().empty()) {
         return successors;
     }
 
     CoreIrInstruction *terminator = block.get_instructions().back().get();
-    if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator); jump != nullptr) {
+    if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator);
+        jump != nullptr) {
         if (jump->get_target_block() != nullptr) {
             successors.push_back(jump->get_target_block());
         }
@@ -57,7 +78,8 @@ std::vector<CoreIrBasicBlock *> collect_terminator_successors(
         return successors;
     }
 
-    if (auto *indirect_jump = dynamic_cast<CoreIrIndirectJumpInst *>(terminator);
+    if (auto *indirect_jump =
+            dynamic_cast<CoreIrIndirectJumpInst *>(terminator);
         indirect_jump != nullptr) {
         for (CoreIrBasicBlock *target : indirect_jump->get_target_blocks()) {
             if (target != nullptr &&
@@ -117,7 +139,8 @@ bool successor_has_phi_predecessor(CoreIrBasicBlock *successor,
         if (phi == nullptr) {
             break;
         }
-        for (std::size_t index = 0; index < phi->get_incoming_count(); ++index) {
+        for (std::size_t index = 0; index < phi->get_incoming_count();
+             ++index) {
             if (phi->get_incoming_block(index) == predecessor) {
                 return true;
             }
@@ -143,11 +166,13 @@ bool rewrite_phi_predecessor(CoreIrBasicBlock *successor,
         if (phi == nullptr) {
             break;
         }
-        for (std::size_t index = 0; index < phi->get_incoming_count(); ++index) {
+        for (std::size_t index = 0; index < phi->get_incoming_count();
+             ++index) {
             if (phi->get_incoming_block(index) != old_predecessor) {
                 continue;
             }
-            for (std::size_t other = 0; other < phi->get_incoming_count(); ++other) {
+            for (std::size_t other = 0; other < phi->get_incoming_count();
+                 ++other) {
                 if (other == index) {
                     continue;
                 }
@@ -164,7 +189,8 @@ bool rewrite_phi_predecessor(CoreIrBasicBlock *successor,
         if (phi == nullptr) {
             break;
         }
-        for (std::size_t index = 0; index < phi->get_incoming_count(); ++index) {
+        for (std::size_t index = 0; index < phi->get_incoming_count();
+             ++index) {
             if (phi->get_incoming_block(index) == old_predecessor) {
                 phi->set_incoming_block(index, new_predecessor);
                 changed = true;
@@ -174,7 +200,8 @@ bool rewrite_phi_predecessor(CoreIrBasicBlock *successor,
     return changed;
 }
 
-bool retarget_block_successor(CoreIrBasicBlock &block, CoreIrBasicBlock *old_target,
+bool retarget_block_successor(CoreIrBasicBlock &block,
+                              CoreIrBasicBlock *old_target,
                               CoreIrBasicBlock *new_target) {
     if (old_target == nullptr || new_target == nullptr ||
         block.get_instructions().empty()) {
@@ -183,7 +210,8 @@ bool retarget_block_successor(CoreIrBasicBlock &block, CoreIrBasicBlock *old_tar
 
     bool changed = false;
     CoreIrInstruction *terminator = block.get_instructions().back().get();
-    if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator); jump != nullptr) {
+    if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator);
+        jump != nullptr) {
         if (jump->get_target_block() == old_target) {
             jump->set_target_block(new_target);
             changed = true;
@@ -220,8 +248,8 @@ bool simplify_redundant_cond_jumps(CoreIrFunction &function) {
         }
         CoreIrBasicBlock *target = cond_jump->get_true_block();
         cond_jump->detach_operands();
-        auto replacement = std::make_unique<CoreIrJumpInst>(
-            cond_jump->get_type(), target);
+        auto replacement =
+            std::make_unique<CoreIrJumpInst>(cond_jump->get_type(), target);
         replacement->set_source_span(cond_jump->get_source_span());
         replacement->set_parent(block.get());
         block->get_instructions().back() = std::move(replacement);
@@ -245,16 +273,16 @@ bool simplify_constant_cond_jumps(CoreIrFunction &function) {
         if (constant == nullptr) {
             continue;
         }
-        CoreIrBasicBlock *target =
-            constant->get_value() == 0 ? cond_jump->get_false_block()
+        CoreIrBasicBlock *target = constant->get_value() == 0
+                                       ? cond_jump->get_false_block()
                                        : cond_jump->get_true_block();
         CoreIrBasicBlock *removed_successor =
             constant->get_value() == 0 ? cond_jump->get_true_block()
                                        : cond_jump->get_false_block();
         remove_phi_incoming_from_predecessor(removed_successor, block.get());
         cond_jump->detach_operands();
-        auto replacement = std::make_unique<CoreIrJumpInst>(
-            cond_jump->get_type(), target);
+        auto replacement =
+            std::make_unique<CoreIrJumpInst>(cond_jump->get_type(), target);
         replacement->set_source_span(cond_jump->get_source_span());
         replacement->set_parent(block.get());
         block->get_instructions().back() = std::move(replacement);
@@ -268,23 +296,33 @@ CoreIrCfgAnalysisResult compute_cfg(CoreIrFunction &function) {
     return analysis.Run(function);
 }
 
-bool remove_one_trampoline_block(CoreIrFunction &function,
-                                 const CoreIrCfgAnalysisResult &cfg_analysis) {
+bool remove_trampoline_blocks(CoreIrFunction &function,
+                              const CoreIrCfgAnalysisResult &cfg_analysis) {
     if (function.get_basic_blocks().empty()) {
         return false;
     }
 
     CoreIrBasicBlock *entry_block = function.get_basic_blocks().front().get();
     auto &blocks = function.get_basic_blocks();
+    std::unordered_set<CoreIrBasicBlock *> live_blocks;
+    live_blocks.reserve(blocks.size());
+    for (const auto &candidate : blocks) {
+        if (candidate != nullptr) {
+            live_blocks.insert(candidate.get());
+        }
+    }
+    std::unordered_set<CoreIrBasicBlock *> removed_blocks;
+
     for (auto it = blocks.begin(); it != blocks.end(); ++it) {
         CoreIrBasicBlock *block = it->get();
         if (block == nullptr || block == entry_block ||
+            removed_blocks.find(block) != removed_blocks.end() ||
             block->get_instructions().size() != 1) {
             continue;
         }
 
-        auto *jump =
-            dynamic_cast<CoreIrJumpInst *>(block->get_instructions().front().get());
+        auto *jump = dynamic_cast<CoreIrJumpInst *>(
+            block->get_instructions().front().get());
         if (jump == nullptr || jump->get_target_block() == nullptr ||
             jump->get_target_block() == block) {
             continue;
@@ -297,6 +335,12 @@ bool remove_one_trampoline_block(CoreIrFunction &function,
 
         CoreIrBasicBlock *predecessor = predecessors.front();
         CoreIrBasicBlock *successor = jump->get_target_block();
+        if (live_blocks.find(predecessor) == live_blocks.end() ||
+            live_blocks.find(successor) == live_blocks.end() ||
+            removed_blocks.find(predecessor) != removed_blocks.end() ||
+            removed_blocks.find(successor) != removed_blocks.end()) {
+            continue;
+        }
         if (predecessor == block || predecessor == successor) {
             continue;
         }
@@ -308,11 +352,21 @@ bool remove_one_trampoline_block(CoreIrFunction &function,
         }
         rewrite_phi_predecessor(successor, block, predecessor);
         detach_block(*block);
-        blocks.erase(it);
-        return true;
+        removed_blocks.insert(block);
     }
 
-    return false;
+    if (removed_blocks.empty()) {
+        return false;
+    }
+    blocks.erase(
+        std::remove_if(
+            blocks.begin(), blocks.end(),
+            [&removed_blocks](const std::unique_ptr<CoreIrBasicBlock> &block) {
+                return block == nullptr ||
+                       removed_blocks.find(block.get()) != removed_blocks.end();
+            }),
+        blocks.end());
+    return true;
 }
 
 bool remove_unreachable_blocks(CoreIrFunction &function,
@@ -347,18 +401,20 @@ bool remove_unreachable_blocks(CoreIrFunction &function,
         }
     }
 
-    const auto new_end = std::remove_if(
-        blocks.begin(), blocks.end(),
-        [&cfg_analysis, entry_block](const std::unique_ptr<CoreIrBasicBlock> &block) {
-            if (block == nullptr) {
-                return true;
-            }
-            if (block.get() == entry_block || cfg_analysis.is_reachable(block.get())) {
-                return false;
-            }
-            detach_block(*block);
-            return true;
-        });
+    const auto new_end =
+        std::remove_if(blocks.begin(), blocks.end(),
+                       [&cfg_analysis, entry_block](
+                           const std::unique_ptr<CoreIrBasicBlock> &block) {
+                           if (block == nullptr) {
+                               return true;
+                           }
+                           if (block.get() == entry_block ||
+                               cfg_analysis.is_reachable(block.get())) {
+                               return false;
+                           }
+                           detach_block(*block);
+                           return true;
+                       });
     if (new_end == blocks.end()) {
         return false;
     }
@@ -374,27 +430,46 @@ bool merge_linear_blocks(CoreIrFunction &function,
 
     CoreIrBasicBlock *entry_block = function.get_basic_blocks().front().get();
     auto &blocks = function.get_basic_blocks();
-    for (std::size_t index = 0; index < blocks.size(); ++index) {
+    std::unordered_set<CoreIrBasicBlock *> live_blocks;
+    live_blocks.reserve(blocks.size());
+    for (const auto &candidate : blocks) {
+        if (candidate != nullptr) {
+            live_blocks.insert(candidate.get());
+        }
+    }
+    std::unordered_set<CoreIrBasicBlock *> removed_blocks;
+    bool changed = false;
+    std::size_t index = 0;
+    while (index < blocks.size()) {
         CoreIrBasicBlock *block = blocks[index].get();
-        if (block == nullptr || block->get_instructions().empty()) {
+        if (block == nullptr ||
+            removed_blocks.find(block) != removed_blocks.end() ||
+            block->get_instructions().empty()) {
+            ++index;
             continue;
         }
-        auto *jump =
-            dynamic_cast<CoreIrJumpInst *>(block->get_instructions().back().get());
+        auto *jump = dynamic_cast<CoreIrJumpInst *>(
+            block->get_instructions().back().get());
         if (jump == nullptr) {
+            ++index;
             continue;
         }
 
         CoreIrBasicBlock *successor = jump->get_target_block();
-        if (successor == nullptr || successor == block || successor == entry_block ||
+        if (successor == nullptr || successor == block ||
+            successor == entry_block ||
+            live_blocks.find(successor) == live_blocks.end() ||
+            removed_blocks.find(successor) != removed_blocks.end() ||
             cfg_analysis.get_predecessor_count(successor) != 1) {
+            ++index;
             continue;
         }
         const std::vector<CoreIrBasicBlock *> successor_successors =
             collect_terminator_successors(*successor);
         bool can_rewrite_successor_phis = true;
         for (CoreIrBasicBlock *successor_successor : successor_successors) {
-            if (successor_successor == nullptr || successor_successor == successor ||
+            if (successor_successor == nullptr ||
+                successor_successor == successor ||
                 successor_successor == block) {
                 can_rewrite_successor_phis = false;
                 break;
@@ -405,32 +480,37 @@ bool merge_linear_blocks(CoreIrFunction &function,
             }
         }
         if (!can_rewrite_successor_phis) {
+            ++index;
             continue;
         }
 
-        auto successor_it = std::find_if(
-            blocks.begin(), blocks.end(),
-            [successor](const std::unique_ptr<CoreIrBasicBlock> &candidate) {
-                return candidate.get() == successor;
-            });
-        if (successor_it == blocks.end()) {
+        auto &successor_instructions = successor->get_instructions();
+        bool can_rewrite_successor_header_phis = true;
+        for (const auto &instruction : successor_instructions) {
+            auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction.get());
+            if (phi == nullptr) {
+                break;
+            }
+            if (phi->get_incoming_count() != 1 ||
+                phi->get_incoming_value(0) == nullptr) {
+                can_rewrite_successor_header_phis = false;
+                break;
+            }
+        }
+        if (!can_rewrite_successor_header_phis) {
+            ++index;
             continue;
         }
 
         jump->detach_operands();
         block->get_instructions().pop_back();
-        auto &successor_instructions = successor->get_instructions();
         while (!successor_instructions.empty()) {
-            auto *phi =
-                dynamic_cast<CoreIrPhiInst *>(successor_instructions.front().get());
+            auto *phi = dynamic_cast<CoreIrPhiInst *>(
+                successor_instructions.front().get());
             if (phi == nullptr) {
                 break;
             }
-            CoreIrValue *replacement =
-                phi->get_incoming_count() == 1 ? phi->get_incoming_value(0) : nullptr;
-            if (replacement == nullptr) {
-                return false;
-            }
+            CoreIrValue *replacement = phi->get_incoming_value(0);
             phi->replace_all_uses_with(replacement);
             phi->detach_operands();
             successor_instructions.erase(successor_instructions.begin());
@@ -444,11 +524,23 @@ bool merge_linear_blocks(CoreIrFunction &function,
         }
         successor_instructions.clear();
         detach_block(*successor);
-        blocks.erase(successor_it);
-        return true;
+        removed_blocks.insert(successor);
+        changed = true;
     }
 
-    return false;
+    if (!removed_blocks.empty()) {
+        blocks.erase(
+            std::remove_if(blocks.begin(), blocks.end(),
+                           [&removed_blocks](
+                               const std::unique_ptr<CoreIrBasicBlock> &block) {
+                               return block == nullptr ||
+                                      removed_blocks.find(block.get()) !=
+                                          removed_blocks.end();
+                           }),
+            blocks.end());
+    }
+
+    return changed;
 }
 
 } // namespace
@@ -467,41 +559,95 @@ PassResult CoreIrSimplifyCfgPass::Run(CompilerContext &context) {
         return fail_missing_core_ir(context, Name());
     }
 
+    const bool profile = simplify_cfg_profile_enabled();
+    double cfg_ms = 0.0;
+    double constant_ms = 0.0;
+    double redundant_ms = 0.0;
+    double trampoline_ms = 0.0;
+    double unreachable_ms = 0.0;
+    double merge_ms = 0.0;
+    std::size_t cfg_runs = 0;
+
     CoreIrPassEffects effects;
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (const auto &function : build_result->get_module()->get_functions()) {
-            bool function_changed = false;
+    for (const auto &function : build_result->get_module()->get_functions()) {
+        bool function_changed = true;
+        bool function_changed_total = false;
+        while (function_changed) {
+            function_changed = false;
+            auto step_start = std::chrono::steady_clock::now();
             CoreIrCfgAnalysisResult cfg_analysis = compute_cfg(*function);
+            cfg_ms += elapsed_ms(step_start);
+            ++cfg_runs;
 
+            step_start = std::chrono::steady_clock::now();
             if (simplify_constant_cond_jumps(*function)) {
+                constant_ms += elapsed_ms(step_start);
                 function_changed = true;
+                step_start = std::chrono::steady_clock::now();
                 cfg_analysis = compute_cfg(*function);
+                cfg_ms += elapsed_ms(step_start);
+                ++cfg_runs;
+            } else {
+                constant_ms += elapsed_ms(step_start);
             }
+            step_start = std::chrono::steady_clock::now();
             if (simplify_redundant_cond_jumps(*function)) {
+                redundant_ms += elapsed_ms(step_start);
                 function_changed = true;
+                step_start = std::chrono::steady_clock::now();
                 cfg_analysis = compute_cfg(*function);
+                cfg_ms += elapsed_ms(step_start);
+                ++cfg_runs;
+            } else {
+                redundant_ms += elapsed_ms(step_start);
             }
-            if (remove_one_trampoline_block(*function, cfg_analysis)) {
+            step_start = std::chrono::steady_clock::now();
+            if (remove_trampoline_blocks(*function, cfg_analysis)) {
+                trampoline_ms += elapsed_ms(step_start);
                 function_changed = true;
+                step_start = std::chrono::steady_clock::now();
                 cfg_analysis = compute_cfg(*function);
+                cfg_ms += elapsed_ms(step_start);
+                ++cfg_runs;
+            } else {
+                trampoline_ms += elapsed_ms(step_start);
             }
+            step_start = std::chrono::steady_clock::now();
             if (remove_unreachable_blocks(*function, cfg_analysis)) {
+                unreachable_ms += elapsed_ms(step_start);
                 function_changed = true;
+                step_start = std::chrono::steady_clock::now();
                 cfg_analysis = compute_cfg(*function);
+                cfg_ms += elapsed_ms(step_start);
+                ++cfg_runs;
+            } else {
+                unreachable_ms += elapsed_ms(step_start);
             }
+            step_start = std::chrono::steady_clock::now();
             if (merge_linear_blocks(*function, cfg_analysis)) {
+                merge_ms += elapsed_ms(step_start);
                 function_changed = true;
+                step_start = std::chrono::steady_clock::now();
                 cfg_analysis = compute_cfg(*function);
+                cfg_ms += elapsed_ms(step_start);
+                ++cfg_runs;
+            } else {
+                merge_ms += elapsed_ms(step_start);
             }
-            if (function_changed) {
-                effects.changed_functions.insert(function.get());
-                effects.cfg_changed_functions.insert(function.get());
-            }
-
-            changed = function_changed || changed;
+            function_changed_total = function_changed || function_changed_total;
         }
+        if (function_changed_total) {
+            effects.changed_functions.insert(function.get());
+            effects.cfg_changed_functions.insert(function.get());
+        }
+    }
+    if (profile) {
+        std::cerr << "[sysycc-simplify-cfg] cfg_ms=" << cfg_ms
+                  << " cfg_runs=" << cfg_runs << " constant_ms=" << constant_ms
+                  << " redundant_ms=" << redundant_ms
+                  << " trampoline_ms=" << trampoline_ms
+                  << " unreachable_ms=" << unreachable_ms
+                  << " merge_ms=" << merge_ms << '\n';
     }
 
     if (!effects.has_changes()) {

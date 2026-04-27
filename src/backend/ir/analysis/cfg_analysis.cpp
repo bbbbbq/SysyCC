@@ -114,27 +114,48 @@ CoreIrCfgAnalysisResult CoreIrCfgAnalysis::Run(const CoreIrFunction &function) c
         }
 
         CoreIrInstruction *terminator = block->get_instructions().back().get();
-        if (auto *jump = dynamic_cast<CoreIrJumpInst *>(terminator); jump != nullptr) {
+        switch (terminator->get_opcode()) {
+        case CoreIrOpcode::Jump: {
+            auto *jump = static_cast<CoreIrJumpInst *>(terminator);
             connect_blocks_dense(block_indices, predecessor_vectors, successor_vectors,
                                  edges, block.get(), jump->get_target_block());
-            continue;
+            break;
         }
-
-        if (auto *cond_jump = dynamic_cast<CoreIrCondJumpInst *>(terminator);
-            cond_jump != nullptr) {
+        case CoreIrOpcode::CondJump: {
+            auto *cond_jump = static_cast<CoreIrCondJumpInst *>(terminator);
             connect_blocks_dense(block_indices, predecessor_vectors, successor_vectors,
                                  edges, block.get(), cond_jump->get_true_block());
             connect_blocks_dense(block_indices, predecessor_vectors, successor_vectors,
                                  edges, block.get(), cond_jump->get_false_block());
-            continue;
+            break;
         }
-
-        if (auto *indirect_jump = dynamic_cast<CoreIrIndirectJumpInst *>(terminator);
-            indirect_jump != nullptr) {
+        case CoreIrOpcode::IndirectJump: {
+            auto *indirect_jump = static_cast<CoreIrIndirectJumpInst *>(terminator);
             for (CoreIrBasicBlock *target : indirect_jump->get_target_blocks()) {
                 connect_blocks_dense(block_indices, predecessor_vectors,
                                      successor_vectors, edges, block.get(), target);
             }
+            break;
+        }
+        case CoreIrOpcode::Phi:
+        case CoreIrOpcode::Binary:
+        case CoreIrOpcode::Unary:
+        case CoreIrOpcode::Compare:
+        case CoreIrOpcode::Select:
+        case CoreIrOpcode::Cast:
+        case CoreIrOpcode::ExtractElement:
+        case CoreIrOpcode::InsertElement:
+        case CoreIrOpcode::ShuffleVector:
+        case CoreIrOpcode::VectorReduceAdd:
+        case CoreIrOpcode::AddressOfFunction:
+        case CoreIrOpcode::AddressOfGlobal:
+        case CoreIrOpcode::AddressOfStackSlot:
+        case CoreIrOpcode::GetElementPtr:
+        case CoreIrOpcode::Load:
+        case CoreIrOpcode::Store:
+        case CoreIrOpcode::Call:
+        case CoreIrOpcode::Return:
+            break;
         }
     }
 

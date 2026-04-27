@@ -58,8 +58,8 @@ struct UnitLoopAccessInfo {
 struct LoopPromotionContext {
     UnitLoopAccessInfo *access_info = nullptr;
     std::unordered_map<CoreIrBasicBlock *, CoreIrPhiInst *> inserted_phis;
-    std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
-        dominator_children;
+    const std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
+        *dominator_children = nullptr;
     std::vector<CoreIrValue *> value_stack;
     std::unordered_map<
         CoreIrBasicBlock *,
@@ -116,26 +116,65 @@ bool erase_dead_address_chain(CoreIrBasicBlock &block, CoreIrValue *value) {
     return changed;
 }
 
-std::string build_unit_key(const CoreIrPromotionUnit &unit) {
-    std::string key = std::to_string(static_cast<int>(unit.kind)) + ":" +
-                      unit.stack_slot->get_name();
-    for (std::uint64_t index : unit.access_path) {
-        key += "/";
-        key += std::to_string(index);
+bool loop_unit_matches(const UnitLoopAccessInfo &info,
+                       CoreIrStackSlot *stack_slot,
+                       CoreIrPromotionUnitKind kind,
+                       const std::vector<std::uint64_t> &access_path,
+                       const CoreIrType *value_type) {
+    return info.slot == stack_slot && info.kind == kind &&
+           info.access_path == access_path &&
+           detail::are_equivalent_types(info.value_type, value_type);
+}
+
+UnitLoopAccessInfo &get_or_create_loop_unit_info(
+    std::vector<UnitLoopAccessInfo> &infos, CoreIrStackSlot *stack_slot,
+    CoreIrPromotionUnitKind kind, const std::vector<std::uint64_t> &access_path,
+    const CoreIrType *value_type) {
+    for (UnitLoopAccessInfo &info : infos) {
+        if (loop_unit_matches(info, stack_slot, kind, access_path, value_type)) {
+            return info;
+        }
     }
-    return key;
+    UnitLoopAccessInfo info;
+    info.slot = stack_slot;
+    info.kind = kind;
+    info.access_path = access_path;
+    info.value_type = value_type;
+    infos.push_back(std::move(info));
+    return infos.back();
 }
 
 bool is_safe_address_user(CoreIrInstruction &user, std::size_t operand_index) {
-    if (auto *load = dynamic_cast<CoreIrLoadInst *>(&user); load != nullptr) {
+    switch (user.get_opcode()) {
+    case CoreIrOpcode::Load: {
+        auto *load = static_cast<CoreIrLoadInst *>(&user);
         return operand_index == 0 && load->get_address() != nullptr;
     }
-    if (auto *store = dynamic_cast<CoreIrStoreInst *>(&user);
-        store != nullptr) {
+    case CoreIrOpcode::Store: {
+        auto *store = static_cast<CoreIrStoreInst *>(&user);
         return operand_index == 1 && store->get_address() != nullptr;
     }
-    if (dynamic_cast<CoreIrGetElementPtrInst *>(&user) != nullptr) {
+    case CoreIrOpcode::GetElementPtr:
         return operand_index == 0;
+    case CoreIrOpcode::Phi:
+    case CoreIrOpcode::Binary:
+    case CoreIrOpcode::Unary:
+    case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
+    case CoreIrOpcode::Cast:
+    case CoreIrOpcode::ExtractElement:
+    case CoreIrOpcode::InsertElement:
+    case CoreIrOpcode::ShuffleVector:
+    case CoreIrOpcode::VectorReduceAdd:
+    case CoreIrOpcode::AddressOfFunction:
+    case CoreIrOpcode::AddressOfGlobal:
+    case CoreIrOpcode::AddressOfStackSlot:
+    case CoreIrOpcode::Call:
+    case CoreIrOpcode::Jump:
+    case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
+    case CoreIrOpcode::Return:
+        return false;
     }
     return false;
 }
@@ -254,37 +293,11 @@ bool get_store_slot_and_path(const CoreIrStoreInst &store,
            stack_slot != nullptr;
 }
 
-std::unordered_map<std::string, UnitLoopAccessInfo> collect_loop_unit_accesses(
+std::vector<UnitLoopAccessInfo> collect_loop_unit_accesses(
     const CoreIrLoopInfo &loop,
     const CoreIrPromotableStackSlotAnalysisResult &promotable_units) {
-    std::unordered_map<std::string, UnitLoopAccessInfo> infos;
-    for (const CoreIrPromotionUnitInfo &unit_info :
-         promotable_units.get_unit_infos()) {
-        UnitLoopAccessInfo info;
-        info.unit_info = &unit_info;
-        info.slot = unit_info.unit.stack_slot;
-        info.kind = unit_info.unit.kind;
-        info.access_path = unit_info.unit.access_path;
-        info.value_type = unit_info.unit.value_type;
-        for (CoreIrLoadInst *load : unit_info.loads) {
-            if (load != nullptr &&
-                loop_contains_block(loop, load->get_parent())) {
-                info.loads.push_back(load);
-                info.use_blocks.insert(load->get_parent());
-            }
-        }
-        for (CoreIrStoreInst *store : unit_info.stores) {
-            if (store != nullptr &&
-                loop_contains_block(loop, store->get_parent())) {
-                info.stores.push_back(store);
-                info.def_blocks.insert(store->get_parent());
-                info.use_blocks.insert(store->get_parent());
-            }
-        }
-        if (!info.loads.empty() || !info.stores.empty()) {
-            infos.emplace(build_unit_key(unit_info.unit), std::move(info));
-        }
-    }
+    std::vector<UnitLoopAccessInfo> infos;
+    infos.reserve(loop.get_blocks().size());
 
     std::unordered_map<CoreIrStackSlot *,
                        std::vector<std::vector<std::uint64_t>>>
@@ -396,14 +409,11 @@ std::unordered_map<std::string, UnitLoopAccessInfo> collect_loop_unit_accesses(
             const CoreIrPromotionUnitKind kind =
                 path.empty() ? CoreIrPromotionUnitKind::WholeSlot
                              : CoreIrPromotionUnitKind::AccessPath;
-            CoreIrPromotionUnit unit{kind, stack_slot, path, leaf_type};
-            const std::string key = build_unit_key(unit);
-            UnitLoopAccessInfo &info = infos[key];
-            if (info.slot == nullptr) {
-                info.slot = stack_slot;
-                info.kind = kind;
-                info.access_path = path;
-                info.value_type = leaf_type;
+            UnitLoopAccessInfo &info = get_or_create_loop_unit_info(
+                infos, stack_slot, kind, path, leaf_type);
+            if (info.unit_info == nullptr) {
+                info.unit_info =
+                    promotable_units.find_unit_for_instruction(instruction);
             }
             if (is_store) {
                 append_unique_instruction(
@@ -441,7 +451,7 @@ std::unordered_map<std::string, UnitLoopAccessInfo> collect_loop_unit_accesses(
                 continue;
             }
 
-            for (auto &[_, info] : infos) {
+            for (auto &info : infos) {
                 if (info.kind != CoreIrPromotionUnitKind::AccessPath ||
                     info.slot != stack_slot ||
                     extract_constant_for_access_path(
@@ -456,10 +466,10 @@ std::unordered_map<std::string, UnitLoopAccessInfo> collect_loop_unit_accesses(
 
     for (auto it = infos.begin(); it != infos.end();) {
         bool invalid = false;
-        const auto blocked_it = blocked_prefixes.find(it->second.slot);
+        const auto blocked_it = blocked_prefixes.find(it->slot);
         if (blocked_it != blocked_prefixes.end()) {
             for (const auto &blocked_path : blocked_it->second) {
-                if (paths_overlap(it->second.access_path, blocked_path)) {
+                if (paths_overlap(it->access_path, blocked_path)) {
                     invalid = true;
                     break;
                 }
@@ -880,10 +890,14 @@ bool rename_promoted_slot(CoreIrBasicBlock &block, const CoreIrLoopInfo &loop,
     }
 
     add_phi_and_exit_incoming_for_successors(block, loop, promotion_context);
-    for (CoreIrBasicBlock *child :
-         promotion_context.dominator_children[&block]) {
-        if (loop_contains_block(loop, child)) {
-            rename_promoted_slot(*child, loop, promotion_context);
+    if (promotion_context.dominator_children != nullptr) {
+        auto children_it = promotion_context.dominator_children->find(&block);
+        if (children_it != promotion_context.dominator_children->end()) {
+            for (CoreIrBasicBlock *child : children_it->second) {
+                if (loop_contains_block(loop, child)) {
+                    rename_promoted_slot(*child, loop, promotion_context);
+                }
+            }
         }
     }
 
@@ -1287,7 +1301,9 @@ bool promote_slot_in_loop(
     CoreIrAnalysisManager &analysis_manager,
     const CoreIrPromotableStackSlotAnalysisResult &promotable_units,
     CoreIrContext &core_ir_context, UnitLoopAccessInfo &access_info,
-    const CoreIrType *void_type) {
+    const CoreIrType *void_type,
+    const std::unordered_map<CoreIrBasicBlock *, std::vector<CoreIrBasicBlock *>>
+        &dominator_children) {
     if (!can_promote_slot_in_loop(function, loop, promotable_units,
                                   access_info)) {
         return false;
@@ -1311,8 +1327,7 @@ bool promote_slot_in_loop(
 
     LoopPromotionContext promotion_context;
     promotion_context.access_info = &access_info;
-    build_dominator_children(function, analysis_manager,
-                             promotion_context.dominator_children);
+    promotion_context.dominator_children = &dominator_children;
     insert_loop_memory_phis(function, analysis_manager, loop,
                             promotion_context);
     auto header_phi_it = promotion_context.inserted_phis.find(header);
@@ -1379,14 +1394,22 @@ PassResult CoreIrLoopMemoryPromotionPass::Run(CompilerContext &context) {
                 return lhs->get_depth() > rhs->get_depth();
             });
 
+        std::unordered_map<CoreIrBasicBlock *,
+                           std::vector<CoreIrBasicBlock *>>
+            dominator_children;
+        if (!ordered_loops.empty()) {
+            build_dominator_children(*function, *analysis_manager,
+                                     dominator_children);
+        }
         for (const CoreIrLoopInfo *loop_ptr : ordered_loops) {
             auto access_infos =
                 collect_loop_unit_accesses(*loop_ptr, promotable_units);
-            for (auto &entry : access_infos) {
+            for (UnitLoopAccessInfo &access_info : access_infos) {
                 function_changed = promote_slot_in_loop(
                                        *function, *loop_ptr, *analysis_manager,
                                        promotable_units, *core_ir_context,
-                                       entry.second, void_type) ||
+                                       access_info, void_type,
+                                       dominator_children) ||
                                    function_changed;
             }
         }

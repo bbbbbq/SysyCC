@@ -115,13 +115,20 @@ CoreIrPromotionFailureReason classify_non_load_store_user_or_default(
     return classify_non_load_store_user(*user);
 }
 
-std::string build_path_key(const std::vector<std::uint64_t> &path) {
-    std::string key;
-    for (std::uint64_t index : path) {
-        key += std::to_string(index);
-        key.push_back('/');
+PathCandidateGroup &get_or_create_path_group(
+    std::vector<PathCandidateGroup> &path_groups,
+    const std::vector<std::uint64_t> &access_path,
+    const CoreIrType *value_type) {
+    for (PathCandidateGroup &group : path_groups) {
+        if (!group.accesses.empty() &&
+            group.accesses.front().access_path == access_path) {
+            return group;
+        }
     }
-    return key;
+    PathCandidateGroup group;
+    group.value_type = value_type;
+    path_groups.push_back(std::move(group));
+    return path_groups.back();
 }
 
 bool is_scalar_promotable_type(const CoreIrType *type) {
@@ -134,6 +141,7 @@ bool is_scalar_promotable_type(const CoreIrType *type) {
     case CoreIrTypeKind::Pointer:
         return true;
     case CoreIrTypeKind::Void:
+    case CoreIrTypeKind::Vector:
     case CoreIrTypeKind::Array:
     case CoreIrTypeKind::Struct:
     case CoreIrTypeKind::Function:
@@ -166,16 +174,21 @@ const CoreIrType *resolve_access_path_type(const CoreIrType *root_type,
 
 bool normalize_constant_gep_path(CoreIrValue *value, CoreIrStackSlot *&stack_slot,
                                  std::vector<std::uint64_t> &path) {
-    if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(value);
-        address != nullptr) {
+    auto *instruction = dynamic_cast<CoreIrInstruction *>(value);
+    if (instruction == nullptr) {
+        return false;
+    }
+
+    if (instruction->get_opcode() == CoreIrOpcode::AddressOfStackSlot) {
+        auto *address = static_cast<CoreIrAddressOfStackSlotInst *>(instruction);
         stack_slot = address->get_stack_slot();
         return stack_slot != nullptr;
     }
 
-    auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(value);
-    if (gep == nullptr) {
+    if (instruction->get_opcode() != CoreIrOpcode::GetElementPtr) {
         return false;
     }
+    auto *gep = static_cast<CoreIrGetElementPtrInst *>(instruction);
 
     std::vector<std::uint64_t> base_path;
     if (!normalize_constant_gep_path(gep->get_base(), stack_slot, base_path) ||
@@ -201,17 +214,22 @@ bool normalize_constant_gep_path(CoreIrValue *value, CoreIrStackSlot *&stack_slo
 
 bool trace_stack_slot_prefix(CoreIrValue *value, CoreIrStackSlot *&stack_slot,
                              std::vector<std::uint64_t> &path, bool &is_exact) {
-    if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(value);
-        address != nullptr) {
+    auto *instruction = dynamic_cast<CoreIrInstruction *>(value);
+    if (instruction == nullptr) {
+        return false;
+    }
+
+    if (instruction->get_opcode() == CoreIrOpcode::AddressOfStackSlot) {
+        auto *address = static_cast<CoreIrAddressOfStackSlotInst *>(instruction);
         stack_slot = address->get_stack_slot();
         is_exact = stack_slot != nullptr;
         return stack_slot != nullptr;
     }
 
-    auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(value);
-    if (gep == nullptr) {
+    if (instruction->get_opcode() != CoreIrOpcode::GetElementPtr) {
         return false;
     }
+    auto *gep = static_cast<CoreIrGetElementPtrInst *>(instruction);
 
     std::vector<std::uint64_t> base_path;
     if (!trace_stack_slot_prefix(gep->get_base(), stack_slot, base_path, is_exact) ||
@@ -238,21 +256,43 @@ bool trace_stack_slot_prefix(CoreIrValue *value, CoreIrStackSlot *&stack_slot,
 
 CoreIrPromotionFailureReason classify_non_load_store_user(
     const CoreIrInstruction &instruction) {
-    if (dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction) != nullptr) {
+    if (instruction.get_opcode() == CoreIrOpcode::GetElementPtr) {
         return CoreIrPromotionFailureReason::DynamicIndex;
     }
     return CoreIrPromotionFailureReason::NonLoadStoreUser;
 }
 
 bool is_safe_address_user(CoreIrInstruction &user, std::size_t operand_index) {
-    if (auto *load = dynamic_cast<CoreIrLoadInst *>(&user); load != nullptr) {
+    switch (user.get_opcode()) {
+    case CoreIrOpcode::Load: {
+        auto *load = static_cast<CoreIrLoadInst *>(&user);
         return operand_index == 0 && load->get_address() != nullptr;
     }
-    if (auto *store = dynamic_cast<CoreIrStoreInst *>(&user); store != nullptr) {
+    case CoreIrOpcode::Store: {
+        auto *store = static_cast<CoreIrStoreInst *>(&user);
         return operand_index == 1 && store->get_address() != nullptr;
     }
-    if (dynamic_cast<CoreIrGetElementPtrInst *>(&user) != nullptr) {
+    case CoreIrOpcode::GetElementPtr:
         return operand_index == 0;
+    case CoreIrOpcode::Phi:
+    case CoreIrOpcode::Binary:
+    case CoreIrOpcode::Unary:
+    case CoreIrOpcode::Compare:
+    case CoreIrOpcode::Select:
+    case CoreIrOpcode::Cast:
+    case CoreIrOpcode::ExtractElement:
+    case CoreIrOpcode::InsertElement:
+    case CoreIrOpcode::ShuffleVector:
+    case CoreIrOpcode::VectorReduceAdd:
+    case CoreIrOpcode::AddressOfFunction:
+    case CoreIrOpcode::AddressOfGlobal:
+    case CoreIrOpcode::AddressOfStackSlot:
+    case CoreIrOpcode::Call:
+    case CoreIrOpcode::Jump:
+    case CoreIrOpcode::CondJump:
+    case CoreIrOpcode::IndirectJump:
+    case CoreIrOpcode::Return:
+        return false;
     }
     return false;
 }
@@ -285,6 +325,12 @@ bool unit_is_definitely_defined_on_all_paths(
     const PromotableCfgWorkset &cfg_workset,
     const std::unordered_map<const CoreIrInstruction *, std::size_t>
         &instruction_order) {
+    if (unit_info.loads.empty()) {
+        return true;
+    }
+    if (unit_info.stores.empty()) {
+        return false;
+    }
     if (cfg_workset.entry_index == PromotableCfgWorkset::npos) {
         return false;
     }
@@ -333,6 +379,7 @@ bool unit_is_definitely_defined_on_all_paths(
     }
 
     std::vector<BlockSummary> block_summaries(cfg_workset.blocks.size());
+    bool has_use_before_def = false;
     for (std::size_t block_index = 0; block_index < accesses_by_block.size();
          ++block_index) {
         std::vector<OrderedAccess> &accesses = accesses_by_block[block_index];
@@ -356,6 +403,11 @@ bool unit_is_definitely_defined_on_all_paths(
             }
         }
         block_summaries[block_index] = summary;
+        has_use_before_def = has_use_before_def || summary.has_use_before_def;
+    }
+
+    if (!has_use_before_def) {
+        return true;
     }
 
     std::vector<bool> in_defined(cfg_workset.blocks.size(), false);
@@ -495,7 +547,9 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                 continue;
             }
 
-            if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction); load != nullptr) {
+            switch (instruction->get_opcode()) {
+            case CoreIrOpcode::Load: {
+                auto *load = static_cast<CoreIrLoadInst *>(instruction);
                 CoreIrStackSlot *stack_slot = nullptr;
                 std::vector<std::uint64_t> path;
                 const CoreIrType *value_type = load->get_type();
@@ -523,7 +577,8 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                 continue;
             }
 
-            if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction); store != nullptr) {
+            case CoreIrOpcode::Store: {
+                auto *store = static_cast<CoreIrStoreInst *>(instruction);
                 CoreIrStackSlot *stack_slot = nullptr;
                 std::vector<std::uint64_t> path;
                 const CoreIrType *value_type =
@@ -552,8 +607,9 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                 continue;
             }
 
-            if (auto *address = dynamic_cast<CoreIrAddressOfStackSlotInst *>(instruction);
-                address != nullptr) {
+            case CoreIrOpcode::AddressOfStackSlot: {
+                auto *address =
+                    static_cast<CoreIrAddressOfStackSlotInst *>(instruction);
                 for (const CoreIrUse &use : address->get_uses()) {
                     CoreIrInstruction *user = use.get_user();
                     if (user != nullptr &&
@@ -564,10 +620,11 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                         blocked_prefixes, address->get_stack_slot(), {},
                         classify_non_load_store_user_or_default(user));
                 }
+                break;
             }
 
-            if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(instruction);
-                gep != nullptr) {
+            case CoreIrOpcode::GetElementPtr: {
+                auto *gep = static_cast<CoreIrGetElementPtrInst *>(instruction);
                 CoreIrStackSlot *root_slot = nullptr;
                 std::vector<std::uint64_t> prefix_path;
                 bool exact_path = true;
@@ -590,6 +647,27 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                         exact_path ? classify_non_load_store_user_or_default(user)
                                    : CoreIrPromotionFailureReason::DynamicIndex);
                 }
+                break;
+            }
+
+            case CoreIrOpcode::Phi:
+            case CoreIrOpcode::Binary:
+            case CoreIrOpcode::Unary:
+            case CoreIrOpcode::Compare:
+            case CoreIrOpcode::Select:
+            case CoreIrOpcode::Cast:
+            case CoreIrOpcode::ExtractElement:
+            case CoreIrOpcode::InsertElement:
+            case CoreIrOpcode::ShuffleVector:
+            case CoreIrOpcode::VectorReduceAdd:
+            case CoreIrOpcode::AddressOfFunction:
+            case CoreIrOpcode::AddressOfGlobal:
+            case CoreIrOpcode::Call:
+            case CoreIrOpcode::Jump:
+            case CoreIrOpcode::CondJump:
+            case CoreIrOpcode::IndirectJump:
+            case CoreIrOpcode::Return:
+                break;
             }
         }
     }
@@ -611,7 +689,7 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
             continue;
         }
 
-        std::unordered_map<std::string, PathCandidateGroup> path_groups;
+        std::vector<PathCandidateGroup> path_groups;
         for (const CandidateAccess &access : accesses_it->second) {
             const CoreIrType *leaf_type =
                 resolve_access_path_type(slot->get_allocated_type(), access.access_path);
@@ -630,8 +708,8 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                 break;
             }
             PathCandidateGroup &group =
-                path_groups[build_path_key(access.access_path)];
-            group.value_type = leaf_type;
+                get_or_create_path_group(path_groups, access.access_path,
+                                         leaf_type);
             group.accesses.push_back(access);
         }
         if (path_groups.empty()) {
@@ -641,35 +719,29 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
         const auto blocked_it = blocked_prefixes.find(slot.get());
         if (blocked_it != blocked_prefixes.end()) {
             for (const BlockedPrefix &blocked_prefix : blocked_it->second) {
-                for (auto &entry : path_groups) {
-                    const auto &path = entry.second.accesses.front().access_path;
+                for (PathCandidateGroup &group : path_groups) {
+                    const auto &path = group.accesses.front().access_path;
                     if (paths_overlap(path, blocked_prefix.access_path)) {
-                        entry.second.invalid = true;
+                        group.invalid = true;
                     }
                 }
             }
         }
 
-        std::vector<std::string> path_keys;
-        path_keys.reserve(path_groups.size());
-        for (const auto &entry : path_groups) {
-            path_keys.push_back(entry.first);
-        }
-
-        for (std::size_t left = 0; left < path_keys.size(); ++left) {
-            for (std::size_t right = left + 1; right < path_keys.size(); ++right) {
-                const auto &lhs = path_groups[path_keys[left]].accesses.front().access_path;
-                const auto &rhs = path_groups[path_keys[right]].accesses.front().access_path;
+        for (std::size_t left = 0; left < path_groups.size(); ++left) {
+            for (std::size_t right = left + 1; right < path_groups.size(); ++right) {
+                const auto &lhs = path_groups[left].accesses.front().access_path;
+                const auto &rhs = path_groups[right].accesses.front().access_path;
                 if (!paths_overlap(lhs, rhs)) {
                     continue;
                 }
-                path_groups[path_keys[left]].invalid = true;
-                path_groups[path_keys[right]].invalid = true;
+                path_groups[left].invalid = true;
+                path_groups[right].invalid = true;
             }
         }
 
-        for (auto &entry : path_groups) {
-            if (entry.second.invalid) {
+        for (PathCandidateGroup &group : path_groups) {
+            if (group.invalid) {
                 rejected_slot_list.push_back(
                     CoreIrRejectedStackSlot{slot.get(),
                                             CoreIrPromotionFailureReason::
@@ -678,14 +750,14 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
             }
 
             CoreIrPromotionUnitInfo unit_info;
-            unit_info.unit.kind = entry.second.accesses.front().access_path.empty()
+            unit_info.unit.kind = group.accesses.front().access_path.empty()
                                       ? CoreIrPromotionUnitKind::WholeSlot
                                       : CoreIrPromotionUnitKind::AccessPath;
             unit_info.unit.stack_slot = slot.get();
-            unit_info.unit.access_path = entry.second.accesses.front().access_path;
-            unit_info.unit.value_type = entry.second.value_type;
+            unit_info.unit.access_path = group.accesses.front().access_path;
+            unit_info.unit.value_type = group.value_type;
 
-            for (const CandidateAccess &access : entry.second.accesses) {
+            for (const CandidateAccess &access : group.accesses) {
                 if (access.is_store) {
                     auto *store = static_cast<CoreIrStoreInst *>(access.instruction);
                     unit_info.stores.push_back(store);

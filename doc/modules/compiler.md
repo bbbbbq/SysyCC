@@ -144,6 +144,12 @@ CoreIrInstCombinePass -> CoreIrMem2RegPass ->
   [src/backend/asm_gen/riscv64](/Users/caojunze424/code/SysyCC/src/backend/asm_gen/riscv64).
   The legacy `IRBuilder -> IRBackend -> LlvmIrBackend` stack remains in tree as
   a reference implementation during the migration.
+- `SYSYCC_TRACE_PASSES=1` now emits one readable per-translation-unit pass
+  report after the pipeline finishes. It summarizes the top 10 slowest passes,
+  Core IR basic-block/instruction deltas, fixed-point iteration convergence, and
+  the full pass timeline. `SYSYCC_PASS_REPORT_DIR=<dir>` writes those reports as
+  Markdown files without making build stderr noisy, which is useful for Lua/MuJS
+  per-file profiling.
 - `CoreIrCanonicalizePass` now only keeps the pre-SSA hard-structure
   normalization that later memory / CFG passes depend on, mainly explicit `i1`
   branch conditions plus direct stack-slot load/store address forms.

@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "backend/ir/analysis/alias_analysis.hpp"
 #include "backend/ir/analysis/analysis_manager.hpp"
@@ -350,13 +351,58 @@ void build_dominator_children(
     }
 }
 
+struct AvailableValueChange {
+    std::string key;
+    CoreIrValue *old_value = nullptr;
+    bool had_old_value = false;
+};
+
+bool has_recorded_change(const std::vector<AvailableValueChange> &changes,
+                         const std::string &key) {
+    return std::any_of(changes.begin(), changes.end(),
+                       [&key](const AvailableValueChange &change) {
+                           return change.key == key;
+                       });
+}
+
+void set_available_value(
+    std::unordered_map<std::string, CoreIrValue *> &available_values,
+    std::vector<AvailableValueChange> &changes, std::string key,
+    CoreIrValue *value) {
+    auto it = available_values.find(key);
+    if (!has_recorded_change(changes, key)) {
+        changes.push_back(AvailableValueChange{
+            key, it == available_values.end() ? nullptr : it->second,
+            it != available_values.end()});
+    }
+
+    if (it != available_values.end()) {
+        it->second = value;
+        return;
+    }
+    available_values.emplace(std::move(key), value);
+}
+
+void restore_available_values(
+    std::unordered_map<std::string, CoreIrValue *> &available_values,
+    const std::vector<AvailableValueChange> &changes) {
+    for (auto it = changes.rbegin(); it != changes.rend(); ++it) {
+        if (it->had_old_value) {
+            available_values[it->key] = it->old_value;
+        } else {
+            available_values.erase(it->key);
+        }
+    }
+}
+
 bool run_gvn_block(
     CoreIrBasicBlock &block, const CoreIrAliasAnalysisResult &alias_analysis,
     const CoreIrMemorySSAAnalysisResult &memory_ssa,
     const std::unordered_map<CoreIrBasicBlock *,
                              std::vector<CoreIrBasicBlock *>> &children,
-    std::unordered_map<std::string, CoreIrValue *> available_values) {
+    std::unordered_map<std::string, CoreIrValue *> &available_values) {
     bool changed = false;
+    std::vector<AvailableValueChange> scoped_changes;
     auto &instructions = block.get_instructions();
     std::size_t index = 0;
     while (index < instructions.size()) {
@@ -382,12 +428,14 @@ bool run_gvn_block(
                 erase_instruction(block, load);
                 changed = true;
                 if (load_key.has_value()) {
-                    available_values[*load_key] = replacement;
+                    set_available_value(available_values, scoped_changes,
+                                        std::move(*load_key), replacement);
                 }
                 continue;
             }
             if (load_key.has_value()) {
-                available_values[*load_key] = load;
+                set_available_value(available_values, scoped_changes,
+                                    std::move(*load_key), load);
             }
             ++index;
             continue;
@@ -406,7 +454,8 @@ bool run_gvn_block(
             changed = true;
             continue;
         }
-        available_values.emplace(key, instruction);
+        set_available_value(available_values, scoped_changes, key,
+                            instruction);
         ++index;
     }
 
@@ -418,6 +467,7 @@ bool run_gvn_block(
                       changed;
         }
     }
+    restore_available_values(available_values, scoped_changes);
     return changed;
 }
 
@@ -458,8 +508,9 @@ PassResult CoreIrGvnPass::Run(CompilerContext &context) {
         if (entry_block == nullptr) {
             continue;
         }
+        std::unordered_map<std::string, CoreIrValue *> available_values;
         if (run_gvn_block(*entry_block, alias_analysis, memory_ssa, children,
-                          {})) {
+                          available_values)) {
             effects.changed_functions.insert(function.get());
         }
     }

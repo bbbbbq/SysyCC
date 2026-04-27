@@ -132,6 +132,7 @@ run_riscv64_docker_command() {
     local image=""
     image="$(riscv_single_source_docker_image)"
     docker run --rm \
+        --init \
         --user "$(id -u):$(id -g)" \
         -v "${project_root}:/workspace" \
         -w /workspace \
@@ -259,9 +260,13 @@ for path in sorted(upstream_root.rglob("*.c")):
     rel = path.relative_to(stage_root / "upstream").as_posix()
     if rel.startswith("SingleSource/Support/"):
         continue
+    if rel.startswith("SingleSource/Benchmarks/Polybench/utilities/"):
+        continue
     if rel.endswith("-lib.c"):
         continue
     if "/AArch64/" in rel or "/ARM/" in rel:
+        continue
+    if "aarch64-" in rel.lower():
         continue
     sibling_companion = path.with_name(path.stem + "-lib.c")
     if sibling_companion.exists():
@@ -362,13 +367,17 @@ import os
 import pathlib
 import signal
 import subprocess
+import uuid
 import sys
 
 project_root, input_binary, stdout_path, stderr_path, status_path, timeout_text, *runtime_args = sys.argv[1:]
 timeout_seconds = float(timeout_text)
 image = os.environ.get("SYSYCC_RISCV64_DOCKER_IMAGE", "sysycc-riscv64-user-runner:ubuntu24.04")
+container_name = f"sysycc-riscv64-run-{uuid.uuid4().hex[:12]}"
 command = [
     "docker", "run", "--rm",
+    "--init",
+    "--name", container_name,
     "--user", f"{os.getuid()}:{os.getgid()}",
     "-v", f"{project_root}:/workspace",
     "-w", "/workspace",
@@ -401,6 +410,12 @@ with open(stdout_path, "wb") as stdout_file, open(stderr_path, "wb") as stderr_f
                 except ProcessLookupError:
                     pass
                 process.wait()
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
         stderr_file.write(
             f"timed out after {timeout_seconds:g}s\n".encode()
         )

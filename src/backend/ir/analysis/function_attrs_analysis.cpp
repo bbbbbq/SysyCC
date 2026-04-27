@@ -1,6 +1,8 @@
 #include "backend/ir/analysis/function_attrs_analysis.hpp"
 
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "backend/ir/analysis/call_graph_analysis.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
@@ -12,13 +14,43 @@ namespace sysycc {
 
 namespace {
 
+struct FunctionAttrsScratch {
+    std::unordered_map<CoreIrStackSlot *, std::vector<CoreIrStoreInst *>>
+        stores_by_stack_slot;
+    std::vector<CoreIrStoreInst *> address_stores;
+};
+
+FunctionAttrsScratch build_function_attrs_scratch(CoreIrFunction &function) {
+    FunctionAttrsScratch scratch;
+    for (const auto &block : function.get_basic_blocks()) {
+        if (block == nullptr) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block->get_instructions()) {
+            CoreIrInstruction *instruction = instruction_ptr.get();
+            if (instruction == nullptr ||
+                instruction->get_opcode() != CoreIrOpcode::Store) {
+                continue;
+            }
+            auto *store = static_cast<CoreIrStoreInst *>(instruction);
+            if (store->get_stack_slot() != nullptr) {
+                scratch.stores_by_stack_slot[store->get_stack_slot()].push_back(
+                    store);
+            } else if (store->get_address() != nullptr) {
+                scratch.address_stores.push_back(store);
+            }
+        }
+    }
+    return scratch;
+}
+
 bool value_may_derive_from_parameter(
-    CoreIrFunction &function, CoreIrValue *value, CoreIrValue *parameter,
+    const FunctionAttrsScratch &scratch, CoreIrValue *value, CoreIrValue *parameter,
     std::unordered_set<const CoreIrValue *> &visiting_values,
     std::unordered_set<const CoreIrStackSlot *> &visiting_slots);
 
 bool stack_slot_may_hold_parameter(
-    CoreIrFunction &function, CoreIrStackSlot *stack_slot,
+    const FunctionAttrsScratch &scratch, CoreIrStackSlot *stack_slot,
     CoreIrValue *parameter,
     std::unordered_set<const CoreIrValue *> &visiting_values,
     std::unordered_set<const CoreIrStackSlot *> &visiting_slots) {
@@ -26,28 +58,22 @@ bool stack_slot_may_hold_parameter(
         return false;
     }
 
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr) {
-            continue;
-        }
-        for (const auto &instruction_ptr : block->get_instructions()) {
-            auto *store =
-                dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
-            if (store == nullptr || store->get_stack_slot() != stack_slot) {
-                continue;
-            }
-            if (value_may_derive_from_parameter(function, store->get_value(),
-                                                parameter, visiting_values,
-                                                visiting_slots)) {
-                return true;
-            }
+    auto stores_it = scratch.stores_by_stack_slot.find(stack_slot);
+    if (stores_it == scratch.stores_by_stack_slot.end()) {
+        return false;
+    }
+    for (CoreIrStoreInst *store : stores_it->second) {
+        if (store != nullptr &&
+            value_may_derive_from_parameter(scratch, store->get_value(), parameter,
+                                            visiting_values, visiting_slots)) {
+            return true;
         }
     }
     return false;
 }
 
 bool value_may_derive_from_parameter(
-    CoreIrFunction &function, CoreIrValue *value, CoreIrValue *parameter,
+    const FunctionAttrsScratch &scratch, CoreIrValue *value, CoreIrValue *parameter,
     std::unordered_set<const CoreIrValue *> &visiting_values,
     std::unordered_set<const CoreIrStackSlot *> &visiting_slots) {
     if (value == nullptr) {
@@ -62,12 +88,12 @@ bool value_may_derive_from_parameter(
 
     if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(value);
         gep != nullptr) {
-        return value_may_derive_from_parameter(function, gep->get_base(),
+        return value_may_derive_from_parameter(scratch, gep->get_base(),
                                                parameter, visiting_values,
                                                visiting_slots);
     }
     if (auto *cast = dynamic_cast<CoreIrCastInst *>(value); cast != nullptr) {
-        return value_may_derive_from_parameter(function, cast->get_operand(),
+        return value_may_derive_from_parameter(scratch, cast->get_operand(),
                                                parameter, visiting_values,
                                                visiting_slots);
     }
@@ -75,7 +101,7 @@ bool value_may_derive_from_parameter(
         for (std::size_t index = 0; index < phi->get_incoming_count();
              ++index) {
             if (value_may_derive_from_parameter(
-                    function, phi->get_incoming_value(index), parameter,
+                    scratch, phi->get_incoming_value(index), parameter,
                     visiting_values, visiting_slots)) {
                 return true;
             }
@@ -85,16 +111,16 @@ bool value_may_derive_from_parameter(
     if (auto *select = dynamic_cast<CoreIrSelectInst *>(value);
         select != nullptr) {
         return value_may_derive_from_parameter(
-                   function, select->get_true_value(), parameter,
+                   scratch, select->get_true_value(), parameter,
                    visiting_values, visiting_slots) ||
                value_may_derive_from_parameter(
-                   function, select->get_false_value(), parameter,
+                   scratch, select->get_false_value(), parameter,
                    visiting_values, visiting_slots);
     }
     if (auto *load = dynamic_cast<CoreIrLoadInst *>(value); load != nullptr) {
         if (load->get_stack_slot() != nullptr) {
             return stack_slot_may_hold_parameter(
-                function, load->get_stack_slot(), parameter, visiting_values,
+                scratch, load->get_stack_slot(), parameter, visiting_values,
                 visiting_slots);
         }
         return false;
@@ -102,25 +128,18 @@ bool value_may_derive_from_parameter(
     return false;
 }
 
-bool parameter_is_readonly(CoreIrFunction &function, CoreIrValue *parameter) {
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr) {
+bool parameter_is_readonly(const FunctionAttrsScratch &scratch,
+                           CoreIrValue *parameter) {
+    for (CoreIrStoreInst *store : scratch.address_stores) {
+        if (store == nullptr) {
             continue;
         }
-        for (const auto &instruction_ptr : block->get_instructions()) {
-            auto *store =
-                dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
-            if (store == nullptr || store->get_stack_slot() != nullptr ||
-                store->get_address() == nullptr) {
-                continue;
-            }
-            std::unordered_set<const CoreIrValue *> visiting_values;
-            std::unordered_set<const CoreIrStackSlot *> visiting_slots;
-            if (value_may_derive_from_parameter(function, store->get_address(),
-                                                parameter, visiting_values,
-                                                visiting_slots)) {
-                return false;
-            }
+        std::unordered_set<const CoreIrValue *> visiting_values;
+        std::unordered_set<const CoreIrStackSlot *> visiting_slots;
+        if (value_may_derive_from_parameter(scratch, store->get_address(),
+                                            parameter, visiting_values,
+                                            visiting_slots)) {
+            return false;
         }
     }
     return true;
@@ -238,6 +257,7 @@ summarize_function_attrs(CoreIrFunction &function,
     summary.is_norecurse = !call_graph.is_recursive(&function);
     summary.parameter_nocapture.assign(function.get_parameters().size(), false);
     summary.parameter_readonly.assign(function.get_parameters().size(), false);
+    const FunctionAttrsScratch scratch = build_function_attrs_scratch(function);
 
     for (std::size_t index = 0; index < function.get_parameters().size();
          ++index) {
@@ -251,7 +271,7 @@ summarize_function_attrs(CoreIrFunction &function,
             value_tree_is_nocapture(parameter, visiting);
         std::unordered_set<const CoreIrValue *> readonly_visiting;
         summary.parameter_readonly[index] =
-            parameter_is_readonly(function, parameter) &&
+            parameter_is_readonly(scratch, parameter) &&
             value_tree_is_readonly(parameter, readonly_visiting);
     }
 

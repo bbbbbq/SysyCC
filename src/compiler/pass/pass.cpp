@@ -1,12 +1,17 @@
 #include "pass.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "backend/ir/shared/core/core_ir_builder.hpp"
@@ -68,32 +73,95 @@ bool env_flag_enabled(const char *name) {
         return false;
     }
     const std::string text(value);
-    return text == "1" || text == "true" || text == "TRUE" ||
-           text == "yes" || text == "YES" || text == "on" ||
-           text == "ON";
+    return text == "1" || text == "true" || text == "TRUE" || text == "yes" ||
+           text == "YES" || text == "on" || text == "ON";
 }
 
 bool trace_passes_enabled() { return env_flag_enabled("SYSYCC_TRACE_PASSES"); }
+
+std::string pass_report_dir() {
+    const char *value = std::getenv("SYSYCC_PASS_REPORT_DIR");
+    return value == nullptr ? std::string{} : std::string(value);
+}
+
+bool pass_report_enabled() {
+    return trace_passes_enabled() || !pass_report_dir().empty();
+}
 
 bool force_core_ir_verification_enabled() {
     return env_flag_enabled("SYSYCC_VERIFY_CORE_IR");
 }
 
-std::size_t count_core_ir_blocks(const CompilerContext &context) {
+struct CoreIrStats {
+    std::size_t functions = 0;
+    std::size_t blocks = 0;
+    std::size_t instructions = 0;
+};
+
+CoreIrStats get_core_ir_stats(const CompilerContext &context) {
     const CoreIrBuildResult *build_result = context.get_core_ir_build_result();
     const CoreIrModule *module =
         build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
-        return 0;
+        return {};
     }
 
-    std::size_t count = 0;
+    CoreIrStats stats;
     for (const auto &function : module->get_functions()) {
-        if (function != nullptr) {
-            count += function->get_basic_blocks().size();
+        if (function == nullptr) {
+            continue;
+        }
+        ++stats.functions;
+        stats.blocks += function->get_basic_blocks().size();
+        for (const auto &block : function->get_basic_blocks()) {
+            if (block != nullptr) {
+                stats.instructions += block->get_instructions().size();
+            }
         }
     }
-    return count;
+    return stats;
+}
+
+std::size_t count_core_ir_blocks(const CompilerContext &context) {
+    return get_core_ir_stats(context).blocks;
+}
+
+long long diff_count(std::size_t after, std::size_t before) {
+    return static_cast<long long>(after) - static_cast<long long>(before);
+}
+
+std::string format_delta(long long delta) {
+    std::ostringstream oss;
+    if (delta >= 0) {
+        oss << '+';
+    }
+    oss << delta;
+    return oss.str();
+}
+
+std::string sanitize_report_filename(std::string name) {
+    if (name.empty()) {
+        return "tu";
+    }
+    for (char &ch : name) {
+        const unsigned char value = static_cast<unsigned char>(ch);
+        if (!std::isalnum(value) && ch != '.' && ch != '_' && ch != '-') {
+            ch = '_';
+        }
+    }
+    return name;
+}
+
+std::string pass_report_file_name(const CompilerContext &context) {
+    const std::filesystem::path input_path(context.get_input_file());
+    std::string base = input_path.filename().string();
+    if (base.empty()) {
+        base = "tu";
+    }
+    const std::size_t hash = std::hash<std::string>{}(context.get_input_file());
+    std::ostringstream oss;
+    oss << sanitize_report_filename(base) << '-' << std::hex << hash << ".md";
+    return oss.str();
 }
 
 void trace_pass_event(std::string_view event, const Pass &pass,
@@ -109,13 +177,280 @@ void trace_pass_leave(const Pass &pass, bool changed, bool stopped,
         std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
     std::cerr << "[sysycc-pass] leave " << pass.Name()
               << " changed=" << (changed ? 1 : 0)
-              << " stopped=" << (stopped ? 1 : 0)
-              << " blocks=" << block_count << " elapsed_ms=" << elapsed_ms
-              << '\n';
+              << " stopped=" << (stopped ? 1 : 0) << " blocks=" << block_count
+              << " elapsed_ms=" << elapsed_ms << '\n';
 }
 
-bool contains_float_leaf_type(const CoreIrType *type,
-                              std::unordered_set<const CoreIrType *> &visiting) {
+class PassProfileReport {
+  private:
+    struct PassEvent {
+        std::size_t sequence = 0;
+        std::string pass_name;
+        std::optional<std::size_t> fixed_point_group;
+        std::optional<std::size_t> fixed_point_iteration;
+        CoreIrStats before;
+        CoreIrStats after;
+        std::chrono::steady_clock::duration elapsed{};
+        bool changed = false;
+        bool stopped = false;
+    };
+
+    struct FixedPointGroupEvent {
+        std::size_t index = 0;
+        std::string scope;
+        std::size_t pass_count = 0;
+        std::size_t max_iterations = 0;
+        std::size_t iterations_run = 0;
+        bool converged = false;
+        std::vector<bool> iteration_changed;
+    };
+
+    struct PassAggregate {
+        std::string pass_name;
+        std::chrono::steady_clock::duration elapsed{};
+        std::size_t runs = 0;
+        std::size_t changed_runs = 0;
+        long long block_delta = 0;
+        long long instruction_delta = 0;
+    };
+
+    bool enabled_ = false;
+    std::string input_file_;
+    std::chrono::steady_clock::time_point start_time_;
+    std::vector<PassEvent> pass_events_;
+    std::vector<FixedPointGroupEvent> fixed_point_groups_;
+
+    static double to_ms(std::chrono::steady_clock::duration duration) {
+        return std::chrono::duration<double, std::milli>(duration).count();
+    }
+
+    std::vector<PassAggregate> aggregate_passes() const {
+        std::vector<PassAggregate> aggregates;
+        std::unordered_map<std::string, std::size_t> index_by_name;
+        for (const PassEvent &event : pass_events_) {
+            auto found = index_by_name.find(event.pass_name);
+            if (found == index_by_name.end()) {
+                index_by_name.emplace(event.pass_name, aggregates.size());
+                aggregates.push_back(PassAggregate{event.pass_name});
+                found = index_by_name.find(event.pass_name);
+            }
+            PassAggregate &aggregate = aggregates[found->second];
+            aggregate.elapsed += event.elapsed;
+            ++aggregate.runs;
+            if (event.changed) {
+                ++aggregate.changed_runs;
+            }
+            aggregate.block_delta +=
+                diff_count(event.after.blocks, event.before.blocks);
+            aggregate.instruction_delta +=
+                diff_count(event.after.instructions, event.before.instructions);
+        }
+        std::sort(aggregates.begin(), aggregates.end(),
+                  [](const PassAggregate &lhs, const PassAggregate &rhs) {
+                      if (lhs.elapsed != rhs.elapsed) {
+                          return lhs.elapsed > rhs.elapsed;
+                      }
+                      return lhs.pass_name < rhs.pass_name;
+                  });
+        return aggregates;
+    }
+
+    std::string render() const {
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(3);
+        oss << "# SysyCC Pass Trace Report\n\n";
+        oss << "- Input: `" << (input_file_.empty() ? "<unknown>" : input_file_)
+            << "`\n";
+        oss << "- Pipeline wall time: "
+            << to_ms(std::chrono::steady_clock::now() - start_time_) << " ms\n";
+        oss << "- Pass invocations: " << pass_events_.size() << "\n\n";
+
+        const std::vector<PassAggregate> aggregates = aggregate_passes();
+        oss << "## Top 10 Slow Passes\n\n";
+        oss << "| Rank | Pass | Total ms | Runs | Changed runs | Blocks delta "
+               "| "
+               "Instructions delta |\n";
+        oss << "| ---: | --- | ---: | ---: | ---: | ---: | ---: |\n";
+        const std::size_t limit = std::min<std::size_t>(10, aggregates.size());
+        for (std::size_t index = 0; index < limit; ++index) {
+            const PassAggregate &aggregate = aggregates[index];
+            oss << "| " << (index + 1) << " | `" << aggregate.pass_name
+                << "` | " << to_ms(aggregate.elapsed) << " | " << aggregate.runs
+                << " | " << aggregate.changed_runs << " | "
+                << format_delta(aggregate.block_delta) << " | "
+                << format_delta(aggregate.instruction_delta) << " |\n";
+        }
+        oss << '\n';
+
+        oss << "## Fixed-Point Groups\n\n";
+        oss << "| Group | Scope | Passes | Iterations | Max | Converged | "
+               "Changed "
+               "iterations |\n";
+        oss << "| ---: | --- | ---: | ---: | ---: | --- | --- |\n";
+        if (fixed_point_groups_.empty()) {
+            oss << "| - | - | - | - | - | - | - |\n";
+        } else {
+            for (const FixedPointGroupEvent &group : fixed_point_groups_) {
+                std::ostringstream changed_iterations;
+                for (std::size_t index = 0;
+                     index < group.iteration_changed.size(); ++index) {
+                    if (index != 0) {
+                        changed_iterations << ',';
+                    }
+                    changed_iterations
+                        << (group.iteration_changed[index] ? '1' : '0');
+                }
+                oss << "| " << group.index << " | " << group.scope << " | "
+                    << group.pass_count << " | " << group.iterations_run
+                    << " | " << group.max_iterations << " | "
+                    << (group.converged ? "yes" : "no") << " | "
+                    << (changed_iterations.str().empty()
+                            ? "-"
+                            : changed_iterations.str())
+                    << " |\n";
+            }
+        }
+        oss << '\n';
+
+        oss << "## Pass Timeline\n\n";
+        oss << "| # | Pass | Fixed point | ms | Changed | Stopped | Blocks | "
+               "Instructions |\n";
+        oss << "| ---: | --- | --- | ---: | ---: | ---: | --- | --- |\n";
+        for (const PassEvent &event : pass_events_) {
+            std::string fixed_point = "-";
+            if (event.fixed_point_group.has_value() &&
+                event.fixed_point_iteration.has_value()) {
+                std::ostringstream fixed_point_oss;
+                fixed_point_oss << "group " << *event.fixed_point_group
+                                << " iter " << *event.fixed_point_iteration;
+                fixed_point = fixed_point_oss.str();
+            }
+            const long long block_delta =
+                diff_count(event.after.blocks, event.before.blocks);
+            const long long instruction_delta =
+                diff_count(event.after.instructions, event.before.instructions);
+            oss << "| " << event.sequence << " | `" << event.pass_name << "` | "
+                << fixed_point << " | " << to_ms(event.elapsed) << " | "
+                << (event.changed ? 1 : 0) << " | " << (event.stopped ? 1 : 0)
+                << " | " << event.before.blocks << " -> " << event.after.blocks
+                << " (" << format_delta(block_delta) << ") | "
+                << event.before.instructions << " -> "
+                << event.after.instructions << " ("
+                << format_delta(instruction_delta) << ") |\n";
+        }
+        return oss.str();
+    }
+
+  public:
+    explicit PassProfileReport(const CompilerContext &context)
+        : enabled_(pass_report_enabled()),
+          input_file_(context.get_input_file()),
+          start_time_(std::chrono::steady_clock::now()) {}
+
+    bool enabled() const noexcept { return enabled_; }
+
+    void record_pass(const Pass &pass,
+                     std::optional<std::size_t> fixed_point_group,
+                     std::optional<std::size_t> fixed_point_iteration,
+                     CoreIrStats before, CoreIrStats after,
+                     std::chrono::steady_clock::duration elapsed, bool changed,
+                     bool stopped) {
+        if (!enabled_) {
+            return;
+        }
+        PassEvent event;
+        event.sequence = pass_events_.size() + 1;
+        event.pass_name = pass.Name();
+        event.fixed_point_group = fixed_point_group;
+        event.fixed_point_iteration = fixed_point_iteration;
+        event.before = before;
+        event.after = after;
+        event.elapsed = elapsed;
+        event.changed = changed;
+        event.stopped = stopped;
+        pass_events_.push_back(std::move(event));
+    }
+
+    void begin_fixed_point_group(std::size_t index, bool module_scope,
+                                 std::size_t pass_count,
+                                 std::size_t max_iterations) {
+        if (!enabled_) {
+            return;
+        }
+        FixedPointGroupEvent group;
+        group.index = index;
+        group.scope = module_scope ? "module" : "function";
+        group.pass_count = pass_count;
+        group.max_iterations = max_iterations;
+        fixed_point_groups_.push_back(std::move(group));
+    }
+
+    void record_fixed_point_iteration(std::size_t index, bool changed) {
+        if (!enabled_) {
+            return;
+        }
+        for (FixedPointGroupEvent &group : fixed_point_groups_) {
+            if (group.index == index) {
+                group.iteration_changed.push_back(changed);
+                group.iterations_run = group.iteration_changed.size();
+                return;
+            }
+        }
+    }
+
+    void finish_fixed_point_group(std::size_t index, std::size_t iterations_run,
+                                  bool converged) {
+        if (!enabled_) {
+            return;
+        }
+        for (FixedPointGroupEvent &group : fixed_point_groups_) {
+            if (group.index == index) {
+                group.iterations_run = iterations_run;
+                group.converged = converged;
+                return;
+            }
+        }
+    }
+
+    void emit(const CompilerContext &context) const {
+        if (!enabled_ || pass_events_.empty()) {
+            return;
+        }
+
+        const std::string report = render();
+        if (trace_passes_enabled()) {
+            std::cerr << report;
+            if (report.empty() || report.back() != '\n') {
+                std::cerr << '\n';
+            }
+        }
+
+        const std::string output_dir = pass_report_dir();
+        if (output_dir.empty()) {
+            return;
+        }
+
+        std::error_code ec;
+        std::filesystem::create_directories(output_dir, ec);
+        if (ec) {
+            std::cerr << "[sysycc-pass] failed to create pass report dir `"
+                      << output_dir << "`: " << ec.message() << '\n';
+            return;
+        }
+        const std::filesystem::path output_path =
+            std::filesystem::path(output_dir) / pass_report_file_name(context);
+        std::ofstream ofs(output_path);
+        if (!ofs.is_open()) {
+            std::cerr << "[sysycc-pass] failed to write pass report `"
+                      << output_path.string() << "`\n";
+            return;
+        }
+        ofs << report;
+    }
+};
+
+bool contains_float_leaf_type(
+    const CoreIrType *type, std::unordered_set<const CoreIrType *> &visiting) {
     if (type == nullptr) {
         return false;
     }
@@ -157,7 +492,8 @@ bool contains_float_leaf_type(const CoreIrType *type) {
     return contains_float_leaf_type(type, visiting);
 }
 
-bool function_has_float_aggregate_pointer_parameter(const CoreIrFunction &function) {
+bool function_has_float_aggregate_pointer_parameter(
+    const CoreIrFunction &function) {
     for (const auto &parameter : function.get_parameters()) {
         if (parameter == nullptr) {
             continue;
@@ -361,41 +697,51 @@ struct PassExecutionResult {
     bool stopped = false;
 };
 
-PassExecutionResult run_one_pass(CompilerContext &context, Pass &pass) {
+PassExecutionResult
+run_one_pass(CompilerContext &context, Pass &pass,
+             PassProfileReport *profile_report,
+             std::optional<std::size_t> fixed_point_group = std::nullopt,
+             std::optional<std::size_t> fixed_point_iteration = std::nullopt) {
     PassExecutionResult execution_result;
 
     const bool trace = trace_passes_enabled();
+    const CoreIrStats before_stats = get_core_ir_stats(context);
     const auto start_time = std::chrono::steady_clock::now();
     if (trace) {
-        trace_pass_event("enter", pass, count_core_ir_blocks(context));
+        trace_pass_event("enter", pass, before_stats.blocks);
     }
+
+    auto finish = [&](bool changed, bool stopped) {
+        const auto elapsed = std::chrono::steady_clock::now() - start_time;
+        const CoreIrStats after_stats = get_core_ir_stats(context);
+        if (profile_report != nullptr) {
+            profile_report->record_pass(pass, fixed_point_group,
+                                        fixed_point_iteration, before_stats,
+                                        after_stats, elapsed, changed, stopped);
+        }
+        if (trace) {
+            trace_pass_leave(pass, changed, stopped, after_stats.blocks,
+                             elapsed);
+        }
+    };
 
     PassResult result = pass.Run(context);
     if (!result.ok) {
         execution_result.result = std::move(result);
-        if (trace) {
-            trace_pass_leave(pass, false, false, count_core_ir_blocks(context),
-                             std::chrono::steady_clock::now() - start_time);
-        }
+        finish(false, false);
         return execution_result;
     }
     if (context.get_diagnostic_engine().has_error()) {
         execution_result.result = PassResult::Failure(
             first_error_message(context.get_diagnostic_engine()));
-        if (trace) {
-            trace_pass_leave(pass, false, false, count_core_ir_blocks(context),
-                             std::chrono::steady_clock::now() - start_time);
-        }
+        finish(false, false);
         return execution_result;
     }
     if (pass.Metadata().writes_core_ir && !result.core_ir_effects.has_value()) {
         execution_result.result = PassResult::Failure(
             std::string(pass.Name()) +
             " wrote Core IR but did not report CoreIrPassEffects");
-        if (trace) {
-            trace_pass_leave(pass, false, false, count_core_ir_blocks(context),
-                             std::chrono::steady_clock::now() - start_time);
-        }
+        finish(false, false);
         return execution_result;
     }
     if (result.core_ir_effects.has_value()) {
@@ -405,22 +751,14 @@ PassExecutionResult run_one_pass(CompilerContext &context, Pass &pass) {
     if (!verify_core_ir_after_pass(context, pass, result)) {
         execution_result.result = PassResult::Failure(
             std::string(pass.Name()) + " failed Core IR verification");
-        if (trace) {
-            trace_pass_leave(pass, execution_result.changed, false,
-                             count_core_ir_blocks(context),
-                             std::chrono::steady_clock::now() - start_time);
-        }
+        finish(execution_result.changed, false);
         return execution_result;
     }
     if (should_stop_after_pass(context, pass.Kind())) {
         maybe_dump_core_ir_before_stop(context);
         execution_result.stopped = true;
     }
-    if (trace) {
-        trace_pass_leave(pass, execution_result.changed, execution_result.stopped,
-                         count_core_ir_blocks(context),
-                         std::chrono::steady_clock::now() - start_time);
-    }
+    finish(execution_result.changed, execution_result.stopped);
     execution_result.result = PassResult::Success();
     return execution_result;
 }
@@ -520,7 +858,14 @@ std::vector<PassKind> PassManager::get_pipeline_kinds() const {
 }
 
 PassResult PassManager::Run(CompilerContext &context) {
+    PassProfileReport profile_report(context);
+    auto finish = [&](PassResult result) {
+        profile_report.emit(context);
+        return result;
+    };
+
     bool bypass_post_mem2reg_llvm_lane = false;
+    std::size_t fixed_point_group_index = 0;
     for (const PipelineEntry &entry : entries_) {
         if (entry.pass != nullptr) {
             if (bypass_post_mem2reg_llvm_lane &&
@@ -529,12 +874,12 @@ PassResult PassManager::Run(CompilerContext &context) {
                 continue;
             }
             PassExecutionResult execution_result =
-                run_one_pass(context, *entry.pass);
+                run_one_pass(context, *entry.pass, &profile_report);
             if (!execution_result.result.ok) {
-                return execution_result.result;
+                return finish(std::move(execution_result.result));
             }
             if (execution_result.stopped) {
-                return PassResult::Success();
+                return finish(PassResult::Success());
             }
             if (entry.pass->Kind() == PassKind::CoreIrMem2Reg &&
                 should_bypass_post_mem2reg_llvm_lane(context)) {
@@ -544,7 +889,8 @@ PassResult PassManager::Run(CompilerContext &context) {
         }
 
         if (!entry.fixed_point_group.has_value()) {
-            return PassResult::Failure("encountered empty pipeline entry");
+            return finish(
+                PassResult::Failure("encountered empty pipeline entry"));
         }
 
         if (bypass_post_mem2reg_llvm_lane) {
@@ -555,6 +901,10 @@ PassResult PassManager::Run(CompilerContext &context) {
         }
 
         const FixedPointPassGroup &group = *entry.fixed_point_group;
+        ++fixed_point_group_index;
+        profile_report.begin_fixed_point_group(
+            fixed_point_group_index, group.module_scope, group.passes.size(),
+            group.max_iterations);
         const bool trace = trace_passes_enabled();
         if (trace) {
             std::cerr << "[sysycc-pass] fixed-point begin scope="
@@ -575,40 +925,44 @@ PassResult PassManager::Run(CompilerContext &context) {
             }
             for (const std::unique_ptr<Pass> &pass : group.passes) {
                 if (pass == nullptr) {
-                    return PassResult::Failure(
-                        "encountered null pass in fixed-point group");
+                    return finish(PassResult::Failure(
+                        "encountered null pass in fixed-point group"));
                 }
 
                 PassExecutionResult execution_result =
-                    run_one_pass(context, *pass);
+                    run_one_pass(context, *pass, &profile_report,
+                                 fixed_point_group_index, iteration + 1);
                 if (!execution_result.result.ok) {
-                    return execution_result.result;
+                    return finish(std::move(execution_result.result));
                 }
                 if (execution_result.stopped) {
-                    return PassResult::Success();
+                    return finish(PassResult::Success());
                 }
                 iteration_changed =
                     execution_result.changed || iteration_changed;
             }
+            profile_report.record_fixed_point_iteration(fixed_point_group_index,
+                                                        iteration_changed);
             if (trace) {
                 std::cerr << "[sysycc-pass] fixed-point iteration "
                           << (iteration + 1) << '/' << group.max_iterations
-                          << " changed=" << (iteration_changed ? 1 : 0)
-                          << '\n';
+                          << " changed=" << (iteration_changed ? 1 : 0) << '\n';
             }
             if (!iteration_changed) {
                 converged = true;
                 break;
             }
         }
+        profile_report.finish_fixed_point_group(fixed_point_group_index,
+                                                iterations_run, converged);
         if (trace) {
             std::cerr << "[sysycc-pass] fixed-point end iterations="
-                      << iterations_run
-                      << " converged=" << (converged ? 1 : 0) << '\n';
+                      << iterations_run << " converged=" << (converged ? 1 : 0)
+                      << '\n';
         }
     }
 
-    return PassResult::Success();
+    return finish(PassResult::Success());
 }
 
 } // namespace sysycc

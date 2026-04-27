@@ -1,9 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "backend/ir/shared/core/ir_type.hpp"
@@ -119,6 +121,30 @@ class CoreIrInstruction : public CoreIrValue {
             }
         }
         operands_.erase(operands_.begin() + static_cast<std::ptrdiff_t>(index));
+    }
+
+    void rebuild_operands_for_same_user(std::vector<CoreIrValue *> operands) {
+        std::vector<CoreIrValue *> old_values;
+        old_values.reserve(operands_.size());
+        for (CoreIrValue *operand : operands_) {
+            if (operand == nullptr) {
+                continue;
+            }
+            if (std::find(old_values.begin(), old_values.end(), operand) ==
+                old_values.end()) {
+                old_values.push_back(operand);
+            }
+        }
+        for (CoreIrValue *value : old_values) {
+            value->remove_uses_by_user(this);
+        }
+
+        operands_ = std::move(operands);
+        for (std::size_t index = 0; index < operands_.size(); ++index) {
+            if (operands_[index] != nullptr) {
+                operands_[index]->add_use(this, index);
+            }
+        }
     }
 
   public:
@@ -250,11 +276,8 @@ class CoreIrPhiInst final : public CoreIrInstruction {
             return;
         }
 
-        detach_operands();
         incoming_blocks_ = std::move(kept_blocks);
-        for (CoreIrValue *value : kept_values) {
-            append_operand(value);
-        }
+        rebuild_operands_for_same_user(std::move(kept_values));
     }
 
     bool get_has_side_effect() const noexcept override { return false; }

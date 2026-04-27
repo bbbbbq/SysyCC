@@ -864,10 +864,23 @@ that should stay in tier1 but is too driver-specific for pure runtime cases:
   runs only the fast Lua behavior smoke covering table operations, closures,
   coroutines, `io.tmpfile`, `string.pack/unpack`, `string.dump/load`, and
   `-0.0`.
+- `make lua-incremental TEST_ARGS="lvm.c"` reuses the existing Lua worktree,
+  avoids `make clean`, removes only the requested object files, rebuilds/relinks
+  Lua through SysyCC, and then runs the Lua behavior smoke. Without
+  `TEST_ARGS`, it uses dirty Lua `.c` files or falls back to `lvm.c`; set
+  `SYSYCC_LUA_INCREMENTAL_DEFAULT_SOURCE=` to let Lua's own Makefile dependency
+  checks decide the affected sources. Consecutive runs for the same TU now also
+  create before/after pass-report diffs under
+  `lua_incremental_pass_report_diffs/`.
+- `make pass-report-diff TEST_ARGS="before.md after.md"` compares two per-TU
+  pass reports and emits a Markdown diff covering pipeline wall time, final IR
+  basic-block/instruction counts, top pass time changes, and fixed-point
+  iteration changes.
 - `make real-project-compile-times` builds Lua and MuJS through a timed `CC`
   wrapper and writes per-source compile-time reports under
-  `build/external-real-project-probe/reports/`; pass `TEST_ARGS=lua` or
-  `TEST_ARGS=mujs` to profile just one project.
+  `build/external-real-project-probe/reports/`; it also writes per-TU pass
+  reports under `lua_pass_reports/` and `mujs_pass_reports/`. Pass
+  `TEST_ARGS=lua` or `TEST_ARGS=mujs` to profile just one project.
 
 ### `tests/run/`
 
@@ -1269,10 +1282,24 @@ runtime-focused intermediate files after a test run.
 ## Optimization Diagnostics
 
 Set `SYSYCC_TRACE_PASSES=1` when running `build/compiler` or `build/SysyCC` to
-emit a lightweight pass trace on stderr. The trace logs pass entry/exit,
-Core IR block counts, elapsed milliseconds, changed/stopped flags, and
-fixed-point iteration convergence. This is intended for O1 hang triage and is
-silent by default.
+emit a readable pass report on stderr after each translation unit. The report
+includes the top 10 slowest passes, aggregate Core IR basic-block/instruction
+deltas, a fixed-point convergence table, and a full pass timeline with before
+and after IR sizes.
+
+Set `SYSYCC_PASS_REPORT_DIR=<dir>` to write the same per-translation-unit report
+as Markdown files without printing the full report to stderr. This is the
+preferred mode for Lua/MuJS profiling because build logs stay small while files
+such as `lvm.c-<hash>.md` preserve the exact pass timeline for later analysis.
+`tests/compiler/compiler_pass_trace_report` keeps this report contract covered in
+tier1.
+
+Use
+[diff_pass_reports.py](/Users/caojunze424/code/SysyCC/tests/manual/external_real_project_probe/diff_pass_reports.py)
+or `make pass-report-diff TEST_ARGS="before.md after.md"` to compare two reports
+for the same translation unit. The diff highlights total pipeline wall time,
+final IR size, the largest pass-level timing deltas, and fixed-point convergence
+changes, making performance PR review more objective.
 
 Parser-, AST-, and semantic-focused regression scripts now commonly invoke
 `SysyCC` with `--stop-after=parse`, `--stop-after=ast`, or

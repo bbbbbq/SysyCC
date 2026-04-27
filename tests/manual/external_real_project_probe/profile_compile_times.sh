@@ -11,6 +11,7 @@ DOCKER_BUILD_DIR="${SYSYCC_REAL_PROJECT_DOCKER_BUILD_DIR:-${DOCKER_PROJECT_ROOT}
 WORK_DIR="${SYSYCC_REAL_PROJECT_WORK_DIR:-${PROJECT_ROOT}/build/external-real-project-probe}"
 DEFAULT_LLVM_DIR="/usr/lib/llvm-18/lib/cmake/llvm"
 LLVM_DIR_OVERRIDE="${SYSYCC_REAL_PROJECT_LLVM_DIR:-}"
+BUILD_TYPE="${SYSYCC_REAL_PROJECT_BUILD_TYPE:-RelWithDebInfo}"
 LUA_REPO="${SYSYCC_LUA_REPO:-https://github.com/lua/lua.git}"
 MUJS_GITHUB_REPO="${SYSYCC_MUJS_GITHUB_REPO:-https://github.com/ccxvii/mujs.git}"
 MUJS_FALLBACK_REPO="${SYSYCC_MUJS_FALLBACK_REPO:-https://codeberg.org/ccxvii/mujs.git}"
@@ -33,6 +34,7 @@ run_in_docker() {
     docker exec \
         -e SYSYCC_REAL_PROJECT_IN_DOCKER=1 \
         -e SYSYCC_REAL_PROJECT_DOCKER_BUILD_DIR="${DOCKER_BUILD_DIR}" \
+        -e SYSYCC_REAL_PROJECT_BUILD_TYPE="${BUILD_TYPE}" \
         -e SYSYCC_REAL_PROJECT_PROFILE_TARGETS="${PROFILE_TARGETS}" \
         -e SYSYCC_LUA_REPO="${LUA_REPO}" \
         -e SYSYCC_MUJS_GITHUB_REPO="${MUJS_GITHUB_REPO}" \
@@ -44,6 +46,7 @@ run_in_docker() {
 
 cmake_configure_args() {
     printf '%s\n' -S "${PROJECT_ROOT}" -B "$1" -G Ninja
+    printf '%s\n' "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}"
     if [[ -n "${LLVM_DIR_OVERRIDE}" ]]; then
         printf '%s\n' "-DLLVM_DIR=${LLVM_DIR_OVERRIDE}"
     elif [[ -d "${DEFAULT_LLVM_DIR}" ]]; then
@@ -181,12 +184,15 @@ profile_lua() {
     local raw_log="${reports_dir}/lua_compile_times.tsv"
     local report="${reports_dir}/lua_compile_times.md"
     local build_log="${reports_dir}/lua_build.log"
+    local pass_report_dir="${reports_dir}/lua_pass_reports"
 
     log "profiling Lua per-file compile times"
     : >"${raw_log}"
+    rm -rf "${pass_report_dir}"
     make -C "${source_dir}" clean >/dev/null 2>&1 || true
     if ! SYSYCC_TIMED_CC_REAL="${compiler}" \
         SYSYCC_TIMED_CC_LOG="${raw_log}" \
+        SYSYCC_PASS_REPORT_DIR="${pass_report_dir}" \
             make -C "${source_dir}" -j1 \
                 CC="${wrapper}" \
                 AR="ar rc" \
@@ -197,6 +203,7 @@ profile_lua() {
     write_report "Lua" "${raw_log}" "${report}"
     echo "wrote ${report}"
     echo "wrote ${build_log}"
+    echo "wrote pass reports under ${pass_report_dir}"
 }
 
 profile_mujs() {
@@ -207,12 +214,15 @@ profile_mujs() {
     local raw_log="${reports_dir}/mujs_compile_times.tsv"
     local report="${reports_dir}/mujs_compile_times.md"
     local build_log="${reports_dir}/mujs_build.log"
+    local pass_report_dir="${reports_dir}/mujs_pass_reports"
 
     log "profiling MuJS per-file compile times"
     : >"${raw_log}"
+    rm -rf "${pass_report_dir}"
     make -C "${source_dir}" clean >/dev/null 2>&1 || true
     if ! SYSYCC_TIMED_CC_REAL="${compiler}" \
         SYSYCC_TIMED_CC_LOG="${raw_log}" \
+        SYSYCC_PASS_REPORT_DIR="${pass_report_dir}" \
             make -C "${source_dir}" -j1 release \
                 CC="${wrapper}" \
                 HAVE_READLINE=no >"${build_log}" 2>&1; then
@@ -222,6 +232,7 @@ profile_mujs() {
     write_report "MuJS" "${raw_log}" "${report}"
     echo "wrote ${report}"
     echo "wrote ${build_log}"
+    echo "wrote pass reports under ${pass_report_dir}"
 }
 
 run_native_profile() {

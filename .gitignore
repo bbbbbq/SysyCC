@@ -2,6 +2,8 @@ build/
 build-ninja/
 build-docker/
 build-docker-host/
+build-qemu-real-project-probe/
+build-qemu-real-project-probe-rel/
 !src/backend/ir/build/
 !src/backend/ir/build/**
 tests/**/build/

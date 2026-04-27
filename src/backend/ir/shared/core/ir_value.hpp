@@ -69,6 +69,14 @@ class CoreIrValue {
             uses_.erase(it);
         }
     }
+
+    void remove_uses_by_user(CoreIrInstruction *user) {
+        uses_.erase(std::remove_if(uses_.begin(), uses_.end(),
+                                   [user](const CoreIrUse &use) {
+                                       return use.get_user() == user;
+                                   }),
+                    uses_.end());
+    }
 };
 
 } // namespace sysycc
