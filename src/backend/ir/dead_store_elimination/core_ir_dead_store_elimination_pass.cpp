@@ -6,9 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "backend/ir/analysis/alias_analysis.hpp"
 #include "backend/ir/analysis/analysis_manager.hpp"
-#include "backend/ir/analysis/memory_ssa_analysis.hpp"
 #include "backend/ir/effect/core_ir_effect.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
@@ -23,10 +21,11 @@ namespace sysycc {
 
 namespace {
 
-using sysycc::detail::erase_instruction;
 using sysycc::detail::are_equivalent_pointer_values;
+using sysycc::detail::erase_instruction;
 
-PassResult fail_missing_core_ir(CompilerContext &context, const char *pass_name) {
+PassResult fail_missing_core_ir(CompilerContext &context,
+                                const char *pass_name) {
     const std::string message =
         std::string(pass_name) + " requires a built core ir result";
     context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
@@ -88,7 +87,8 @@ bool instructions_share_exact_memory_access(const CoreIrInstruction &lhs,
     CoreIrStackSlot *lhs_slot = get_memory_stack_slot(lhs);
     CoreIrStackSlot *rhs_slot = get_memory_stack_slot(rhs);
     if (lhs_slot != nullptr || rhs_slot != nullptr) {
-        return lhs_slot != nullptr && lhs_slot == rhs_slot && rhs_slot != nullptr;
+        return lhs_slot != nullptr && lhs_slot == rhs_slot &&
+               rhs_slot != nullptr;
     }
 
     CoreIrValue *lhs_address = get_memory_address_value(lhs);
@@ -98,21 +98,12 @@ bool instructions_share_exact_memory_access(const CoreIrInstruction &lhs,
            rhs_address != nullptr;
 }
 
-CoreIrAliasKind get_precise_memory_alias_kind(
-    const CoreIrInstruction &lhs, const CoreIrInstruction &rhs,
-    const CoreIrAliasAnalysisResult &alias_analysis) {
-    CoreIrAliasKind alias_kind = alias_analysis.alias_instructions(&lhs, &rhs);
-    if (alias_kind != CoreIrAliasKind::MayAlias) {
-        return alias_kind;
-    }
-    return instructions_share_exact_memory_access(lhs, rhs)
-               ? CoreIrAliasKind::MustAlias
-               : alias_kind;
+bool is_indirect_memory_access(const CoreIrInstruction &instruction) {
+    return get_memory_stack_slot(instruction) == nullptr &&
+           get_memory_address_value(instruction) != nullptr;
 }
 
-bool eliminate_dead_stores(CoreIrBasicBlock &block,
-                           const CoreIrAliasAnalysisResult &alias_analysis,
-                           const CoreIrMemorySSAAnalysisResult &memory_ssa) {
+bool eliminate_dead_stores(CoreIrBasicBlock &block) {
     bool changed = false;
     std::vector<PendingStoreInfo> pending_stores;
     auto &instructions = block.get_instructions();
@@ -126,59 +117,71 @@ bool eliminate_dead_stores(CoreIrBasicBlock &block,
             continue;
         }
 
-        if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction); store != nullptr) {
-            for (std::size_t pending_index = 0; pending_index < pending_stores.size();) {
-                const CoreIrAliasKind alias_kind = get_precise_memory_alias_kind(
-                    *pending_stores[pending_index].store, *store, alias_analysis);
-                if (alias_kind == CoreIrAliasKind::NoAlias) {
+        if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
+            store != nullptr) {
+            for (std::size_t pending_index = 0;
+                 pending_index < pending_stores.size();) {
+                CoreIrStoreInst *pending_store =
+                    pending_stores[pending_index].store;
+                if (pending_store == nullptr ||
+                    !instructions_share_exact_memory_access(*pending_store,
+                                                            *store)) {
                     ++pending_index;
                     continue;
                 }
-                if (alias_kind == CoreIrAliasKind::MustAlias &&
-                    pending_stores[pending_index].store != nullptr) {
-                    const std::size_t previous_index =
-                        find_instruction_index(block, pending_stores[pending_index].store);
-                    if (previous_index < instructions.size() &&
-                        erase_instruction(block, pending_stores[pending_index].store)) {
-                        if (previous_index < index) {
-                            --index;
-                        }
-                        changed = true;
+                const std::size_t previous_index =
+                    find_instruction_index(block, pending_store);
+                if (previous_index < instructions.size() &&
+                    erase_instruction(block, pending_store)) {
+                    if (previous_index < index) {
+                        --index;
                     }
-                    pending_stores.erase(pending_stores.begin() +
-                                         static_cast<std::ptrdiff_t>(pending_index));
-                    continue;
+                    changed = true;
                 }
+                pending_stores.erase(
+                    pending_stores.begin() +
+                    static_cast<std::ptrdiff_t>(pending_index));
+            }
+            if (is_indirect_memory_access(*store)) {
                 clear_pending_stores(pending_stores);
-                break;
+            } else {
+                pending_stores.erase(
+                    std::remove_if(pending_stores.begin(), pending_stores.end(),
+                                   [](const PendingStoreInfo &pending) {
+                                       return pending.store == nullptr ||
+                                              is_indirect_memory_access(
+                                                  *pending.store);
+                                   }),
+                    pending_stores.end());
             }
             pending_stores.push_back(PendingStoreInfo{store});
             ++index;
             continue;
         }
 
-        const CoreIrEffectInfo effect = get_core_ir_instruction_effect(*instruction);
+        const CoreIrEffectInfo effect =
+            get_core_ir_instruction_effect(*instruction);
         if (!memory_behavior_reads(effect.memory_behavior) &&
             !memory_behavior_writes(effect.memory_behavior)) {
             ++index;
             continue;
         }
 
-        if (memory_ssa.get_access_for_instruction(instruction) == nullptr) {
-            clear_pending_stores(pending_stores);
-            ++index;
-            continue;
-        }
-
-        for (std::size_t pending_index = 0; pending_index < pending_stores.size();) {
-            const CoreIrAliasKind alias_kind = get_precise_memory_alias_kind(
-                *pending_stores[pending_index].store, *instruction, alias_analysis);
-            if (alias_kind == CoreIrAliasKind::NoAlias) {
+        for (std::size_t pending_index = 0;
+             pending_index < pending_stores.size();) {
+            CoreIrStoreInst *pending_store =
+                pending_stores[pending_index].store;
+            if (pending_store != nullptr &&
+                !instructions_share_exact_memory_access(*pending_store,
+                                                        *instruction)) {
                 ++pending_index;
                 continue;
             }
             pending_stores.erase(pending_stores.begin() +
                                  static_cast<std::ptrdiff_t>(pending_index));
+        }
+        if (is_indirect_memory_access(*instruction)) {
+            clear_pending_stores(pending_stores);
         }
         ++index;
     }
@@ -226,7 +229,8 @@ bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
                 if (!visited.insert(cast).second) {
                     continue;
                 }
-                if (!self(cast, self, visited, removable_instructions, stores)) {
+                if (!self(cast, self, visited, removable_instructions,
+                          stores)) {
                     return false;
                 }
                 removable_instructions.push_back(cast);
@@ -263,7 +267,8 @@ bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
             case CoreIrOpcode::Store: {
                 auto *store = static_cast<CoreIrStoreInst *>(instruction);
                 if (store->get_stack_slot() != nullptr) {
-                    stack_slot_uses[store->get_stack_slot()].stores.push_back(store);
+                    stack_slot_uses[store->get_stack_slot()].stores.push_back(
+                        store);
                 }
                 break;
             }
@@ -271,8 +276,8 @@ bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
                 auto *address =
                     static_cast<CoreIrAddressOfStackSlotInst *>(instruction);
                 if (address->get_stack_slot() != nullptr) {
-                    stack_slot_uses[address->get_stack_slot()].addresses.push_back(
-                        address);
+                    stack_slot_uses[address->get_stack_slot()]
+                        .addresses.push_back(address);
                 }
                 break;
             }
@@ -302,7 +307,8 @@ bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
             has_load = use_info.has_load;
             stores = use_info.stores;
             if (!has_load) {
-                for (CoreIrAddressOfStackSlotInst *address : use_info.addresses) {
+                for (CoreIrAddressOfStackSlotInst *address :
+                     use_info.addresses) {
                     if (address == nullptr) {
                         continue;
                     }
@@ -311,8 +317,8 @@ bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
                     }
                     if (!collect_address_only_dead_uses(
                             address, collect_address_only_dead_uses,
-                            visited_address_users, removable_address_instructions,
-                            stores)) {
+                            visited_address_users,
+                            removable_address_instructions, stores)) {
                         has_address_use = true;
                         break;
                     }
@@ -326,7 +332,8 @@ bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
         }
 
         for (CoreIrStoreInst *store : stores) {
-            CoreIrBasicBlock *parent = store == nullptr ? nullptr : store->get_parent();
+            CoreIrBasicBlock *parent =
+                store == nullptr ? nullptr : store->get_parent();
             if (parent != nullptr) {
                 changed = erase_instruction(*parent, store) || changed;
             }
@@ -340,7 +347,8 @@ bool remove_store_only_dead_stack_slots(CoreIrFunction &function) {
                 changed = erase_instruction(*parent, instruction) || changed;
             }
         }
-        stack_slots.erase(stack_slots.begin() + static_cast<std::ptrdiff_t>(slot_index));
+        stack_slots.erase(stack_slots.begin() +
+                          static_cast<std::ptrdiff_t>(slot_index));
         changed = true;
     }
 
@@ -359,26 +367,23 @@ const char *CoreIrDeadStoreEliminationPass::Name() const {
 
 PassResult CoreIrDeadStoreEliminationPass::Run(CompilerContext &context) {
     CoreIrBuildResult *build_result = context.get_core_ir_build_result();
-    CoreIrModule *module = build_result == nullptr ? nullptr : build_result->get_module();
+    CoreIrModule *module =
+        build_result == nullptr ? nullptr : build_result->get_module();
     if (module == nullptr) {
         return fail_missing_core_ir(context, Name());
     }
-    CoreIrAnalysisManager *analysis_manager = build_result->get_analysis_manager();
+    CoreIrAnalysisManager *analysis_manager =
+        build_result->get_analysis_manager();
     if (analysis_manager == nullptr) {
         return PassResult::Failure("missing core ir analysis manager");
     }
 
     CoreIrPassEffects effects;
     for (const auto &function : module->get_functions()) {
-        const CoreIrAliasAnalysisResult &alias_analysis =
-            analysis_manager->get_or_compute<CoreIrAliasAnalysis>(*function);
-        const CoreIrMemorySSAAnalysisResult &memory_ssa =
-            analysis_manager->get_or_compute<CoreIrMemorySSAAnalysis>(*function);
         bool function_changed = false;
         for (const auto &block : function->get_basic_blocks()) {
             function_changed =
-                eliminate_dead_stores(*block, alias_analysis, memory_ssa) ||
-                function_changed;
+                eliminate_dead_stores(*block) || function_changed;
         }
         function_changed =
             remove_store_only_dead_stack_slots(*function) || function_changed;

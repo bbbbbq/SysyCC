@@ -2,12 +2,10 @@
 
 #include <algorithm>
 #include <memory>
+#include <unordered_map>
 
-#include "backend/ir/analysis/alias_analysis.hpp"
 #include "backend/ir/analysis/analysis_manager.hpp"
-#include "backend/ir/analysis/memory_ssa_analysis.hpp"
 #include "backend/ir/effect/core_ir_effect.hpp"
-#include "backend/ir/effect/core_ir_memory_query.hpp"
 #include "backend/ir/shared/core/core_ir_builder.hpp"
 #include "backend/ir/shared/core/ir_basic_block.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -45,11 +43,10 @@ bool erase_instruction(CoreIrBasicBlock &block,
     return true;
 }
 
-bool forward_stack_slot_values(
-    CoreIrBasicBlock &block, const CoreIrAliasAnalysisResult &alias_analysis,
-    const CoreIrMemorySSAAnalysisResult &memory_ssa) {
+bool forward_stack_slot_values(CoreIrBasicBlock &block) {
     bool changed = false;
     auto &instructions = block.get_instructions();
+    std::unordered_map<CoreIrStackSlot *, CoreIrValue *> available_values;
 
     std::size_t index = 0;
     while (index < instructions.size()) {
@@ -62,30 +59,37 @@ bool forward_stack_slot_values(
 
         if (auto *load = dynamic_cast<CoreIrLoadInst *>(instruction);
             load != nullptr) {
-            const CoreIrEffectInfo load_effect =
-                get_core_ir_instruction_effect(*load);
-            if (!memory_behavior_reads(load_effect.memory_behavior)) {
+            CoreIrStackSlot *slot = load->get_stack_slot();
+            if (slot == nullptr) {
                 ++index;
                 continue;
             }
-
-            CoreIrMemoryAccess *clobber =
-                memory_ssa.get_clobbering_access(load);
-            auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(clobber);
-            const auto *store = def == nullptr
-                                    ? nullptr
-                                    : dynamic_cast<const CoreIrStoreInst *>(
-                                          def->get_instruction());
-            if (store != nullptr && store->get_parent() == &block &&
-                get_precise_core_ir_memory_alias_kind(*load, *store,
-                                                      alias_analysis) ==
-                    CoreIrAliasKind::MustAlias &&
-                store->get_value() != nullptr) {
-                load->replace_all_uses_with(store->get_value());
+            const auto available_it = available_values.find(slot);
+            if (available_it != available_values.end() &&
+                available_it->second != nullptr) {
+                load->replace_all_uses_with(available_it->second);
                 erase_instruction(block, load);
                 changed = true;
                 continue;
             }
+        }
+
+        if (auto *store = dynamic_cast<CoreIrStoreInst *>(instruction);
+            store != nullptr) {
+            if (store->get_stack_slot() != nullptr &&
+                store->get_value() != nullptr) {
+                available_values[store->get_stack_slot()] = store->get_value();
+            } else {
+                available_values.clear();
+            }
+            ++index;
+            continue;
+        }
+
+        const CoreIrEffectInfo effect =
+            get_core_ir_instruction_effect(*instruction);
+        if (memory_behavior_writes(effect.memory_behavior)) {
+            available_values.clear();
         }
 
         ++index;
@@ -119,16 +123,10 @@ PassResult CoreIrStackSlotForwardPass::Run(CompilerContext &context) {
 
     CoreIrPassEffects effects;
     for (const auto &function : module->get_functions()) {
-        const CoreIrAliasAnalysisResult &alias_analysis =
-            analysis_manager->get_or_compute<CoreIrAliasAnalysis>(*function);
-        const CoreIrMemorySSAAnalysisResult &memory_ssa =
-            analysis_manager->get_or_compute<CoreIrMemorySSAAnalysis>(
-                *function);
         bool function_changed = false;
         for (const auto &block : function->get_basic_blocks()) {
             function_changed =
-                forward_stack_slot_values(*block, alias_analysis, memory_ssa) ||
-                function_changed;
+                forward_stack_slot_values(*block) || function_changed;
         }
         if (function_changed) {
             effects.changed_functions.insert(function.get());
