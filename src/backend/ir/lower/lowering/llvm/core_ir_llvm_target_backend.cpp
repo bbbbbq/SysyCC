@@ -866,17 +866,19 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         switch (unary_instruction.get_unary_opcode()) {
         case CoreIrUnaryOpcode::Negate:
             text += "  %" + get_emitted_value_name(&unary_instruction) + " = ";
-            text += unary_instruction.get_type() != nullptr &&
-                            unary_instruction.get_type()->get_kind() ==
-                                CoreIrTypeKind::Float
-                        ? "fsub "
-                        : "sub ";
+            if (unary_instruction.get_type() != nullptr &&
+                unary_instruction.get_type()->get_kind() ==
+                    CoreIrTypeKind::Float) {
+                text += "fneg ";
+                text += format_type(unary_instruction.get_type());
+                text += " ";
+                text += format_value_ref(unary_instruction.get_operand());
+                text += "\n";
+                return true;
+            }
+            text += "sub ";
             text += format_type(unary_instruction.get_type());
-            text += unary_instruction.get_type() != nullptr &&
-                            unary_instruction.get_type()->get_kind() ==
-                                CoreIrTypeKind::Float
-                        ? " 0.0, "
-                        : " 0, ";
+            text += " 0, ";
             text += format_value_ref(unary_instruction.get_operand());
             text += "\n";
             return true;
