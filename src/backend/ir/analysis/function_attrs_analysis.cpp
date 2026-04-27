@@ -18,7 +18,8 @@ bool value_may_derive_from_parameter(
     std::unordered_set<const CoreIrStackSlot *> &visiting_slots);
 
 bool stack_slot_may_hold_parameter(
-    CoreIrFunction &function, CoreIrStackSlot *stack_slot, CoreIrValue *parameter,
+    CoreIrFunction &function, CoreIrStackSlot *stack_slot,
+    CoreIrValue *parameter,
     std::unordered_set<const CoreIrValue *> &visiting_values,
     std::unordered_set<const CoreIrStackSlot *> &visiting_slots) {
     if (stack_slot == nullptr || !visiting_slots.insert(stack_slot).second) {
@@ -30,7 +31,8 @@ bool stack_slot_may_hold_parameter(
             continue;
         }
         for (const auto &instruction_ptr : block->get_instructions()) {
-            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+            auto *store =
+                dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
             if (store == nullptr || store->get_stack_slot() != stack_slot) {
                 continue;
             }
@@ -58,7 +60,8 @@ bool value_may_derive_from_parameter(
         return false;
     }
 
-    if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(value); gep != nullptr) {
+    if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(value);
+        gep != nullptr) {
         return value_may_derive_from_parameter(function, gep->get_base(),
                                                parameter, visiting_values,
                                                visiting_slots);
@@ -69,29 +72,30 @@ bool value_may_derive_from_parameter(
                                                visiting_slots);
     }
     if (auto *phi = dynamic_cast<CoreIrPhiInst *>(value); phi != nullptr) {
-        for (std::size_t index = 0; index < phi->get_incoming_count(); ++index) {
-            if (value_may_derive_from_parameter(function,
-                                                phi->get_incoming_value(index),
-                                                parameter, visiting_values,
-                                                visiting_slots)) {
+        for (std::size_t index = 0; index < phi->get_incoming_count();
+             ++index) {
+            if (value_may_derive_from_parameter(
+                    function, phi->get_incoming_value(index), parameter,
+                    visiting_values, visiting_slots)) {
                 return true;
             }
         }
         return false;
     }
-    if (auto *select = dynamic_cast<CoreIrSelectInst *>(value); select != nullptr) {
-        return value_may_derive_from_parameter(function, select->get_true_value(),
-                                               parameter, visiting_values,
-                                               visiting_slots) ||
-               value_may_derive_from_parameter(function, select->get_false_value(),
-                                               parameter, visiting_values,
-                                               visiting_slots);
+    if (auto *select = dynamic_cast<CoreIrSelectInst *>(value);
+        select != nullptr) {
+        return value_may_derive_from_parameter(
+                   function, select->get_true_value(), parameter,
+                   visiting_values, visiting_slots) ||
+               value_may_derive_from_parameter(
+                   function, select->get_false_value(), parameter,
+                   visiting_values, visiting_slots);
     }
     if (auto *load = dynamic_cast<CoreIrLoadInst *>(value); load != nullptr) {
         if (load->get_stack_slot() != nullptr) {
-            return stack_slot_may_hold_parameter(function, load->get_stack_slot(),
-                                                 parameter, visiting_values,
-                                                 visiting_slots);
+            return stack_slot_may_hold_parameter(
+                function, load->get_stack_slot(), parameter, visiting_values,
+                visiting_slots);
         }
         return false;
     }
@@ -104,7 +108,8 @@ bool parameter_is_readonly(CoreIrFunction &function, CoreIrValue *parameter) {
             continue;
         }
         for (const auto &instruction_ptr : block->get_instructions()) {
-            auto *store = dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
+            auto *store =
+                dynamic_cast<CoreIrStoreInst *>(instruction_ptr.get());
             if (store == nullptr || store->get_stack_slot() != nullptr ||
                 store->get_address() == nullptr) {
                 continue;
@@ -132,13 +137,15 @@ bool value_tree_is_nocapture(
         if (user == nullptr) {
             continue;
         }
-        if (auto *load = dynamic_cast<CoreIrLoadInst *>(user); load != nullptr) {
+        if (auto *load = dynamic_cast<CoreIrLoadInst *>(user);
+            load != nullptr) {
             if (load->get_address() != value) {
                 return false;
             }
             continue;
         }
-        if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(user); gep != nullptr) {
+        if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(user);
+            gep != nullptr) {
             if (gep->get_base() != value ||
                 !value_tree_is_nocapture(gep, visiting)) {
                 return false;
@@ -151,8 +158,8 @@ bool value_tree_is_nocapture(
     return true;
 }
 
-bool value_tree_is_readonly(
-    CoreIrValue *value, std::unordered_set<const CoreIrValue *> &visiting) {
+bool value_tree_is_readonly(CoreIrValue *value,
+                            std::unordered_set<const CoreIrValue *> &visiting) {
     if (value == nullptr || !visiting.insert(value).second) {
         return true;
     }
@@ -162,20 +169,23 @@ bool value_tree_is_readonly(
         if (user == nullptr) {
             continue;
         }
-        if (auto *load = dynamic_cast<CoreIrLoadInst *>(user); load != nullptr) {
+        if (auto *load = dynamic_cast<CoreIrLoadInst *>(user);
+            load != nullptr) {
             if (load->get_address() != value) {
                 return false;
             }
             continue;
         }
-        if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(user); gep != nullptr) {
+        if (auto *gep = dynamic_cast<CoreIrGetElementPtrInst *>(user);
+            gep != nullptr) {
             if (gep->get_base() != value ||
                 !value_tree_is_readonly(gep, visiting)) {
                 return false;
             }
             continue;
         }
-        if (auto *cast = dynamic_cast<CoreIrCastInst *>(user); cast != nullptr) {
+        if (auto *cast = dynamic_cast<CoreIrCastInst *>(user);
+            cast != nullptr) {
             if (cast->get_operand() != value ||
                 !value_tree_is_readonly(cast, visiting)) {
                 return false;
@@ -195,7 +205,8 @@ bool value_tree_is_readonly(
             }
             continue;
         }
-        if (auto *store = dynamic_cast<CoreIrStoreInst *>(user); store != nullptr) {
+        if (auto *store = dynamic_cast<CoreIrStoreInst *>(user);
+            store != nullptr) {
             if (store->get_address() == value) {
                 return false;
             }
@@ -218,8 +229,9 @@ bool value_tree_is_readonly(
     return true;
 }
 
-CoreIrFunctionAttrsSummary summarize_function_attrs(
-    CoreIrFunction &function, const CoreIrCallGraphAnalysisResult &call_graph) {
+CoreIrFunctionAttrsSummary
+summarize_function_attrs(CoreIrFunction &function,
+                         const CoreIrCallGraphAnalysisResult &call_graph) {
     CoreIrFunctionAttrsSummary summary;
     summary.memory_behavior =
         summarize_core_ir_function_effect(function).memory_behavior;
@@ -227,7 +239,8 @@ CoreIrFunctionAttrsSummary summarize_function_attrs(
     summary.parameter_nocapture.assign(function.get_parameters().size(), false);
     summary.parameter_readonly.assign(function.get_parameters().size(), false);
 
-    for (std::size_t index = 0; index < function.get_parameters().size(); ++index) {
+    for (std::size_t index = 0; index < function.get_parameters().size();
+         ++index) {
         CoreIrParameter *parameter = function.get_parameters()[index].get();
         if (parameter == nullptr || parameter->get_type() == nullptr ||
             parameter->get_type()->get_kind() != CoreIrTypeKind::Pointer) {
@@ -236,8 +249,10 @@ CoreIrFunctionAttrsSummary summarize_function_attrs(
         std::unordered_set<const CoreIrValue *> visiting;
         summary.parameter_nocapture[index] =
             value_tree_is_nocapture(parameter, visiting);
+        std::unordered_set<const CoreIrValue *> readonly_visiting;
         summary.parameter_readonly[index] =
-            parameter_is_readonly(function, parameter);
+            parameter_is_readonly(function, parameter) &&
+            value_tree_is_readonly(parameter, readonly_visiting);
     }
 
     if (function.get_basic_blocks().size() != 1 ||
@@ -249,7 +264,8 @@ CoreIrFunctionAttrsSummary summarize_function_attrs(
     if (block.get_instructions().empty()) {
         return summary;
     }
-    auto *ret = dynamic_cast<CoreIrReturnInst *>(block.get_instructions().back().get());
+    auto *ret =
+        dynamic_cast<CoreIrReturnInst *>(block.get_instructions().back().get());
     if (ret == nullptr || ret->get_return_value() == nullptr) {
         return summary;
     }
@@ -260,7 +276,8 @@ CoreIrFunctionAttrsSummary summarize_function_attrs(
         return summary;
     }
 
-    for (std::size_t index = 0; index < function.get_parameters().size(); ++index) {
+    for (std::size_t index = 0; index < function.get_parameters().size();
+         ++index) {
         if (function.get_parameters()[index].get() == ret->get_return_value()) {
             summary.returned_parameter_index = index;
             break;
@@ -285,12 +302,15 @@ CoreIrFunctionAttrsAnalysisResult::get_summary(
 }
 
 CoreIrFunctionAttrsAnalysisResult CoreIrFunctionAttrsAnalysis::Run(
-    CoreIrModule &module, const CoreIrCallGraphAnalysisResult &call_graph) const {
-    std::unordered_map<const CoreIrFunction *, CoreIrFunctionAttrsSummary> summaries;
+    CoreIrModule &module,
+    const CoreIrCallGraphAnalysisResult &call_graph) const {
+    std::unordered_map<const CoreIrFunction *, CoreIrFunctionAttrsSummary>
+        summaries;
     for (const auto &function_ptr : module.get_functions()) {
         CoreIrFunction *function = function_ptr.get();
         if (function != nullptr) {
-            summaries.emplace(function, summarize_function_attrs(*function, call_graph));
+            summaries.emplace(function,
+                              summarize_function_attrs(*function, call_graph));
         }
     }
     return CoreIrFunctionAttrsAnalysisResult(&module, std::move(summaries));

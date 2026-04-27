@@ -28,54 +28,70 @@ int main() {
         i32_type, std::vector<const CoreIrType *>{ptr_i32_type}, false);
     auto *ptr_ret_fn_type = context->create_type<CoreIrFunctionType>(
         ptr_i32_type, std::vector<const CoreIrType *>{ptr_i32_type}, false);
-    auto *module = context->create_module<CoreIrModule>("ir_core_function_attrs");
+    auto *module =
+        context->create_module<CoreIrModule>("ir_core_function_attrs");
 
     auto *seven = context->create_constant<CoreIrConstantInt>(i32_type, 7);
 
-    auto *const_fn =
-        module->create_function<CoreIrFunction>("const_fn", scalar_fn_type, true);
+    auto *const_fn = module->create_function<CoreIrFunction>(
+        "const_fn", scalar_fn_type, true);
     auto *const_entry = const_fn->create_basic_block<CoreIrBasicBlock>("entry");
     const_entry->create_instruction<CoreIrReturnInst>(void_type, seven);
 
-    auto *read_fn =
-        module->create_function<CoreIrFunction>("read_fn", ptr_read_fn_type, true);
+    auto *read_fn = module->create_function<CoreIrFunction>(
+        "read_fn", ptr_read_fn_type, true);
     auto *read_param =
         read_fn->create_parameter<CoreIrParameter>(ptr_i32_type, "p");
     auto *read_entry = read_fn->create_basic_block<CoreIrBasicBlock>("entry");
-    auto *loaded =
-        read_entry->create_instruction<CoreIrLoadInst>(i32_type, "loaded", read_param);
+    auto *loaded = read_entry->create_instruction<CoreIrLoadInst>(
+        i32_type, "loaded", read_param);
     read_entry->create_instruction<CoreIrReturnInst>(void_type, loaded);
 
-    auto *write_alias_fn =
-        module->create_function<CoreIrFunction>("write_alias_fn", ptr_read_fn_type, true);
+    auto *write_alias_fn = module->create_function<CoreIrFunction>(
+        "write_alias_fn", ptr_read_fn_type, true);
     auto *write_alias_param =
         write_alias_fn->create_parameter<CoreIrParameter>(ptr_i32_type, "p");
-    auto *write_alias_slot =
-        write_alias_fn->create_stack_slot<CoreIrStackSlot>("alias", ptr_i32_type, 8);
+    auto *write_alias_slot = write_alias_fn->create_stack_slot<CoreIrStackSlot>(
+        "alias", ptr_i32_type, 8);
     auto *write_alias_entry =
         write_alias_fn->create_basic_block<CoreIrBasicBlock>("entry");
-    write_alias_entry->create_instruction<CoreIrStoreInst>(void_type,
-                                                           write_alias_param,
-                                                           write_alias_slot);
+    write_alias_entry->create_instruction<CoreIrStoreInst>(
+        void_type, write_alias_param, write_alias_slot);
     auto *write_alias_loaded =
-        write_alias_entry->create_instruction<CoreIrLoadInst>(ptr_i32_type, "alias.load",
-                                                              write_alias_slot);
+        write_alias_entry->create_instruction<CoreIrLoadInst>(
+            ptr_i32_type, "alias.load", write_alias_slot);
     write_alias_entry->create_instruction<CoreIrStoreInst>(void_type, seven,
                                                            write_alias_loaded);
     write_alias_entry->create_instruction<CoreIrReturnInst>(void_type, seven);
 
-    auto *ret_param =
-        module->create_function<CoreIrFunction>("ret_param", ptr_ret_fn_type, true);
+    auto *ret_param = module->create_function<CoreIrFunction>(
+        "ret_param", ptr_ret_fn_type, true);
     auto *ret_param_value =
         ret_param->create_parameter<CoreIrParameter>(ptr_i32_type, "p");
-    auto *ret_param_entry = ret_param->create_basic_block<CoreIrBasicBlock>("entry");
-    ret_param_entry->create_instruction<CoreIrReturnInst>(void_type, ret_param_value);
+    auto *ret_param_entry =
+        ret_param->create_basic_block<CoreIrBasicBlock>("entry");
+    ret_param_entry->create_instruction<CoreIrReturnInst>(void_type,
+                                                          ret_param_value);
+
+    module->create_function<CoreIrFunction>("external_sink", ptr_read_fn_type,
+                                            false);
+    auto *call_sink_fn = module->create_function<CoreIrFunction>(
+        "call_sink", ptr_read_fn_type, true);
+    auto *call_sink_param =
+        call_sink_fn->create_parameter<CoreIrParameter>(ptr_i32_type, "p");
+    auto *call_sink_entry =
+        call_sink_fn->create_basic_block<CoreIrBasicBlock>("entry");
+    call_sink_entry->create_instruction<CoreIrCallInst>(
+        i32_type, "call", "external_sink", ptr_read_fn_type,
+        std::vector<CoreIrValue *>{call_sink_param});
+    call_sink_entry->create_instruction<CoreIrReturnInst>(void_type, seven);
 
     auto *recur =
         module->create_function<CoreIrFunction>("recur", scalar_fn_type, true);
     auto *recur_entry = recur->create_basic_block<CoreIrBasicBlock>("entry");
     recur_entry->create_instruction<CoreIrCallInst>(
-        i32_type, "self", "recur", scalar_fn_type, std::vector<CoreIrValue *>{});
+        i32_type, "self", "recur", scalar_fn_type,
+        std::vector<CoreIrValue *>{});
     recur_entry->create_instruction<CoreIrReturnInst>(void_type, seven);
 
     CompilerContext compiler_context;
@@ -93,6 +109,7 @@ int main() {
     const auto *ret_param_attrs = analysis.get_summary(ret_param);
     const auto *recur_attrs = analysis.get_summary(recur);
     const auto *write_alias_attrs = analysis.get_summary(write_alias_fn);
+    const auto *call_sink_attrs = analysis.get_summary(call_sink_fn);
 
     assert(const_attrs != nullptr);
     assert(const_attrs->memory_behavior == CoreIrMemoryBehavior::None);
@@ -109,6 +126,10 @@ int main() {
     assert(write_alias_attrs != nullptr);
     assert(write_alias_attrs->parameter_readonly.size() == 1);
     assert(!write_alias_attrs->parameter_readonly.front());
+
+    assert(call_sink_attrs != nullptr);
+    assert(call_sink_attrs->parameter_readonly.size() == 1);
+    assert(!call_sink_attrs->parameter_readonly.front());
 
     assert(ret_param_attrs != nullptr);
     assert(ret_param_attrs->returned_parameter_index.has_value());
@@ -130,6 +151,8 @@ int main() {
     assert(!write_alias_fn->get_is_readonly());
     assert(write_alias_fn->get_parameter_readonly().size() == 1);
     assert(!write_alias_fn->get_parameter_readonly().front());
+    assert(call_sink_fn->get_parameter_readonly().size() == 1);
+    assert(!call_sink_fn->get_parameter_readonly().front());
     assert(!write_alias_fn->get_is_readnone());
     assert(!recur->get_is_norecurse());
     return 0;
