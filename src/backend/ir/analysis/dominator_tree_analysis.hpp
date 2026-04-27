@@ -13,8 +13,8 @@ class CoreIrDominatorTreeAnalysisResult {
   private:
     const CoreIrFunction *function_ = nullptr;
     std::unordered_set<const CoreIrBasicBlock *> reachable_blocks_;
-    std::unordered_map<const CoreIrBasicBlock *,
-                       std::unordered_set<const CoreIrBasicBlock *>>
+    mutable std::unordered_map<const CoreIrBasicBlock *,
+                               std::unordered_set<const CoreIrBasicBlock *>>
         dominators_;
     std::unordered_map<const CoreIrBasicBlock *, CoreIrBasicBlock *>
         immediate_dominators_;

@@ -222,145 +222,157 @@ bool paths_overlap(const std::vector<std::uint64_t> &lhs,
     return true;
 }
 
-bool unit_contains_instruction(const CoreIrPromotionUnitInfo &unit_info,
-                               const CoreIrInstruction *instruction) {
-    for (CoreIrLoadInst *load : unit_info.loads) {
-        if (load == instruction) {
-            return true;
-        }
-    }
-    for (CoreIrStoreInst *store : unit_info.stores) {
-        if (store == instruction) {
-            return true;
-        }
-    }
-    return false;
-}
-
 bool unit_is_definitely_defined_on_all_paths(
-    const CoreIrPromotionUnitInfo &unit_info, const CoreIrFunction &function) {
-    CoreIrCfgAnalysis cfg_analysis_runner;
-    const CoreIrCfgAnalysisResult cfg_analysis = cfg_analysis_runner.Run(function);
+    const CoreIrPromotionUnitInfo &unit_info,
+    const CoreIrCfgAnalysisResult &cfg_analysis,
+    const CoreIrDominanceFrontierAnalysisResult &dominance_frontier,
+    const std::vector<const CoreIrBasicBlock *> &reachable_blocks,
+    const std::unordered_map<const CoreIrInstruction *, std::size_t>
+        &instruction_order) {
     const CoreIrBasicBlock *entry_block = cfg_analysis.get_entry_block();
     if (entry_block == nullptr) {
         return false;
     }
 
-    std::unordered_map<const CoreIrBasicBlock *, BlockSummary> block_summaries;
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
+    struct OrderedAccess {
+        std::size_t order = 0;
+        bool is_store = false;
+    };
+    std::unordered_map<const CoreIrBasicBlock *, std::vector<OrderedAccess>>
+        accesses_by_block;
+    for (CoreIrLoadInst *load : unit_info.loads) {
+        if (load == nullptr || load->get_parent() == nullptr) {
             continue;
         }
+        auto order_it = instruction_order.find(load);
+        if (order_it == instruction_order.end()) {
+            continue;
+        }
+        accesses_by_block[load->get_parent()].push_back(
+            OrderedAccess{order_it->second, false});
+    }
+    for (CoreIrStoreInst *store : unit_info.stores) {
+        if (store == nullptr || store->get_parent() == nullptr) {
+            continue;
+        }
+        auto order_it = instruction_order.find(store);
+        if (order_it == instruction_order.end()) {
+            continue;
+        }
+        accesses_by_block[store->get_parent()].push_back(
+            OrderedAccess{order_it->second, true});
+    }
+
+    std::unordered_map<const CoreIrBasicBlock *, BlockSummary> block_summaries;
+    for (auto &entry : accesses_by_block) {
+        const CoreIrBasicBlock *block = entry.first;
+        if (block == nullptr || !cfg_analysis.is_reachable(block)) {
+            continue;
+        }
+        std::vector<OrderedAccess> &accesses = entry.second;
+        std::sort(accesses.begin(), accesses.end(),
+                  [](const OrderedAccess &lhs, const OrderedAccess &rhs) {
+                      return lhs.order < rhs.order;
+                  });
+
         BlockSummary summary;
         bool locally_defined = false;
-        for (const auto &instruction : block->get_instructions()) {
-            if (instruction == nullptr) {
-                continue;
-            }
-            const bool in_unit = unit_contains_instruction(unit_info, instruction.get());
-            if (!in_unit) {
-                continue;
-            }
-            if (dynamic_cast<CoreIrLoadInst *>(instruction.get()) != nullptr &&
-                !locally_defined) {
+        for (const OrderedAccess &access : accesses) {
+            if (!access.is_store && !locally_defined) {
                 summary.has_use_before_def = true;
             }
-            if (dynamic_cast<CoreIrStoreInst *>(instruction.get()) != nullptr) {
+            if (access.is_store) {
                 locally_defined = true;
                 summary.has_def = true;
             }
         }
-        block_summaries.emplace(block.get(), summary);
+        block_summaries.emplace(block, summary);
     }
 
     std::unordered_map<const CoreIrBasicBlock *, bool> in_defined;
     std::unordered_map<const CoreIrBasicBlock *, bool> out_defined;
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
+    for (const CoreIrBasicBlock *block : reachable_blocks) {
+        if (block == nullptr) {
             continue;
         }
-        const bool starts_defined = block.get() != entry_block;
-        in_defined.emplace(block.get(), starts_defined);
-        out_defined.emplace(block.get(), starts_defined);
+        const bool starts_defined = block != entry_block;
+        in_defined.emplace(block, starts_defined);
+        out_defined.emplace(block, starts_defined);
     }
 
     bool changed = true;
     while (changed) {
         changed = false;
-        for (const auto &block : function.get_basic_blocks()) {
-            if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
+        for (const CoreIrBasicBlock *block : reachable_blocks) {
+            if (block == nullptr) {
                 continue;
             }
 
             bool next_in = false;
-            if (block.get() != entry_block) {
-                const auto &predecessors = cfg_analysis.get_predecessors(block.get());
+            if (block != entry_block) {
+                const auto &predecessors = cfg_analysis.get_predecessors(block);
                 next_in = !predecessors.empty();
                 for (CoreIrBasicBlock *predecessor : predecessors) {
-                    next_in = next_in && out_defined[predecessor];
+                    auto out_it = out_defined.find(predecessor);
+                    next_in = next_in &&
+                              out_it != out_defined.end() && out_it->second;
                 }
             }
 
             const bool next_out =
-                block_summaries[block.get()].has_def ? true : next_in;
-            if (in_defined[block.get()] != next_in ||
-                out_defined[block.get()] != next_out) {
-                in_defined[block.get()] = next_in;
-                out_defined[block.get()] = next_out;
+                block_summaries[block].has_def ? true : next_in;
+            if (in_defined[block] != next_in ||
+                out_defined[block] != next_out) {
+                in_defined[block] = next_in;
+                out_defined[block] = next_out;
                 changed = true;
             }
         }
     }
 
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
+    for (const CoreIrBasicBlock *block : reachable_blocks) {
+        if (block == nullptr) {
             continue;
         }
-        const BlockSummary &summary = block_summaries[block.get()];
-        if (summary.has_use_before_def && !in_defined[block.get()]) {
+        const BlockSummary &summary = block_summaries[block];
+        if (summary.has_use_before_def && !in_defined[block]) {
             return false;
         }
     }
 
     std::unordered_map<const CoreIrBasicBlock *, bool> live_in;
-    for (const auto &block : function.get_basic_blocks()) {
-        if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
+    for (const CoreIrBasicBlock *block : reachable_blocks) {
+        if (block == nullptr) {
             continue;
         }
-        live_in.emplace(block.get(), block_summaries[block.get()].has_use_before_def);
+        live_in.emplace(block, block_summaries[block].has_use_before_def);
     }
 
     changed = true;
     while (changed) {
         changed = false;
-        for (const auto &block : function.get_basic_blocks()) {
-            if (block == nullptr || !cfg_analysis.is_reachable(block.get())) {
+        for (const CoreIrBasicBlock *block : reachable_blocks) {
+            if (block == nullptr) {
                 continue;
             }
-            const BlockSummary &summary = block_summaries[block.get()];
+            const BlockSummary &summary = block_summaries[block];
             bool next_live_in = summary.has_use_before_def;
             if (!next_live_in && !summary.has_def) {
                 for (CoreIrBasicBlock *successor :
-                     cfg_analysis.get_successors(block.get())) {
-                    if (successor != nullptr && live_in[successor]) {
+                     cfg_analysis.get_successors(block)) {
+                    auto live_it = live_in.find(successor);
+                    if (live_it != live_in.end() && live_it->second) {
                         next_live_in = true;
                         break;
                     }
                 }
             }
-            if (live_in[block.get()] != next_live_in) {
-                live_in[block.get()] = next_live_in;
+            if (live_in[block] != next_live_in) {
+                live_in[block] = next_live_in;
                 changed = true;
             }
         }
     }
-
-    CoreIrDominatorTreeAnalysis dominator_tree_runner;
-    const CoreIrDominatorTreeAnalysisResult dominator_tree =
-        dominator_tree_runner.Run(function, cfg_analysis);
-    CoreIrDominanceFrontierAnalysis dominance_frontier_runner;
-    const CoreIrDominanceFrontierAnalysisResult dominance_frontier =
-        dominance_frontier_runner.Run(function, cfg_analysis, dominator_tree);
 
     std::vector<CoreIrBasicBlock *> worklist(unit_info.def_blocks.begin(),
                                              unit_info.def_blocks.end());
@@ -639,20 +651,57 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
         }
     }
 
-    unit_infos.erase(
-        std::remove_if(
-            unit_infos.begin(), unit_infos.end(),
-            [&function, &rejected_slot_list](const CoreIrPromotionUnitInfo &unit_info) {
-                if (unit_is_definitely_defined_on_all_paths(unit_info, function)) {
-                    return false;
+    if (!unit_infos.empty()) {
+        CoreIrCfgAnalysis cfg_analysis_runner;
+        const CoreIrCfgAnalysisResult cfg_analysis =
+            cfg_analysis_runner.Run(function);
+        std::vector<const CoreIrBasicBlock *> reachable_blocks;
+        reachable_blocks.reserve(function.get_basic_blocks().size());
+        for (const auto &block : function.get_basic_blocks()) {
+            if (block != nullptr && cfg_analysis.is_reachable(block.get())) {
+                reachable_blocks.push_back(block.get());
+            }
+        }
+        CoreIrDominatorTreeAnalysis dominator_tree_runner;
+        const CoreIrDominatorTreeAnalysisResult dominator_tree =
+            dominator_tree_runner.Run(function, cfg_analysis);
+        CoreIrDominanceFrontierAnalysis dominance_frontier_runner;
+        const CoreIrDominanceFrontierAnalysisResult dominance_frontier =
+            dominance_frontier_runner.Run(function, cfg_analysis, dominator_tree);
+        std::unordered_map<const CoreIrInstruction *, std::size_t>
+            instruction_order;
+        std::size_t next_instruction_order = 0;
+        for (const auto &block : function.get_basic_blocks()) {
+            if (block == nullptr) {
+                continue;
+            }
+            for (const auto &instruction : block->get_instructions()) {
+                if (instruction != nullptr) {
+                    instruction_order.emplace(instruction.get(),
+                                              next_instruction_order++);
                 }
-                rejected_slot_list.push_back(
-                    CoreIrRejectedStackSlot{unit_info.unit.stack_slot,
-                                            CoreIrPromotionFailureReason::
-                                                UndefinedOnSomePath});
-                return true;
-            }),
-        unit_infos.end());
+            }
+        }
+
+        unit_infos.erase(
+            std::remove_if(
+                unit_infos.begin(), unit_infos.end(),
+                [&cfg_analysis, &dominance_frontier, &reachable_blocks,
+                 &instruction_order,
+                 &rejected_slot_list](const CoreIrPromotionUnitInfo &unit_info) {
+                    if (unit_is_definitely_defined_on_all_paths(
+                            unit_info, cfg_analysis, dominance_frontier,
+                            reachable_blocks, instruction_order)) {
+                        return false;
+                    }
+                    rejected_slot_list.push_back(
+                        CoreIrRejectedStackSlot{unit_info.unit.stack_slot,
+                                                CoreIrPromotionFailureReason::
+                                                    UndefinedOnSomePath});
+                    return true;
+                }),
+            unit_infos.end());
+    }
 
     instruction_to_unit.clear();
     for (std::size_t unit_index = 0; unit_index < unit_infos.size(); ++unit_index) {

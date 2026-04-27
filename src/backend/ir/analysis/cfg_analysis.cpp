@@ -121,6 +121,14 @@ CoreIrCfgAnalysisResult CoreIrCfgAnalysis::Run(const CoreIrFunction &function) c
                            cond_jump->get_true_block());
             connect_blocks(predecessors, successors, block.get(),
                            cond_jump->get_false_block());
+            continue;
+        }
+
+        if (auto *indirect_jump = dynamic_cast<CoreIrIndirectJumpInst *>(terminator);
+            indirect_jump != nullptr) {
+            for (CoreIrBasicBlock *target : indirect_jump->get_target_blocks()) {
+                connect_blocks(predecessors, successors, block.get(), target);
+            }
         }
     }
 
