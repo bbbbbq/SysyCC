@@ -62,6 +62,16 @@ std::unordered_set<CoreIrBasicBlock *> collect_reachable_blocks(
             cond_jump != nullptr) {
             worklist.push_back(cond_jump->get_true_block());
             worklist.push_back(cond_jump->get_false_block());
+            continue;
+        }
+
+        if (const auto *indirect_jump =
+                dynamic_cast<const CoreIrIndirectJumpInst *>(
+                    instructions.back().get());
+            indirect_jump != nullptr) {
+            for (CoreIrBasicBlock *target : indirect_jump->get_target_blocks()) {
+                worklist.push_back(target);
+            }
         }
     }
 

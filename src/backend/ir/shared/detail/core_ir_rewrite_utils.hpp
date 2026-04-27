@@ -37,6 +37,8 @@ bool is_trivial_zero_index_gep(const CoreIrGetElementPtrInst &gep);
 CoreIrValue *unwrap_trivial_zero_index_geps(CoreIrValue *value);
 const CoreIrType *get_selected_gep_pointee_type(const CoreIrGetElementPtrInst &gep);
 bool can_flatten_structural_gep(const CoreIrGetElementPtrInst &gep);
+const CoreIrType *
+get_structural_gep_source_pointee_type(const CoreIrGetElementPtrInst &gep);
 bool collect_structural_gep_chain(const CoreIrGetElementPtrInst &gep,
                                   CoreIrValue *&root_base,
                                   std::vector<CoreIrValue *> &indices);

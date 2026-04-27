@@ -777,7 +777,11 @@ bool CoreIrLlvmTargetBackend::append_instruction(
         }
         text += "  %" + get_emitted_value_name(&gep_instruction) +
                 " = getelementptr inbounds ";
-        text += format_type(base_pointer_type->get_pointee_type());
+        const CoreIrType *source_pointee_type =
+            gep_instruction.get_source_pointee_type() != nullptr
+                ? gep_instruction.get_source_pointee_type()
+                : base_pointer_type->get_pointee_type();
+        text += format_type(source_pointee_type);
         text += ", ptr ";
         text += format_pointer_ref(gep_instruction.get_base());
         for (std::size_t index = 0; index < gep_instruction.get_index_count();

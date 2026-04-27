@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_set>
 
 namespace sysycc {
 
@@ -16,6 +17,9 @@ class CoreIrValue;
 class CoreIrRawPrinter {
   private:
     std::string format_type(const CoreIrType *type) const;
+    std::string format_type_impl(
+        const CoreIrType *type,
+        std::unordered_set<const CoreIrType *> &active_types) const;
     std::string format_value(const CoreIrValue *value) const;
     std::string format_constant(const CoreIrConstant *constant) const;
     std::string format_instruction(const CoreIrInstruction &instruction) const;

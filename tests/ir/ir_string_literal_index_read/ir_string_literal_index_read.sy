@@ -1,0 +1,3 @@
+int main(void) {
+    return "Lua"[0] == 'L' ? 0 : 1;
+}

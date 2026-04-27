@@ -1,0 +1,9 @@
+int sum_from_tail(int n) {
+    unsigned char buff[8];
+    unsigned char *start = buff + 8 - n;
+    return start - buff;
+}
+
+int main(void) {
+    return sum_from_tail(3) == 5 ? 0 : 1;
+}

@@ -39,9 +39,7 @@ bool are_equivalent_types(const CoreIrType *lhs, const CoreIrType *rhs) {
                    static_cast<const CoreIrVectorType *>(lhs)->get_element_type(),
                    static_cast<const CoreIrVectorType *>(rhs)->get_element_type());
     case CoreIrTypeKind::Pointer:
-        return are_equivalent_types(
-            static_cast<const CoreIrPointerType *>(lhs)->get_pointee_type(),
-            static_cast<const CoreIrPointerType *>(rhs)->get_pointee_type());
+        return true;
     case CoreIrTypeKind::Array:
         return static_cast<const CoreIrArrayType *>(lhs)->get_element_count() ==
                    static_cast<const CoreIrArrayType *>(rhs)->get_element_count() &&
@@ -118,9 +116,7 @@ void append_type_key(std::string &key, const CoreIrType *type) {
         return;
     }
     case CoreIrTypeKind::Pointer:
-        append_type_key(
-            key, static_cast<const CoreIrPointerType *>(type)->get_pointee_type());
-        key.push_back(';');
+        key += "ptr;";
         return;
     case CoreIrTypeKind::Array: {
         const auto *array_type = static_cast<const CoreIrArrayType *>(type);
@@ -356,7 +352,10 @@ CoreIrValue *unwrap_trivial_zero_index_geps(CoreIrValue *value) {
 }
 
 const CoreIrType *get_selected_gep_pointee_type(const CoreIrGetElementPtrInst &gep) {
-    const CoreIrType *current_type = get_pointer_pointee_type(gep.get_base());
+    const CoreIrType *current_type = gep.get_source_pointee_type();
+    if (current_type == nullptr) {
+        current_type = get_pointer_pointee_type(gep.get_base());
+    }
     if (current_type == nullptr) {
         return nullptr;
     }
@@ -398,6 +397,26 @@ const CoreIrType *get_selected_gep_pointee_type(const CoreIrGetElementPtrInst &g
 
 bool can_flatten_structural_gep(const CoreIrGetElementPtrInst &gep) {
     return get_selected_gep_pointee_type(gep) == get_gep_result_pointee_type(gep);
+}
+
+const CoreIrType *
+get_structural_gep_source_pointee_type(const CoreIrGetElementPtrInst &gep) {
+    const CoreIrGetElementPtrInst *root_gep = &gep;
+    const CoreIrGetElementPtrInst *current_gep = &gep;
+    while (true) {
+        auto *inner_gep = dynamic_cast<const CoreIrGetElementPtrInst *>(
+            current_gep->get_base());
+        if (inner_gep == nullptr || !can_flatten_structural_gep(*inner_gep)) {
+            break;
+        }
+        root_gep = inner_gep;
+        current_gep = inner_gep;
+    }
+
+    if (root_gep->get_source_pointee_type() != nullptr) {
+        return root_gep->get_source_pointee_type();
+    }
+    return get_pointer_pointee_type(root_gep->get_base());
 }
 
 bool collect_structural_gep_chain(const CoreIrGetElementPtrInst &gep,

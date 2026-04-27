@@ -1,6 +1,7 @@
 #include "backend/ir/shared/printer/core_ir_raw_printer.hpp"
 
 #include <sstream>
+#include <unordered_set>
 #include <string>
 
 #include "backend/ir/shared/core/ir_basic_block.hpp"
@@ -133,9 +134,26 @@ std::string format_cast_kind(CoreIrCastKind cast_kind) {
 } // namespace
 
 std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
+    std::unordered_set<const CoreIrType *> active_types;
+    return format_type_impl(type, active_types);
+}
+
+std::string CoreIrRawPrinter::format_type_impl(
+    const CoreIrType *type,
+    std::unordered_set<const CoreIrType *> &active_types) const {
     if (type == nullptr) {
         return "<null-type>";
     }
+
+    if (!active_types.insert(type).second) {
+        return "<recursive-type>";
+    }
+
+    struct ActiveTypeGuard {
+        std::unordered_set<const CoreIrType *> &active_types;
+        const CoreIrType *type;
+        ~ActiveTypeGuard() { active_types.erase(type); }
+    } guard{active_types, type};
 
     switch (type->get_kind()) {
     case CoreIrTypeKind::Void:
@@ -159,16 +177,17 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
     case CoreIrTypeKind::Vector: {
         const auto *vector_type = static_cast<const CoreIrVectorType *>(type);
         return "<" + std::to_string(vector_type->get_element_count()) + " x " +
-               format_type(vector_type->get_element_type()) + ">";
+               format_type_impl(vector_type->get_element_type(), active_types) + ">";
     }
     case CoreIrTypeKind::Pointer:
-        return format_type(static_cast<const CoreIrPointerType *>(type)
-                               ->get_pointee_type()) +
+        return format_type_impl(static_cast<const CoreIrPointerType *>(type)
+                                    ->get_pointee_type(),
+                                active_types) +
                "*";
     case CoreIrTypeKind::Array: {
         const auto *array_type = static_cast<const CoreIrArrayType *>(type);
         return "[" + std::to_string(array_type->get_element_count()) + " x " +
-               format_type(array_type->get_element_type()) + "]";
+               format_type_impl(array_type->get_element_type(), active_types) + "]";
     }
     case CoreIrTypeKind::Struct: {
         const auto *struct_type = static_cast<const CoreIrStructType *>(type);
@@ -178,7 +197,7 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
             if (index > 0) {
                 result += ", ";
             }
-            result += format_type(element_types[index]);
+            result += format_type_impl(element_types[index], active_types);
         }
         result += struct_type->get_is_packed() ? " }>" : " }";
         return result;
@@ -187,13 +206,14 @@ std::string CoreIrRawPrinter::format_type(const CoreIrType *type) const {
         const auto *function_type =
             static_cast<const CoreIrFunctionType *>(type);
         std::string result =
-            format_type(function_type->get_return_type()) + " (";
+            format_type_impl(function_type->get_return_type(), active_types) +
+            " (";
         const auto &parameter_types = function_type->get_parameter_types();
         for (std::size_t index = 0; index < parameter_types.size(); ++index) {
             if (index > 0) {
                 result += ", ";
             }
-            result += format_type(parameter_types[index]);
+            result += format_type_impl(parameter_types[index], active_types);
         }
         if (function_type->get_is_variadic()) {
             if (!parameter_types.empty()) {

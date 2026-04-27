@@ -471,8 +471,11 @@ bool canonicalize_nested_gep(CoreIrBasicBlock &block, CoreIrGetElementPtrInst &g
         }
     }
 
+    const CoreIrType *source_pointee_type =
+        get_structural_gep_source_pointee_type(gep);
     auto replacement = std::make_unique<CoreIrGetElementPtrInst>(
-        gep.get_type(), gep.get_name(), root_base, merged_indices);
+        gep.get_type(), gep.get_name(), root_base, merged_indices,
+        source_pointee_type);
     replacement->set_source_span(gep.get_source_span());
     CoreIrInstruction *replacement_ptr =
         replace_instruction(block, &gep, std::move(replacement));

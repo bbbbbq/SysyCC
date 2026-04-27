@@ -1,5 +1,6 @@
 #include "backend/ir/effect/core_ir_effect.hpp"
 
+#include <unordered_map>
 #include <unordered_set>
 
 #include "backend/ir/shared/core/ir_function.hpp"
@@ -18,6 +19,11 @@ bool value_has_pointer_type(const CoreIrValue *value) noexcept {
 
 CoreIrEffectInfo make_pure_value_effect() noexcept {
     return CoreIrEffectInfo{CoreIrMemoryBehavior::None, false, false, true};
+}
+
+CoreIrEffectInfo make_conservative_call_graph_cycle_effect() noexcept {
+    return CoreIrEffectInfo{CoreIrMemoryBehavior::ReadWrite, false, true,
+                            false};
 }
 
 } // namespace
@@ -96,11 +102,16 @@ get_core_ir_instruction_effect(const CoreIrInstruction &instruction) noexcept {
 }
 
 CoreIrEffectInfo
-summarize_core_ir_function_effect(const CoreIrFunction &function) noexcept {
-    static thread_local std::unordered_set<const CoreIrFunction *> visiting;
+summarize_core_ir_function_effect_impl(
+    const CoreIrFunction &function,
+    std::unordered_set<const CoreIrFunction *> &visiting,
+    std::unordered_map<const CoreIrFunction *, CoreIrEffectInfo> &cache)
+    noexcept {
+    if (const auto it = cache.find(&function); it != cache.end()) {
+        return it->second;
+    }
     if (!visiting.insert(&function).second) {
-        return CoreIrEffectInfo{CoreIrMemoryBehavior::ReadWrite, false, true,
-                                false};
+        return make_conservative_call_graph_cycle_effect();
     }
 
     CoreIrEffectInfo summary{};
@@ -123,7 +134,8 @@ summarize_core_ir_function_effect(const CoreIrFunction &function) noexcept {
                 if (CoreIrFunction *callee =
                         module->find_function(call->get_callee_name());
                     callee != nullptr && !callee->get_basic_blocks().empty()) {
-                    effect = summarize_core_ir_function_effect(*callee);
+                    effect = summarize_core_ir_function_effect_impl(
+                        *callee, visiting, cache);
                 }
             }
 
@@ -144,7 +156,15 @@ summarize_core_ir_function_effect(const CoreIrFunction &function) noexcept {
         summary.is_pure_value = false;
     }
     visiting.erase(&function);
+    cache.emplace(&function, summary);
     return summary;
+}
+
+CoreIrEffectInfo
+summarize_core_ir_function_effect(const CoreIrFunction &function) noexcept {
+    std::unordered_set<const CoreIrFunction *> visiting;
+    std::unordered_map<const CoreIrFunction *, CoreIrEffectInfo> cache;
+    return summarize_core_ir_function_effect_impl(function, visiting, cache);
 }
 
 } // namespace sysycc

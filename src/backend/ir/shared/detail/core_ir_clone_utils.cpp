@@ -152,7 +152,7 @@ std::unique_ptr<CoreIrInstruction> clone_instruction_remapped(
         }
         auto clone = std::make_unique<CoreIrGetElementPtrInst>(
             gep.get_type(), gep.get_name(), remap(gep.get_base()),
-            std::move(indices));
+            std::move(indices), gep.get_source_pointee_type());
         clone->set_source_span(gep.get_source_span());
         return clone;
     }

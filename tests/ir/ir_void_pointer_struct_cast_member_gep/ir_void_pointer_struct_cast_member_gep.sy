@@ -1,0 +1,15 @@
+struct CallS {
+    int *func;
+    int nresults;
+};
+
+int get_results(void *ud) {
+    struct CallS *call = (struct CallS *)ud;
+    return call->nresults;
+}
+
+int main(void) {
+    struct CallS call;
+    call.nresults = 7;
+    return get_results(&call) == 7 ? 0 : 1;
+}

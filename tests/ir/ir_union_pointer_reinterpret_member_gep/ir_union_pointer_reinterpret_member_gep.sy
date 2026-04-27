@@ -1,0 +1,31 @@
+struct Header {
+    void *next;
+    unsigned char tag;
+};
+
+struct Payload {
+    void *next;
+    unsigned char tag;
+    unsigned char mark;
+    unsigned int hash;
+    union {
+        long length;
+        void *link;
+    } u;
+};
+
+union Object {
+    struct Header header;
+    struct Payload payload;
+};
+
+long read_length(void *object) {
+    union Object *u = (union Object *)object;
+    return u->payload.u.length;
+}
+
+int main(void) {
+    union Object object;
+    object.payload.u.length = 42;
+    return read_length(&object) == 42 ? 0 : 1;
+}

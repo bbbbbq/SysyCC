@@ -1,0 +1,28 @@
+enum ValueType {
+    VALUE_UNDEFINED
+};
+
+union Value {
+    struct {
+        char pad[15];
+        char type;
+    } tag;
+    union {
+        char bytes[16];
+        int boolean;
+        double number;
+        const char *text;
+    } payload;
+};
+
+struct Property {
+    union Value value;
+};
+
+static struct Property sentinel = {
+    { { {0}, VALUE_UNDEFINED } }
+};
+
+int main(void) {
+    return 0;
+}
