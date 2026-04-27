@@ -69,6 +69,9 @@ src/frontend/preprocess/
 - resolve `#include "..."` against the including file's current directory and
   `-I` include search paths
 - resolve `#include <...>` against default system include search paths
+- discover Linux GCC builtin headers, Clang resource headers, and glibc
+  multiarch directories such as `/usr/include/aarch64-linux-gnu` as default
+  system include roots
 - resolve `#include <...>` against CLI `-I` directories before explicit and
   default system include search paths
 - resolve `#include_next <...>` by continuing the current system include

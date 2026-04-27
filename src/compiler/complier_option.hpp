@@ -13,47 +13,168 @@ namespace sysycc {
 
 namespace detail {
 
+inline void append_existing_system_include_directory(
+    std::vector<std::string> &system_include_directories,
+    const std::filesystem::path &include_path) {
+    std::error_code error;
+    if (!std::filesystem::is_directory(include_path, error)) {
+        return;
+    }
+
+    const std::string include_path_string = include_path.string();
+    for (const std::string &existing_path : system_include_directories) {
+        if (existing_path == include_path_string) {
+            return;
+        }
+    }
+    system_include_directories.push_back(include_path_string);
+}
+
+inline void append_clang_resource_include_directories(
+    std::vector<std::string> &system_include_directories,
+    const std::filesystem::path &root_path) {
+    const std::filesystem::path clang_include_root(
+        root_path / "Library/Developer/CommandLineTools/usr/lib/clang");
+    std::error_code error;
+    for (const auto &entry :
+         std::filesystem::directory_iterator(clang_include_root, error)) {
+        if (!entry.is_directory()) {
+            continue;
+        }
+
+        append_existing_system_include_directory(system_include_directories,
+                                                 entry.path() / "include");
+    }
+}
+
+inline void append_linux_gcc_include_directories(
+    std::vector<std::string> &system_include_directories,
+    const std::filesystem::path &root_path) {
+    const std::filesystem::path gcc_root(root_path / "usr/lib/gcc");
+    std::error_code root_error;
+    for (const auto &triple_entry :
+         std::filesystem::directory_iterator(gcc_root, root_error)) {
+        if (!triple_entry.is_directory()) {
+            continue;
+        }
+        const std::string triple_name = triple_entry.path().filename().string();
+        if (triple_name.find("-linux-gnu") == std::string::npos) {
+            continue;
+        }
+        std::error_code version_error;
+        for (const auto &version_entry :
+             std::filesystem::directory_iterator(triple_entry.path(),
+                                                 version_error)) {
+            if (!version_entry.is_directory()) {
+                continue;
+            }
+            append_existing_system_include_directory(system_include_directories,
+                                                     version_entry.path() /
+                                                         "include");
+        }
+    }
+}
+
+inline void append_linux_clang_include_directories(
+    std::vector<std::string> &system_include_directories,
+    const std::filesystem::path &root_path) {
+    const std::filesystem::path direct_clang_root(root_path / "usr/lib/clang");
+    std::error_code direct_error;
+    for (const auto &version_entry :
+         std::filesystem::directory_iterator(direct_clang_root, direct_error)) {
+        if (!version_entry.is_directory()) {
+            continue;
+        }
+        append_existing_system_include_directory(system_include_directories,
+                                                 version_entry.path() /
+                                                     "include");
+    }
+
+    const std::filesystem::path usr_lib(root_path / "usr/lib");
+    std::error_code usr_lib_error;
+    for (const auto &llvm_entry :
+         std::filesystem::directory_iterator(usr_lib, usr_lib_error)) {
+        if (!llvm_entry.is_directory()) {
+            continue;
+        }
+        const std::string llvm_dir_name = llvm_entry.path().filename().string();
+        if (llvm_dir_name.rfind("llvm-", 0) != 0) {
+            continue;
+        }
+        const std::filesystem::path version_root(llvm_entry.path() /
+                                                 "lib/clang");
+        std::error_code version_error;
+        for (const auto &version_entry :
+             std::filesystem::directory_iterator(version_root, version_error)) {
+            if (!version_entry.is_directory()) {
+                continue;
+            }
+            append_existing_system_include_directory(system_include_directories,
+                                                     version_entry.path() /
+                                                         "include");
+        }
+    }
+}
+
+inline void append_linux_multiarch_include_directories(
+    std::vector<std::string> &system_include_directories,
+    const std::filesystem::path &root_path) {
+    const std::filesystem::path usr_include(root_path / "usr/include");
+    const std::vector<std::string> common_triples = {
+        "aarch64-linux-gnu",   "x86_64-linux-gnu", "arm-linux-gnueabihf",
+        "arm-linux-gnueabi",   "i386-linux-gnu",   "riscv64-linux-gnu",
+        "powerpc64le-linux-gnu"};
+    for (const std::string &triple : common_triples) {
+        append_existing_system_include_directory(system_include_directories,
+                                                 usr_include / triple);
+    }
+
+    std::error_code error;
+    for (const auto &entry :
+         std::filesystem::directory_iterator(usr_include, error)) {
+        if (!entry.is_directory()) {
+            continue;
+        }
+        const std::string directory_name = entry.path().filename().string();
+        if (directory_name.find("-linux-gnu") == std::string::npos) {
+            continue;
+        }
+        append_existing_system_include_directory(system_include_directories,
+                                                 entry.path());
+    }
+}
+
+inline void append_linux_system_include_directories(
+    std::vector<std::string> &system_include_directories,
+    const std::filesystem::path &root_path) {
+    append_existing_system_include_directory(system_include_directories,
+                                             root_path / "usr/local/include");
+    const std::size_t before_gcc_include_count =
+        system_include_directories.size();
+    append_linux_gcc_include_directories(system_include_directories, root_path);
+    if (system_include_directories.size() == before_gcc_include_count) {
+        append_linux_clang_include_directories(system_include_directories,
+                                               root_path);
+    }
+    append_linux_multiarch_include_directories(system_include_directories,
+                                               root_path);
+    append_existing_system_include_directory(system_include_directories,
+                                             root_path / "usr/include");
+}
+
 inline std::vector<std::string> get_default_system_include_directories() {
     std::vector<std::string> system_include_directories;
 
 #if defined(__APPLE__)
-    const std::filesystem::path clang_include_root(
-        "/Library/Developer/CommandLineTools/usr/lib/clang");
-    if (std::filesystem::exists(clang_include_root)) {
-        for (const auto &entry :
-             std::filesystem::directory_iterator(clang_include_root)) {
-            if (!entry.is_directory()) {
-                continue;
-            }
-
-            const std::filesystem::path include_path = entry.path() / "include";
-            if (std::filesystem::exists(include_path)) {
-                system_include_directories.push_back(include_path.string());
-            }
-        }
-    }
-
-    const std::filesystem::path sdk_include_path(
+    append_clang_resource_include_directories(system_include_directories, "/");
+    append_existing_system_include_directory(
+        system_include_directories,
         "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include");
-    if (std::filesystem::exists(sdk_include_path)) {
-        system_include_directories.push_back(sdk_include_path.string());
-    }
-
-    const std::filesystem::path clt_include_path(
+    append_existing_system_include_directory(
+        system_include_directories,
         "/Library/Developer/CommandLineTools/usr/include");
-    if (std::filesystem::exists(clt_include_path)) {
-        system_include_directories.push_back(clt_include_path.string());
-    }
 #else
-    const std::filesystem::path local_include_path("/usr/local/include");
-    if (std::filesystem::exists(local_include_path)) {
-        system_include_directories.push_back(local_include_path.string());
-    }
-
-    const std::filesystem::path usr_include_path("/usr/include");
-    if (std::filesystem::exists(usr_include_path)) {
-        system_include_directories.push_back(usr_include_path.string());
-    }
+    append_linux_system_include_directories(system_include_directories, "/");
 #endif
 
     return system_include_directories;

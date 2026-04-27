@@ -185,8 +185,8 @@ class Cli {
                     return;
                 }
                 const std::filesystem::path root_path(root);
-                directories.push_back((root_path / "usr/local/include").string());
-                directories.push_back((root_path / "usr/include").string());
+                sysycc::detail::append_linux_system_include_directories(
+                    directories, root_path);
             };
         std::vector<std::string> sysroot_include_directories;
         if (!no_stdinc_) {
