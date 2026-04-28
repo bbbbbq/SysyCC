@@ -11,6 +11,7 @@ namespace sysycc {
 
 class CoreIrBasicBlock;
 class CoreIrConstant;
+class CoreIrCallInst;
 class CoreIrFunction;
 class CoreIrGlobal;
 class CoreIrInstruction;
@@ -37,6 +38,8 @@ class CoreIrLlvmTargetBackend final : public CoreIrTargetBackend {
     std::string next_value_name();
     std::string get_emitted_value_name(const CoreIrValue *value);
     std::string get_emitted_block_name(const CoreIrBasicBlock *block);
+    std::string get_va_arg_continue_label(const CoreIrCallInst &call_instruction);
+    std::string get_block_tail_label(const CoreIrBasicBlock *block);
     std::string get_emitted_phi_incoming_block_name(const CoreIrBasicBlock *block);
     std::string get_emitted_stack_slot_name(const CoreIrStackSlot *stack_slot);
     std::string format_type(const CoreIrType *type) const;

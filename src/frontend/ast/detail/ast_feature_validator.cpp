@@ -360,6 +360,9 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
                validate_node(va_arg_expr->get_target_type(), feature_registry,
                              error_info);
     }
+    case AstKind::StatementExpr:
+        return validate_node(static_cast<const StatementExpr *>(node)->get_body(),
+                             feature_registry, error_info);
     case AstKind::StructType: {
         const auto *struct_type = static_cast<const StructTypeNode *>(node);
         for (const auto &field : struct_type->get_fields()) {

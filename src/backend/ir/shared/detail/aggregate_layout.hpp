@@ -14,12 +14,15 @@ namespace detail {
 enum class AggregateLayoutElementKind : unsigned char {
     Direct,
     Padding,
+    BitFieldStorage,
 };
 
 struct AggregateLayoutElement {
     AggregateLayoutElementKind kind = AggregateLayoutElementKind::Direct;
     const SemanticType *type = nullptr;
     std::size_t padding_size = 0;
+    std::size_t bit_width = 0;
+    bool is_signed = false;
 };
 
 struct AggregateFieldLayout {
@@ -27,6 +30,8 @@ struct AggregateFieldLayout {
     bool is_bit_field = false;
     std::size_t bit_offset = 0;
     std::size_t bit_width = 0;
+    std::size_t storage_bit_width = 0;
+    bool storage_is_signed = false;
     const SemanticType *storage_type = nullptr;
     const SemanticType *field_type = nullptr;
 };

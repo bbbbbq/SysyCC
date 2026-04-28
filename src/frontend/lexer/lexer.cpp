@@ -49,6 +49,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::KwAttribute;
     case ASM:
         return TokenKind::KwAsm;
+    case EXTENSION:
+        return TokenKind::KwExtension;
     case INLINE:
         return TokenKind::KwInline;
     case RESTRICT:

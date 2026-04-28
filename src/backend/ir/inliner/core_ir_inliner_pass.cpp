@@ -179,6 +179,32 @@ bool callee_has_vector_work(const CoreIrFunction &callee) {
     return false;
 }
 
+bool callee_returns_phi_value(const CoreIrFunction &callee) {
+    for (const auto &block_ptr : callee.get_basic_blocks()) {
+        const CoreIrBasicBlock *block = block_ptr.get();
+        if (block == nullptr || block->get_instructions().empty()) {
+            continue;
+        }
+        const auto *ret = dynamic_cast<const CoreIrReturnInst *>(
+            block->get_instructions().back().get());
+        if (ret == nullptr) {
+            continue;
+        }
+        if (dynamic_cast<const CoreIrPhiInst *>(ret->get_return_value()) !=
+            nullptr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool callee_returns_value(const CoreIrFunction &callee) {
+    const CoreIrFunctionType *function_type = callee.get_function_type();
+    const CoreIrType *return_type =
+        function_type == nullptr ? nullptr : function_type->get_return_type();
+    return return_type != nullptr && return_type->get_kind() != CoreIrTypeKind::Void;
+}
+
 bool block_is_inside_loop(
     const CoreIrBasicBlock *block,
     const CoreIrLoopInfoAnalysisResult &loop_info) {
@@ -296,6 +322,10 @@ bool callee_is_inline_candidate(CoreIrFunction &callee,
         callee_has_cfg_backedge(callee) &&
         (!callsite_in_loop ||
          inline_cost > kLoopifiedScalarHotLoopInlineBudget)) {
+        return false;
+    }
+    if (!callee.get_is_always_inline() && callee_has_cfg_backedge(callee) &&
+        (callee_returns_value(callee) || callee_returns_phi_value(callee))) {
         return false;
     }
     bool saw_return = false;

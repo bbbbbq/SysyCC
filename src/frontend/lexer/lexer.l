@@ -46,6 +46,8 @@ static int get_keyword_parser_token(sysycc::TokenKind kind) {
         return ATTRIBUTE;
     case sysycc::TokenKind::KwAsm:
         return ASM;
+    case sysycc::TokenKind::KwExtension:
+        return EXTENSION;
     case sysycc::TokenKind::KwInline:
         return INLINE;
     case sysycc::TokenKind::KwRestrict:
@@ -127,6 +129,8 @@ static const char *get_keyword_token_label(int token) {
         return "ATTRIBUTE";
     case ASM:
         return "ASM";
+    case EXTENSION:
+        return "EXTENSION";
     case INLINE:
         return "INLINE";
     case RESTRICT:

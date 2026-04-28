@@ -104,6 +104,10 @@ const SemanticType *get_int_semantic_type(SemanticModel &semantic_model) {
     return get_builtin_semantic_type(semantic_model, "int");
 }
 
+const SemanticType *get_void_semantic_type(SemanticModel &semantic_model) {
+    return get_builtin_semantic_type(semantic_model, "void");
+}
+
 const SemanticType *get_ptrdiff_semantic_type(SemanticModel &semantic_model) {
     return get_builtin_semantic_type(semantic_model, "ptrdiff_t");
 }
@@ -453,6 +457,28 @@ const SemanticType *get_pointer_decay_or_self(const SemanticType *type,
         std::make_unique<PointerSemanticType>(array_type->get_element_type()));
 }
 
+bool are_compatible_pointer_relational_operands(
+    const SemanticType *lhs, const SemanticType *rhs,
+    const ConversionChecker &conversion_checker) {
+    lhs = strip_qualifiers(lhs);
+    rhs = strip_qualifiers(rhs);
+    if (lhs == nullptr || rhs == nullptr ||
+        lhs->get_kind() != SemanticTypeKind::Pointer ||
+        rhs->get_kind() != SemanticTypeKind::Pointer) {
+        return false;
+    }
+    if (conversion_checker.is_void_pointer_type(lhs) ||
+        conversion_checker.is_void_pointer_type(rhs)) {
+        return true;
+    }
+
+    const auto *lhs_pointer = static_cast<const PointerSemanticType *>(lhs);
+    const auto *rhs_pointer = static_cast<const PointerSemanticType *>(rhs);
+    return conversion_checker.is_same_type(
+        strip_qualifiers(lhs_pointer->get_pointee_type()),
+        strip_qualifiers(rhs_pointer->get_pointee_type()));
+}
+
 const FunctionSemanticType *get_callable_function_type(const SemanticType *type) {
     type = strip_qualifiers(type);
     if (type == nullptr) {
@@ -503,6 +529,17 @@ const SemanticType *get_member_owner_type(
                 static_cast<const PointerSemanticType *>(unqualified_base_type)
                     ->get_pointee_type());
         }
+        if (unqualified_base_type != nullptr &&
+            unqualified_base_type->get_kind() == SemanticTypeKind::Array) {
+            const SemanticType *element_type = strip_qualifiers(
+                static_cast<const ArraySemanticType *>(unqualified_base_type)
+                    ->get_element_type());
+            if (element_type != nullptr &&
+                (element_type->get_kind() == SemanticTypeKind::Struct ||
+                 element_type->get_kind() == SemanticTypeKind::Union)) {
+                return element_type;
+            }
+        }
         return nullptr;
     }
     if (operator_text == "." &&
@@ -526,6 +563,21 @@ const SemanticType *get_member_object_type(
             conversion_checker.is_pointer_to_union_type(base_type)) {
             return static_cast<const PointerSemanticType *>(unqualified_base_type)
                 ->get_pointee_type();
+        }
+        if (unqualified_base_type != nullptr &&
+            unqualified_base_type->get_kind() == SemanticTypeKind::Array) {
+            const SemanticType *element_type =
+                static_cast<const ArraySemanticType *>(unqualified_base_type)
+                    ->get_element_type();
+            const SemanticType *unqualified_element_type =
+                strip_qualifiers(element_type);
+            if (unqualified_element_type != nullptr &&
+                (unqualified_element_type->get_kind() ==
+                     SemanticTypeKind::Struct ||
+                 unqualified_element_type->get_kind() ==
+                     SemanticTypeKind::Union)) {
+                return element_type;
+            }
         }
         return nullptr;
     }
@@ -789,6 +841,134 @@ const SemanticType *get_common_arithmetic_type(
         return converted;
     }
     return get_common_arithmetic_type(lhs, rhs, semantic_model, conversion_checker);
+}
+
+const Expr *get_statement_expr_result_expr(const Stmt *stmt) {
+    if (stmt == nullptr) {
+        return nullptr;
+    }
+    if (const auto *expr_stmt = dynamic_cast<const ExprStmt *>(stmt);
+        expr_stmt != nullptr) {
+        return expr_stmt->get_expression();
+    }
+    if (const auto *block_stmt = dynamic_cast<const BlockStmt *>(stmt);
+        block_stmt != nullptr) {
+        for (auto it = block_stmt->get_statements().rbegin();
+             it != block_stmt->get_statements().rend(); ++it) {
+            if (*it == nullptr) {
+                continue;
+            }
+            return get_statement_expr_result_expr(it->get());
+        }
+    }
+    return nullptr;
+}
+
+void analyze_statement_expr_stmt(const Stmt *stmt,
+                                 const ExprAnalyzer &expr_analyzer,
+                                 SemanticContext &semantic_context,
+                                 ScopeStack &scope_stack) {
+    if (stmt == nullptr) {
+        return;
+    }
+    switch (stmt->get_kind()) {
+    case AstKind::BlockStmt: {
+        const auto *block_stmt = static_cast<const BlockStmt *>(stmt);
+        scope_stack.push_scope();
+        for (const auto &statement : block_stmt->get_statements()) {
+            analyze_statement_expr_stmt(statement.get(), expr_analyzer,
+                                        semantic_context, scope_stack);
+        }
+        scope_stack.pop_scope();
+        return;
+    }
+    case AstKind::ExprStmt:
+        expr_analyzer.analyze_expr(
+            static_cast<const ExprStmt *>(stmt)->get_expression(),
+            semantic_context, scope_stack);
+        return;
+    case AstKind::IfStmt: {
+        const auto *if_stmt = static_cast<const IfStmt *>(stmt);
+        expr_analyzer.analyze_expr(if_stmt->get_condition(), semantic_context,
+                                   scope_stack);
+        analyze_statement_expr_stmt(if_stmt->get_then_branch(), expr_analyzer,
+                                    semantic_context, scope_stack);
+        analyze_statement_expr_stmt(if_stmt->get_else_branch(), expr_analyzer,
+                                    semantic_context, scope_stack);
+        return;
+    }
+    case AstKind::WhileStmt: {
+        const auto *while_stmt = static_cast<const WhileStmt *>(stmt);
+        expr_analyzer.analyze_expr(while_stmt->get_condition(), semantic_context,
+                                   scope_stack);
+        analyze_statement_expr_stmt(while_stmt->get_body(), expr_analyzer,
+                                    semantic_context, scope_stack);
+        return;
+    }
+    case AstKind::DoWhileStmt: {
+        const auto *do_while_stmt = static_cast<const DoWhileStmt *>(stmt);
+        analyze_statement_expr_stmt(do_while_stmt->get_body(), expr_analyzer,
+                                    semantic_context, scope_stack);
+        expr_analyzer.analyze_expr(do_while_stmt->get_condition(),
+                                   semantic_context, scope_stack);
+        return;
+    }
+    case AstKind::ForStmt: {
+        const auto *for_stmt = static_cast<const ForStmt *>(stmt);
+        scope_stack.push_scope();
+        expr_analyzer.analyze_expr(for_stmt->get_init(), semantic_context,
+                                   scope_stack);
+        expr_analyzer.analyze_expr(for_stmt->get_condition(), semantic_context,
+                                   scope_stack);
+        expr_analyzer.analyze_expr(for_stmt->get_step(), semantic_context,
+                                   scope_stack);
+        analyze_statement_expr_stmt(for_stmt->get_body(), expr_analyzer,
+                                    semantic_context, scope_stack);
+        scope_stack.pop_scope();
+        return;
+    }
+    case AstKind::SwitchStmt: {
+        const auto *switch_stmt = static_cast<const SwitchStmt *>(stmt);
+        expr_analyzer.analyze_expr(switch_stmt->get_condition(),
+                                   semantic_context, scope_stack);
+        analyze_statement_expr_stmt(switch_stmt->get_body(), expr_analyzer,
+                                    semantic_context, scope_stack);
+        return;
+    }
+    case AstKind::CaseStmt:
+        expr_analyzer.analyze_expr(
+            static_cast<const CaseStmt *>(stmt)->get_value(), semantic_context,
+            scope_stack);
+        analyze_statement_expr_stmt(
+            static_cast<const CaseStmt *>(stmt)->get_body(), expr_analyzer,
+            semantic_context, scope_stack);
+        return;
+    case AstKind::DefaultStmt:
+        analyze_statement_expr_stmt(
+            static_cast<const DefaultStmt *>(stmt)->get_body(), expr_analyzer,
+            semantic_context, scope_stack);
+        return;
+    case AstKind::LabelStmt:
+        analyze_statement_expr_stmt(
+            static_cast<const LabelStmt *>(stmt)->get_body(), expr_analyzer,
+            semantic_context, scope_stack);
+        return;
+    case AstKind::ReturnStmt:
+        expr_analyzer.analyze_expr(
+            static_cast<const ReturnStmt *>(stmt)->get_value(),
+            semantic_context, scope_stack);
+        return;
+    case AstKind::GotoStmt: {
+        const auto *goto_stmt = static_cast<const GotoStmt *>(stmt);
+        if (goto_stmt->get_is_indirect()) {
+            expr_analyzer.analyze_expr(goto_stmt->get_indirect_target(),
+                                       semantic_context, scope_stack);
+        }
+        return;
+    }
+    default:
+        return;
+    }
 }
 
 } // namespace
@@ -1311,11 +1491,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
 
         if (operator_text == "<" || operator_text == "<=" ||
             operator_text == ">" || operator_text == ">=") {
-            if (lhs_pointer_like != nullptr && rhs_pointer_like != nullptr &&
-                (conversion_checker_.is_same_type(lhs_pointer_like,
-                                                  rhs_pointer_like) ||
-                 conversion_checker_.is_void_pointer_type(lhs_pointer_like) ||
-                 conversion_checker_.is_void_pointer_type(rhs_pointer_like))) {
+            if (are_compatible_pointer_relational_operands(
+                    lhs_pointer_like, rhs_pointer_like, conversion_checker_)) {
                 semantic_model.bind_node_type(binary_expr,
                                               get_int_semantic_type(semantic_model));
                 return;
@@ -1435,13 +1612,13 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         }
 
         semantic_model.bind_node_type(cast_expr, target_type);
-        const auto operand_constant =
-            constant_evaluator_.get_integer_constant_value(
-                cast_expr->get_operand(), semantic_context);
-        if (operand_constant.has_value() &&
+        const auto cast_constant =
+            constant_evaluator_.get_scalar_constant_value_as_integer(
+                cast_expr->get_operand(), target_type, semantic_context);
+        if (cast_constant.has_value() &&
             conversion_checker_.is_integer_like_type(target_type)) {
             constant_evaluator_.bind_integer_constant_value(
-                cast_expr, *operand_constant, semantic_context);
+                cast_expr, *cast_constant, semantic_context);
         }
         return;
     }
@@ -1883,6 +2060,21 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         }
 
         semantic_model.bind_node_type(expr, owner_type);
+        return;
+    }
+    case AstKind::StatementExpr: {
+        const auto *statement_expr = static_cast<const StatementExpr *>(expr);
+        analyze_statement_expr_stmt(statement_expr->get_body(), *this,
+                                    semantic_context, scope_stack);
+        const Expr *result_expr =
+            get_statement_expr_result_expr(statement_expr->get_body());
+        const SemanticType *result_type =
+            result_expr == nullptr ? nullptr
+                                   : semantic_model.get_node_type(result_expr);
+        semantic_model.bind_node_type(
+            statement_expr,
+            result_type != nullptr ? result_type
+                                   : get_void_semantic_type(semantic_model));
         return;
     }
     case AstKind::InitListExpr: {

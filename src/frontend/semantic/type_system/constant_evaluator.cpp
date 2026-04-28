@@ -145,17 +145,91 @@ get_struct_field_offset(const StructSemanticType *struct_type,
     }
 
     std::size_t offset = 0;
+    bool active_bit_field_unit = false;
+    const SemanticType *active_storage_type = nullptr;
+    std::size_t active_storage_bits = 0;
+    std::size_t active_used_bits = 0;
+    IntegerConversionService conversion_service;
+
     for (const auto &field : struct_type->get_fields()) {
         const SemanticType *field_type =
             strip_layout_qualifiers(field.get_type());
         const auto field_alignment = get_semantic_type_alignment(field_type);
-        const auto field_size = get_semantic_type_size(field_type);
-        if (!field_alignment.has_value() || !field_size.has_value()) {
+        if (!field_alignment.has_value()) {
             return std::nullopt;
         }
+
+        if (field.get_is_bit_field()) {
+            const auto integer_info =
+                conversion_service.get_integer_type_info(field_type);
+            if (!integer_info.has_value()) {
+                return std::nullopt;
+            }
+            const auto field_size = get_semantic_type_size(field_type);
+            if (!field_size.has_value()) {
+                return std::nullopt;
+            }
+            const std::size_t bit_width =
+                static_cast<std::size_t>(field.get_bit_width().value_or(0));
+            if (field.get_name() == field_name) {
+                return std::nullopt;
+            }
+            if (bit_width == 0) {
+                active_bit_field_unit = false;
+                active_storage_type = nullptr;
+                active_storage_bits = 0;
+                active_used_bits = 0;
+                offset = align_layout_offset(offset, *field_alignment);
+                continue;
+            }
+            const bool needs_new_unit =
+                !active_bit_field_unit ||
+                !have_same_layout_unqualified_type(active_storage_type,
+                                                   field_type) ||
+                active_used_bits + bit_width > active_storage_bits;
+            if (needs_new_unit) {
+                const std::size_t storage_start =
+                    floor_layout_offset(offset, *field_alignment);
+                if (offset == storage_start ||
+                    offset + round_up_layout_bits_to_bytes(bit_width) >
+                        storage_start + *field_size) {
+                    offset = align_layout_offset(offset, *field_alignment);
+                    active_storage_bits =
+                        static_cast<std::size_t>(integer_info->get_bit_width());
+                } else {
+                    const std::size_t available_bits =
+                        (storage_start + *field_size - offset) * 8U;
+                    active_storage_bits =
+                        choose_layout_bit_field_storage_bits(available_bits,
+                                                             bit_width);
+                }
+                offset += round_up_layout_bits_to_bytes(active_storage_bits);
+                active_bit_field_unit = true;
+                active_storage_type = field_type;
+                active_used_bits = 0;
+            }
+            active_used_bits += bit_width;
+            if (active_used_bits >= active_storage_bits) {
+                active_bit_field_unit = false;
+                active_storage_type = nullptr;
+                active_storage_bits = 0;
+                active_used_bits = 0;
+            }
+            continue;
+        }
+
+        active_bit_field_unit = false;
+        active_storage_type = nullptr;
+        active_storage_bits = 0;
+        active_used_bits = 0;
+
         offset = align_layout_offset(offset, *field_alignment);
         if (field.get_name() == field_name) {
             return offset;
+        }
+        const auto field_size = get_semantic_type_size(field_type);
+        if (!field_size.has_value()) {
+            return std::nullopt;
         }
         offset += *field_size;
     }
@@ -913,6 +987,14 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
         const auto integer_value =
             get_integer_constant_value(expr, semantic_model);
         if (integer_value.has_value() && *integer_value == 0) {
+            return true;
+        }
+        if (const auto *cast_expr = dynamic_cast<const CastExpr *>(expr);
+            cast_expr != nullptr &&
+            is_pointer_semantic_type(semantic_model.get_node_type(cast_expr)) &&
+            get_scalar_numeric_constant_value(cast_expr->get_operand(),
+                                              semantic_model)
+                .has_value()) {
             return true;
         }
         return is_static_address_value_expr(expr, semantic_model);

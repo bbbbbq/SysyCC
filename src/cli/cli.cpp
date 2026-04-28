@@ -273,8 +273,13 @@ std::string lowercase_copy(std::string text) {
 }
 
 bool is_linker_input_file_path(const std::string &path) {
+    const std::string filename =
+        lowercase_copy(std::filesystem::path(path).filename().string());
     const std::string extension =
         lowercase_copy(std::filesystem::path(path).extension().string());
+    if (filename.find(".so.") != std::string::npos) {
+        return true;
+    }
     return extension == ".o" || extension == ".obj" || extension == ".a" ||
            extension == ".so" || extension == ".dylib" || extension == ".lo";
 }

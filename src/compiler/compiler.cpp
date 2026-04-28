@@ -357,9 +357,37 @@ bool create_temporary_llvm_ir_file(const std::string &llvm_ir_text,
     return write_text_file(temporary_file.path, llvm_ir_text, error_message);
 }
 
+bool create_temporary_output_file(const std::string &prefix,
+                                  TemporaryFile &temporary_file,
+                                  std::string &error_message) {
+    std::error_code temp_dir_error;
+    const std::filesystem::path temp_dir =
+        std::filesystem::temp_directory_path(temp_dir_error);
+    if (temp_dir_error) {
+        error_message = "failed to query temporary directory: " +
+                        temp_dir_error.message();
+        return false;
+    }
+
+    std::string file_template = (temp_dir / (prefix + "-XXXXXX")).string();
+    std::vector<char> template_buffer(file_template.begin(), file_template.end());
+    template_buffer.push_back('\0');
+    const int fd = mkstemp(template_buffer.data());
+    if (fd < 0) {
+        error_message =
+            "failed to create temporary output file: " +
+            std::string(std::strerror(errno));
+        return false;
+    }
+    close(fd);
+    temporary_file.path = template_buffer.data();
+    return true;
+}
+
 std::vector<std::string> build_full_compile_link_arguments(
     const CompilerOption &option,
     const std::vector<std::string> &llvm_ir_files,
+    const std::vector<std::string> &object_files,
     const std::string &output_file) {
     std::vector<std::string> arguments;
     if (option.get_backend_options().get_debug_info()) {
@@ -379,10 +407,13 @@ std::vector<std::string> build_full_compile_link_arguments(
         arguments.push_back(llvm_ir_file);
     }
     if (!llvm_ir_files.empty() &&
-        (!option.get_linker_input_files().empty() ||
+        (!object_files.empty() || !option.get_linker_input_files().empty() ||
          !option.get_linker_libraries().empty())) {
         arguments.push_back("-x");
         arguments.push_back("none");
+    }
+    for (const std::string &object_file : object_files) {
+        arguments.push_back(object_file);
     }
     for (const std::string &link_input_file : option.get_linker_input_files()) {
         arguments.push_back(link_input_file);
@@ -607,6 +638,141 @@ bool compile_source_to_temporary_llvm_ir(const CompilerOption &option,
     return true;
 }
 
+CompilerOption make_single_source_llvm_ir_option(const CompilerOption &option,
+                                                 const std::string &source_file) {
+    CompilerOption source_option = option;
+    source_option.set_input_file(source_file);
+    source_option.set_source_input_files({source_file});
+    source_option.set_linker_input_files({});
+    source_option.set_link_only(false);
+    source_option.set_output_file("");
+    source_option.set_depfile_mode(DepfileMode::None);
+    source_option.set_depfile_output_file("");
+    source_option.set_depfile_targets({});
+    source_option.set_depfile_add_phony_targets(false);
+    source_option.set_driver_action(DriverAction::EmitLlvmIr);
+    source_option.set_emit_asm(false);
+    source_option.set_emit_object(false);
+    source_option.set_stop_after_stage(StopAfterStage::IR);
+
+    BackendOptions backend_options = source_option.get_backend_options();
+    backend_options.set_backend_kind(BackendKind::LlvmIr);
+    backend_options.set_target_triple("");
+    backend_options.set_output_file("");
+    source_option.set_backend_options(std::move(backend_options));
+    return source_option;
+}
+
+bool compile_source_to_temporary_llvm_ir_isolated(
+    const CompilerOption &option, const std::string &source_file,
+    TemporaryFile &temporary_file, CompilerContext &parent_context,
+    std::string &error_message) {
+    if (!create_temporary_output_file("sysycc-full-link-ir", temporary_file,
+                                      error_message)) {
+        parent_context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                         error_message);
+        return false;
+    }
+
+    const pid_t child_pid = fork();
+    if (child_pid < 0) {
+        error_message =
+            "failed to fork isolated source compiler: " +
+            std::string(std::strerror(errno));
+        parent_context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                         error_message);
+        return false;
+    }
+
+    if (child_pid == 0) {
+        Compiler source_compiler(
+            make_single_source_llvm_ir_option(option, source_file));
+        const PassResult compile_result = source_compiler.Run();
+        if (!compile_result.ok) {
+            std::exit(2);
+        }
+        const IRResult *ir_result =
+            source_compiler.get_context().get_ir_result();
+        if (ir_result == nullptr) {
+            std::exit(3);
+        }
+        std::string child_error;
+        if (!write_text_file(temporary_file.path, ir_result->get_text(),
+                             child_error)) {
+            std::exit(4);
+        }
+        std::exit(0);
+    }
+
+    int wait_status = 0;
+    if (waitpid(child_pid, &wait_status, 0) < 0) {
+        error_message = "failed to wait for isolated source compiler: " +
+                        std::string(std::strerror(errno));
+        parent_context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                         error_message);
+        return false;
+    }
+    if (WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0) {
+        return true;
+    }
+    if (WIFSIGNALED(wait_status)) {
+        error_message = "isolated source compiler for '" + source_file +
+                        "' terminated by signal " +
+                        std::to_string(WTERMSIG(wait_status));
+    } else {
+        const int exit_code =
+            WIFEXITED(wait_status) ? WEXITSTATUS(wait_status) : 1;
+        error_message = "isolated source compiler for '" + source_file +
+                        "' failed with exit code " +
+                        std::to_string(exit_code);
+    }
+    parent_context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                     error_message);
+    return false;
+}
+
+bool compile_temporary_llvm_ir_to_temporary_object(
+    const CompilerOption &option, const std::filesystem::path &llvm_ir_file,
+    TemporaryFile &temporary_object_file, CompilerContext &context,
+    std::string &error_message) {
+    if (!create_temporary_output_file("sysycc-full-link-obj",
+                                      temporary_object_file, error_message)) {
+        context.get_diagnostic_engine().add_error(DiagnosticStage::Compiler,
+                                                  error_message);
+        return false;
+    }
+
+    std::vector<std::string> arguments;
+    if (option.get_backend_options().get_debug_info()) {
+        arguments.push_back("-g");
+    }
+    if (option.get_backend_options().get_position_independent()) {
+        arguments.push_back("-fPIC");
+    }
+    if (!option.get_sysroot().empty()) {
+        arguments.push_back("--sysroot=" + option.get_sysroot());
+    }
+    if (!option.get_isysroot().empty()) {
+        arguments.push_back("-isysroot");
+        arguments.push_back(option.get_isysroot());
+    }
+    arguments.push_back("-Wno-override-module");
+    arguments.push_back("-x");
+    arguments.push_back("ir");
+    arguments.push_back(llvm_ir_file.string());
+    arguments.push_back("-c");
+    arguments.push_back("-o");
+    arguments.push_back(temporary_object_file.path.string());
+
+    PassResult result =
+        run_host_c_driver_arguments(context, arguments, "LLVM IR object emission");
+    if (!result.ok) {
+        error_message = result.message;
+        return false;
+    }
+    return true;
+}
+
 PassResult compile_multiple_sources_to_objects(const CompilerOption &option,
                                                CompilerContext &context) {
     const std::vector<std::string> source_input_files =
@@ -679,25 +845,35 @@ PassResult maybe_link_full_compile(const CompilerOption &option,
     }
 
     std::vector<TemporaryFile> temporary_llvm_ir_files;
+    std::vector<TemporaryFile> temporary_object_files;
     std::vector<std::string> llvm_ir_file_paths;
+    std::vector<std::string> object_file_paths;
     if (!option.get_link_only()) {
         const std::vector<std::string> source_input_files =
             effective_source_input_files(option);
         if (source_input_files.size() > 1) {
             temporary_llvm_ir_files.reserve(source_input_files.size());
-            llvm_ir_file_paths.reserve(source_input_files.size());
+            temporary_object_files.reserve(source_input_files.size());
+            object_file_paths.reserve(source_input_files.size());
             for (const std::string &source_file : source_input_files) {
                 TemporaryFile temporary_llvm_ir_file;
                 std::string temp_file_error;
-                if (!compile_source_to_temporary_llvm_ir(
+                if (!compile_source_to_temporary_llvm_ir_isolated(
                         option, source_file, temporary_llvm_ir_file, context,
                         temp_file_error)) {
                     return PassResult::Failure(temp_file_error);
                 }
-                llvm_ir_file_paths.push_back(
-                    temporary_llvm_ir_file.path.string());
+                TemporaryFile temporary_object_file;
+                if (!compile_temporary_llvm_ir_to_temporary_object(
+                        option, temporary_llvm_ir_file.path,
+                        temporary_object_file, context, temp_file_error)) {
+                    return PassResult::Failure(temp_file_error);
+                }
+                object_file_paths.push_back(temporary_object_file.path.string());
                 temporary_llvm_ir_files.push_back(
                     std::move(temporary_llvm_ir_file));
+                temporary_object_files.push_back(
+                    std::move(temporary_object_file));
             }
         } else {
             const IRResult *ir_result = context.get_ir_result();
@@ -725,6 +901,7 @@ PassResult maybe_link_full_compile(const CompilerOption &option,
 
     const std::vector<std::string> arguments =
         build_full_compile_link_arguments(option, llvm_ir_file_paths,
+                                          object_file_paths,
                                           output_file);
     std::string last_failure_message;
     for (const std::string &program : host_c_driver_candidates()) {

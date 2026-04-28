@@ -22,6 +22,42 @@ void append_padding(std::vector<AggregateLayoutElement> &elements,
     current_offset += padding_size;
 }
 
+std::size_t round_up_bits_to_bytes(std::size_t bit_width) {
+    return (bit_width + 7U) / 8U;
+}
+
+std::size_t floor_to_alignment(std::size_t offset, std::size_t alignment) {
+    if (alignment == 0) {
+        return offset;
+    }
+    return offset - (offset % alignment);
+}
+
+std::size_t choose_bit_field_storage_bits(std::size_t available_bits,
+                                          std::size_t required_bits) {
+    if (available_bits <= 8U) {
+        return available_bits;
+    }
+    if (available_bits <= 16U || required_bits <= 16U) {
+        return std::min<std::size_t>(available_bits, 16U);
+    }
+    if (available_bits <= 32U || required_bits <= 32U) {
+        return std::min<std::size_t>(available_bits, 32U);
+    }
+    return available_bits;
+}
+
+bool is_signed_integer_type(const SemanticType *type) {
+    type = strip_qualifiers(type);
+    if (type == nullptr || type->get_kind() != SemanticTypeKind::Builtin) {
+        return true;
+    }
+    const std::string &name = static_cast<const BuiltinSemanticType *>(type)->get_name();
+    return name != "unsigned char" && name != "unsigned short" &&
+           name != "unsigned int" && name != "unsigned long" &&
+           name != "unsigned long long";
+}
+
 void align_offset(std::vector<AggregateLayoutElement> &elements,
                   std::size_t &current_offset, std::size_t alignment) {
     if (alignment == 0 || current_offset % alignment == 0) {
@@ -64,6 +100,7 @@ AggregateLayoutInfo compute_struct_layout(const StructSemanticType *struct_type)
     std::size_t active_storage_bits = 0;
     std::size_t active_used_bits = 0;
     std::size_t active_element_index = 0;
+    std::size_t active_storage_start_offset = 0;
 
     for (std::size_t field_index = 0; field_index < struct_type->get_fields().size();
          ++field_index) {
@@ -83,6 +120,16 @@ AggregateLayoutInfo compute_struct_layout(const StructSemanticType *struct_type)
                     ? static_cast<std::size_t>(*field.get_bit_width())
                     : 0;
 
+            if (bit_width == 0) {
+                active_bit_field_unit = false;
+                active_storage_type = nullptr;
+                active_storage_bits = 0;
+                active_used_bits = 0;
+                active_storage_start_offset = 0;
+                align_offset(layout.elements, current_offset, field_alignment);
+                continue;
+            }
+
             if (!active_bit_field_unit || !have_same_unqualified_type(
                                               active_storage_type, field_type) ||
                 active_used_bits + bit_width > active_storage_bits) {
@@ -90,20 +137,35 @@ AggregateLayoutInfo compute_struct_layout(const StructSemanticType *struct_type)
                 active_storage_type = nullptr;
                 active_storage_bits = 0;
                 active_used_bits = 0;
-                align_offset(layout.elements, current_offset, field_alignment);
+                active_storage_start_offset =
+                    floor_to_alignment(current_offset, field_alignment);
+                if (current_offset == active_storage_start_offset ||
+                    current_offset + round_up_bits_to_bytes(bit_width) >
+                        active_storage_start_offset + field_size) {
+                    align_offset(layout.elements, current_offset, field_alignment);
+                    active_storage_start_offset = current_offset;
+                    active_storage_bits = storage_bits;
+                } else {
+                    const std::size_t available_bits =
+                        (active_storage_start_offset + field_size -
+                         current_offset) *
+                        8U;
+                    active_storage_bits =
+                        choose_bit_field_storage_bits(available_bits, bit_width);
+                }
                 active_element_index = layout.elements.size();
-                layout.elements.push_back(
-                    AggregateLayoutElement{AggregateLayoutElementKind::Direct,
-                                           field_type, 0});
-                current_offset += field_size;
+                layout.elements.push_back(AggregateLayoutElement{
+                    AggregateLayoutElementKind::BitFieldStorage, field_type, 0,
+                    active_storage_bits, is_signed_integer_type(field_type)});
+                current_offset += round_up_bits_to_bytes(active_storage_bits);
                 active_bit_field_unit = true;
                 active_storage_type = field_type;
-                active_storage_bits = storage_bits;
             }
 
             if (!field.get_name().empty()) {
                 layout.field_layouts[field_index] = AggregateFieldLayout{
                     active_element_index, true, active_used_bits, bit_width,
+                    active_storage_bits, is_signed_integer_type(field_type),
                     field_type, field_type};
             }
 
@@ -113,6 +175,7 @@ AggregateLayoutInfo compute_struct_layout(const StructSemanticType *struct_type)
                 active_storage_type = nullptr;
                 active_storage_bits = 0;
                 active_used_bits = 0;
+                active_storage_start_offset = 0;
             }
             continue;
         }
@@ -121,6 +184,7 @@ AggregateLayoutInfo compute_struct_layout(const StructSemanticType *struct_type)
         active_storage_type = nullptr;
         active_storage_bits = 0;
         active_used_bits = 0;
+        active_storage_start_offset = 0;
 
         align_offset(layout.elements, current_offset, field_alignment);
         const std::size_t element_index = layout.elements.size();
@@ -129,7 +193,7 @@ AggregateLayoutInfo compute_struct_layout(const StructSemanticType *struct_type)
                                    0});
         current_offset += field_size;
         layout.field_layouts[field_index] = AggregateFieldLayout{
-            element_index, false, 0, 0, field_type, field_type};
+            element_index, false, 0, 0, 0, false, field_type, field_type};
     }
 
     align_offset(layout.elements, current_offset, max_alignment);
@@ -160,10 +224,15 @@ AggregateLayoutInfo compute_union_layout(const UnionSemanticType *union_type) {
                 field.get_bit_width().has_value()
                     ? static_cast<std::size_t>(*field.get_bit_width())
                     : 0,
+                field.get_bit_width().has_value()
+                    ? static_cast<std::size_t>(*field.get_bit_width())
+                    : 0,
+                is_signed_integer_type(field_type),
                 field_type, field_type};
         } else {
             layout.field_layouts[field_index] =
-                AggregateFieldLayout{0, false, 0, 0, field_type, field_type};
+                AggregateFieldLayout{0, false, 0, 0, 0, false, field_type,
+                                     field_type};
         }
     }
 
@@ -289,6 +358,9 @@ std::string get_llvm_type_name(const SemanticType *type) {
             const auto &element = layout.elements[index];
             if (element.kind == AggregateLayoutElementKind::Padding) {
                 result += "[" + std::to_string(element.padding_size) + " x i8]";
+            } else if (element.kind ==
+                       AggregateLayoutElementKind::BitFieldStorage) {
+                result += "i" + std::to_string(element.bit_width);
             } else {
                 result += get_llvm_type_name(element.type);
             }

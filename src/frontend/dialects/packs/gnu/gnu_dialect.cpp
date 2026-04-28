@@ -34,6 +34,7 @@ void GnuDialect::contribute_lexer_keywords(
     registry.add_keyword("__attribute__", TokenKind::KwAttribute);
     registry.add_keyword("__asm", TokenKind::KwAsm);
     registry.add_keyword("__asm__", TokenKind::KwAsm);
+    registry.add_keyword("__extension__", TokenKind::KwExtension);
     registry.add_keyword("__inline", TokenKind::KwInline);
     registry.add_keyword("__inline__", TokenKind::KwInline);
     registry.add_keyword("__const", TokenKind::KwConst);
@@ -43,6 +44,12 @@ void GnuDialect::contribute_lexer_keywords(
     registry.add_keyword("__restrict", TokenKind::KwRestrict);
     registry.add_keyword("__restrict__", TokenKind::KwRestrict);
     registry.add_keyword("__signed", TokenKind::KwSigned);
+    registry.add_keyword("__signed__", TokenKind::KwSigned);
+    registry.add_keyword("_Float32", TokenKind::KwFloat);
+    registry.add_keyword("_Float32x", TokenKind::KwDouble);
+    registry.add_keyword("_Float64", TokenKind::KwDouble);
+    registry.add_keyword("_Float64x", TokenKind::KwDouble);
+    registry.add_keyword("_Float128", TokenKind::KwDouble);
 }
 
 void GnuDialect::contribute_parser_features(

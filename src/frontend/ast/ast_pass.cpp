@@ -322,6 +322,10 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         const auto *member_expr = static_cast<const MemberExpr *>(node);
         return ast_contains_unknown_nodes(member_expr->get_base());
     }
+    case AstKind::StatementExpr: {
+        const auto *statement_expr = static_cast<const StatementExpr *>(node);
+        return ast_contains_unknown_nodes(statement_expr->get_body());
+    }
     case AstKind::InitListExpr: {
         const auto *init_list_expr = static_cast<const InitListExpr *>(node);
         for (const auto &element : init_list_expr->get_elements()) {

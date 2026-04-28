@@ -3,7 +3,9 @@
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
+#include <limits>
 #include <string>
+#include <string_view>
 
 #include "frontend/preprocess/detail/macro_expander.hpp"
 
@@ -34,6 +36,81 @@ bool is_valid_integer_suffix(const std::string &suffix) {
     }
 
     return unsigned_count <= 1 && long_count <= 2;
+}
+
+bool is_identifier_start(char ch) {
+    return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+bool is_identifier_continue(char ch) {
+    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+}
+
+bool is_token_boundary(const std::string &text, std::size_t begin,
+                       std::size_t end) {
+    return (begin == 0 || !is_identifier_continue(text[begin - 1])) &&
+           (end >= text.size() || !is_identifier_continue(text[end]));
+}
+
+std::string restore_defined_operands(
+    std::string expression,
+    const std::vector<std::pair<std::string, std::string>> &operands) {
+    for (const auto &[placeholder, identifier] : operands) {
+        std::size_t pos = 0;
+        while ((pos = expression.find(placeholder, pos)) != std::string::npos) {
+            expression.replace(pos, placeholder.size(), identifier);
+            pos += identifier.size();
+        }
+    }
+    return expression;
+}
+
+std::string protect_defined_operands(
+    const std::string &expression,
+    std::vector<std::pair<std::string, std::string>> &operands) {
+    std::string protected_expression;
+    std::size_t index = 0;
+    while (index < expression.size()) {
+        constexpr std::string_view defined_keyword = "defined";
+        if (expression.compare(index, defined_keyword.size(), defined_keyword) != 0 ||
+            !is_token_boundary(expression, index, index + defined_keyword.size())) {
+            protected_expression.push_back(expression[index++]);
+            continue;
+        }
+
+        protected_expression.append(defined_keyword);
+        index += defined_keyword.size();
+        while (index < expression.size() &&
+               std::isspace(static_cast<unsigned char>(expression[index])) != 0) {
+            protected_expression.push_back(expression[index++]);
+        }
+
+        const bool has_paren = index < expression.size() && expression[index] == '(';
+        if (has_paren) {
+            protected_expression.push_back(expression[index++]);
+            while (index < expression.size() &&
+                   std::isspace(static_cast<unsigned char>(expression[index])) != 0) {
+                protected_expression.push_back(expression[index++]);
+            }
+        }
+
+        if (index >= expression.size() || !is_identifier_start(expression[index])) {
+            continue;
+        }
+        const std::size_t identifier_begin = index;
+        ++index;
+        while (index < expression.size() && is_identifier_continue(expression[index])) {
+            ++index;
+        }
+
+        const std::string identifier =
+            expression.substr(identifier_begin, index - identifier_begin);
+        const std::string placeholder =
+            "__SYSYCC_DEFINED_OPERAND_" + std::to_string(operands.size()) + "__";
+        operands.emplace_back(placeholder, identifier);
+        protected_expression.append(placeholder);
+    }
+    return protected_expression;
 }
 
 class ExpressionParser {
@@ -76,6 +153,27 @@ class ExpressionParser {
             return false;
         }
         ++index_;
+        return true;
+    }
+
+    bool consume_unsigned_zero_after_bitwise_not(long long &value) {
+        skip_spaces();
+        if (index_ >= expression_.size() || expression_[index_] != '0') {
+            return false;
+        }
+        const std::size_t begin = index_;
+        ++index_;
+        while (index_ < expression_.size() &&
+               is_integer_suffix_char(expression_[index_])) {
+            ++index_;
+        }
+        const std::string token = expression_.substr(begin, index_ - begin);
+        if (token.find('u') == std::string::npos &&
+            token.find('U') == std::string::npos) {
+            index_ = begin;
+            return false;
+        }
+        value = std::numeric_limits<long long>::max();
         return true;
     }
 
@@ -220,15 +318,15 @@ class ExpressionParser {
 
         char *end_ptr = nullptr;
         errno = 0;
-        const long long parsed_value =
-            std::strtoll(numeric_part.c_str(), &end_ptr, 0);
+        const unsigned long long parsed_value =
+            std::strtoull(numeric_part.c_str(), &end_ptr, 0);
         if (end_ptr == numeric_part.c_str() || *end_ptr != '\0' ||
             errno == ERANGE) {
             return PassResult::Failure(
                 "invalid integer literal in #if expression: " + token);
         }
 
-        value = parsed_value;
+        value = static_cast<long long>(parsed_value);
         return PassResult::Success();
     }
 
@@ -365,6 +463,10 @@ class ExpressionParser {
                 "macro expansion too deep in #if expression");
         }
 
+        if (definition->get_replacement().empty()) {
+            return parse_unary(value);
+        }
+
         ExpressionParser nested_parser(
             definition->get_replacement(), macro_table_,
             builtin_probe_evaluator_, current_file_path_, include_directories_,
@@ -447,6 +549,9 @@ class ExpressionParser {
         }
 
         if (consume("~")) {
+            if (consume_unsigned_zero_after_bitwise_not(value)) {
+                return PassResult::Success();
+            }
             PassResult operand_result = parse_unary(value);
             if (!operand_result.ok) {
                 return operand_result;
@@ -832,7 +937,15 @@ PassResult ConstantExpressionEvaluator::evaluate(const std::string &expression,
                                                  const std::vector<std::string> &system_include_directories,
                                                  const DialectManager &dialect_manager,
                                                  long long &value) const {
-    ExpressionParser parser(expression, macro_table, builtin_probe_evaluator_,
+    std::vector<std::pair<std::string, std::string>> defined_operands;
+    const std::string protected_expression =
+        protect_defined_operands(expression, defined_operands);
+    const MacroExpander macro_expander;
+    const std::string expanded_expression =
+        restore_defined_operands(
+            macro_expander.expand_line(protected_expression, macro_table),
+            defined_operands);
+    ExpressionParser parser(expanded_expression, macro_table, builtin_probe_evaluator_,
                             current_file_path, include_directories,
                             quote_include_directories,
                             system_include_directories, dialect_manager, 0);

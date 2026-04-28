@@ -201,6 +201,23 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
     register_builtin_function(semantic_model, scope_stack,
                               "__builtin_signbit", int_type, {double_type});
     register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_bswap16", unsigned_short_type,
+                              {unsigned_short_type});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_bswap32", unsigned_int_type,
+                              {unsigned_int_type});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_bswap64", unsigned_long_long_type,
+                              {unsigned_long_long_type});
+    register_builtin_function(semantic_model, scope_stack, "__builtin_clzll",
+                              int_type, {unsigned_long_long_type});
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_add_overflow", int_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_sub_overflow", int_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack,
+                              "__builtin_mul_overflow", int_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack,
                               "__builtin_object_size", unsigned_long_type,
                               {void_ptr_type, int_type});
     register_builtin_function(semantic_model, scope_stack,

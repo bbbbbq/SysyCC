@@ -43,6 +43,21 @@ std::string escape_string_literal(std::string text) {
     return escaped;
 }
 
+std::string normalize_c_float_limit_literal(std::string literal) {
+    const std::vector<std::string> functional_casts = {
+        "float(", "double(", "long double("};
+    for (const std::string &prefix : functional_casts) {
+        if (literal.rfind(prefix, 0) == 0 && literal.size() > prefix.size() &&
+            literal.back() == ')') {
+            return "(" + prefix.substr(0, prefix.size() - 1) + ")(" +
+                   literal.substr(prefix.size(),
+                                  literal.size() - prefix.size() - 1) +
+                   ")";
+        }
+    }
+    return literal;
+}
+
 } // namespace
 
 void initialize_predefined_macros(
@@ -104,6 +119,23 @@ void initialize_predefined_macros(
         macro_table, "__builtin_offsetof",
         "((unsigned long)(&(((__type *)0)->__member)))",
         {"__type", "__member"});
+    define_object_like_macro(macro_table, "__ATOMIC_RELAXED__", "0");
+    define_object_like_macro(macro_table, "__ATOMIC_RELAXED", "0");
+    define_function_like_macro(macro_table, "__sync_synchronize", "", {});
+    define_function_like_macro(macro_table, "__atomic_load_n", "(*(__ptr))",
+                               {"__ptr", "__memorder"});
+    define_function_like_macro(macro_table, "__atomic_store_n",
+                               "(*(__ptr) = (__value))",
+                               {"__ptr", "__value", "__memorder"});
+    define_function_like_macro(macro_table, "__builtin_add_overflow",
+                               "((*(__result) = ((__lhs) + (__rhs))), 0)",
+                               {"__lhs", "__rhs", "__result"});
+    define_function_like_macro(macro_table, "__builtin_sub_overflow",
+                               "((*(__result) = ((__lhs) - (__rhs))), 0)",
+                               {"__lhs", "__rhs", "__result"});
+    define_function_like_macro(macro_table, "__builtin_mul_overflow",
+                               "((*(__result) = ((__lhs) * (__rhs))), 0)",
+                               {"__lhs", "__rhs", "__result"});
     if (!preprocess_feature_registry.has_feature(
             PreprocessFeature::GnuPredefinedMacros)) {
         define_object_like_macro(macro_table, "__STRICT_ANSI__", "1");
@@ -357,27 +389,51 @@ void initialize_predefined_macros(
                              SYSYCC_STRINGIZE(__LDBL_EPSILON__));
 #endif
 
-#if defined(FLT_MIN)
+#if defined(__FLT_MIN__)
+    define_object_like_macro(macro_table, "__FLT_MIN__",
+                             normalize_c_float_limit_literal(
+                                 SYSYCC_STRINGIZE(__FLT_MIN__)));
+#elif defined(FLT_MIN)
     define_object_like_macro(macro_table, "__FLT_MIN__",
                              SYSYCC_STRINGIZE(FLT_MIN));
 #endif
-#if defined(FLT_MAX)
+#if defined(__FLT_MAX__)
+    define_object_like_macro(macro_table, "__FLT_MAX__",
+                             normalize_c_float_limit_literal(
+                                 SYSYCC_STRINGIZE(__FLT_MAX__)));
+#elif defined(FLT_MAX)
     define_object_like_macro(macro_table, "__FLT_MAX__",
                              SYSYCC_STRINGIZE(FLT_MAX));
 #endif
-#if defined(DBL_MIN)
+#if defined(__DBL_MIN__)
+    define_object_like_macro(macro_table, "__DBL_MIN__",
+                             normalize_c_float_limit_literal(
+                                 SYSYCC_STRINGIZE(__DBL_MIN__)));
+#elif defined(DBL_MIN)
     define_object_like_macro(macro_table, "__DBL_MIN__",
                              SYSYCC_STRINGIZE(DBL_MIN));
 #endif
-#if defined(DBL_MAX)
+#if defined(__DBL_MAX__)
+    define_object_like_macro(macro_table, "__DBL_MAX__",
+                             normalize_c_float_limit_literal(
+                                 SYSYCC_STRINGIZE(__DBL_MAX__)));
+#elif defined(DBL_MAX)
     define_object_like_macro(macro_table, "__DBL_MAX__",
                              SYSYCC_STRINGIZE(DBL_MAX));
 #endif
-#if defined(LDBL_MIN)
+#if defined(__LDBL_MIN__)
+    define_object_like_macro(macro_table, "__LDBL_MIN__",
+                             normalize_c_float_limit_literal(
+                                 SYSYCC_STRINGIZE(__LDBL_MIN__)));
+#elif defined(LDBL_MIN)
     define_object_like_macro(macro_table, "__LDBL_MIN__",
                              SYSYCC_STRINGIZE(LDBL_MIN));
 #endif
-#if defined(LDBL_MAX)
+#if defined(__LDBL_MAX__)
+    define_object_like_macro(macro_table, "__LDBL_MAX__",
+                             normalize_c_float_limit_literal(
+                                 SYSYCC_STRINGIZE(__LDBL_MAX__)));
+#elif defined(LDBL_MAX)
     define_object_like_macro(macro_table, "__LDBL_MAX__",
                              SYSYCC_STRINGIZE(LDBL_MAX));
 #endif

@@ -60,6 +60,48 @@ std::string get_semantic_tag_name(std::string name,
            std::to_string(source_span.get_col_begin()) + ">";
 }
 
+const SemanticType *resolve_completed_tag_type(const SemanticType *type,
+                                               const ScopeStack &scope_stack) {
+    if (type == nullptr) {
+        return nullptr;
+    }
+    if (type->get_kind() == SemanticTypeKind::Struct) {
+        const auto *struct_type = static_cast<const StructSemanticType *>(type);
+        if (!struct_type->get_fields().empty()) {
+            return type;
+        }
+        const SemanticSymbol *tag_symbol =
+            scope_stack.lookup_tag(struct_type->get_name());
+        if (tag_symbol == nullptr ||
+            tag_symbol->get_kind() != SymbolKind::StructName ||
+            tag_symbol->get_type() == nullptr ||
+            tag_symbol->get_type()->get_kind() != SemanticTypeKind::Struct) {
+            return type;
+        }
+        const auto *completed_type =
+            static_cast<const StructSemanticType *>(tag_symbol->get_type());
+        return completed_type->get_fields().empty() ? type : completed_type;
+    }
+    if (type->get_kind() == SemanticTypeKind::Union) {
+        const auto *union_type = static_cast<const UnionSemanticType *>(type);
+        if (!union_type->get_fields().empty()) {
+            return type;
+        }
+        const SemanticSymbol *tag_symbol =
+            scope_stack.lookup_tag(union_type->get_name());
+        if (tag_symbol == nullptr ||
+            tag_symbol->get_kind() != SymbolKind::UnionName ||
+            tag_symbol->get_type() == nullptr ||
+            tag_symbol->get_type()->get_kind() != SemanticTypeKind::Union) {
+            return type;
+        }
+        const auto *completed_type =
+            static_cast<const UnionSemanticType *>(tag_symbol->get_type());
+        return completed_type->get_fields().empty() ? type : completed_type;
+    }
+    return type;
+}
+
 } // namespace
 
 const SemanticType *TypeResolver::resolve_type(
@@ -96,7 +138,7 @@ const SemanticType *TypeResolver::resolve_type(
                 type_node->get_source_span()));
             return nullptr;
         }
-        return symbol->get_type();
+        return resolve_completed_tag_type(symbol->get_type(), *scope_stack);
     }
     case AstKind::QualifiedType: {
         const auto *qualified_type =

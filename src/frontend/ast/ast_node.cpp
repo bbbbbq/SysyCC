@@ -746,6 +746,13 @@ const std::string &MemberExpr::get_member_name() const noexcept {
     return member_name_;
 }
 
+StatementExpr::StatementExpr(std::unique_ptr<Stmt> body,
+                             SourceSpan source_span)
+    : Expr(AstKind::StatementExpr, source_span),
+      body_(std::move(body)) {}
+
+const Stmt *StatementExpr::get_body() const noexcept { return body_.get(); }
+
 InitListExpr::InitListExpr(SourceSpan source_span)
     : Expr(AstKind::InitListExpr, source_span) {}
 

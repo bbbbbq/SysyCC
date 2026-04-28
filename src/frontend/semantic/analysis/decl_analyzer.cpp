@@ -24,12 +24,124 @@ namespace sysycc::detail {
 
 namespace {
 
+const SemanticType *strip_qualifiers(const SemanticType *type);
+bool is_incomplete_named_struct_semantic_type(const SemanticType *type,
+                                              const std::string &name);
+
+void collect_inline_struct_type_nodes(
+    const TypeNode *type_node, std::vector<const StructTypeNode *> &nodes) {
+    if (type_node == nullptr) {
+        return;
+    }
+    switch (type_node->get_kind()) {
+    case AstKind::StructType: {
+        const auto *struct_type = static_cast<const StructTypeNode *>(type_node);
+        if (!struct_type->get_fields().empty()) {
+            nodes.push_back(struct_type);
+            for (const auto &field : struct_type->get_fields()) {
+                if (field != nullptr && field->get_kind() == AstKind::FieldDecl) {
+                    collect_inline_struct_type_nodes(
+                        static_cast<const FieldDecl *>(field.get())
+                            ->get_declared_type(),
+                        nodes);
+                }
+            }
+        }
+        return;
+    }
+    case AstKind::UnionType: {
+        const auto *union_type = static_cast<const UnionTypeNode *>(type_node);
+        for (const auto &field : union_type->get_fields()) {
+            if (field != nullptr && field->get_kind() == AstKind::FieldDecl) {
+                collect_inline_struct_type_nodes(
+                    static_cast<const FieldDecl *>(field.get())->get_declared_type(),
+                    nodes);
+            }
+        }
+        return;
+    }
+    case AstKind::QualifiedType:
+        collect_inline_struct_type_nodes(
+            static_cast<const QualifiedTypeNode *>(type_node)->get_base_type(),
+            nodes);
+        return;
+    case AstKind::PointerType:
+        collect_inline_struct_type_nodes(
+            static_cast<const PointerTypeNode *>(type_node)->get_pointee_type(),
+            nodes);
+        return;
+    case AstKind::ArrayType:
+        collect_inline_struct_type_nodes(
+            static_cast<const ArrayTypeNode *>(type_node)->get_element_type(),
+            nodes);
+        return;
+    case AstKind::FunctionType: {
+        const auto *function_type =
+            static_cast<const FunctionTypeNode *>(type_node);
+        collect_inline_struct_type_nodes(function_type->get_return_type(), nodes);
+        for (const auto &parameter_type : function_type->get_parameter_types()) {
+            collect_inline_struct_type_nodes(parameter_type.get(), nodes);
+        }
+        return;
+    }
+    default:
+        return;
+    }
+}
+
+void register_inline_struct_tag(const FieldDecl *field_decl,
+                                const SemanticType *field_type,
+                                const TypeResolver &type_resolver,
+                                SemanticContext &semantic_context,
+                                ScopeStack &scope_stack) {
+    (void)field_type;
+    std::vector<const StructTypeNode *> struct_type_nodes;
+    collect_inline_struct_type_nodes(field_decl != nullptr
+                                         ? field_decl->get_declared_type()
+                                         : nullptr,
+                                     struct_type_nodes);
+    if (struct_type_nodes.empty()) {
+        return;
+    }
+
+    for (const StructTypeNode *struct_type_node : struct_type_nodes) {
+        if (struct_type_node == nullptr || struct_type_node->get_name().empty() ||
+            struct_type_node->get_name() == "<anonymous>") {
+            continue;
+        }
+
+        const auto *struct_type = dynamic_cast<const StructSemanticType *>(
+            strip_qualifiers(type_resolver.resolve_type(
+                struct_type_node, semantic_context, &scope_stack)));
+        if (struct_type == nullptr) {
+            continue;
+        }
+
+        if (const SemanticSymbol *tag_symbol =
+                scope_stack.lookup_tag_local(struct_type_node->get_name());
+            tag_symbol != nullptr &&
+            tag_symbol->get_kind() == SymbolKind::StructName) {
+            if (is_incomplete_named_struct_semantic_type(
+                    tag_symbol->get_type(), struct_type_node->get_name())) {
+                const_cast<SemanticSymbol *>(tag_symbol)->set_type(struct_type);
+            }
+            continue;
+        }
+
+        const auto *symbol = semantic_context.get_semantic_model().own_symbol(
+            std::make_unique<SemanticSymbol>(SymbolKind::StructName,
+                                             struct_type_node->get_name(),
+                                             struct_type, nullptr));
+        scope_stack.define(symbol);
+    }
+}
+
 std::vector<SemanticFieldInfo> build_aggregate_semantic_fields(
     const std::vector<std::unique_ptr<Decl>> &field_decls,
     const TypeResolver &type_resolver,
     const ConstantEvaluator &constant_evaluator,
     const ConversionChecker &conversion_checker,
-    SemanticContext &semantic_context, const ScopeStack &scope_stack) {
+    SemanticContext &semantic_context, ScopeStack &scope_stack) {
     std::vector<SemanticFieldInfo> fields;
     fields.reserve(field_decls.size());
     for (const auto &field : field_decls) {
@@ -46,13 +158,13 @@ std::vector<SemanticFieldInfo> build_aggregate_semantic_fields(
                 bit_width = static_cast<int>(*width_value);
             }
         }
-        fields.emplace_back(
-            field_decl->get_name(),
-            type_resolver.apply_array_dimensions(
-                type_resolver.resolve_type(field_decl->get_declared_type(),
-                                           semantic_context, &scope_stack),
-                field_decl->get_dimensions(), semantic_context),
-            bit_width);
+        const SemanticType *field_type = type_resolver.apply_array_dimensions(
+            type_resolver.resolve_type(field_decl->get_declared_type(),
+                                       semantic_context, &scope_stack),
+            field_decl->get_dimensions(), semantic_context);
+        register_inline_struct_tag(field_decl, field_type, type_resolver,
+                                   semantic_context, scope_stack);
+        fields.emplace_back(field_decl->get_name(), field_type, bit_width);
     }
     return fields;
 }
@@ -61,7 +173,7 @@ std::vector<SemanticFieldInfo> build_struct_semantic_fields(
     const StructDecl *struct_decl, const TypeResolver &type_resolver,
     const ConstantEvaluator &constant_evaluator,
     const ConversionChecker &conversion_checker,
-    SemanticContext &semantic_context, const ScopeStack &scope_stack) {
+    SemanticContext &semantic_context, ScopeStack &scope_stack) {
     if (struct_decl == nullptr) {
         return {};
     }
@@ -74,7 +186,7 @@ std::vector<SemanticFieldInfo> build_union_semantic_fields(
     const UnionDecl *union_decl, const TypeResolver &type_resolver,
     const ConstantEvaluator &constant_evaluator,
     const ConversionChecker &conversion_checker,
-    SemanticContext &semantic_context, const ScopeStack &scope_stack) {
+    SemanticContext &semantic_context, ScopeStack &scope_stack) {
     if (union_decl == nullptr) {
         return {};
     }
@@ -548,6 +660,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                 const_decl->get_dimensions(), semantic_context);
         declared_type = complete_incomplete_char_array_from_string_initializer(
             declared_type, const_decl->get_initializer(), semantic_model);
+        declared_type = complete_incomplete_array_from_initializer_list(
+            declared_type, const_decl->get_initializer(), semantic_model);
         if (semantic_context.get_current_function() == nullptr) {
             const SemanticSymbol *existing_symbol =
                 scope_stack.lookup_local(const_decl->get_name());
@@ -623,7 +737,7 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                 constant_evaluator_.bind_integer_constant_value(
                     const_decl->get_initializer(), *converted_constant,
                     semantic_context);
-            } else {
+            } else if (semantic_context.get_current_function() == nullptr) {
                 add_error(
                     semantic_context,
                     "const initializer must be an integer constant expression",

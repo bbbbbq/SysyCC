@@ -847,6 +847,18 @@ class MemberExpr : public Expr {
     const std::string &get_member_name() const noexcept;
 };
 
+// Represents a GNU statement expression such as ({ ... }).
+class StatementExpr : public Expr {
+  private:
+    std::unique_ptr<Stmt> body_;
+
+  public:
+    explicit StatementExpr(std::unique_ptr<Stmt> body,
+                           SourceSpan source_span = {});
+
+    const Stmt *get_body() const noexcept;
+};
+
 // Represents an initializer list expression.
 class InitListExpr : public Expr {
   private:

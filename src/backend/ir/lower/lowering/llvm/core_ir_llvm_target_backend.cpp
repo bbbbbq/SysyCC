@@ -468,13 +468,46 @@ CoreIrLlvmTargetBackend::get_emitted_block_name(const CoreIrBasicBlock *block) {
     return name;
 }
 
-std::string CoreIrLlvmTargetBackend::get_emitted_phi_incoming_block_name(
+std::string CoreIrLlvmTargetBackend::get_va_arg_continue_label(
+    const CoreIrCallInst &call_instruction) {
+    return get_emitted_value_name(&call_instruction) + ".va_cont";
+}
+
+std::string CoreIrLlvmTargetBackend::get_block_tail_label(
     const CoreIrBasicBlock *block) {
+    if (block == nullptr) {
+        return "<null-block>";
+    }
+
     const auto tail_it = emitted_block_tail_names_.find(block);
     if (tail_it != emitted_block_tail_names_.end()) {
         return tail_it->second;
     }
-    return get_emitted_block_name(block);
+
+    const CoreIrCallInst *last_va_arg_call = nullptr;
+    for (const auto &instruction : block->get_instructions()) {
+        const auto *call_instruction =
+            dynamic_cast<const CoreIrCallInst *>(instruction.get());
+        if (call_instruction == nullptr ||
+            !call_instruction->get_is_direct_call() ||
+            call_instruction->get_callee_name() != "__sysycc.va_arg") {
+            continue;
+        }
+        last_va_arg_call = call_instruction;
+    }
+
+    if (last_va_arg_call == nullptr) {
+        return get_emitted_block_name(block);
+    }
+
+    const std::string tail_label = get_va_arg_continue_label(*last_va_arg_call);
+    emitted_block_tail_names_[block] = tail_label;
+    return tail_label;
+}
+
+std::string CoreIrLlvmTargetBackend::get_emitted_phi_incoming_block_name(
+    const CoreIrBasicBlock *block) {
+    return get_block_tail_label(block);
 }
 
 std::string CoreIrLlvmTargetBackend::get_emitted_stack_slot_name(
@@ -536,7 +569,7 @@ std::string CoreIrLlvmTargetBackend::format_type(const CoreIrType *type) const {
     }
     case CoreIrTypeKind::Struct: {
         const auto *struct_type = static_cast<const CoreIrStructType *>(type);
-        std::string text = "{ ";
+        std::string text = struct_type->get_is_packed() ? "<{ " : "{ ";
         const auto &element_types = struct_type->get_element_types();
         for (std::size_t index = 0; index < element_types.size(); ++index) {
             if (index > 0) {
@@ -544,7 +577,7 @@ std::string CoreIrLlvmTargetBackend::format_type(const CoreIrType *type) const {
             }
             text += format_type(element_types[index]);
         }
-        text += " }";
+        text += struct_type->get_is_packed() ? " }>" : " }";
         return text;
     }
     case CoreIrTypeKind::Function: {
@@ -614,7 +647,15 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
         const bool is_vector =
             constant->get_type() != nullptr &&
             constant->get_type()->get_kind() == CoreIrTypeKind::Vector;
-        std::string text = is_array ? "[ " : is_vector ? "< " : "{ ";
+        const auto *struct_type =
+            dynamic_cast<const CoreIrStructType *>(constant->get_type());
+        std::string text =
+            is_array ? "[ "
+                     : is_vector ? "< "
+                                 : struct_type != nullptr &&
+                                           struct_type->get_is_packed()
+                                       ? "<{ "
+                                       : "{ ";
         const auto &elements = aggregate->get_elements();
         for (std::size_t index = 0; index < elements.size(); ++index) {
             if (index > 0) {
@@ -624,7 +665,12 @@ CoreIrLlvmTargetBackend::format_constant(const CoreIrConstant *constant) const {
             text += " ";
             text += format_constant(elements[index]);
         }
-        text += is_array ? " ]" : is_vector ? " >" : " }";
+        text += is_array ? " ]"
+                         : is_vector ? " >"
+                                     : struct_type != nullptr &&
+                                               struct_type->get_is_packed()
+                                           ? " }>"
+                                           : " }";
         return text;
     }
     if (const auto *global_address =
@@ -1236,11 +1282,11 @@ bool CoreIrLlvmTargetBackend::append_instruction(
             const std::string stack_address = "%" + prefix + ".stack";
             const std::string next_stack_address = "%" + prefix + ".stack.next";
             const std::string value_address = "%" + prefix + ".addr";
-            const std::string stack_label = next_helper_name("va_stack");
-            const std::string register_label = next_helper_name("va_reg");
-            const std::string register_load_label =
-                next_helper_name("va_reg_load");
-            const std::string continue_label = next_helper_name("va_cont");
+            const std::string stack_label = prefix + ".va_stack";
+            const std::string register_label = prefix + ".va_reg";
+            const std::string register_load_label = prefix + ".va_reg_load";
+            const std::string continue_label =
+                get_va_arg_continue_label(call_instruction);
 
             text += "  " + offset_ptr +
                     " = getelementptr inbounds { ptr, ptr, ptr, i32, i32 }, ptr ";

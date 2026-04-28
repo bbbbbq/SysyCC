@@ -62,6 +62,12 @@ bool IsIdentifierContinue(char ch) {
     return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
 }
 
+bool IsTypedefPrescanMarkerIdentifier(const std::string &identifier) {
+    return identifier == "__attribute__" || identifier == "__attribute" ||
+           identifier == "__asm__" || identifier == "__asm" ||
+           identifier == "__extension__";
+}
+
 void RegisterLastIdentifierInChunk(const std::string &chunk) {
     std::string last_identifier;
     int paren_depth = 0;
@@ -109,7 +115,10 @@ void RegisterLastIdentifierInChunk(const std::string &chunk) {
             ++index;
         }
         if (paren_depth == 0 && brace_depth == 0 && bracket_depth == 0) {
-            last_identifier = chunk.substr(start, index - start);
+            std::string identifier = chunk.substr(start, index - start);
+            if (!IsTypedefPrescanMarkerIdentifier(identifier)) {
+                last_identifier = std::move(identifier);
+            }
         }
     }
     register_typedef_name(last_identifier);

@@ -26,6 +26,22 @@ bool is_ignored_system_header_attribute(const ParsedAttribute &attribute,
     return semantic_context.is_system_header_span(attribute.get_source_span());
 }
 
+bool is_always_inline_attribute(const std::string &name) {
+    return name == "always_inline" || name == "__always_inline" ||
+           name == "__always_inline__";
+}
+
+bool is_noinline_attribute(const std::string &name) {
+    return name == "noinline" || name == "__noinline" ||
+           name == "__noinline__";
+}
+
+bool is_accepted_noop_function_attribute(const std::string &name) {
+    return name == "malloc" || name == "__malloc__" ||
+           name == "noreturn" || name == "__noreturn__" ||
+           name == "deprecated" || name == "__deprecated__";
+}
+
 } // namespace
 
 std::vector<SemanticFunctionAttribute>
@@ -40,10 +56,11 @@ GnuFunctionAttributeHandler::analyze_function_attributes(
     bool has_always_inline = false;
     for (const ParsedAttribute &attribute :
          function_decl->get_attributes().get_attributes()) {
-        if (attribute.get_name() == "__always_inline__") {
+        if (is_always_inline_attribute(attribute.get_name())) {
             if (!attribute.get_arguments().empty()) {
                 add_error(semantic_context,
-                          "attribute __always_inline__ does not take arguments",
+                          "attribute " + attribute.get_name() +
+                              " does not take arguments",
                           attribute.get_source_span());
                 continue;
             }
@@ -51,6 +68,20 @@ GnuFunctionAttributeHandler::analyze_function_attributes(
                 attributes.push_back(SemanticFunctionAttribute::AlwaysInline);
                 has_always_inline = true;
             }
+            continue;
+        }
+
+        if (is_noinline_attribute(attribute.get_name())) {
+            if (!attribute.get_arguments().empty()) {
+                add_error(semantic_context,
+                          "attribute " + attribute.get_name() +
+                              " does not take arguments",
+                          attribute.get_source_span());
+            }
+            continue;
+        }
+
+        if (is_accepted_noop_function_attribute(attribute.get_name())) {
             continue;
         }
 

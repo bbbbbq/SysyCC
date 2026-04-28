@@ -26,10 +26,60 @@ inline std::size_t align_layout_offset(std::size_t offset, std::size_t alignment
     return offset + (alignment - (offset % alignment));
 }
 
+inline std::size_t floor_layout_offset(std::size_t offset,
+                                       std::size_t alignment) {
+    if (alignment == 0) {
+        return offset;
+    }
+    return offset - (offset % alignment);
+}
+
+inline std::size_t round_up_layout_bits_to_bytes(std::size_t bit_width) {
+    return (bit_width + 7U) / 8U;
+}
+
+inline std::size_t choose_layout_bit_field_storage_bits(
+    std::size_t available_bits, std::size_t required_bits) {
+    if (available_bits <= 8U) {
+        return available_bits;
+    }
+    if (available_bits <= 16U || required_bits <= 16U) {
+        return std::min<std::size_t>(available_bits, 16U);
+    }
+    if (available_bits <= 32U || required_bits <= 32U) {
+        return std::min<std::size_t>(available_bits, 32U);
+    }
+    return available_bits;
+}
+
+inline bool have_same_layout_unqualified_type(const SemanticType *lhs,
+                                              const SemanticType *rhs) {
+    lhs = strip_layout_qualifiers(lhs);
+    rhs = strip_layout_qualifiers(rhs);
+    if (lhs == nullptr || rhs == nullptr || lhs->get_kind() != rhs->get_kind()) {
+        return false;
+    }
+    if (lhs->get_kind() != SemanticTypeKind::Builtin) {
+        return lhs == rhs;
+    }
+    return static_cast<const BuiltinSemanticType *>(lhs)->get_name() ==
+           static_cast<const BuiltinSemanticType *>(rhs)->get_name();
+}
+
 inline std::optional<std::size_t>
 get_semantic_type_alignment(const SemanticType *type);
 
 inline std::optional<std::size_t> get_semantic_type_size(const SemanticType *type);
+
+inline bool is_flexible_array_member_type(const SemanticType *type) {
+    type = strip_layout_qualifiers(type);
+    if (type == nullptr || type->get_kind() != SemanticTypeKind::Array) {
+        return false;
+    }
+    const auto *array_type = static_cast<const ArraySemanticType *>(type);
+    return array_type->get_dimensions().size() == 1 &&
+           array_type->get_dimensions().front() == 0;
+}
 
 inline std::optional<std::size_t>
 get_builtin_type_alignment(const BuiltinSemanticType *builtin_type) {
@@ -176,11 +226,21 @@ inline std::optional<std::size_t> get_semantic_type_size(const SemanticType *typ
         const SemanticType *active_storage_type = nullptr;
         std::size_t active_storage_bits = 0;
         std::size_t active_used_bits = 0;
+        std::size_t active_storage_start_offset = 0;
 
-        for (const auto &field : struct_type->get_fields()) {
+        const auto &fields = struct_type->get_fields();
+        for (std::size_t field_index = 0; field_index < fields.size();
+             ++field_index) {
+            const auto &field = fields[field_index];
             const SemanticType *field_type = strip_layout_qualifiers(field.get_type());
             const auto field_alignment = get_semantic_type_alignment(field_type);
-            const auto field_size = get_semantic_type_size(field_type);
+            std::optional<std::size_t> field_size =
+                get_semantic_type_size(field_type);
+            if (!field_size.has_value() &&
+                field_index + 1 == fields.size() &&
+                is_flexible_array_member_type(field_type)) {
+                field_size = 0U;
+            }
             if (!field_alignment.has_value() || !field_size.has_value()) {
                 return std::nullopt;
             }
@@ -197,15 +257,41 @@ inline std::optional<std::size_t> get_semantic_type_size(const SemanticType *typ
                 const std::size_t bit_width = static_cast<std::size_t>(
                     field.get_bit_width().value_or(0));
 
+                if (bit_width == 0) {
+                    active_bit_field_unit = false;
+                    active_storage_type = nullptr;
+                    active_storage_bits = 0;
+                    active_used_bits = 0;
+                    active_storage_start_offset = 0;
+                    offset = align_layout_offset(offset, *field_alignment);
+                    continue;
+                }
+
                 const bool needs_new_unit =
-                    !active_bit_field_unit || active_storage_type != field_type ||
+                    !active_bit_field_unit ||
+                    !have_same_layout_unqualified_type(active_storage_type,
+                                                       field_type) ||
                     active_used_bits + bit_width > active_storage_bits;
                 if (needs_new_unit) {
-                    offset = align_layout_offset(offset, *field_alignment);
-                    offset += *field_size;
+                    active_storage_start_offset =
+                        floor_layout_offset(offset, *field_alignment);
+                    if (offset == active_storage_start_offset ||
+                        offset + round_up_layout_bits_to_bytes(bit_width) >
+                            active_storage_start_offset + *field_size) {
+                        offset = align_layout_offset(offset, *field_alignment);
+                        active_storage_start_offset = offset;
+                        active_storage_bits = storage_bits;
+                    } else {
+                        const std::size_t available_bits =
+                            (active_storage_start_offset + *field_size - offset) *
+                            8U;
+                        active_storage_bits =
+                            choose_layout_bit_field_storage_bits(available_bits,
+                                                                 bit_width);
+                    }
+                    offset += round_up_layout_bits_to_bytes(active_storage_bits);
                     active_bit_field_unit = true;
                     active_storage_type = field_type;
-                    active_storage_bits = storage_bits;
                     active_used_bits = 0;
                 }
 
@@ -215,6 +301,7 @@ inline std::optional<std::size_t> get_semantic_type_size(const SemanticType *typ
                     active_storage_type = nullptr;
                     active_storage_bits = 0;
                     active_used_bits = 0;
+                    active_storage_start_offset = 0;
                 }
                 continue;
             }
@@ -223,6 +310,7 @@ inline std::optional<std::size_t> get_semantic_type_size(const SemanticType *typ
             active_storage_type = nullptr;
             active_storage_bits = 0;
             active_used_bits = 0;
+            active_storage_start_offset = 0;
 
             offset = align_layout_offset(offset, *field_alignment);
             offset += *field_size;
@@ -239,7 +327,12 @@ inline std::optional<std::size_t> get_semantic_type_size(const SemanticType *typ
         std::size_t max_alignment = 1;
         for (const auto &field : union_type->get_fields()) {
             const auto field_alignment = get_semantic_type_alignment(field.get_type());
-            const auto field_size = get_semantic_type_size(field.get_type());
+            std::optional<std::size_t> field_size =
+                get_semantic_type_size(field.get_type());
+            if (!field_size.has_value() &&
+                is_flexible_array_member_type(field.get_type())) {
+                field_size = 0U;
+            }
             if (!field_alignment.has_value() || !field_size.has_value()) {
                 return std::nullopt;
             }

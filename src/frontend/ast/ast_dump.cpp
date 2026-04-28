@@ -344,6 +344,14 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
     case AstKind::MemberExpr:
         dump_member_expr(static_cast<const MemberExpr *>(node), os, indent);
         return;
+    case AstKind::StatementExpr: {
+        const auto *statement_expr = static_cast<const StatementExpr *>(node);
+        write_indent(os, indent);
+        os << "StatementExpr\n";
+        dump_source_span(node, os, indent + 2);
+        dump_node(statement_expr->get_body(), os, indent + 2);
+        return;
+    }
     case AstKind::InitListExpr:
         dump_init_list_expr(static_cast<const InitListExpr *>(node), os, indent);
         return;

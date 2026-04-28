@@ -61,6 +61,7 @@ enum class AstKind : uint8_t {
     CallExpr,
     IndexExpr,
     MemberExpr,
+    StatementExpr,
     InitListExpr,
     UnknownExpr,
 };

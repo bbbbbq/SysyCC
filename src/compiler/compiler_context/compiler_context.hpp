@@ -68,6 +68,7 @@ class Token {
         case TokenKind::KwRegister:
         case TokenKind::KwAttribute:
         case TokenKind::KwAsm:
+        case TokenKind::KwExtension:
         case TokenKind::KwInline:
         case TokenKind::KwRestrict:
         case TokenKind::KwNullability:
@@ -183,6 +184,8 @@ class Token {
             return "KwAttribute";
         case TokenKind::KwAsm:
             return "KwAsm";
+        case TokenKind::KwExtension:
+            return "KwExtension";
         case TokenKind::KwInline:
             return "KwInline";
         case TokenKind::KwRestrict:
