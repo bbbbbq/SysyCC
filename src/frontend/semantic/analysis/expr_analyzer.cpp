@@ -864,6 +864,68 @@ const Expr *get_statement_expr_result_expr(const Stmt *stmt) {
     return nullptr;
 }
 
+const IdentifierExpr *get_callee_identifier(const CallExpr *call_expr) {
+    if (call_expr == nullptr) {
+        return nullptr;
+    }
+    return dynamic_cast<const IdentifierExpr *>(call_expr->get_callee());
+}
+
+void analyze_type_constant_expressions(const TypeNode *type_node,
+                                       const ExprAnalyzer &expr_analyzer,
+                                       SemanticContext &semantic_context,
+                                       ScopeStack &scope_stack) {
+    if (type_node == nullptr) {
+        return;
+    }
+    switch (type_node->get_kind()) {
+    case AstKind::QualifiedType: {
+        const auto *qualified_type =
+            static_cast<const QualifiedTypeNode *>(type_node);
+        analyze_type_constant_expressions(qualified_type->get_base_type(),
+                                          expr_analyzer, semantic_context,
+                                          scope_stack);
+        return;
+    }
+    case AstKind::PointerType: {
+        const auto *pointer_type =
+            static_cast<const PointerTypeNode *>(type_node);
+        analyze_type_constant_expressions(pointer_type->get_pointee_type(),
+                                          expr_analyzer, semantic_context,
+                                          scope_stack);
+        return;
+    }
+    case AstKind::ArrayType: {
+        const auto *array_type =
+            static_cast<const ArrayTypeNode *>(type_node);
+        analyze_type_constant_expressions(array_type->get_element_type(),
+                                          expr_analyzer, semantic_context,
+                                          scope_stack);
+        for (const auto &dimension : array_type->get_dimensions()) {
+            expr_analyzer.analyze_expr(dimension.get(), semantic_context,
+                                       scope_stack);
+        }
+        return;
+    }
+    case AstKind::FunctionType: {
+        const auto *function_type =
+            static_cast<const FunctionTypeNode *>(type_node);
+        analyze_type_constant_expressions(function_type->get_return_type(),
+                                          expr_analyzer, semantic_context,
+                                          scope_stack);
+        for (const auto &parameter_type :
+             function_type->get_parameter_types()) {
+            analyze_type_constant_expressions(parameter_type.get(),
+                                              expr_analyzer, semantic_context,
+                                              scope_stack);
+        }
+        return;
+    }
+    default:
+        return;
+    }
+}
+
 void analyze_statement_expr_stmt(const Stmt *stmt,
                                  const ExprAnalyzer &expr_analyzer,
                                  SemanticContext &semantic_context,
@@ -1079,6 +1141,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
     }
     case AstKind::SizeofTypeExpr: {
         const auto *sizeof_type_expr = static_cast<const SizeofTypeExpr *>(expr);
+        analyze_type_constant_expressions(sizeof_type_expr->get_target_type(),
+                                          *this, semantic_context, scope_stack);
         const SemanticType *target_type = type_resolver_.resolve_type(
             sizeof_type_expr->get_target_type(), semantic_context, &scope_stack);
         semantic_model.bind_node_type(sizeof_type_expr,
@@ -1798,6 +1862,47 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
     }
     case AstKind::CallExpr: {
         const auto *call_expr = static_cast<const CallExpr *>(expr);
+        if (const IdentifierExpr *callee = get_callee_identifier(call_expr);
+            callee != nullptr && callee->get_name() == "__typeof__") {
+            if (call_expr->get_arguments().size() != 1) {
+                add_error(semantic_context,
+                          "__typeof__ expects exactly one expression",
+                          call_expr->get_source_span());
+                return;
+            }
+            const Expr *argument = call_expr->get_arguments().front().get();
+            analyze_expr(argument, semantic_context, scope_stack);
+            semantic_model.bind_node_type(call_expr,
+                                          semantic_model.get_node_type(argument));
+            return;
+        }
+        if (const IdentifierExpr *callee = get_callee_identifier(call_expr);
+            callee != nullptr &&
+            callee->get_name() == "__builtin_types_compatible_p") {
+            if (call_expr->get_arguments().size() != 2) {
+                add_error(semantic_context,
+                          "__builtin_types_compatible_p expects two type "
+                          "arguments",
+                          call_expr->get_source_span());
+                return;
+            }
+            const Expr *lhs = call_expr->get_arguments()[0].get();
+            const Expr *rhs = call_expr->get_arguments()[1].get();
+            analyze_expr(lhs, semantic_context, scope_stack);
+            analyze_expr(rhs, semantic_context, scope_stack);
+            const SemanticType *lhs_type = semantic_model.get_node_type(lhs);
+            const SemanticType *rhs_type = semantic_model.get_node_type(rhs);
+            const long long is_compatible =
+                lhs_type != nullptr && rhs_type != nullptr &&
+                        conversion_checker_.is_same_type(lhs_type, rhs_type)
+                    ? 1LL
+                    : 0LL;
+            semantic_model.bind_node_type(call_expr,
+                                          get_int_semantic_type(semantic_model));
+            constant_evaluator_.bind_integer_constant_value(
+                call_expr, is_compatible, semantic_context);
+            return;
+        }
         analyze_expr(call_expr->get_callee(), semantic_context, scope_stack);
         for (const auto &argument : call_expr->get_arguments()) {
             analyze_expr(argument.get(), semantic_context, scope_stack);

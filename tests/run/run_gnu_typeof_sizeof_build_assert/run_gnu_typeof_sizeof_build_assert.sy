@@ -1,0 +1,36 @@
+struct strbuf {
+    unsigned long alloc;
+    unsigned long len;
+    char *buf;
+};
+
+void *memcpy(void *dst, const void *src, unsigned long n);
+
+#define BUILD_ASSERT_OR_ZERO(cond) (sizeof(char[1 - 2 * !(cond)]) - 1)
+#define SWAP(a, b) do { \
+    void *_swap_a_ptr = &(a); \
+    void *_swap_b_ptr = &(b); \
+    unsigned char _swap_buffer[sizeof(a)]; \
+    memcpy(_swap_buffer, _swap_a_ptr, sizeof(a)); \
+    memcpy(_swap_a_ptr, _swap_b_ptr, sizeof(a) + \
+           BUILD_ASSERT_OR_ZERO(sizeof(a) == sizeof(b))); \
+    memcpy(_swap_b_ptr, _swap_buffer, sizeof(a)); \
+} while (0)
+#define ARRAY_SIZE(x) \
+    (sizeof(x) / sizeof((x)[0]) + \
+     BUILD_ASSERT_OR_ZERO(!__builtin_types_compatible_p(__typeof__(x), \
+                                                        __typeof__(&(x)[0]))))
+
+static struct strbuf commands[] = {
+    { 1, 2, (char *)0 },
+    { 3, 4, (char *)0 },
+};
+
+int main(void) {
+    struct strbuf a = { 5, 6, (char *)0 };
+    struct strbuf b = { 7, 8, (char *)0 };
+    SWAP(a, b);
+    putint((int)(ARRAY_SIZE(commands) + a.alloc + b.alloc));
+    putch(10);
+    return 0;
+}
