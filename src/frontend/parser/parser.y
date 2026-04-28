@@ -62,7 +62,7 @@ char *yyget_text(void *yyscanner);
 %type <node> bit_xor_expr bit_and_expr eq_expr rel_expr shift_expr add_expr
 %type <node> mul_expr cast_expr unary_expr postfix_expr primary_expr statement_expr builtin_va_arg_expr
 %type <node> cast_target_type sizeof_type_name sizeof_type_suffix_opt abstract_array_suffix_list
-%type <node> init_val init_val_list
+%type <node> init_val init_val_list designated_init_val
 
 %start comp_unit
 %nonassoc LOWER_THAN_ELSE
@@ -581,13 +581,19 @@ basic_type
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
     | SIGNED INT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
+    | SIGNED TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
     | SIGNED LONG
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
     | SIGNED LONG INT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
+    | SIGNED LONG TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | SIGNED LONG LONG
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | SIGNED LONG LONG INT
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3, $4}); }
+    | SIGNED LONG LONG TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3, $4}); }
     | SIGNED CHAR
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
@@ -595,17 +601,25 @@ basic_type
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
     | SHORT INT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
+    | SHORT TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
     | SIGNED SHORT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
     | SIGNED SHORT INT
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
+    | SIGNED SHORT TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | LONG
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
     | LONG INT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
+    | LONG TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
     | LONG LONG
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
     | LONG LONG INT
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
+    | LONG LONG TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | UNSIGNED
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
@@ -617,15 +631,23 @@ basic_type
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
     | UNSIGNED SHORT INT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
+    | UNSIGNED SHORT TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | UNSIGNED INT
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
+    | UNSIGNED TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
     | UNSIGNED LONG
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2}); }
     | UNSIGNED LONG INT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
+    | UNSIGNED LONG TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | UNSIGNED LONG LONG
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3}); }
     | UNSIGNED LONG LONG INT
+      { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3, $4}); }
+    | UNSIGNED LONG LONG TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1, $2, $3, $4}); }
     | INT
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
@@ -1121,30 +1143,30 @@ parameter_decl
           $$ = sysycc::make_nonterminal_node("parameter_decl",
                                              {$1, $2, $3, declarator});
       }
-    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt LBRACKET expr_opt RBRACKET
+    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt abstract_array_suffix_list
       {
           void *pointer_level =
               sysycc::make_nonterminal_node("pointer_level", {});
           void *pointer =
               sysycc::make_nonterminal_node("pointer", {pointer_level});
           $$ = sysycc::make_nonterminal_node("parameter_decl",
-                                             {$1, $2, $3, pointer});
+                                             {$1, $2, $3, pointer, $4});
       }
-    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator
+    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator %dprec 2
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3, $4}); }
-    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator attribute_specifier_seq
+    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator attribute_specifier_seq %dprec 2
       {
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$5});
           $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3, $4, attribute_opt});
       }
-    | attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator
+    | attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator %dprec 2
       {
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$1});
           $$ = sysycc::make_nonterminal_node("parameter_decl", {attribute_opt, $2, $3, $4, $5});
       }
-    | attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator attribute_specifier_seq
+    | attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator attribute_specifier_seq %dprec 2
       {
           void *prefix_attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$1});
@@ -1152,15 +1174,15 @@ parameter_decl
               "attribute_specifier_seq_opt", {$6});
           $$ = sysycc::make_nonterminal_node("parameter_decl", {prefix_attribute_opt, $2, $3, $4, $5, suffix_attribute_opt});
       }
-    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer
+    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer %dprec 1
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3, $4}); }
-    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer attribute_specifier_seq
+    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer attribute_specifier_seq %dprec 1
       {
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$5});
           $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3, $4, attribute_opt});
       }
-    | attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer
+    | attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer %dprec 1
       {
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$1});
@@ -1533,10 +1555,19 @@ init_val
 init_val_list
     : init_val
       { $$ = sysycc::make_nonterminal_node("init_val_list", {$1}); }
+    | designated_init_val
+      { $$ = sysycc::make_nonterminal_node("init_val_list", {$1}); }
     | init_val_list COMMA init_val
+      { $$ = sysycc::make_nonterminal_node("init_val_list", {$1, $2, $3}); }
+    | init_val_list COMMA designated_init_val
       { $$ = sysycc::make_nonterminal_node("init_val_list", {$1, $2, $3}); }
     | init_val_list COMMA
       { $$ = sysycc::make_nonterminal_node("init_val_list", {$1, $2}); }
+    ;
+
+designated_init_val
+    : DOT IDENTIFIER ASSIGN init_val
+      { $$ = sysycc::make_nonterminal_node("designated_init_val", {$1, $2, $3, $4}); }
     ;
 
 %%

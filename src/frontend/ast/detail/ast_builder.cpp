@@ -21,6 +21,25 @@ struct StorageSpecifierFlags {
     bool is_static = false;
 };
 
+std::string builtin_name_from_type_name_token(const ParseTreeNode *node) {
+    if (node == nullptr ||
+        !ParseTreeMatcher::label_starts_with(node, "TYPE_NAME")) {
+        return {};
+    }
+    const std::string suffix =
+        ParseTreeMatcher::extract_terminal_suffix(node, "TYPE_NAME");
+    if (suffix == "void" || suffix == "char" || suffix == "int" ||
+        suffix == "float" || suffix == "double") {
+        return suffix;
+    }
+    return {};
+}
+
+bool is_int_type_token(const ParseTreeNode *node) {
+    return ParseTreeMatcher::label_starts_with(node, "INT") ||
+           builtin_name_from_type_name_token(node) == "int";
+}
+
 std::string decode_string_literal_token(std::string token_text) {
     if (token_text.size() >= 2 && token_text.front() == '"' &&
         token_text.back() == '"') {
@@ -984,6 +1003,11 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
     if (ParseTreeMatcher::label_starts_with(node, "TYPE_NAME")) {
         const std::string suffix =
             ParseTreeMatcher::extract_terminal_suffix(node, "TYPE_NAME");
+        const std::string builtin_name = builtin_name_from_type_name_token(node);
+        if (!builtin_name.empty()) {
+            return std::make_unique<BuiltinTypeNode>(
+                builtin_name, get_node_source_span(node));
+        }
         if (!suffix.empty()) {
             return std::make_unique<NamedTypeNode>(suffix,
                                                    get_node_source_span(node));
@@ -1009,8 +1033,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
         if (basic_type->children.size() == 2 &&
             ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
                                                 "SIGNED") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[1].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "int", get_node_source_span(node));
         }
@@ -1035,8 +1058,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
                                                 "SIGNED") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
                                                 "LONG") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[2].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "long int", get_node_source_span(node));
         }
@@ -1057,8 +1079,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
                                                 "LONG") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
                                                 "LONG") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[3].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[3].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "long long int", get_node_source_span(node));
         }
@@ -1071,8 +1092,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
         if (basic_type->children.size() == 2 &&
             ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
                                                 "SHORT") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[1].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "short", get_node_source_span(node));
         }
@@ -1089,8 +1109,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
                                                 "SIGNED") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
                                                 "SHORT") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[2].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "short", get_node_source_span(node));
         }
@@ -1135,8 +1154,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
                                                 "UNSIGNED") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
                                                 "SHORT") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[2].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "unsigned short", get_node_source_span(node));
         }
@@ -1149,8 +1167,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
         if (basic_type->children.size() == 2 &&
             ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
                                                 "LONG") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[1].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "long int", get_node_source_span(node));
         }
@@ -1167,8 +1184,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
                                                 "LONG") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
                                                 "LONG") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[2].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "long long int", get_node_source_span(node));
         }
@@ -1199,8 +1215,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
         if (basic_type->children.size() == 2 &&
             ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
                                                 "UNSIGNED") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[1].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "unsigned int", get_node_source_span(node));
         }
@@ -1279,6 +1294,12 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
             const std::string suffix =
                 ParseTreeMatcher::extract_terminal_suffix(child.get(),
                                                           "TYPE_NAME");
+            const std::string builtin_name =
+                builtin_name_from_type_name_token(child.get());
+            if (!builtin_name.empty()) {
+                return std::make_unique<BuiltinTypeNode>(
+                    builtin_name, get_node_source_span(node));
+            }
             if (!suffix.empty()) {
                 return std::make_unique<NamedTypeNode>(
                     suffix, get_node_source_span(node));
@@ -2357,6 +2378,11 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
                                            node->children[0].get(), "LBRACE")) {
             return build_init_list_expr(node);
         }
+    }
+
+    if (ParseTreeMatcher::label_equals(node, "designated_init_val") &&
+        node->children.size() == 4) {
+        return build_expr(node->children[3].get());
     }
 
     if ((ParseTreeMatcher::label_equals(node, "postfix_expr") ||
