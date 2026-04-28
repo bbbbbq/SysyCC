@@ -1,0 +1,14 @@
+typedef unsigned long __uint64_t;
+
+struct atomic_counter {
+    __extension__ unsigned long long int value64;
+    long long max_align_ll __attribute__((__aligned__(__alignof__(long long))));
+};
+
+__extension__ static __inline __uint64_t bswap64(__uint64_t value) {
+    return value;
+}
+
+int main(void) {
+    return bswap64(0) == 0 ? 0 : 1;
+}

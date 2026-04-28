@@ -1,0 +1,10 @@
+typedef unsigned char u8;
+
+union Storage {
+    int value;
+    u8 bytes[0];
+};
+
+int main(void) {
+    return sizeof(union Storage) == sizeof(int) ? 0 : 1;
+}

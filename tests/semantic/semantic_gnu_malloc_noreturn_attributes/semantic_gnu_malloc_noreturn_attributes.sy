@@ -1,0 +1,20 @@
+void *allocate_block(int size) __attribute__((__malloc__));
+void fatal_error(void) __attribute__((__noreturn__));
+int old_api(void) __attribute__((__deprecated__));
+
+void *allocate_block(int size) {
+    return (void*)0;
+}
+
+void fatal_error(void) {
+    while (1) {
+    }
+}
+
+int old_api(void) {
+    return 7;
+}
+
+int main(void) {
+    return allocate_block(4) == (void*)0 && old_api() == 7 ? 0 : 1;
+}

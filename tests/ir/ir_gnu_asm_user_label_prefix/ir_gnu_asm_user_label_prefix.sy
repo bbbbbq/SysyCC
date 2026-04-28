@@ -1,0 +1,5 @@
+int fopen(int mode) __asm__("__USER_LABEL_PREFIX__" "fopen64");
+
+int main(void) {
+    return fopen(1);
+}

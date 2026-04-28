@@ -1,0 +1,16 @@
+struct BuiltinFunc {
+    void *user_data;
+    int (*callback)(void);
+};
+
+int callback(void) {
+    return 0;
+}
+
+static struct BuiltinFunc funcs[] = {
+    { (void *)(long)(1), callback },
+};
+
+int main(void) {
+    return funcs[0].callback();
+}

@@ -1,0 +1,16 @@
+typedef struct HashElem HashElem;
+
+struct Hash {
+    struct _ht {
+        unsigned int count;
+        HashElem *chain;
+    } *ht;
+};
+
+static int read_count(struct _ht *pEntry) {
+    return pEntry ? (int)pEntry->count : 0;
+}
+
+int main(void) {
+    return read_count((struct _ht *)0);
+}

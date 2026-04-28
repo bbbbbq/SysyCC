@@ -1,0 +1,11 @@
+int main(void) {
+    int tag = 1;
+    switch (tag) {
+        int scratch;
+    case 1:
+        scratch = 41;
+        return scratch + 1;
+    default:
+        return 0;
+    }
+}

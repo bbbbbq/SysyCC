@@ -1,0 +1,23 @@
+#include <stdarg.h>
+
+int pick_sum(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int i = 0;
+    int acc = 0;
+    while (fmt[i] != 0) {
+        if (fmt[i] == 'i') {
+            int value = va_arg(ap, int);
+            acc = acc + value;
+        } else {
+            acc = acc + 1;
+        }
+        i = i + 1;
+    }
+    va_end(ap);
+    return acc;
+}
+
+int main(void) {
+    return pick_sum("ii", 19, 23) == 42 ? 0 : 1;
+}

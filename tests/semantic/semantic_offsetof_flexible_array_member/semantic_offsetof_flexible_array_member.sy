@@ -1,0 +1,16 @@
+typedef unsigned char u8;
+typedef struct SrcItem SrcItem;
+struct SrcItem { int x; };
+typedef struct SrcList SrcList;
+struct SrcList { int nSrc; unsigned nAlloc; SrcItem a[]; };
+
+#define SZ_SRCLIST_1 (__builtin_offsetof(SrcList, a) + sizeof(SrcItem))
+
+union SrcListSpace {
+    SrcList sSrc;
+    u8 srcSpace[SZ_SRCLIST_1];
+};
+
+int main(void) {
+    return sizeof(union SrcListSpace) > 0 ? 0 : 1;
+}

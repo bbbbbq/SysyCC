@@ -1,0 +1,9 @@
+static inline const char *precompose_argv_prefix(
+    int argc __attribute__((unused)) __attribute__((deprecated("unused parameter"))),
+    const char *prefix) {
+    return prefix;
+}
+
+int main(void) {
+    return precompose_argv_prefix(1, "ok") == (void*)0 ? 1 : 0;
+}

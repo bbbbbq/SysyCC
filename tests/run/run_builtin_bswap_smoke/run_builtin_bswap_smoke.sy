@@ -1,0 +1,15 @@
+int main(void) {
+    unsigned short s = __builtin_bswap16(0x1234);
+    unsigned int i = __builtin_bswap32(0x12345678);
+    unsigned long long l = __builtin_bswap64(0x0123456789abcdefULL);
+    if (s != 0x3412) {
+        return 1;
+    }
+    if (i != 0x78563412) {
+        return 2;
+    }
+    if (l != 0xefcdab8967452301ULL) {
+        return 3;
+    }
+    return 0;
+}

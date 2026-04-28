@@ -1,0 +1,16 @@
+#define PNG_CHUNK(cHNK, index) != (index) || ((index)+1)
+#define PNG_KNOWN_CHUNKS \
+    PNG_CHUNK(IHDR, 0)   \
+    PNG_CHUNK(PLTE, 1)   \
+    PNG_CHUNK(IDAT, 2)   \
+    PNG_CHUNK(IEND, 3)
+
+#if 0 PNG_KNOWN_CHUNKS < 0
+int function_macro_list_if_expr = -1;
+#else
+int function_macro_list_if_expr = 1;
+#endif
+
+int main(void) {
+    return function_macro_list_if_expr;
+}

@@ -1,0 +1,8 @@
+extern _Float32 strtof32(const char *);
+extern _Float64 strtof64(const char *);
+extern _Float32x strtof32x(const char *);
+extern _Float64x strtof64x(const char *);
+
+int main(void) {
+    return 0;
+}

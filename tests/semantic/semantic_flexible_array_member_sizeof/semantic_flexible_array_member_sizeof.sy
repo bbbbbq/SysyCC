@@ -1,0 +1,17 @@
+typedef struct KeyInfo KeyInfo;
+typedef unsigned char u8;
+
+struct KeyInfo {
+    int n;
+    int *aColl[];
+};
+
+struct Holder {
+    struct {
+        u8 keyinfoSpace[sizeof(KeyInfo)];
+    } uKey;
+};
+
+int main(void) {
+    return sizeof(struct Holder) > 0 ? 0 : 1;
+}

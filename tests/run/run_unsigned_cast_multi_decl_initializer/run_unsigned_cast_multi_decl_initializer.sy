@@ -1,0 +1,8 @@
+int main() {
+    unsigned have, put, max = ((unsigned)-1 >> 2) + 1;
+    have = 7;
+    put = max;
+    putint(have == 7 && put == 1073741824u);
+    putch(10);
+    return 0;
+}

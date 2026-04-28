@@ -1,0 +1,13 @@
+int copy_byte(unsigned char *dst, unsigned const char *src) {
+    *dst = *src;
+    return 0;
+}
+
+int main(void) {
+    unsigned char dst;
+    unsigned char src;
+    src = 42;
+    dst = 0;
+    copy_byte(&dst, &src);
+    return dst == 42 ? 0 : 1;
+}

@@ -1,0 +1,24 @@
+typedef struct Vfs Vfs;
+struct Vfs {
+    void (*(*xDlSym)(Vfs *, void *, const char *))(void);
+};
+
+void target(void) {
+}
+
+void (*lookup(Vfs *pVfs, void *pHandle, const char *zSym))(void) {
+    (void)pVfs;
+    (void)pHandle;
+    (void)zSym;
+    return target;
+}
+
+void (*resolve(Vfs *pVfs, void *pHdle, const char *zSym))(void) {
+    return pVfs->xDlSym(pVfs, pHdle, zSym);
+}
+
+int main(void) {
+    struct Vfs vfs;
+    vfs.xDlSym = lookup;
+    return resolve(&vfs, (void *)0, "target") == target ? 0 : 1;
+}

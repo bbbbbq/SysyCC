@@ -1,0 +1,11 @@
+#if ~0U > 0xffffU
+#define HAS_WIDE_UNSIGNED 1
+#else
+#define HAS_WIDE_UNSIGNED 0
+#endif
+
+int unsigned_allbits_if_expr = HAS_WIDE_UNSIGNED;
+
+int main(void) {
+    return unsigned_allbits_if_expr;
+}

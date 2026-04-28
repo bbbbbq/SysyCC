@@ -1,0 +1,71 @@
+struct Flags {
+    unsigned char jointype;
+    unsigned notIndexed : 1;
+    unsigned isIndexedBy : 1;
+    unsigned isSubquery : 1;
+    unsigned isTabFunc : 1;
+    unsigned isCorrelated : 1;
+    unsigned isMaterialized : 1;
+    unsigned viaCoroutine : 1;
+    unsigned isRecursive : 1;
+    unsigned fromDDL : 1;
+    unsigned isCte : 1;
+    unsigned notCte : 1;
+    unsigned isUsing : 1;
+    unsigned isOn : 1;
+    unsigned isSynthUsing : 1;
+    unsigned isNestedFrom : 1;
+    unsigned rowidUsed : 1;
+    unsigned fixedSchema : 1;
+    unsigned hadSchema : 1;
+    unsigned fromExists : 1;
+};
+
+struct Item {
+    char *zName;
+    char *zAlias;
+    void *pSTab;
+    struct Flags fg;
+    int iCursor;
+    unsigned long colUsed;
+    union {
+        char *z;
+        void *p;
+        unsigned n;
+    } u1;
+    union {
+        void *p;
+    } u2;
+};
+
+int main(void) {
+    struct Item item;
+    if (sizeof(struct Flags) != 4) {
+        return 1;
+    }
+    if (__builtin_offsetof(struct Item, iCursor) != 28) {
+        return 2;
+    }
+    if (__builtin_offsetof(struct Item, colUsed) != 32) {
+        return 3;
+    }
+    if (sizeof(struct Item) != 56) {
+        return 4;
+    }
+
+    item.fg.jointype = 7;
+    item.fg.notIndexed = 1;
+    item.fg.isIndexedBy = 0;
+    item.fg.fromExists = 1;
+    item.iCursor = 1234;
+    item.colUsed = 0x55;
+
+    if (item.fg.jointype != 7 || item.fg.notIndexed != 1 ||
+        item.fg.isIndexedBy != 0 || item.fg.fromExists != 1) {
+        return 5;
+    }
+    if (item.iCursor != 1234 || item.colUsed != 0x55) {
+        return 6;
+    }
+    return 0;
+}

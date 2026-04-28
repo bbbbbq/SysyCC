@@ -1,0 +1,10 @@
+extern int __attribute__((noinline)) handle_cursor(int *p);
+
+int __attribute__((noinline)) handle_cursor(int *p) {
+    return *p;
+}
+
+int main(void) {
+    int value = 7;
+    return handle_cursor(&value) == 7 ? 0 : 1;
+}

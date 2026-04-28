@@ -8,10 +8,13 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 CASE_BUILD_DIR="${SCRIPT_DIR}/build"
 HELPER_SOURCE="${CASE_BUILD_DIR}/helper.c"
 HELPER_OBJECT="${CASE_BUILD_DIR}/helper.o"
+HELPER_PIC_OBJECT="${CASE_BUILD_DIR}/helper.pic.o"
 HELPER_ARCHIVE="${CASE_BUILD_DIR}/libhelper.a"
+HELPER_VERSIONED_SHARED="${CASE_BUILD_DIR}/libhelper.so.1.0.git"
 MAIN_SOURCE="${CASE_BUILD_DIR}/main.c"
 MAIN_OBJECT="${CASE_BUILD_DIR}/main.o"
 OUTPUT_FILE="${CASE_BUILD_DIR}/cli_link_passthrough_host_objects.bin"
+OUTPUT_SHARED_FILE="${CASE_BUILD_DIR}/cli_link_passthrough_versioned_shared.bin"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
@@ -49,6 +52,30 @@ set -e
 if [[ "${PROGRAM_RC}" -ne 0 ]]; then
     echo "error: passthrough-linked executable returned ${PROGRAM_RC}, expected 0" >&2
     exit 1
+fi
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    /usr/bin/cc -fPIC -c "${HELPER_SOURCE}" -o "${HELPER_PIC_OBJECT}"
+    /usr/bin/cc -shared "${HELPER_PIC_OBJECT}" -o "${HELPER_VERSIONED_SHARED}"
+
+    "${BUILD_DIR}/compiler" \
+        "${MAIN_OBJECT}" \
+        "${HELPER_VERSIONED_SHARED}" \
+        -Wl,-rpath,"${CASE_BUILD_DIR}" \
+        -o "${OUTPUT_SHARED_FILE}"
+
+    assert_file_nonempty "${OUTPUT_SHARED_FILE}"
+
+    set +e
+    LD_LIBRARY_PATH="${CASE_BUILD_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+        "${OUTPUT_SHARED_FILE}"
+    SHARED_PROGRAM_RC=$?
+    set -e
+
+    if [[ "${SHARED_PROGRAM_RC}" -ne 0 ]]; then
+        echo "error: versioned-shared passthrough executable returned ${SHARED_PROGRAM_RC}, expected 0" >&2
+        exit 1
+    fi
 fi
 
 echo "verified: -L/-l/-pthread/-Wl,... are collected and forwarded through the external link driver"

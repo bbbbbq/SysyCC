@@ -1,0 +1,7 @@
+typedef struct Worker Worker;
+
+extern int create_worker(Worker **, void *(*)(void *), void *);
+
+int main(void) {
+    return 0;
+}

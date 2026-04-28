@@ -1,0 +1,7 @@
+typedef int register_t __attribute__ ((__mode__ (__word__)));
+
+register_t bump(register_t value);
+
+int main(void) {
+    return 0;
+}

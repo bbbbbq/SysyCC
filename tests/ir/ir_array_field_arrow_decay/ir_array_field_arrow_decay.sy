@@ -1,0 +1,13 @@
+struct AuxDb {
+    char *zDbFilename;
+};
+
+struct ShellState {
+    struct AuxDb aAuxDb[1];
+};
+
+int main(void) {
+    struct ShellState data;
+    data.aAuxDb[0].zDbFilename = 0;
+    return data.aAuxDb->zDbFilename == 0 ? 0 : 1;
+}

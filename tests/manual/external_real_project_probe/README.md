@@ -48,6 +48,7 @@ make pass-report-diff TEST_ARGS="before.md after.md"
 make real-project-compile-times
 make real-project-compile-times TEST_ARGS=lua
 make real-project-compile-times TEST_ARGS=mujs
+make real-c-projects TEST_ARGS="lua zlib sqlite libpng git openssl"
 ```
 
 - `lua_smoke.sh` reuses an already-built SysyCC Lua binary and runs the current
@@ -75,6 +76,11 @@ make real-project-compile-times TEST_ARGS=mujs
   reports under `build/external-real-project-probe/reports/`. It also enables
   `SYSYCC_PASS_REPORT_DIR` so each translated `.c` gets a pass-level Markdown
   report under `lua_pass_reports/` or `mujs_pass_reports/`.
+- `validate_c_projects.sh` is the broader real C project matrix. It builds and
+  smoke-runs Lua, zlib, SQLite, libpng, Git, and OpenSSL through SysyCC, then
+  writes `build/external-real-project-probe/reports/c-project-matrix/summary.md`.
+  Pass a project subset as positional args while iterating, for example
+  `make real-c-projects TEST_ARGS="lua zlib"`.
 
 This probe is intentionally manual instead of tier1/tier2: it depends on Docker,
 network access, package installation, and external repositories.

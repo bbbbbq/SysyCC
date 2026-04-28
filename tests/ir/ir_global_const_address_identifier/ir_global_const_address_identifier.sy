@@ -1,0 +1,5 @@
+const int sqlite3one = 1;
+
+int main(void) {
+    return (*(char *)(&sqlite3one)) == 1 ? 0 : 1;
+}

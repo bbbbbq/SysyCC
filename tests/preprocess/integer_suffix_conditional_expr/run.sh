@@ -17,5 +17,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 assert_file_nonempty "${PREPROCESSED_FILE}"
 grep -q '^int long_literal_branch = 1;$' "${PREPROCESSED_FILE}"
 grep -q '^int unsigned_long_long_branch = 2;$' "${PREPROCESSED_FILE}"
+grep -q '^int unsigned_64_hex_branch = 3;$' "${PREPROCESSED_FILE}"
 
 echo "verified: #if integer literals accept standard unsigned/long suffixes"

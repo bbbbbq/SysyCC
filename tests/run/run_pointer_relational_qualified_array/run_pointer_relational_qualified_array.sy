@@ -1,0 +1,19 @@
+struct Code {
+    int op;
+    int bits;
+    int value;
+};
+
+struct State {
+    const struct Code *lencode;
+    struct Code codes[4];
+};
+
+int main() {
+    struct State state;
+    state.lencode = state.codes + 2;
+    if (state.lencode >= state.codes && state.lencode <= state.codes + 3) {
+        return 0;
+    }
+    return 1;
+}
