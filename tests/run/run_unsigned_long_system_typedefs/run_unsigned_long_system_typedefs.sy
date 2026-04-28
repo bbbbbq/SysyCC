@@ -1,0 +1,10 @@
+typedef unsigned long int size_t;
+typedef unsigned long long int project_uintmax_t;
+
+int main(void) {
+    size_t a = 7;
+    project_uintmax_t b = 11;
+    putint((int)(a + b));
+    putch(10);
+    return 0;
+}

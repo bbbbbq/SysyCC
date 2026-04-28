@@ -1231,8 +1231,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
                                                 "UNSIGNED") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
                                                 "LONG") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[2].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "unsigned long", get_node_source_span(node));
         }
@@ -1260,8 +1259,7 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
                                                 "LONG") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[2].get(),
                                                 "LONG") &&
-            ParseTreeMatcher::label_starts_with(basic_type->children[3].get(),
-                                                "INT")) {
+            is_int_type_token(basic_type->children[3].get())) {
             return std::make_unique<BuiltinTypeNode>(
                 "unsigned long long", get_node_source_span(node));
         }

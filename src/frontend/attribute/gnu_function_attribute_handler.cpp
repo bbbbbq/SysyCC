@@ -39,7 +39,17 @@ bool is_noinline_attribute(const std::string &name) {
 bool is_accepted_noop_function_attribute(const std::string &name) {
     return name == "malloc" || name == "__malloc__" ||
            name == "noreturn" || name == "__noreturn__" ||
-           name == "deprecated" || name == "__deprecated__";
+           name == "deprecated" || name == "__deprecated__" ||
+           name == "format" || name == "__format" ||
+           name == "__format__" || name == "format_arg" ||
+           name == "__format_arg" || name == "__format_arg__" ||
+           name == "sentinel" || name == "__sentinel" ||
+           name == "__sentinel__" ||
+           name == "unused" || name == "__unused" ||
+           name == "__unused__" ||
+           name == "warn_unused_result" ||
+           name == "__warn_unused_result" ||
+           name == "__warn_unused_result__";
 }
 
 } // namespace
