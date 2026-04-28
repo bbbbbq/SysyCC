@@ -1,0 +1,19 @@
+struct flags {
+    int recursive;
+    int quick;
+};
+
+struct pruning {
+    struct flags flags;
+};
+
+struct rev_info {
+    int abbrev;
+    struct pruning pruning;
+};
+
+struct rev_info revs = {
+    .abbrev = 7,
+    .pruning.flags.recursive = 1,
+    .pruning.flags.quick = 1,
+};

@@ -1,0 +1,15 @@
+typedef int (*path_fn)(int value);
+
+struct path_walk_info {
+    path_fn path_fn;
+};
+
+int fill_missing_blobs(int value) {
+    return value + 5;
+}
+
+int main(void) {
+    struct path_walk_info info = { .path_fn = fill_missing_blobs };
+    info.path_fn = fill_missing_blobs;
+    return info.path_fn(7) == 12 ? 0 : 1;
+}

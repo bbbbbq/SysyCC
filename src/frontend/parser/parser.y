@@ -62,7 +62,7 @@ char *yyget_text(void *yyscanner);
 %type <node> bit_xor_expr bit_and_expr eq_expr rel_expr shift_expr add_expr
 %type <node> mul_expr cast_expr unary_expr postfix_expr primary_expr statement_expr builtin_va_arg_expr
 %type <node> cast_target_type sizeof_type_name sizeof_type_suffix_opt abstract_array_suffix_list
-%type <node> init_val init_val_list designated_init_val
+%type <node> init_val init_val_list designated_init_val designator designator_seq
 
 %start comp_unit
 %nonassoc LOWER_THAN_ELSE
@@ -1537,7 +1537,11 @@ postfix_expr
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2, $3, $4}); }
     | postfix_expr ARROW IDENTIFIER
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2, $3}); }
+    | postfix_expr ARROW TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2, $3}); }
     | postfix_expr DOT IDENTIFIER
+      { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2, $3}); }
+    | postfix_expr DOT TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2, $3}); }
     | postfix_expr INC
       { $$ = sysycc::make_nonterminal_node("postfix_expr", {$1, $2}); }
@@ -1595,8 +1599,22 @@ init_val_list
     ;
 
 designated_init_val
-    : DOT IDENTIFIER ASSIGN init_val
-      { $$ = sysycc::make_nonterminal_node("designated_init_val", {$1, $2, $3, $4}); }
+    : designator_seq ASSIGN init_val
+      { $$ = sysycc::make_nonterminal_node("designated_init_val", {$1, $2, $3}); }
+    ;
+
+designator_seq
+    : designator
+      { $$ = sysycc::make_nonterminal_node("designator_seq", {$1}); }
+    | designator_seq designator
+      { $$ = sysycc::make_nonterminal_node("designator_seq", {$1, $2}); }
+    ;
+
+designator
+    : DOT IDENTIFIER
+      { $$ = sysycc::make_nonterminal_node("designator", {$1, $2}); }
+    | DOT TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("designator", {$1, $2}); }
     ;
 
 %%

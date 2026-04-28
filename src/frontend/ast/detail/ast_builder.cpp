@@ -2432,9 +2432,11 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
         }
     }
 
-    if (ParseTreeMatcher::label_equals(node, "designated_init_val") &&
-        node->children.size() == 4) {
-        return build_expr(node->children[3].get());
+    if (ParseTreeMatcher::label_equals(node, "designated_init_val")) {
+        if (const ParseTreeNode *init_node =
+                ParseTreeMatcher::find_first_child_with_label(node, "init_val")) {
+            return build_expr(init_node);
+        }
     }
 
     if ((ParseTreeMatcher::label_equals(node, "postfix_expr") ||
@@ -2535,10 +2537,13 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
         const std::string member_name =
             ParseTreeMatcher::extract_terminal_suffix(node->children[2].get(),
                                                       "IDENTIFIER");
+        const std::string type_name_member =
+            ParseTreeMatcher::extract_terminal_suffix(node->children[2].get(),
+                                                      "TYPE_NAME");
         return std::make_unique<MemberExpr>(
             get_operator_text(node->children[1].get()),
             build_expr(node->children[0].get()),
-            member_name.empty() ? node->children[2]->label : member_name,
+            !member_name.empty() ? member_name : type_name_member,
             get_node_source_span(node));
     }
 
