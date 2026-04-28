@@ -5067,6 +5067,10 @@ class CoreIrBuildSession {
             return false;
         }
 
+        if (for_stmt.get_init_decl() != nullptr &&
+            !emit_decl_stmt(*for_stmt.get_init_decl())) {
+            return false;
+        }
         if (for_stmt.get_init() != nullptr && build_expr(for_stmt.get_init()) == nullptr) {
             return false;
         }

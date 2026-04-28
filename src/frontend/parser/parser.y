@@ -1228,6 +1228,8 @@ stmt
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3, $4, $5, $6, $7}); }
     | FOR LPAREN expr_opt SEMICOLON expr_opt SEMICOLON expr_opt RPAREN stmt
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3, $4, $5, $6, $7, $8, $9}); }
+    | FOR LPAREN var_decl expr_opt SEMICOLON expr_opt RPAREN stmt
+      { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3, $4, $5, $6, $7, $8}); }
     | SWITCH LPAREN expr RPAREN stmt
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3, $4, $5}); }
     | CASE const_expr COLON stmt

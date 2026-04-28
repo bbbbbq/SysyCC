@@ -1,0 +1,11 @@
+typedef unsigned long size_t;
+
+int main(void) {
+    int sum = 0;
+    for (size_t i = 0; i < 4; i = i + 1) {
+        sum = sum + (int)i;
+    }
+    putint(sum);
+    putch(10);
+    return 0;
+}

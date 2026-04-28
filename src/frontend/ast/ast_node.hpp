@@ -496,6 +496,7 @@ class DoWhileStmt : public Stmt {
 class ForStmt : public Stmt {
   private:
     std::unique_ptr<Expr> init_;
+    std::unique_ptr<DeclStmt> init_decl_;
     std::unique_ptr<Expr> condition_;
     std::unique_ptr<Expr> step_;
     std::unique_ptr<Stmt> body_;
@@ -504,8 +505,12 @@ class ForStmt : public Stmt {
     ForStmt(std::unique_ptr<Expr> init, std::unique_ptr<Expr> condition,
             std::unique_ptr<Expr> step, std::unique_ptr<Stmt> body,
             SourceSpan source_span = {});
+    ForStmt(std::unique_ptr<DeclStmt> init_decl,
+            std::unique_ptr<Expr> condition, std::unique_ptr<Expr> step,
+            std::unique_ptr<Stmt> body, SourceSpan source_span = {});
 
     const Expr *get_init() const noexcept;
+    const DeclStmt *get_init_decl() const noexcept;
     const Expr *get_condition() const noexcept;
     const Expr *get_step() const noexcept;
     const Stmt *get_body() const noexcept;

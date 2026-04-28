@@ -177,6 +177,7 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
     case AstKind::ForStmt: {
         const auto *for_stmt = static_cast<const ForStmt *>(node);
         return ast_contains_unknown_nodes(for_stmt->get_init()) ||
+               ast_contains_unknown_nodes(for_stmt->get_init_decl()) ||
                ast_contains_unknown_nodes(for_stmt->get_condition()) ||
                ast_contains_unknown_nodes(for_stmt->get_step()) ||
                ast_contains_unknown_nodes(for_stmt->get_body());

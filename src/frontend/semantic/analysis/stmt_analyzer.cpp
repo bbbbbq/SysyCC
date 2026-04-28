@@ -334,6 +334,13 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         const auto *for_stmt = static_cast<const ForStmt *>(stmt);
         scope_stack.push_scope();
         semantic_context.enter_loop();
+        if (for_stmt->get_init_decl() != nullptr) {
+            for (const auto &decl :
+                 for_stmt->get_init_decl()->get_declarations()) {
+                decl_analyzer_.analyze_decl(decl.get(), semantic_context,
+                                            scope_stack);
+            }
+        }
         expr_analyzer_.analyze_expr(for_stmt->get_init(), semantic_context,
                                     scope_stack);
         expr_analyzer_.analyze_expr(for_stmt->get_condition(), semantic_context,

@@ -466,7 +466,18 @@ ForStmt::ForStmt(std::unique_ptr<Expr> init, std::unique_ptr<Expr> condition,
       condition_(std::move(condition)), step_(std::move(step)),
       body_(std::move(body)) {}
 
+ForStmt::ForStmt(std::unique_ptr<DeclStmt> init_decl,
+                 std::unique_ptr<Expr> condition, std::unique_ptr<Expr> step,
+                 std::unique_ptr<Stmt> body, SourceSpan source_span)
+    : Stmt(AstKind::ForStmt, source_span), init_decl_(std::move(init_decl)),
+      condition_(std::move(condition)), step_(std::move(step)),
+      body_(std::move(body)) {}
+
 const Expr *ForStmt::get_init() const noexcept { return init_.get(); }
+
+const DeclStmt *ForStmt::get_init_decl() const noexcept {
+    return init_decl_.get();
+}
 
 const Expr *ForStmt::get_condition() const noexcept { return condition_.get(); }
 

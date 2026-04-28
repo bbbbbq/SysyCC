@@ -619,6 +619,30 @@ AstBuilder::build_decl_group(const ParseTreeNode *node) const {
         decls.push_back(std::make_unique<UnknownDecl>("null decl"));
         return decls;
     }
+    if (ParseTreeMatcher::label_equals(node, "const_decl")) {
+        return build_const_decls(node);
+    }
+    if (ParseTreeMatcher::label_equals(node, "var_decl")) {
+        return build_var_decls(node);
+    }
+    if (ParseTreeMatcher::label_equals(node, "typedef_decl")) {
+        return build_typedef_decls(node);
+    }
+    if (ParseTreeMatcher::label_equals(node, "struct_decl")) {
+        std::vector<std::unique_ptr<Decl>> decls;
+        decls.push_back(build_struct_decl(node));
+        return decls;
+    }
+    if (ParseTreeMatcher::label_equals(node, "union_decl")) {
+        std::vector<std::unique_ptr<Decl>> decls;
+        decls.push_back(build_union_decl(node));
+        return decls;
+    }
+    if (ParseTreeMatcher::label_equals(node, "enum_decl")) {
+        std::vector<std::unique_ptr<Decl>> decls;
+        decls.push_back(build_enum_decl(node));
+        return decls;
+    }
     if (const ParseTreeNode *const_decl_node =
             ParseTreeMatcher::find_first_child_with_label(node, "const_decl")) {
         return build_const_decls(const_decl_node);
@@ -2136,6 +2160,30 @@ std::unique_ptr<Stmt> AstBuilder::build_stmt(const ParseTreeNode *node) const {
         return std::make_unique<ForStmt>(
             std::move(init), std::move(condition), std::move(step),
             build_stmt(stmt_node->children[8].get()),
+            get_node_source_span(stmt_node));
+    }
+
+    if (stmt_node->children.size() == 8 &&
+        ParseTreeMatcher::label_starts_with(stmt_node->children[0].get(),
+                                            "FOR") &&
+        ParseTreeMatcher::label_equals(stmt_node->children[2].get(),
+                                       "var_decl")) {
+        auto init_decl = std::make_unique<DeclStmt>(
+            get_node_source_span(stmt_node->children[2].get()));
+        for (auto &decl : build_decl_group(stmt_node->children[2].get())) {
+            init_decl->add_declaration(std::move(decl));
+        }
+        std::unique_ptr<Expr> condition = nullptr;
+        std::unique_ptr<Expr> step = nullptr;
+        if (!stmt_node->children[3]->children.empty()) {
+            condition = build_expr(stmt_node->children[3]->children[0].get());
+        }
+        if (!stmt_node->children[5]->children.empty()) {
+            step = build_expr(stmt_node->children[5]->children[0].get());
+        }
+        return std::make_unique<ForStmt>(
+            std::move(init_decl), std::move(condition), std::move(step),
+            build_stmt(stmt_node->children[7].get()),
             get_node_source_span(stmt_node));
     }
 

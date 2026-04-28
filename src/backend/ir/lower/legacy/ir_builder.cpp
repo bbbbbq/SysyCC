@@ -2293,7 +2293,9 @@ bool is_supported_stmt(const CompilerContext &context, const Stmt *stmt) {
     }
     case AstKind::ForStmt: {
         const auto *for_stmt = static_cast<const ForStmt *>(stmt);
-        return (for_stmt->get_init() == nullptr ||
+        return (for_stmt->get_init_decl() == nullptr ||
+                is_supported_stmt(context, for_stmt->get_init_decl())) &&
+               (for_stmt->get_init() == nullptr ||
                 is_supported_expr(context, for_stmt->get_init())) &&
                (for_stmt->get_condition() == nullptr ||
                 is_supported_expr(context, for_stmt->get_condition())) &&
@@ -2670,6 +2672,11 @@ std::string describe_unsupported_stmt(const CompilerContext &context,
     }
     case AstKind::ForStmt: {
         const auto *for_stmt = static_cast<const ForStmt *>(stmt);
+        if (const std::string init_decl_reason =
+                describe_unsupported_stmt(context, for_stmt->get_init_decl());
+            !init_decl_reason.empty()) {
+            return "for init declaration: " + init_decl_reason;
+        }
         if (const std::string init_reason =
                 describe_unsupported_expr(context, for_stmt->get_init());
             !init_reason.empty()) {
@@ -4329,6 +4336,12 @@ EmissionResult emit_stmt(IRBackend &backend, const CompilerContext &context,
     }
     case AstKind::ForStmt: {
         const auto *for_stmt = static_cast<const ForStmt *>(stmt);
+        if (for_stmt->get_init_decl() != nullptr &&
+            !emit_stmt(backend, context, state, for_stmt->get_init_decl(),
+                       function_return_type)
+                 .success) {
+            return {};
+        }
         if (for_stmt->get_init() != nullptr &&
             !build_expr(backend, context, state, for_stmt->get_init()).has_value()) {
             return {};

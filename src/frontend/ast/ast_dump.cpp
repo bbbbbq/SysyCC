@@ -668,6 +668,9 @@ void AstDumper::dump_for_stmt(const ForStmt *node, std::ostream &os,
     os << "Init\n";
     dump_node(node->get_init(), os, indent + 4);
     write_indent(os, indent + 2);
+    os << "InitDecl\n";
+    dump_node(node->get_init_decl(), os, indent + 4);
+    write_indent(os, indent + 2);
     os << "Condition\n";
     dump_node(node->get_condition(), os, indent + 4);
     write_indent(os, indent + 2);

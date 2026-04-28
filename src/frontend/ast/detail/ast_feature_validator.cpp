@@ -179,6 +179,8 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
     case AstKind::ForStmt: {
         const auto *for_stmt = static_cast<const ForStmt *>(node);
         return validate_node(for_stmt->get_init(), feature_registry, error_info) &&
+               validate_node(for_stmt->get_init_decl(), feature_registry,
+                             error_info) &&
                validate_node(for_stmt->get_condition(), feature_registry,
                              error_info) &&
                validate_node(for_stmt->get_step(), feature_registry, error_info) &&
