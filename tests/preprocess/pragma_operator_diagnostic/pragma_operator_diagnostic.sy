@@ -1,0 +1,8 @@
+#define PRAGMA(pragma) _Pragma(#pragma)
+#define DISABLE_WARNING(warning) PRAGMA(GCC diagnostic ignored #warning)
+
+DISABLE_WARNING(-Wsign-compare)
+
+int compare_unsigned(unsigned lhs, int rhs) {
+    return lhs < rhs;
+}

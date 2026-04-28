@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -43,6 +44,147 @@ bool is_valid_macro_name(const std::string &name) {
         }
     }
     return true;
+}
+
+bool has_identifier_boundary(const std::string &text, std::size_t begin,
+                             std::size_t end) {
+    const bool left_ok =
+        begin == 0 || !is_identifier_char(text[begin - 1]);
+    const bool right_ok =
+        end >= text.size() || !is_identifier_char(text[end]);
+    return left_ok && right_ok;
+}
+
+std::size_t find_pragma_operator_end(const std::string &text,
+                                     std::size_t begin) {
+    constexpr std::string_view pragma_operator = "_Pragma";
+    std::size_t index = begin + pragma_operator.size();
+    while (index < text.size() &&
+           std::isspace(static_cast<unsigned char>(text[index])) != 0) {
+        ++index;
+    }
+    if (index >= text.size() || text[index] != '(') {
+        return std::string::npos;
+    }
+
+    bool in_string_literal = false;
+    bool in_char_literal = false;
+    bool escaping = false;
+    int paren_depth = 0;
+    for (; index < text.size(); ++index) {
+        const char current = text[index];
+        if (in_string_literal) {
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '"') {
+                in_string_literal = false;
+            }
+            continue;
+        }
+
+        if (in_char_literal) {
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '\'') {
+                in_char_literal = false;
+            }
+            continue;
+        }
+
+        if (current == '"') {
+            in_string_literal = true;
+            continue;
+        }
+
+        if (current == '\'') {
+            in_char_literal = true;
+            continue;
+        }
+
+        if (current == '(') {
+            ++paren_depth;
+            continue;
+        }
+
+        if (current == ')') {
+            --paren_depth;
+            if (paren_depth == 0) {
+                return index + 1;
+            }
+        }
+    }
+
+    return std::string::npos;
+}
+
+std::string strip_pragma_operators(const std::string &text) {
+    constexpr std::string_view pragma_operator = "_Pragma";
+    std::string output;
+    bool in_string_literal = false;
+    bool in_char_literal = false;
+    bool escaping = false;
+    std::size_t index = 0;
+    while (index < text.size()) {
+        const char current = text[index];
+        if (in_string_literal) {
+            output.push_back(current);
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '"') {
+                in_string_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (in_char_literal) {
+            output.push_back(current);
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '\'') {
+                in_char_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (current == '"') {
+            in_string_literal = true;
+            output.push_back(current);
+            ++index;
+            continue;
+        }
+
+        if (current == '\'') {
+            in_char_literal = true;
+            output.push_back(current);
+            ++index;
+            continue;
+        }
+
+        if (text.compare(index, pragma_operator.size(), pragma_operator) == 0 &&
+            has_identifier_boundary(text, index,
+                                    index + pragma_operator.size())) {
+            const std::size_t end = find_pragma_operator_end(text, index);
+            if (end != std::string::npos) {
+                index = end;
+                continue;
+            }
+        }
+
+        output.push_back(current);
+        ++index;
+    }
+
+    return output;
 }
 
 void append_comment_placeholder(std::string &text) {
@@ -444,9 +586,10 @@ PreprocessSession::strip_comments_from_line(const std::string &line,
 PassResult PreprocessSession::handle_non_directive_line(const std::string &line,
                                                         int line_number) {
     if (preprocess_context_.get_conditional_stack().is_in_active_region()) {
+        const std::string expanded_line = macro_expander_.expand_line(
+            line, preprocess_context_.get_macro_table());
         preprocess_context_.get_runtime().append_output_line(
-            macro_expander_.expand_line(line,
-                                        preprocess_context_.get_macro_table()),
+            strip_pragma_operators(expanded_line),
             preprocess_context_.get_source_mapper().get_logical_position(
                 line_number, 1));
     }
