@@ -11,7 +11,6 @@ mkdir -p "${COMPAT_ROOT}"
 
 if [[ -d "${LEGACY_ROOT}" ]]; then
     find "${LEGACY_ROOT}" \
-        -path "${COMPAT_ROOT}" -prune -o \
         -name '*.o' ! -name 'main.cpp.o' \
         -delete
 fi

@@ -13,7 +13,7 @@ CMAKE_CONFIGURE_ARGS += -DCMAKE_CXX_COMPILER_LAUNCHER=$(SYSYCC_COMPILER_CACHE)
 endif
 endif
 
-.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja profile-self-build test-tier1 test-tier2 test-full test-aarch64-ll test-aarch64-single-source test-aarch64-single-source-smoke test-aarch64-single-source-full lua-smoke lua-incremental pass-report-diff real-project-compile-times test clean clean-ninja format check
+.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja profile-self-build test-tier1 test-tier2 test-full test-aarch64-ll test-aarch64-single-source test-aarch64-single-source-smoke test-aarch64-single-source-full lua-smoke lua-incremental pass-report-diff real-project-compile-times real-c-projects test clean clean-ninja format check
 
 all: run
 
@@ -68,6 +68,9 @@ pass-report-diff:
 
 real-project-compile-times:
 	./tests/manual/external_real_project_probe/profile_compile_times.sh $(TEST_ARGS)
+
+real-c-projects:
+	./tests/manual/external_real_project_probe/validate_c_projects.sh $(TEST_ARGS)
 
 test: test-tier1
 

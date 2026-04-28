@@ -139,6 +139,7 @@ make lua-smoke
 make lua-incremental
 make lua-incremental TEST_ARGS="lvm.c"
 make real-project-compile-times
+make real-c-projects TEST_ARGS="lua zlib sqlite libpng git openssl"
 make pass-report-diff TEST_ARGS="before.md after.md"
 ```
 
@@ -149,6 +150,8 @@ make pass-report-diff TEST_ARGS="before.md after.md"
 - `test-full` 用于更完整回归。
 - `profile-self-build` 会生成 `build/self_build_profile.md`，记录 configure、
   no-op build、触碰高频源文件/头文件后的增量构建耗时和 ccache 统计。
+- `real-c-projects` 会在真实工程 probe 环境中运行 Lua、zlib、SQLite、
+  libpng、Git、OpenSSL 的构建和 smoke，并生成矩阵报告。
 - Lua / MuJS 真实工程 probe 是手动验证入口，不默认放入 tier1/tier2，因为它依赖 Docker、网络、外部仓库和更长运行时间。
 
 ## 真实工程 Probe
