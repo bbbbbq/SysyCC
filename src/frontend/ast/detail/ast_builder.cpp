@@ -1808,6 +1808,9 @@ AstBuilder::build_struct_fields(const ParseTreeNode *node) const {
         collect_declaration_type_qualifiers(field_node,
                                             leading_qualifiers.is_const,
                                             leading_qualifiers.is_volatile);
+        if (has_enumerator_list(type_specifier)) {
+            fields.push_back(build_enum_decl(type_specifier));
+        }
         std::vector<const ParseTreeNode *> declarators;
         std::vector<const ParseTreeNode *> declarator_stack;
         if (declarator_list != nullptr) {
@@ -1910,6 +1913,9 @@ AstBuilder::build_union_fields(const ParseTreeNode *node) const {
         collect_declaration_type_qualifiers(field_node,
                                             leading_qualifiers.is_const,
                                             leading_qualifiers.is_volatile);
+        if (has_enumerator_list(type_specifier)) {
+            fields.push_back(build_enum_decl(type_specifier));
+        }
         std::vector<const ParseTreeNode *> declarators;
         std::vector<const ParseTreeNode *> declarator_stack;
         if (declarator_list != nullptr) {

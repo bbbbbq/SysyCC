@@ -1,0 +1,11 @@
+#define MAYBE_UNUSED __attribute__((__unused__))
+
+static char *parse_options_noop_ignored_value MAYBE_UNUSED;
+static int configured_value MAYBE_UNUSED = 7;
+
+__attribute__((format(printf, 1, 2)))
+void __attribute__((__noreturn__)) usage_msg_optf(const char *fmt, ...);
+
+int main(void) {
+    return configured_value == 7 ? 0 : 1;
+}
