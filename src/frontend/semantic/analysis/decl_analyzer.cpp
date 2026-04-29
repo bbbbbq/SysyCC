@@ -27,6 +27,8 @@ namespace {
 const SemanticType *strip_qualifiers(const SemanticType *type);
 bool is_incomplete_named_struct_semantic_type(const SemanticType *type,
                                               const std::string &name);
+bool completes_incomplete_named_aggregate_type(const SemanticType *existing_type,
+                                               const SemanticType *declared_type);
 void analyze_aggregate_field_constant_expressions(
     const std::vector<std::unique_ptr<Decl>> &field_decls,
     const ExprAnalyzer &expr_analyzer, SemanticContext &semantic_context,
@@ -500,6 +502,31 @@ bool is_incomplete_named_union_semantic_type(const SemanticType *type,
            union_type->get_fields().empty();
 }
 
+bool completes_incomplete_named_aggregate_type(const SemanticType *existing_type,
+                                               const SemanticType *declared_type) {
+    const SemanticType *existing = strip_qualifiers(existing_type);
+    const SemanticType *declared = strip_qualifiers(declared_type);
+    if (const auto *existing_struct =
+            dynamic_cast<const StructSemanticType *>(existing);
+        existing_struct != nullptr && existing_struct->get_fields().empty()) {
+        const auto *declared_struct =
+            dynamic_cast<const StructSemanticType *>(declared);
+        return declared_struct != nullptr &&
+               declared_struct->get_name() == existing_struct->get_name() &&
+               !declared_struct->get_fields().empty();
+    }
+    if (const auto *existing_union =
+            dynamic_cast<const UnionSemanticType *>(existing);
+        existing_union != nullptr && existing_union->get_fields().empty()) {
+        const auto *declared_union =
+            dynamic_cast<const UnionSemanticType *>(declared);
+        return declared_union != nullptr &&
+               declared_union->get_name() == existing_union->get_name() &&
+               !declared_union->get_fields().empty();
+    }
+    return false;
+}
+
 const SemanticType *complete_incomplete_char_array_from_string_initializer(
     const SemanticType *declared_type, const Expr *initializer,
     SemanticModel &semantic_model) {
@@ -722,6 +749,11 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                 if (is_incomplete_array_semantic_type(
                         existing_symbol->get_type()) &&
                     !is_incomplete_array_semantic_type(declared_type)) {
+                    const_cast<SemanticSymbol *>(existing_symbol)
+                        ->set_type(declared_type);
+                }
+                if (completes_incomplete_named_aggregate_type(
+                        existing_symbol->get_type(), declared_type)) {
                     const_cast<SemanticSymbol *>(existing_symbol)
                         ->set_type(declared_type);
                 }
