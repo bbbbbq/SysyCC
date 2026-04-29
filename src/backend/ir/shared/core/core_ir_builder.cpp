@@ -675,6 +675,10 @@ class CoreIrBuildSession {
             if (!function_decl->get_asm_label().empty()) {
                 function_name = function_decl->get_asm_label();
             }
+        } else if (const auto *var_decl =
+                       dynamic_cast<const VarDecl *>(symbol->get_decl_node());
+                   var_decl != nullptr) {
+            is_internal_linkage = var_decl->get_is_static();
         }
 
         if (CoreIrFunction *existing_function =
@@ -5946,6 +5950,10 @@ class CoreIrBuildSession {
     }
 
     bool declare_global_var(const VarDecl &var_decl) {
+        if (const SemanticSymbol *symbol = get_symbol_binding(&var_decl);
+            symbol != nullptr && symbol->get_kind() == SymbolKind::Function) {
+            return true;
+        }
         return declare_global_symbol(get_symbol_binding(&var_decl),
                                      var_decl.get_name(),
                                      var_decl.get_source_span(),
@@ -7156,6 +7164,9 @@ class CoreIrBuildSession {
 
     bool emit_global_var_decl(const VarDecl &var_decl) {
         const SemanticSymbol *symbol = get_symbol_binding(&var_decl);
+        if (symbol != nullptr && symbol->get_kind() == SymbolKind::Function) {
+            return true;
+        }
         if (symbol == nullptr || symbol->get_type() == nullptr) {
             add_error("core ir generation could not resolve top-level variable type",
                       var_decl.get_source_span());

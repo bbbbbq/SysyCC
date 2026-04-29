@@ -751,6 +751,33 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             declared_type, var_decl->get_initializer(), semantic_model);
         declared_type = complete_incomplete_array_from_initializer_list(
             declared_type, var_decl->get_initializer(), semantic_model);
+        if (strip_qualifiers(declared_type) != nullptr &&
+            strip_qualifiers(declared_type)->get_kind() ==
+                SemanticTypeKind::Function) {
+            const SemanticSymbol *symbol =
+                scope_stack.lookup(var_decl->get_name());
+            if (symbol != nullptr) {
+                if (symbol->get_kind() != SymbolKind::Function ||
+                    !conversion_checker_.is_same_type(symbol->get_type(),
+                                                      declared_type)) {
+                    add_error(semantic_context,
+                              "redefinition of symbol: " + var_decl->get_name(),
+                              var_decl->get_source_span());
+                    break;
+                }
+            } else {
+                symbol = semantic_model.own_symbol(std::make_unique<SemanticSymbol>(
+                    SymbolKind::Function, var_decl->get_name(), declared_type,
+                    var_decl));
+                if (!define_symbol(semantic_context, scope_stack, symbol,
+                                   var_decl->get_source_span())) {
+                    break;
+                }
+            }
+            semantic_model.bind_symbol(var_decl, symbol);
+            semantic_model.bind_node_type(var_decl, declared_type);
+            break;
+        }
         const bool is_file_scope =
             semantic_context.get_current_function() == nullptr;
         const bool has_initializer = var_decl->get_initializer() != nullptr;
