@@ -1,0 +1,9 @@
+enum branch_color {
+    BRANCH_COLOR_RESET = 0,
+    BRANCH_COLOR_PLAIN = 1,
+};
+
+static const char *color_branch_slots[] = {
+    [BRANCH_COLOR_RESET] = "reset",
+    [BRANCH_COLOR_PLAIN] = "plain",
+};

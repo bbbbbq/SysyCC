@@ -1615,6 +1615,8 @@ designator
       { $$ = sysycc::make_nonterminal_node("designator", {$1, $2}); }
     | DOT TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("designator", {$1, $2}); }
+    | LBRACKET const_expr RBRACKET
+      { $$ = sysycc::make_nonterminal_node("designator", {$1, $2, $3}); }
     ;
 
 %%
