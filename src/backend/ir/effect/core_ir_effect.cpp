@@ -74,6 +74,9 @@ get_core_ir_instruction_effect(const CoreIrInstruction &instruction) noexcept {
     case CoreIrOpcode::AddressOfStackSlot:
     case CoreIrOpcode::GetElementPtr:
         return make_pure_value_effect();
+    case CoreIrOpcode::DynamicAlloca:
+        return CoreIrEffectInfo{CoreIrMemoryBehavior::Write, false, false,
+                                false};
     case CoreIrOpcode::Load:
         return CoreIrEffectInfo{CoreIrMemoryBehavior::Read, false, false,
                                 false};

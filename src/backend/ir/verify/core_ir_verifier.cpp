@@ -244,6 +244,24 @@ void verify_instruction_references(CoreIrVerifyResult &result,
     case CoreIrOpcode::Store:
     case CoreIrOpcode::Return:
         return;
+    case CoreIrOpcode::DynamicAlloca: {
+        const auto &alloca =
+            static_cast<const CoreIrDynamicAllocaInst &>(instruction);
+        if (instruction.get_type()->get_kind() != CoreIrTypeKind::Pointer) {
+            add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
+                      "dynamic alloca result must be a pointer", &function,
+                      instruction.get_parent(), &instruction);
+        }
+        if (alloca.get_size() == nullptr ||
+            alloca.get_size()->get_type() == nullptr ||
+            alloca.get_size()->get_type()->get_kind() !=
+                CoreIrTypeKind::Integer) {
+            add_issue(result, CoreIrVerifyIssueKind::InvalidReference,
+                      "dynamic alloca size must be an integer", &function,
+                      instruction.get_parent(), &instruction);
+        }
+        return;
+    }
     case CoreIrOpcode::AddressOfFunction: {
         const auto &address =
             static_cast<const CoreIrAddressOfFunctionInst &>(instruction);

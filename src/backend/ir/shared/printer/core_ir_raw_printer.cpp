@@ -472,6 +472,14 @@ std::string CoreIrRawPrinter::format_instruction(
                " %" +
                address_of_stack_slot_instruction.get_stack_slot()->get_name();
     }
+    case CoreIrOpcode::DynamicAlloca: {
+        const auto &alloca_instruction =
+            static_cast<const CoreIrDynamicAllocaInst &>(instruction);
+        return format_value(&alloca_instruction) + " = dynamic_alloca " +
+               format_type(alloca_instruction.get_type()) + " " +
+               format_type(alloca_instruction.get_size()->get_type()) + " " +
+               format_value(alloca_instruction.get_size());
+    }
     case CoreIrOpcode::GetElementPtr: {
         const auto &gep_instruction =
             static_cast<const CoreIrGetElementPtrInst &>(instruction);

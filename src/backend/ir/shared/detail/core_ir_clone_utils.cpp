@@ -142,6 +142,14 @@ std::unique_ptr<CoreIrInstruction> clone_instruction_remapped(
         clone->set_source_span(address.get_source_span());
         return clone;
     }
+    case CoreIrOpcode::DynamicAlloca: {
+        const auto &alloca =
+            static_cast<const CoreIrDynamicAllocaInst &>(instruction);
+        auto clone = std::make_unique<CoreIrDynamicAllocaInst>(
+            alloca.get_type(), alloca.get_name(), remap(alloca.get_size()));
+        clone->set_source_span(alloca.get_source_span());
+        return clone;
+    }
     case CoreIrOpcode::GetElementPtr: {
         const auto &gep =
             static_cast<const CoreIrGetElementPtrInst &>(instruction);

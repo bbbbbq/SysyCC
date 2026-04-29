@@ -3792,6 +3792,48 @@ class CoreIrBuildSession {
         if (const auto *callee_identifier =
                 dynamic_cast<const IdentifierExpr *>(expr.get_callee());
             callee_identifier != nullptr &&
+            callee_identifier->get_name() == "__builtin_alloca") {
+            if (expr.get_arguments().size() != 1) {
+                add_error("core ir generation found malformed alloca builtin",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            const FunctionSemanticType *callee_semantic_type =
+                get_function_semantic_type(get_node_type(expr.get_callee()));
+            if (callee_semantic_type == nullptr ||
+                callee_semantic_type->get_parameter_types().empty()) {
+                add_error(
+                    "core ir generation could not resolve alloca builtin type",
+                    expr.get_source_span());
+                return nullptr;
+            }
+            CoreIrValue *size_value = build_expr(expr.get_arguments().front().get());
+            if (size_value == nullptr) {
+                return nullptr;
+            }
+            size_value = build_converted_value(
+                size_value, get_node_type(expr.get_arguments().front().get()),
+                callee_semantic_type->get_parameter_types().front(),
+                expr.get_arguments().front()->get_source_span());
+            if (size_value == nullptr) {
+                return nullptr;
+            }
+            const CoreIrType *result_type = get_or_create_type(get_node_type(&expr));
+            if (result_type == nullptr ||
+                result_type->get_kind() != CoreIrTypeKind::Pointer) {
+                add_error("core ir generation could not resolve alloca result type",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            auto *alloca = current_block_->create_instruction<CoreIrDynamicAllocaInst>(
+                result_type, next_temp_name(), size_value);
+            alloca->set_source_span(expr.get_source_span());
+            return alloca;
+        }
+
+        if (const auto *callee_identifier =
+                dynamic_cast<const IdentifierExpr *>(expr.get_callee());
+            callee_identifier != nullptr &&
             (callee_identifier->get_name() == "__builtin_bswap16" ||
              callee_identifier->get_name() == "__builtin_bswap32" ||
              callee_identifier->get_name() == "__builtin_bswap64")) {

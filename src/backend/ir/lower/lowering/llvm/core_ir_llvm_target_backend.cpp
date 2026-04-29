@@ -818,6 +818,24 @@ bool CoreIrLlvmTargetBackend::append_instruction(
     case CoreIrOpcode::AddressOfGlobal:
     case CoreIrOpcode::AddressOfStackSlot:
         return true;
+    case CoreIrOpcode::DynamicAlloca: {
+        const auto &alloca_instruction =
+            static_cast<const CoreIrDynamicAllocaInst &>(instruction);
+        if (alloca_instruction.get_size() == nullptr) {
+            diagnostic_engine.add_error(
+                DiagnosticStage::Compiler,
+                "core ir llvm lowering found malformed dynamic alloca",
+                instruction.get_source_span());
+            return false;
+        }
+        text += "  %" + get_emitted_value_name(&alloca_instruction) +
+                " = alloca i8, ";
+        text += format_type(alloca_instruction.get_size()->get_type());
+        text += " ";
+        text += format_value_ref(alloca_instruction.get_size());
+        text += ", align 16\n";
+        return true;
+    }
     case CoreIrOpcode::GetElementPtr: {
         const auto &gep_instruction =
             static_cast<const CoreIrGetElementPtrInst &>(instruction);

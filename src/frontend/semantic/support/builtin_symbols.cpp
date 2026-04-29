@@ -222,6 +222,8 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
     register_builtin_function(semantic_model, scope_stack,
                               "__builtin_object_size", unsigned_long_type,
                               {void_ptr_type, int_type});
+    register_builtin_function(semantic_model, scope_stack, "__builtin_alloca",
+                              void_ptr_type, {unsigned_long_type});
     register_builtin_function(semantic_model, scope_stack,
                               "__builtin___memcpy_chk", void_ptr_type,
                               {void_ptr_type, void_ptr_type, unsigned_long_type,

@@ -1,0 +1,6 @@
+int main(void) {
+    int *values = (int *)__builtin_alloca(sizeof(int) * 2);
+    values[0] = 20;
+    values[1] = 22;
+    return values[0] + values[1] == 42 ? 0 : 1;
+}

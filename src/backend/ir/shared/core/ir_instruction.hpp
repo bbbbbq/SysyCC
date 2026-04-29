@@ -29,6 +29,7 @@ enum class CoreIrOpcode : unsigned char {
     AddressOfFunction,
     AddressOfGlobal,
     AddressOfStackSlot,
+    DynamicAlloca,
     GetElementPtr,
     Load,
     Store,
@@ -585,6 +586,24 @@ class CoreIrAddressOfStackSlotInst final : public CoreIrInstruction {
     CoreIrStackSlot *get_stack_slot() const noexcept { return stack_slot_; }
 
     bool get_has_side_effect() const noexcept override { return false; }
+
+    bool get_is_terminator() const noexcept override { return false; }
+};
+
+class CoreIrDynamicAllocaInst final : public CoreIrInstruction {
+  public:
+    CoreIrDynamicAllocaInst(const CoreIrType *type, std::string name,
+                            CoreIrValue *size)
+        : CoreIrInstruction(CoreIrOpcode::DynamicAlloca, type,
+                            std::move(name)) {
+        append_operand(size);
+    }
+
+    CoreIrValue *get_size() const noexcept {
+        return get_operands().empty() ? nullptr : get_operands()[0];
+    }
+
+    bool get_has_side_effect() const noexcept override { return true; }
 
     bool get_is_terminator() const noexcept override { return false; }
 };
