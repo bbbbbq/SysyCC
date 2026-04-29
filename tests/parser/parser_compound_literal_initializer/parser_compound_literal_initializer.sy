@@ -1,0 +1,8 @@
+struct TmpFile {
+    int fd;
+};
+
+int main(void) {
+    struct TmpFile tmp = ((struct TmpFile) { .fd = -1, });
+    return tmp.fd + 1;
+}

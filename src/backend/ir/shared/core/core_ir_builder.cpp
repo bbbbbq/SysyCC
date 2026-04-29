@@ -3632,6 +3632,15 @@ class CoreIrBuildSession {
         }
 
         if (expr.get_operator_text() == "=") {
+            if (expr.get_value() != nullptr &&
+                expr.get_value()->get_kind() == AstKind::InitListExpr) {
+                if (!emit_local_initializer_to_address(
+                        address, get_node_type(expr.get_target()),
+                        expr.get_value(), expr.get_value()->get_source_span())) {
+                    return nullptr;
+                }
+                return address;
+            }
             CoreIrValue *value = build_expr(expr.get_value());
             if (value == nullptr) {
                 return nullptr;

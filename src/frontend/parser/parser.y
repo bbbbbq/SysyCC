@@ -1646,6 +1646,10 @@ primary_expr
       { $$ = sysycc::make_nonterminal_node("primary_expr", {$1}); }
     | gnu_builtin_types_compatible_expr
       { $$ = sysycc::make_nonterminal_node("primary_expr", {$1}); }
+    | LPAREN cast_target_type RPAREN LBRACE RBRACE
+      { $$ = sysycc::make_nonterminal_node("compound_literal_expr", {$1, $2, $3, $4, $5}); }
+    | LPAREN cast_target_type RPAREN LBRACE init_val_list RBRACE
+      { $$ = sysycc::make_nonterminal_node("compound_literal_expr", {$1, $2, $3, $4, $5, $6}); }
     | LPAREN expr RPAREN
       { $$ = sysycc::make_nonterminal_node("primary_expr", {$1, $2, $3}); }
     ;

@@ -2578,6 +2578,10 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
         }
     }
 
+    if (ParseTreeMatcher::label_equals(node, "compound_literal_expr")) {
+        return build_init_list_expr(node);
+    }
+
     if (ParseTreeMatcher::label_equals(node, "designated_init_val")) {
         if (const ParseTreeNode *init_node =
                 ParseTreeMatcher::find_first_child_with_label(node,
