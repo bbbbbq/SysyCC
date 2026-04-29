@@ -56,7 +56,7 @@ char *yyget_text(void *yyscanner);
 %type <node> attribute_specifier_seq_opt attribute_specifier_seq attribute_specifier
 %type <node> attribute_list_opt attribute_list attribute attribute_name attribute_argument_list_opt
 %type <node> attribute_argument_list attribute_argument
-%type <node> block block_items block_item stmt
+%type <node> block block_scope_enter block_items block_item stmt
 %type <node> expr const_expr cond argument_expr_list
 %type <node> assignment_expr conditional_expr logical_or_expr logical_and_expr bit_or_expr
 %type <node> bit_xor_expr bit_and_expr eq_expr rel_expr shift_expr add_expr
@@ -214,6 +214,8 @@ var_decl
       {
           $$ = sysycc::make_nonterminal_node("var_decl",
                                              {$1, $2, $3, $4, $5, $6, $7, $8});
+          sysycc::hide_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($7));
       }
     | storage_specifier_opt alignment_specifier_seq_opt type_qualifier_seq_opt struct_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
       {
@@ -221,6 +223,8 @@ var_decl
               sysycc::make_nonterminal_node("type_specifier", {$4});
           $$ = sysycc::make_nonterminal_node("var_decl",
                                              {$1, $2, $3, type_specifier, $5, $6, $7, $8});
+          sysycc::hide_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($7));
       }
     | storage_specifier_opt alignment_specifier_seq_opt type_qualifier_seq_opt union_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
       {
@@ -228,6 +232,8 @@ var_decl
               sysycc::make_nonterminal_node("type_specifier", {$4});
           $$ = sysycc::make_nonterminal_node("var_decl",
                                              {$1, $2, $3, type_specifier, $5, $6, $7, $8});
+          sysycc::hide_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($7));
       }
     | storage_specifier_opt alignment_specifier_seq_opt type_qualifier_seq_opt enum_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
       {
@@ -235,6 +241,8 @@ var_decl
               sysycc::make_nonterminal_node("type_specifier", {$4});
           $$ = sysycc::make_nonterminal_node("var_decl",
                                              {$1, $2, $3, type_specifier, $5, $6, $7, $8});
+          sysycc::hide_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($7));
       }
     ;
 
@@ -1280,8 +1288,19 @@ parameter_decl
     ;
 
 block
-    : LBRACE block_items RBRACE
-      { $$ = sysycc::make_nonterminal_node("block", {$1, $2, $3}); }
+    : LBRACE block_scope_enter block_items RBRACE
+      {
+          sysycc::pop_typedef_shadow_scope();
+          $$ = sysycc::make_nonterminal_node("block", {$1, $3, $4});
+      }
+    ;
+
+block_scope_enter
+    : /* empty */
+      {
+          sysycc::push_typedef_shadow_scope();
+          $$ = sysycc::make_nonterminal_node("block_scope_enter", {});
+      }
     ;
 
 block_items

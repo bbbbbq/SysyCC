@@ -1,5 +1,6 @@
 #include "frontend/parser/parser_runtime.hpp"
 
+#include <unordered_map>
 #include <unordered_set>
 
 #include "frontend/support/builtin_typedef_inventory.hpp"
@@ -11,6 +12,8 @@ namespace {
 std::unique_ptr<ParseTreeNode> g_parse_tree_root;
 ParserErrorInfo g_parser_error_info;
 std::unordered_set<std::string> g_typedef_names;
+std::unordered_map<std::string, std::size_t> g_hidden_typedef_name_counts;
+std::vector<std::vector<std::string>> g_typedef_shadow_scope_stack;
 
 ParseTreeNode *AsNode(void *node) { return static_cast<ParseTreeNode *>(node); }
 
@@ -43,6 +46,8 @@ void parser_runtime_reset() {
     g_parse_tree_root.reset();
     g_parser_error_info = ParserErrorInfo();
     g_typedef_names.clear();
+    g_hidden_typedef_name_counts.clear();
+    g_typedef_shadow_scope_stack.clear();
     for_each_builtin_typedef_inventory_entry(
         [](const BuiltinTypedefInventoryEntry &entry) {
             g_typedef_names.insert(std::string(entry.name));
@@ -125,7 +130,64 @@ void register_typedef_names_from_declarator_list(const ParseTreeNode *node) {
 }
 
 bool is_typedef_name_registered(const std::string &name) {
-    return g_typedef_names.find(name) != g_typedef_names.end();
+    const auto hidden_it = g_hidden_typedef_name_counts.find(name);
+    return g_typedef_names.find(name) != g_typedef_names.end() &&
+           (hidden_it == g_hidden_typedef_name_counts.end() ||
+            hidden_it->second == 0);
+}
+
+void push_typedef_shadow_scope() {
+    g_typedef_shadow_scope_stack.emplace_back();
+}
+
+void pop_typedef_shadow_scope() {
+    if (g_typedef_shadow_scope_stack.empty()) {
+        return;
+    }
+    for (const std::string &name : g_typedef_shadow_scope_stack.back()) {
+        auto hidden_it = g_hidden_typedef_name_counts.find(name);
+        if (hidden_it == g_hidden_typedef_name_counts.end()) {
+            continue;
+        }
+        if (hidden_it->second <= 1) {
+            g_hidden_typedef_name_counts.erase(hidden_it);
+        } else {
+            --hidden_it->second;
+        }
+    }
+    g_typedef_shadow_scope_stack.pop_back();
+}
+
+void hide_typedef_names_from_declarator_list(const ParseTreeNode *node) {
+    if (node == nullptr) {
+        return;
+    }
+    if (node->label == "parameter_decl" ||
+        node->label == "parameter_list" ||
+        node->label == "function_parameter_list_opt") {
+        return;
+    }
+    if (node->label == "declarator_identifier") {
+        for (const auto &child : node->children) {
+            std::string name;
+            if (child->label.rfind("IDENTIFIER ", 0) == 0) {
+                name = child->label.substr(std::string("IDENTIFIER ").size());
+            } else if (child->label.rfind("TYPE_NAME ", 0) == 0) {
+                name = child->label.substr(std::string("TYPE_NAME ").size());
+            }
+            if (!name.empty() &&
+                g_typedef_names.find(name) != g_typedef_names.end()) {
+                ++g_hidden_typedef_name_counts[name];
+                if (!g_typedef_shadow_scope_stack.empty()) {
+                    g_typedef_shadow_scope_stack.back().push_back(name);
+                }
+                return;
+            }
+        }
+    }
+    for (const auto &child : node->children) {
+        hide_typedef_names_from_declarator_list(child.get());
+    }
 }
 
 } // namespace sysycc

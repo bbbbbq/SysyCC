@@ -33,6 +33,7 @@ void analyze_aggregate_field_constant_expressions(
     const std::vector<std::unique_ptr<Decl>> &field_decls,
     const ExprAnalyzer &expr_analyzer, SemanticContext &semantic_context,
     ScopeStack &scope_stack);
+bool is_anonymous_tag_name(const std::string &name);
 
 void collect_inline_struct_type_nodes(
     const TypeNode *type_node, std::vector<const StructTypeNode *> &nodes) {
@@ -223,6 +224,9 @@ void analyze_inline_type_declarations_impl(const TypeNode *type_node,
     }
     case AstKind::EnumType: {
         const auto *enum_type = static_cast<const EnumTypeNode *>(type_node);
+        if (!is_anonymous_tag_name(enum_type->get_name())) {
+            return;
+        }
         decl_analyzer.analyze_enum_enumerators(enum_type->get_enumerators(),
                                                semantic_context, scope_stack);
         return;
@@ -230,6 +234,9 @@ void analyze_inline_type_declarations_impl(const TypeNode *type_node,
     case AstKind::StructType: {
         const auto *struct_type =
             static_cast<const StructTypeNode *>(type_node);
+        if (!is_anonymous_tag_name(struct_type->get_name())) {
+            return;
+        }
         for (const auto &field : struct_type->get_fields()) {
             decl_analyzer.analyze_decl(field.get(), semantic_context,
                                        scope_stack);
@@ -238,6 +245,9 @@ void analyze_inline_type_declarations_impl(const TypeNode *type_node,
     }
     case AstKind::UnionType: {
         const auto *union_type = static_cast<const UnionTypeNode *>(type_node);
+        if (!is_anonymous_tag_name(union_type->get_name())) {
+            return;
+        }
         for (const auto &field : union_type->get_fields()) {
             decl_analyzer.analyze_decl(field.get(), semantic_context,
                                        scope_stack);

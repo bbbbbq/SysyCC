@@ -348,6 +348,21 @@ bool has_union_field_list(const ParseTreeNode *node) {
     return field_list != nullptr && !field_list->children.empty();
 }
 
+bool has_union_tag_name(const ParseTreeNode *node) {
+    const ParseTreeNode *union_specifier =
+        ParseTreeMatcher::find_first_child_with_label(node, "union_specifier");
+    if (union_specifier == nullptr) {
+        return false;
+    }
+    for (const auto &child : union_specifier->children) {
+        std::string tag_name;
+        if (extract_tag_identifier_name(child.get(), tag_name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool has_enumerator_list(const ParseTreeNode *node) {
     const ParseTreeNode *enum_specifier =
         ParseTreeMatcher::find_first_child_with_label(node, "enum_specifier");
@@ -358,6 +373,21 @@ bool has_enumerator_list(const ParseTreeNode *node) {
         ParseTreeMatcher::find_first_child_with_label(enum_specifier,
                                                       "enumerator_list_opt");
     return enumerator_list != nullptr && !enumerator_list->children.empty();
+}
+
+bool has_enum_tag_name(const ParseTreeNode *node) {
+    const ParseTreeNode *enum_specifier =
+        ParseTreeMatcher::find_first_child_with_label(node, "enum_specifier");
+    if (enum_specifier == nullptr) {
+        return false;
+    }
+    for (const auto &child : enum_specifier->children) {
+        std::string tag_name;
+        if (extract_tag_identifier_name(child.get(), tag_name)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -720,10 +750,12 @@ AstBuilder::build_const_decls(const ParseTreeNode *node) const {
         has_struct_tag_name(type_specifier)) {
         decls.push_back(build_struct_decl(type_specifier));
     }
-    if (has_union_field_list(type_specifier)) {
+    if (has_union_field_list(type_specifier) &&
+        has_union_tag_name(type_specifier)) {
         decls.push_back(build_union_decl(type_specifier));
     }
-    if (has_enumerator_list(type_specifier)) {
+    if (has_enumerator_list(type_specifier) &&
+        has_enum_tag_name(type_specifier)) {
         decls.push_back(build_enum_decl(type_specifier));
     }
 
@@ -757,7 +789,8 @@ AstBuilder::build_const_decls(const ParseTreeNode *node) const {
                                                           "init_val");
         decls.push_back(std::make_unique<ConstDecl>(
             extract_declarator_name(declarator),
-            build_declared_type(type_specifier, declarator, true),
+            build_declared_type(type_specifier, declarator, true, false,
+                                !has_enum_tag_name(type_specifier)),
             collect_declarator_dimensions(declarator), build_expr(initializer),
             get_node_source_span(declarator_node)));
     }
@@ -804,10 +837,12 @@ AstBuilder::build_var_decls(const ParseTreeNode *node) const {
         has_struct_tag_name(type_specifier)) {
         decls.push_back(build_struct_decl(type_specifier));
     }
-    if (has_union_field_list(type_specifier)) {
+    if (has_union_field_list(type_specifier) &&
+        has_union_tag_name(type_specifier)) {
         decls.push_back(build_union_decl(type_specifier));
     }
-    if (has_enumerator_list(type_specifier)) {
+    if (has_enumerator_list(type_specifier) &&
+        has_enum_tag_name(type_specifier)) {
         decls.push_back(build_enum_decl(type_specifier));
     }
 
@@ -843,7 +878,8 @@ AstBuilder::build_var_decls(const ParseTreeNode *node) const {
             extract_declarator_name(declarator),
             build_declared_type(type_specifier, declarator,
                                 leading_qualifiers.is_const,
-                                leading_qualifiers.is_volatile),
+                                leading_qualifiers.is_volatile,
+                                !has_enum_tag_name(type_specifier)),
             collect_declarator_dimensions(declarator),
             initializer == nullptr ? nullptr : build_expr(initializer),
             storage_specifiers.is_extern, storage_specifiers.is_static,
@@ -884,10 +920,12 @@ AstBuilder::build_typedef_decls(const ParseTreeNode *node) const {
         has_struct_tag_name(type_specifier)) {
         decls.push_back(build_struct_decl(type_specifier));
     }
-    if (has_union_field_list(type_specifier)) {
+    if (has_union_field_list(type_specifier) &&
+        has_union_tag_name(type_specifier)) {
         decls.push_back(build_union_decl(type_specifier));
     }
-    if (has_enumerator_list(type_specifier)) {
+    if (has_enumerator_list(type_specifier) &&
+        has_enum_tag_name(type_specifier)) {
         decls.push_back(build_enum_decl(type_specifier));
     }
     std::vector<const ParseTreeNode *> declarators;
@@ -917,7 +955,8 @@ AstBuilder::build_typedef_decls(const ParseTreeNode *node) const {
             extract_declarator_name(declarator),
             build_declared_type(type_specifier, declarator,
                                 leading_qualifiers.is_const,
-                                leading_qualifiers.is_volatile),
+                                leading_qualifiers.is_volatile,
+                                !has_enum_tag_name(type_specifier)),
             collect_declarator_dimensions(declarator),
             get_node_source_span(declarator)));
     }

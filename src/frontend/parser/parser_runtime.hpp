@@ -51,6 +51,9 @@ void set_parser_error_info(ParserErrorInfo error_info);
 const ParserErrorInfo &get_parser_error_info() noexcept;
 void register_typedef_name(const std::string &name);
 void register_typedef_names_from_declarator_list(const ParseTreeNode *node);
+void push_typedef_shadow_scope();
+void pop_typedef_shadow_scope();
+void hide_typedef_names_from_declarator_list(const ParseTreeNode *node);
 bool is_typedef_name_registered(const std::string &name);
 
 } // namespace sysycc
