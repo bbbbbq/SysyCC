@@ -4317,17 +4317,18 @@ class CoreIrBuildSession {
 
     bool initializer_element_designates_field(const InitListExpr *init_list,
                                               std::size_t element_index,
-                                              const std::string &field_name) const {
+                                              const std::string &field_name,
+                                              std::size_t designator_depth) const {
         if (init_list == nullptr || field_name.empty()) {
             return false;
         }
         const auto &designator = init_list->get_element_designator(element_index);
-        if (!designator.has_value() || designator->empty()) {
+        if (!designator.has_value() || designator->size() <= designator_depth) {
             return false;
         }
-        const auto &first = designator->front();
-        return first.kind == InitListExpr::Designator::Kind::Field &&
-               first.text == field_name;
+        const auto &part = (*designator)[designator_depth];
+        return part.kind == InitListExpr::Designator::Kind::Field &&
+               part.text == field_name;
     }
 
     bool initializer_element_has_designator(const InitListExpr *init_list,
@@ -4338,6 +4339,29 @@ class CoreIrBuildSession {
         const auto &designator = init_list->get_element_designator(element_index);
         return designator.has_value() && !designator->empty();
     }
+
+    bool initializer_element_is_relevant_at_depth(
+        const InitListExpr *init_list, std::size_t element_index,
+        std::size_t designator_depth) const {
+        if (init_list == nullptr) {
+            return false;
+        }
+        const auto &designator = init_list->get_element_designator(element_index);
+        if (!designator.has_value() || designator->empty()) {
+            return designator_depth == 0;
+        }
+        return designator->size() > designator_depth;
+    }
+
+    struct StructFieldInitializer {
+        const Expr *expr = nullptr;
+        const InitListExpr *nested_designator_list = nullptr;
+        std::size_t nested_designator_depth = 0;
+
+        bool has_nested_designators() const noexcept {
+            return nested_designator_list != nullptr;
+        }
+    };
 
     template <typename VisitElement>
     bool walk_array_initializer_elements(const ArraySemanticType *array_semantic_type,
@@ -4444,7 +4468,7 @@ class CoreIrBuildSession {
         const StructSemanticType *struct_semantic_type,
         const detail::AggregateLayoutInfo &layout, const Expr *initializer,
         SourceSpan source_span, const std::string &diagnostic_context,
-        VisitField &&visit_field) {
+        VisitField &&visit_field, std::size_t designator_depth = 0) {
         if (struct_semantic_type == nullptr) {
             add_error("core ir generation could not resolve struct initializer "
                       "shape",
@@ -4475,23 +4499,46 @@ class CoreIrBuildSession {
                 continue;
             }
 
-            const Expr *field_initializer = nullptr;
+            StructFieldInitializer field_initializer;
             if (!field.get_name().empty()) {
                 if (init_list != nullptr) {
                     for (std::size_t index = 0;
                          index < init_list->get_elements().size(); ++index) {
                         if (consumed_initializers[index] ||
                             !initializer_element_designates_field(
-                                init_list, index, field.get_name())) {
+                                init_list, index, field.get_name(),
+                                designator_depth)) {
                             continue;
                         }
-                        field_initializer = init_list->get_elements()[index].get();
-                        consumed_initializers[index] = true;
+                        const auto &designator =
+                            init_list->get_element_designator(index);
+                        if (designator.has_value() &&
+                            designator->size() > designator_depth + 1) {
+                            field_initializer.nested_designator_list = init_list;
+                            field_initializer.nested_designator_depth =
+                                designator_depth + 1;
+                            for (std::size_t nested_index = index;
+                                 nested_index < init_list->get_elements().size();
+                                 ++nested_index) {
+                                if (!consumed_initializers[nested_index] &&
+                                    initializer_element_designates_field(
+                                        init_list, nested_index, field.get_name(),
+                                        designator_depth)) {
+                                    consumed_initializers[nested_index] = true;
+                                }
+                            }
+                        } else {
+                            field_initializer.expr =
+                                init_list->get_elements()[index].get();
+                            consumed_initializers[index] = true;
+                        }
                         break;
                     }
                 }
 
-                while (field_initializer == nullptr && init_list != nullptr &&
+                while (field_initializer.expr == nullptr &&
+                       !field_initializer.has_nested_designators() &&
+                       init_list != nullptr &&
                        initializer_index < init_list->get_elements().size()) {
                     if (consumed_initializers[initializer_index] ||
                         initializer_element_has_designator(init_list,
@@ -4503,7 +4550,7 @@ class CoreIrBuildSession {
                         init_list->get_elements()[initializer_index].get();
                     if (initializer_can_target_semantic_type(candidate,
                                                              field.get_type())) {
-                        field_initializer = candidate;
+                        field_initializer.expr = candidate;
                         consumed_initializers[initializer_index] = true;
                     }
                     ++initializer_index;
@@ -4511,8 +4558,9 @@ class CoreIrBuildSession {
             }
 
             const SourceSpan field_source_span =
-                field_initializer == nullptr ? source_span
-                                             : field_initializer->get_source_span();
+                field_initializer.expr == nullptr ? source_span
+                                                  : field_initializer.expr
+                                                        ->get_source_span();
             if (!visit_field(field_index, field, *field_layout, field_initializer,
                              field_source_span)) {
                 return false;
@@ -4520,9 +4568,17 @@ class CoreIrBuildSession {
         }
 
         if (init_list != nullptr &&
-            std::any_of(consumed_initializers.begin(),
-                        consumed_initializers.end(),
-                        [](bool consumed) { return !consumed; })) {
+            [&]() {
+                for (std::size_t index = 0;
+                     index < consumed_initializers.size(); ++index) {
+                    if (!consumed_initializers[index] &&
+                        initializer_element_is_relevant_at_depth(
+                            init_list, index, designator_depth)) {
+                        return true;
+                    }
+                }
+                return false;
+            }()) {
             add_error("core ir generation encountered too many " +
                           diagnostic_context + " elements",
                       initializer->get_source_span());
@@ -4534,7 +4590,8 @@ class CoreIrBuildSession {
     bool emit_local_initializer_to_address(CoreIrValue *address,
                                            const SemanticType *target_semantic_type,
                                            const Expr *initializer,
-                                           SourceSpan source_span) {
+                                           SourceSpan source_span,
+                                           std::size_t designator_depth = 0) {
         target_semantic_type = strip_qualifiers(target_semantic_type);
         const CoreIrType *target_type = get_or_create_type(target_semantic_type);
         if (address == nullptr || target_semantic_type == nullptr ||
@@ -4655,8 +4712,9 @@ class CoreIrBuildSession {
                 "local struct initializer",
                 [&](std::size_t /*field_index*/, const SemanticFieldInfo &field,
                     const detail::AggregateFieldLayout &field_layout,
-                    const Expr *field_initializer,
+                    const StructFieldInitializer &field_initializer,
                     SourceSpan field_source_span) -> bool {
+                    const Expr *field_expr = field_initializer.expr;
                     if (field_layout.is_bit_field) {
                         const CoreIrType *storage_type =
                             get_or_create_type(field_layout.storage_type);
@@ -4678,9 +4736,9 @@ class CoreIrBuildSession {
                             return false;
                         }
                         CoreIrValue *field_value =
-                            field_initializer == nullptr
+                            field_expr == nullptr
                                 ? create_i32_constant(0, source_span)
-                                : build_expr(field_initializer);
+                                : build_expr(field_expr);
                         if (field_value == nullptr) {
                             return false;
                         }
@@ -4688,9 +4746,9 @@ class CoreIrBuildSession {
                                    BitFieldLValue{storage_address, field_layout,
                                                   field.get_type()},
                                    field_value,
-                                   field_initializer == nullptr
+                                   field_expr == nullptr
                                        ? get_static_builtin_semantic_type("int")
-                                       : get_node_type(field_initializer),
+                                       : get_node_type(field_expr),
                                    field_source_span) != nullptr;
                     }
 
@@ -4713,10 +4771,18 @@ class CoreIrBuildSession {
                     if (field_address == nullptr) {
                         return false;
                     }
+                    if (field_initializer.has_nested_designators()) {
+                        return emit_local_initializer_to_address(
+                            field_address, field.get_type(),
+                            field_initializer.nested_designator_list,
+                            field_source_span,
+                            field_initializer.nested_designator_depth);
+                    }
                     return emit_local_initializer_to_address(
-                        field_address, field.get_type(), field_initializer,
+                        field_address, field.get_type(), field_expr,
                         field_source_span);
-                });
+                },
+                designator_depth);
         }
 
         if (target_semantic_type->get_kind() == SemanticTypeKind::Union) {
@@ -6436,7 +6502,8 @@ class CoreIrBuildSession {
 
     const CoreIrConstant *build_global_constant_for_initializer(
         const Expr *initializer, const SemanticType *semantic_type,
-        const CoreIrType *declared_type, SourceSpan source_span) {
+        const CoreIrType *declared_type, SourceSpan source_span,
+        std::size_t designator_depth = 0) {
         semantic_type = strip_qualifiers(semantic_type);
         if (semantic_type == nullptr || declared_type == nullptr) {
             add_error("core ir generation could not resolve top-level initializer "
@@ -6528,13 +6595,14 @@ class CoreIrBuildSession {
                     [&](std::size_t /*field_index*/,
                         const SemanticFieldInfo &field,
                         const detail::AggregateFieldLayout &field_layout,
-                        const Expr *field_initializer,
+                        const StructFieldInitializer &field_initializer,
                         SourceSpan field_source_span) -> bool {
+                        const Expr *field_expr = field_initializer.expr;
                         if (field_layout.is_bit_field) {
                             const auto integer_constant =
-                                field_initializer == nullptr
+                                field_expr == nullptr
                                     ? std::optional<long long>(0)
-                                    : get_integer_constant_value(field_initializer);
+                                    : get_integer_constant_value(field_expr);
                             if (!integer_constant.has_value()) {
                                 add_error("core ir generation currently requires an "
                                           "integer constant bit-field initializer",
@@ -6552,17 +6620,24 @@ class CoreIrBuildSession {
 
                         const CoreIrConstant *field_constant =
                             build_global_constant_for_initializer(
-                                field_initializer, field.get_type(),
+                                field_initializer.has_nested_designators()
+                                    ? field_initializer.nested_designator_list
+                                    : field_expr,
+                                field.get_type(),
                                 struct_type->get_element_types()
                                     [field_layout.llvm_element_index],
-                                field_source_span);
+                                field_source_span,
+                                field_initializer.has_nested_designators()
+                                    ? field_initializer.nested_designator_depth
+                                    : 0);
                         if (field_constant == nullptr) {
                             return false;
                         }
                         element_values[field_layout.llvm_element_index] =
                             field_constant;
                         return true;
-                    })) {
+                    },
+                    designator_depth)) {
                 return nullptr;
             }
 

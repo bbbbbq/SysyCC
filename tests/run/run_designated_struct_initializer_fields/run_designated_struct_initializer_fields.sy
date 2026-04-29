@@ -17,6 +17,27 @@ struct strbuf {
     char *buf;
 };
 
+struct nested_flags {
+    unsigned int recursive:1;
+    unsigned int quick:1;
+};
+
+struct nested_pruning {
+    struct nested_flags flags;
+};
+
+struct rev_info {
+    int abbrev;
+    unsigned int simplify_history:1;
+    struct nested_pruning pruning;
+    int sort_order;
+    long max_age;
+};
+
+struct backfill_context {
+    struct rev_info revs;
+};
+
 enum option_type {
     OPTION_END,
     OPTION_CALLBACK
@@ -39,6 +60,16 @@ static char slopbuf[1];
 static int use_color;
 static struct string_list output = { .strdup_strings = 1 };
 static struct strbuf buffer = { .buf = slopbuf };
+static struct backfill_context global_ctx = {
+    .revs = {
+        .abbrev = 7,
+        .simplify_history = 1,
+        .pruning.flags.recursive = 1,
+        .pruning.flags.quick = 1,
+        .sort_order = 3,
+        .max_age = -1,
+    },
+};
 
 int parse_color(const struct option *option, const char *arg, int unset) {
     return option->type + arg[0] + unset;
@@ -73,6 +104,12 @@ int main() {
     putint(color.flags == 7);
     putint(color.callback == parse_color);
     putint(color.defval != 0);
+    putint(global_ctx.revs.abbrev == 7);
+    putint(global_ctx.revs.simplify_history == 1);
+    putint(global_ctx.revs.pruning.flags.recursive == 1);
+    putint(global_ctx.revs.pruning.flags.quick == 1);
+    putint(global_ctx.revs.sort_order == 3);
+    putint(global_ctx.revs.max_age == -1);
     putch(10);
     return 0;
 }
