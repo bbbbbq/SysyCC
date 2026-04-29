@@ -620,6 +620,9 @@ bool ConversionChecker::is_incrementable_type(const SemanticType *type) const {
     if (type->get_kind() == SemanticTypeKind::Pointer) {
         return true;
     }
+    if (type->get_kind() == SemanticTypeKind::Enum) {
+        return true;
+    }
     if (type->get_kind() != SemanticTypeKind::Builtin) {
         return false;
     }

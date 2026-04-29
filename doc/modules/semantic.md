@@ -150,6 +150,8 @@ The current implementation has a first batch of real semantic rules:
   integer-like assignability path as other modeled arithmetic types, so
   enumerators can initialize enum objects and flow through enum-returning
   functions without ad hoc special cases
+- enum-typed lvalues are accepted by prefix and postfix increment/decrement
+  checks, matching common C loops over small enum phase ranges
 - integer constant-expression flow for `ConditionalExpr` is now covered
   through semantic analysis, so array dimensions, `case` labels, and
   enumerator values can all reuse the selected branch constant once the

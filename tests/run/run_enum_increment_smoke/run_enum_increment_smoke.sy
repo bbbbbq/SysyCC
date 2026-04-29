@@ -1,0 +1,21 @@
+enum Phase {
+    PHASE_DELETIONS,
+    PHASE_OTHERS
+};
+
+int main(void) {
+    int sum = 0;
+    for (enum Phase phase = PHASE_DELETIONS; phase <= PHASE_OTHERS; phase++) {
+        sum += phase + 1;
+    }
+    if (sum != 3) {
+        return sum;
+    }
+
+    enum Phase value = PHASE_DELETIONS;
+    ++value;
+    if (value != PHASE_OTHERS) {
+        return 4;
+    }
+    return 0;
+}
