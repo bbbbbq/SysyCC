@@ -1435,6 +1435,24 @@ class CoreIrBuildSession {
         return instruction;
     }
 
+    CoreIrValue *retag_pointer_for_gep(CoreIrValue *base,
+                                       const CoreIrType *pointee_type,
+                                       SourceSpan source_span) {
+        if (base == nullptr || pointee_type == nullptr) {
+            return base;
+        }
+        const auto *base_pointer_type =
+            dynamic_cast<const CoreIrPointerType *>(base->get_type());
+        if (base_pointer_type == nullptr ||
+            base_pointer_type->get_pointee_type() == pointee_type) {
+            return base;
+        }
+
+        return build_gep(base, pointee_type,
+                         {create_i32_constant(0, source_span)}, source_span,
+                         pointee_type);
+    }
+
     CoreIrValue *
     build_local_array_element_address(CoreIrValue *base,
                                       const CoreIrType *element_type,
@@ -2197,6 +2215,12 @@ class CoreIrBuildSession {
                       expr.get_source_span());
             return nullptr;
         }
+        base_address =
+            retag_pointer_for_gep(base_address, owner_core_type,
+                                  expr.get_source_span());
+        if (base_address == nullptr) {
+            return nullptr;
+        }
 
         const CoreIrType *field_type =
             field_layout->is_bit_field && field_layout->storage_bit_width != 0
@@ -2554,6 +2578,18 @@ class CoreIrBuildSession {
         } else if (value->get_type() != nullptr &&
                    value->get_type()->get_kind() == CoreIrTypeKind::Pointer &&
                    target_type->get_kind() == CoreIrTypeKind::Pointer) {
+            const auto *target_pointer_type =
+                dynamic_cast<const CoreIrPointerType *>(target_type);
+            const CoreIrType *target_pointee_type =
+                target_pointer_type == nullptr
+                    ? nullptr
+                    : target_pointer_type->get_pointee_type();
+            if (target_pointee_type != nullptr &&
+                target_pointee_type->get_kind() != CoreIrTypeKind::Void &&
+                target_pointee_type->get_kind() != CoreIrTypeKind::Function) {
+                return retag_pointer_for_gep(value, target_pointee_type,
+                                             source_span);
+            }
             return value;
         } else if (value->get_type() != nullptr &&
                    value->get_type()->get_kind() == CoreIrTypeKind::Pointer &&

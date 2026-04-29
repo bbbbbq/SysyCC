@@ -399,6 +399,17 @@ bool can_flatten_structural_gep(const CoreIrGetElementPtrInst &gep) {
     return get_selected_gep_pointee_type(gep) == get_gep_result_pointee_type(gep);
 }
 
+bool can_merge_nested_structural_gep(const CoreIrGetElementPtrInst &outer,
+                                     const CoreIrGetElementPtrInst &inner) {
+    const CoreIrType *outer_source_type = outer.get_source_pointee_type();
+    if (outer_source_type == nullptr) {
+        outer_source_type = get_pointer_pointee_type(outer.get_base());
+    }
+    const CoreIrType *inner_result_type = get_gep_result_pointee_type(inner);
+    return outer_source_type != nullptr && inner_result_type != nullptr &&
+           are_equivalent_types(outer_source_type, inner_result_type);
+}
+
 const CoreIrType *
 get_structural_gep_source_pointee_type(const CoreIrGetElementPtrInst &gep) {
     const CoreIrGetElementPtrInst *root_gep = &gep;
@@ -406,7 +417,8 @@ get_structural_gep_source_pointee_type(const CoreIrGetElementPtrInst &gep) {
     while (true) {
         auto *inner_gep = dynamic_cast<const CoreIrGetElementPtrInst *>(
             current_gep->get_base());
-        if (inner_gep == nullptr || !can_flatten_structural_gep(*inner_gep)) {
+        if (inner_gep == nullptr || !can_flatten_structural_gep(*inner_gep) ||
+            !can_merge_nested_structural_gep(*current_gep, *inner_gep)) {
             break;
         }
         root_gep = inner_gep;
@@ -428,6 +440,7 @@ bool collect_structural_gep_chain(const CoreIrGetElementPtrInst &gep,
 
     if (auto *inner_gep = dynamic_cast<CoreIrGetElementPtrInst *>(gep.get_base());
         inner_gep != nullptr &&
+        can_merge_nested_structural_gep(gep, *inner_gep) &&
         collect_structural_gep_chain(*inner_gep, root_base, indices)) {
         const bool drop_outer_leading_zero = is_zero_integer_constant(gep.get_index(0));
         const std::size_t outer_start_index = drop_outer_leading_zero ? 1 : 0;
