@@ -639,6 +639,9 @@ AstBuilder::build_parameters(const ParseTreeNode *node) const {
             const ParseTreeNode *pointer =
                 ParseTreeMatcher::find_first_child_with_label(current,
                                                               "pointer");
+            const ParseTreeNode *abstract_array_suffix =
+                ParseTreeMatcher::find_first_child_with_label(
+                    current, "abstract_array_suffix_list");
             if (declarator == nullptr && pointer == nullptr &&
                 is_void_type_specifier_node(type_specifier)) {
                 continue;
@@ -658,14 +661,23 @@ AstBuilder::build_parameters(const ParseTreeNode *node) const {
             if (parameter_name == "<unnamed>") {
                 parameter_name.clear();
             }
+            const ParseTreeNode *type_declarator =
+                declarator == nullptr ? pointer : declarator;
+            if (declarator == nullptr && abstract_array_suffix != nullptr) {
+                type_declarator = nullptr;
+            }
+            std::vector<std::unique_ptr<Expr>> dimensions =
+                collect_declarator_dimensions(declarator);
+            if (declarator == nullptr && abstract_array_suffix != nullptr) {
+                dimensions =
+                    collect_declarator_dimensions(abstract_array_suffix);
+            }
             parameters.push_back(std::make_unique<ParamDecl>(
                 std::move(parameter_name),
-                build_declared_type(type_specifier,
-                                    declarator == nullptr ? pointer
-                                                          : declarator,
+                build_declared_type(type_specifier, type_declarator,
                                     pointee_qualifiers.is_const,
                                     pointee_qualifiers.is_volatile, true),
-                collect_declarator_dimensions(declarator),
+                std::move(dimensions),
                 get_node_source_span(current)));
             continue;
         }
