@@ -1532,8 +1532,13 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         }
 
         if (operator_text == "&&" || operator_text == "||") {
-            if (!conversion_checker_.is_scalar_type(lhs_type) ||
-                !conversion_checker_.is_scalar_type(rhs_type)) {
+            const bool lhs_is_logical_operand =
+                conversion_checker_.is_scalar_type(lhs_type) ||
+                lhs_pointer_like != nullptr;
+            const bool rhs_is_logical_operand =
+                conversion_checker_.is_scalar_type(rhs_type) ||
+                rhs_pointer_like != nullptr;
+            if (!lhs_is_logical_operand || !rhs_is_logical_operand) {
                 add_error(semantic_context,
                           "binary operator '" + operator_text +
                               "' requires scalar operands",

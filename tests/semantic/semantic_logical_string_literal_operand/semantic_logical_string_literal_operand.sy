@@ -1,0 +1,3 @@
+void assert_like(int verbose) {
+    ((void) sizeof((!verbose && "--column and --verbose are incompatible") ? 1 : 0));
+}
