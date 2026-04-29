@@ -4960,34 +4960,110 @@ class CoreIrBuildSession {
             if (initializer == nullptr) {
                 return true;
             }
-            const InitListExpr *init_list = nullptr;
-            if (!normalize_single_element_union_initializer(
-                    initializer, "local union initializer", init_list)) {
+            if (initializer->get_kind() != AstKind::InitListExpr) {
+                add_error("core ir generation currently requires an initializer "
+                          "list for this local union initializer",
+                          initializer->get_source_span());
                 return false;
             }
+            const auto *init_list = static_cast<const InitListExpr *>(initializer);
             if (union_semantic_type->get_fields().empty() ||
                 init_list->get_elements().empty()) {
                 return true;
             }
 
-            const auto &first_field = union_semantic_type->get_fields().front();
-            const CoreIrType *first_field_type =
-                get_or_create_type(first_field.get_type());
-            if (first_field_type == nullptr) {
+            std::size_t selected_field_index = 0;
+            const Expr *selected_initializer = nullptr;
+            const InitListExpr *nested_designator_list = nullptr;
+            std::size_t nested_designator_depth = 0;
+            bool matched_designator = false;
+
+            for (std::size_t field_index = 0;
+                 field_index < union_semantic_type->get_fields().size();
+                 ++field_index) {
+                const auto &field = union_semantic_type->get_fields()[field_index];
+                if (field.get_name().empty()) {
+                    continue;
+                }
+                for (std::size_t element_index = 0;
+                     element_index < init_list->get_elements().size();
+                     ++element_index) {
+                    if (!initializer_element_designates_field(
+                            init_list, element_index, field.get_name(),
+                            designator_depth)) {
+                        continue;
+                    }
+                    selected_field_index = field_index;
+                    matched_designator = true;
+                    const auto &designator =
+                        init_list->get_element_designator(element_index);
+                    if (designator.has_value() &&
+                        designator->size() > designator_depth + 1) {
+                        nested_designator_list = init_list;
+                        nested_designator_depth = designator_depth + 1;
+                    } else {
+                        selected_initializer =
+                            init_list->get_elements()[element_index].get();
+                    }
+                    break;
+                }
+                if (matched_designator) {
+                    break;
+                }
+            }
+
+            if (!matched_designator) {
+                std::size_t undesignated_count = 0;
+                for (std::size_t element_index = 0;
+                     element_index < init_list->get_elements().size();
+                     ++element_index) {
+                    if (initializer_element_has_designator(init_list,
+                                                           element_index)) {
+                        continue;
+                    }
+                    if (undesignated_count == 0) {
+                        selected_initializer =
+                            init_list->get_elements()[element_index].get();
+                    }
+                    ++undesignated_count;
+                }
+                if (undesignated_count > 1) {
+                    add_error("core ir generation encountered too many local "
+                              "union initializer elements",
+                              initializer->get_source_span());
+                    return false;
+                }
+                if (undesignated_count == 0) {
+                    return true;
+                }
+            }
+
+            const auto &selected_field =
+                union_semantic_type->get_fields()[selected_field_index];
+            const CoreIrType *selected_field_type =
+                get_or_create_type(selected_field.get_type());
+            if (selected_field_type == nullptr) {
                 return false;
             }
             CoreIrValue *field_address =
-                build_gep(address, first_field_type,
+                build_gep(address, selected_field_type,
                           {create_i32_constant(0, source_span),
                            create_i32_constant(0, source_span)},
                           source_span);
             if (field_address == nullptr) {
                 return false;
             }
+            if (nested_designator_list != nullptr) {
+                return emit_local_initializer_to_address(
+                    field_address, selected_field.get_type(),
+                    nested_designator_list, source_span,
+                    nested_designator_depth);
+            }
             return emit_local_initializer_to_address(
-                field_address, first_field.get_type(),
-                init_list->get_elements().front().get(),
-                init_list->get_elements().front()->get_source_span());
+                field_address, selected_field.get_type(), selected_initializer,
+                selected_initializer == nullptr
+                    ? source_span
+                    : selected_initializer->get_source_span());
         }
 
         if (!normalize_single_element_initializer(

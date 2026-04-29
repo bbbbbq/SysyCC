@@ -1,0 +1,25 @@
+struct Pair {
+    int x;
+    int y;
+};
+
+struct Record {
+    int kind;
+    union {
+        int scalar;
+        struct Pair pair;
+        int *ptr;
+    } value;
+    int tail;
+};
+
+int main(void) {
+    int target = 41;
+    struct Record record = {
+        .kind = 7,
+        .value.ptr = &target,
+        .tail = 1,
+    };
+
+    return *record.value.ptr + record.tail == 42 ? 0 : 1;
+}
