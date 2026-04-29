@@ -59,6 +59,9 @@ src/frontend/preprocess/
 - support stringification (`#`) and token pasting (`##`) in function-like macros
 - strip `//` and `/* ... */` comments before lexical analysis without
   corrupting string or character literals
+- ignore comments while detecting continued function-like macro invocations,
+  so apostrophes inside block comments do not accidentally pull following
+  directives such as `#undef` into ordinary token output
 - write preprocessed intermediate source files before lexical analysis
 - apply command-line macro definitions and undefinitions before the main input
 - preprocess command-line forced-include files before the main input

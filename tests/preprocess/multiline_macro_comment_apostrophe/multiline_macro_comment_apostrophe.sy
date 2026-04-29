@@ -1,0 +1,18 @@
+#define ENTRY(name, regex) { name, regex }
+
+struct item {
+    char *name;
+    char *regex;
+};
+
+struct item items[] = {
+    ENTRY("fortran",
+          /* Don't let apostrophes inside comments extend the macro call. */
+          "[a-zA-Z][a-zA-Z0-9_]*"),
+};
+
+#undef ENTRY
+
+int main(void) {
+    return items[0].regex[0] != '[';
+}

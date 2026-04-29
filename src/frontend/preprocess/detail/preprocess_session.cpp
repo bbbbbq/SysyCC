@@ -221,10 +221,21 @@ bool needs_function_macro_continuation(const std::string &line,
 
     bool in_string_literal = false;
     bool in_char_literal = false;
+    bool in_block_comment = false;
     bool escaping = false;
     int active_macro_depth = 0;
     std::size_t index = 0;
     while (index < line.size()) {
+        if (in_block_comment) {
+            const std::size_t comment_end = line.find("*/", index);
+            if (comment_end == std::string::npos) {
+                return active_macro_depth > 0;
+            }
+            in_block_comment = false;
+            index = comment_end + 2;
+            continue;
+        }
+
         const char current = line[index];
         if (in_string_literal) {
             if (escaping) {
@@ -247,6 +258,16 @@ bool needs_function_macro_continuation(const std::string &line,
                 in_char_literal = false;
             }
             ++index;
+            continue;
+        }
+
+        if (index + 1 < line.size() && current == '/' && line[index + 1] == '/') {
+            return active_macro_depth > 0;
+        }
+
+        if (index + 1 < line.size() && current == '/' && line[index + 1] == '*') {
+            in_block_comment = true;
+            index += 2;
             continue;
         }
 

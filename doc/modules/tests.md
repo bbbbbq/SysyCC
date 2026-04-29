@@ -422,6 +422,8 @@ Preprocessing regressions and reproducers, including:
 
 - comment stripping
 - object-like and function-like macros
+- multi-line function-like macro invocations whose argument comments contain
+  apostrophes, covering Git-style regex table macros before `#undef`
 - stringification and token pasting
 - `#if/#ifdef/#ifndef/#elif/#else/#endif`
 - include search paths and include-cycle handling
@@ -438,6 +440,7 @@ Representative paths:
 - [tests/preprocess/comma_conditional_expr](/Users/caojunze424/code/SysyCC/tests/preprocess/comma_conditional_expr)
 - [tests/preprocess/function_macro](/Users/caojunze424/code/SysyCC/tests/preprocess/function_macro)
 - [tests/preprocess/multiline_macro_define](/Users/caojunze424/code/SysyCC/tests/preprocess/multiline_macro_define)
+- [tests/preprocess/multiline_macro_comment_apostrophe](/Users/caojunze424/code/SysyCC/tests/preprocess/multiline_macro_comment_apostrophe)
 - [tests/preprocess/bitwise_conditional_expr](/Users/caojunze424/code/SysyCC/tests/preprocess/bitwise_conditional_expr)
 - [tests/preprocess/clang_builtin_probe_condition](/Users/caojunze424/code/SysyCC/tests/preprocess/clang_builtin_probe_condition)
 - [tests/preprocess/elifdef](/Users/caojunze424/code/SysyCC/tests/preprocess/elifdef)
