@@ -27,8 +27,8 @@ namespace {
 const SemanticType *strip_qualifiers(const SemanticType *type);
 bool is_incomplete_named_struct_semantic_type(const SemanticType *type,
                                               const std::string &name);
-bool completes_incomplete_named_aggregate_type(const SemanticType *existing_type,
-                                               const SemanticType *declared_type);
+bool completes_incomplete_named_aggregate_type(
+    const SemanticType *existing_type, const SemanticType *declared_type);
 void analyze_aggregate_field_constant_expressions(
     const std::vector<std::unique_ptr<Decl>> &field_decls,
     const ExprAnalyzer &expr_analyzer, SemanticContext &semantic_context,
@@ -41,11 +41,13 @@ void collect_inline_struct_type_nodes(
     }
     switch (type_node->get_kind()) {
     case AstKind::StructType: {
-        const auto *struct_type = static_cast<const StructTypeNode *>(type_node);
+        const auto *struct_type =
+            static_cast<const StructTypeNode *>(type_node);
         if (!struct_type->get_fields().empty()) {
             nodes.push_back(struct_type);
             for (const auto &field : struct_type->get_fields()) {
-                if (field != nullptr && field->get_kind() == AstKind::FieldDecl) {
+                if (field != nullptr &&
+                    field->get_kind() == AstKind::FieldDecl) {
                     collect_inline_struct_type_nodes(
                         static_cast<const FieldDecl *>(field.get())
                             ->get_declared_type(),
@@ -60,7 +62,8 @@ void collect_inline_struct_type_nodes(
         for (const auto &field : union_type->get_fields()) {
             if (field != nullptr && field->get_kind() == AstKind::FieldDecl) {
                 collect_inline_struct_type_nodes(
-                    static_cast<const FieldDecl *>(field.get())->get_declared_type(),
+                    static_cast<const FieldDecl *>(field.get())
+                        ->get_declared_type(),
                     nodes);
             }
         }
@@ -84,8 +87,10 @@ void collect_inline_struct_type_nodes(
     case AstKind::FunctionType: {
         const auto *function_type =
             static_cast<const FunctionTypeNode *>(type_node);
-        collect_inline_struct_type_nodes(function_type->get_return_type(), nodes);
-        for (const auto &parameter_type : function_type->get_parameter_types()) {
+        collect_inline_struct_type_nodes(function_type->get_return_type(),
+                                         nodes);
+        for (const auto &parameter_type :
+             function_type->get_parameter_types()) {
             collect_inline_struct_type_nodes(parameter_type.get(), nodes);
         }
         return;
@@ -105,7 +110,8 @@ void analyze_type_operand_expressions(const TypeNode *type_node,
 
     switch (type_node->get_kind()) {
     case AstKind::TypeofType: {
-        const auto *typeof_type = static_cast<const TypeofTypeNode *>(type_node);
+        const auto *typeof_type =
+            static_cast<const TypeofTypeNode *>(type_node);
         expr_analyzer.analyze_expr(typeof_type->get_operand(), semantic_context,
                                    scope_stack);
         return;
@@ -146,7 +152,8 @@ void analyze_type_operand_expressions(const TypeNode *type_node,
         return;
     }
     case AstKind::StructType: {
-        const auto *struct_type = static_cast<const StructTypeNode *>(type_node);
+        const auto *struct_type =
+            static_cast<const StructTypeNode *>(type_node);
         if (!struct_type->get_fields().empty()) {
             analyze_aggregate_field_constant_expressions(
                 struct_type->get_fields(), expr_analyzer, semantic_context,
@@ -168,10 +175,10 @@ void analyze_type_operand_expressions(const TypeNode *type_node,
     }
 }
 
-void analyze_inline_type_declarations(const TypeNode *type_node,
-                                      const DeclAnalyzer &decl_analyzer,
-                                      SemanticContext &semantic_context,
-                                      ScopeStack &scope_stack) {
+void analyze_inline_type_declarations_impl(const TypeNode *type_node,
+                                           const DeclAnalyzer &decl_analyzer,
+                                           SemanticContext &semantic_context,
+                                           ScopeStack &scope_stack) {
     if (type_node == nullptr) {
         return;
     }
@@ -180,41 +187,49 @@ void analyze_inline_type_declarations(const TypeNode *type_node,
     case AstKind::QualifiedType: {
         const auto *qualified_type =
             static_cast<const QualifiedTypeNode *>(type_node);
-        analyze_inline_type_declarations(qualified_type->get_base_type(),
-                                         decl_analyzer, semantic_context,
-                                         scope_stack);
+        analyze_inline_type_declarations_impl(qualified_type->get_base_type(),
+                                              decl_analyzer, semantic_context,
+                                              scope_stack);
         return;
     }
     case AstKind::PointerType: {
         const auto *pointer_type =
             static_cast<const PointerTypeNode *>(type_node);
-        analyze_inline_type_declarations(pointer_type->get_pointee_type(),
-                                         decl_analyzer, semantic_context,
-                                         scope_stack);
+        analyze_inline_type_declarations_impl(pointer_type->get_pointee_type(),
+                                              decl_analyzer, semantic_context,
+                                              scope_stack);
         return;
     }
     case AstKind::ArrayType: {
         const auto *array_type = static_cast<const ArrayTypeNode *>(type_node);
-        analyze_inline_type_declarations(array_type->get_element_type(),
-                                         decl_analyzer, semantic_context,
-                                         scope_stack);
+        analyze_inline_type_declarations_impl(array_type->get_element_type(),
+                                              decl_analyzer, semantic_context,
+                                              scope_stack);
         return;
     }
     case AstKind::FunctionType: {
         const auto *function_type =
             static_cast<const FunctionTypeNode *>(type_node);
-        analyze_inline_type_declarations(function_type->get_return_type(),
-                                         decl_analyzer, semantic_context,
-                                         scope_stack);
+        analyze_inline_type_declarations_impl(function_type->get_return_type(),
+                                              decl_analyzer, semantic_context,
+                                              scope_stack);
         for (const auto &parameter_type :
              function_type->get_parameter_types()) {
-            analyze_inline_type_declarations(parameter_type.get(), decl_analyzer,
-                                             semantic_context, scope_stack);
+            analyze_inline_type_declarations_impl(
+                parameter_type.get(), decl_analyzer, semantic_context,
+                scope_stack);
         }
         return;
     }
+    case AstKind::EnumType: {
+        const auto *enum_type = static_cast<const EnumTypeNode *>(type_node);
+        decl_analyzer.analyze_enum_enumerators(enum_type->get_enumerators(),
+                                               semantic_context, scope_stack);
+        return;
+    }
     case AstKind::StructType: {
-        const auto *struct_type = static_cast<const StructTypeNode *>(type_node);
+        const auto *struct_type =
+            static_cast<const StructTypeNode *>(type_node);
         for (const auto &field : struct_type->get_fields()) {
             decl_analyzer.analyze_decl(field.get(), semantic_context,
                                        scope_stack);
@@ -241,16 +256,16 @@ void register_inline_struct_tag(const FieldDecl *field_decl,
                                 ScopeStack &scope_stack) {
     (void)field_type;
     std::vector<const StructTypeNode *> struct_type_nodes;
-    collect_inline_struct_type_nodes(field_decl != nullptr
-                                         ? field_decl->get_declared_type()
-                                         : nullptr,
-                                     struct_type_nodes);
+    collect_inline_struct_type_nodes(
+        field_decl != nullptr ? field_decl->get_declared_type() : nullptr,
+        struct_type_nodes);
     if (struct_type_nodes.empty()) {
         return;
     }
 
     for (const StructTypeNode *struct_type_node : struct_type_nodes) {
-        if (struct_type_node == nullptr || struct_type_node->get_name().empty() ||
+        if (struct_type_node == nullptr ||
+            struct_type_node->get_name().empty() ||
             struct_type_node->get_name() == "<anonymous>") {
             continue;
         }
@@ -502,8 +517,8 @@ bool is_incomplete_named_union_semantic_type(const SemanticType *type,
            union_type->get_fields().empty();
 }
 
-bool completes_incomplete_named_aggregate_type(const SemanticType *existing_type,
-                                               const SemanticType *declared_type) {
+bool completes_incomplete_named_aggregate_type(
+    const SemanticType *existing_type, const SemanticType *declared_type) {
     const SemanticType *existing = strip_qualifiers(existing_type);
     const SemanticType *declared = strip_qualifiers(declared_type);
     if (const auto *existing_struct =
@@ -605,6 +620,39 @@ bool DeclAnalyzer::define_symbol(SemanticContext &semantic_context,
     return false;
 }
 
+void DeclAnalyzer::analyze_inline_type_declarations(
+    const TypeNode *type_node, SemanticContext &semantic_context,
+    ScopeStack &scope_stack) const {
+    analyze_inline_type_declarations_impl(type_node, *this, semantic_context,
+                                          scope_stack);
+}
+
+void DeclAnalyzer::analyze_enum_enumerators(
+    const std::vector<std::unique_ptr<Decl>> &enumerators,
+    SemanticContext &semantic_context, ScopeStack &scope_stack) const {
+    long long next_enumerator_value = 0;
+    for (const auto &enumerator : enumerators) {
+        analyze_decl(enumerator.get(), semantic_context, scope_stack);
+        const auto *enumerator_decl =
+            dynamic_cast<const EnumeratorDecl *>(enumerator.get());
+        if (enumerator_decl == nullptr) {
+            continue;
+        }
+        auto integer_constant_value =
+            constant_evaluator_.get_integer_constant_value(enumerator.get(),
+                                                           semantic_context);
+        if (!integer_constant_value.has_value() &&
+            enumerator_decl->get_value() == nullptr) {
+            integer_constant_value = next_enumerator_value;
+            constant_evaluator_.bind_integer_constant_value(
+                enumerator.get(), *integer_constant_value, semantic_context);
+        }
+        if (integer_constant_value.has_value()) {
+            next_enumerator_value = *integer_constant_value + 1;
+        }
+    }
+}
+
 void DeclAnalyzer::analyze_decl(const Decl *decl,
                                 SemanticContext &semantic_context,
                                 ScopeStack &scope_stack) const {
@@ -617,8 +665,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     switch (decl->get_kind()) {
     case AstKind::ParamDecl: {
         const auto *param_decl = static_cast<const ParamDecl *>(decl);
-        analyze_inline_type_declarations(param_decl->get_declared_type(), *this,
-                                         semantic_context, scope_stack);
+        analyze_inline_type_declarations_impl(param_decl->get_declared_type(),
+                                              *this, semantic_context,
+                                              scope_stack);
         analyze_type_operand_expressions(param_decl->get_declared_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
@@ -660,8 +709,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     }
     case AstKind::VarDecl: {
         const auto *var_decl = static_cast<const VarDecl *>(decl);
-        analyze_inline_type_declarations(var_decl->get_declared_type(), *this,
-                                         semantic_context, scope_stack);
+        analyze_inline_type_declarations_impl(var_decl->get_declared_type(),
+                                              *this, semantic_context,
+                                              scope_stack);
         analyze_type_operand_expressions(var_decl->get_declared_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
@@ -824,8 +874,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     }
     case AstKind::ConstDecl: {
         const auto *const_decl = static_cast<const ConstDecl *>(decl);
-        analyze_inline_type_declarations(const_decl->get_declared_type(), *this,
-                                         semantic_context, scope_stack);
+        analyze_inline_type_declarations_impl(const_decl->get_declared_type(),
+                                              *this, semantic_context,
+                                              scope_stack);
         analyze_type_operand_expressions(const_decl->get_declared_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
@@ -947,8 +998,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     }
     case AstKind::FieldDecl: {
         const auto *field_decl = static_cast<const FieldDecl *>(decl);
-        analyze_inline_type_declarations(field_decl->get_declared_type(), *this,
-                                         semantic_context, scope_stack);
+        analyze_inline_type_declarations_impl(field_decl->get_declared_type(),
+                                              *this, semantic_context,
+                                              scope_stack);
         analyze_type_operand_expressions(field_decl->get_declared_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
@@ -1022,8 +1074,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     }
     case AstKind::TypedefDecl: {
         const auto *typedef_decl = static_cast<const TypedefDecl *>(decl);
-        analyze_inline_type_declarations(typedef_decl->get_aliased_type(), *this,
-                                         semantic_context, scope_stack);
+        analyze_inline_type_declarations_impl(typedef_decl->get_aliased_type(),
+                                              *this, semantic_context,
+                                              scope_stack);
         analyze_type_operand_expressions(typedef_decl->get_aliased_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
@@ -1260,25 +1313,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                 semantic_model.bind_symbol(enum_decl, symbol);
             }
         }
-        long long next_enumerator_value = 0;
-        for (const auto &enumerator : enum_decl->get_enumerators()) {
-            analyze_decl(enumerator.get(), semantic_context, scope_stack);
-            const auto *enumerator_decl =
-                static_cast<const EnumeratorDecl *>(enumerator.get());
-            auto integer_constant_value =
-                constant_evaluator_.get_integer_constant_value(
-                    enumerator.get(), semantic_context);
-            if (!integer_constant_value.has_value() &&
-                enumerator_decl->get_value() == nullptr) {
-                integer_constant_value = next_enumerator_value;
-                constant_evaluator_.bind_integer_constant_value(
-                    enumerator.get(), *integer_constant_value,
-                    semantic_context);
-            }
-            if (integer_constant_value.has_value()) {
-                next_enumerator_value = *integer_constant_value + 1;
-            }
-        }
+        analyze_enum_enumerators(enum_decl->get_enumerators(), semantic_context,
+                                 scope_stack);
         return;
     }
     case AstKind::EnumeratorDecl: {

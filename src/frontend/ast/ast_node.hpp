@@ -64,8 +64,8 @@ class TranslationUnit : public AstNode {
     explicit TranslationUnit(SourceSpan source_span = {});
 
     std::vector<std::unique_ptr<Decl>> &get_top_level_decls() noexcept;
-    const std::vector<std::unique_ptr<Decl>> &get_top_level_decls() const
-        noexcept;
+    const std::vector<std::unique_ptr<Decl>> &
+    get_top_level_decls() const noexcept;
     void add_top_level_decl(std::unique_ptr<Decl> decl);
 };
 
@@ -131,12 +131,11 @@ class PointerTypeNode : public TypeNode {
     PointerNullabilityKind nullability_kind_;
 
   public:
-    explicit PointerTypeNode(std::unique_ptr<TypeNode> pointee_type,
-                             SourceSpan source_span = {}, bool is_const = false,
-                             bool is_volatile = false,
-                             bool is_restrict = false,
-                             PointerNullabilityKind nullability_kind =
-                                 PointerNullabilityKind::None);
+    explicit PointerTypeNode(
+        std::unique_ptr<TypeNode> pointee_type, SourceSpan source_span = {},
+        bool is_const = false, bool is_volatile = false,
+        bool is_restrict = false,
+        PointerNullabilityKind nullability_kind = PointerNullabilityKind::None);
 
     const TypeNode *get_pointee_type() const noexcept;
     bool get_is_const() const noexcept;
@@ -170,12 +169,11 @@ class FunctionTypeNode : public TypeNode {
   public:
     FunctionTypeNode(std::unique_ptr<TypeNode> return_type,
                      std::vector<std::unique_ptr<TypeNode>> parameter_types,
-                     bool is_variadic,
-                     SourceSpan source_span = {});
+                     bool is_variadic, SourceSpan source_span = {});
 
     const TypeNode *get_return_type() const noexcept;
-    const std::vector<std::unique_ptr<TypeNode>> &get_parameter_types() const
-        noexcept;
+    const std::vector<std::unique_ptr<TypeNode>> &
+    get_parameter_types() const noexcept;
     bool get_is_variadic() const noexcept;
 };
 
@@ -201,7 +199,8 @@ class UnionTypeNode : public TypeNode {
     std::vector<std::unique_ptr<Decl>> fields_;
 
   public:
-    UnionTypeNode(std::string name, std::vector<std::unique_ptr<Decl>> fields = {},
+    UnionTypeNode(std::string name,
+                  std::vector<std::unique_ptr<Decl>> fields = {},
                   SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
@@ -212,11 +211,15 @@ class UnionTypeNode : public TypeNode {
 class EnumTypeNode : public TypeNode {
   private:
     std::string name_;
+    std::vector<std::unique_ptr<Decl>> enumerators_;
 
   public:
-    explicit EnumTypeNode(std::string name, SourceSpan source_span = {});
+    explicit EnumTypeNode(std::string name,
+                          std::vector<std::unique_ptr<Decl>> enumerators = {},
+                          SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
+    const std::vector<std::unique_ptr<Decl>> &get_enumerators() const noexcept;
 };
 
 // Placeholder type node used until a richer AST builder is implemented.
@@ -244,10 +247,9 @@ class FunctionDecl : public Decl {
 
   public:
     FunctionDecl(std::string name, std::unique_ptr<TypeNode> return_type,
-                 std::vector<std::unique_ptr<Decl>> parameters,
-                 bool is_static, bool is_variadic, ParsedAttributeList attributes,
-                 std::string asm_label,
-                 std::unique_ptr<Stmt> body,
+                 std::vector<std::unique_ptr<Decl>> parameters, bool is_static,
+                 bool is_variadic, ParsedAttributeList attributes,
+                 std::string asm_label, std::unique_ptr<Stmt> body,
                  SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
@@ -288,8 +290,7 @@ class FieldDecl : public Decl {
   public:
     FieldDecl(std::string name, std::unique_ptr<TypeNode> declared_type,
               std::vector<std::unique_ptr<Expr>> dimensions,
-              std::unique_ptr<Expr> bit_width,
-              SourceSpan source_span = {});
+              std::unique_ptr<Expr> bit_width, SourceSpan source_span = {});
 
     const std::string &get_name() const noexcept;
     const TypeNode *get_declared_type() const noexcept;
@@ -564,7 +565,8 @@ class DefaultStmt : public Stmt {
     std::unique_ptr<Stmt> body_;
 
   public:
-    explicit DefaultStmt(std::unique_ptr<Stmt> body, SourceSpan source_span = {});
+    explicit DefaultStmt(std::unique_ptr<Stmt> body,
+                         SourceSpan source_span = {});
 
     const Stmt *get_body() const noexcept;
 };
@@ -615,7 +617,8 @@ class ReturnStmt : public Stmt {
     std::unique_ptr<Expr> value_;
 
   public:
-    explicit ReturnStmt(std::unique_ptr<Expr> value, SourceSpan source_span = {});
+    explicit ReturnStmt(std::unique_ptr<Expr> value,
+                        SourceSpan source_span = {});
 
     const Expr *get_value() const noexcept;
 };
@@ -649,7 +652,8 @@ class FloatLiteralExpr : public Expr {
     std::string value_text_;
 
   public:
-    explicit FloatLiteralExpr(std::string value_text, SourceSpan source_span = {});
+    explicit FloatLiteralExpr(std::string value_text,
+                              SourceSpan source_span = {});
 
     const std::string &get_value_text() const noexcept;
 };
@@ -660,7 +664,8 @@ class CharLiteralExpr : public Expr {
     std::string value_text_;
 
   public:
-    explicit CharLiteralExpr(std::string value_text, SourceSpan source_span = {});
+    explicit CharLiteralExpr(std::string value_text,
+                             SourceSpan source_span = {});
 
     const std::string &get_value_text() const noexcept;
 };
@@ -671,7 +676,8 @@ class StringLiteralExpr : public Expr {
     std::string value_text_;
 
   public:
-    explicit StringLiteralExpr(std::string value_text, SourceSpan source_span = {});
+    explicit StringLiteralExpr(std::string value_text,
+                               SourceSpan source_span = {});
 
     const std::string &get_value_text() const noexcept;
 };
@@ -779,8 +785,8 @@ class CastExpr : public Expr {
     std::unique_ptr<Expr> operand_;
 
   public:
-    CastExpr(std::unique_ptr<TypeNode> target_type, std::unique_ptr<Expr> operand,
-             SourceSpan source_span = {});
+    CastExpr(std::unique_ptr<TypeNode> target_type,
+             std::unique_ptr<Expr> operand, SourceSpan source_span = {});
 
     const TypeNode *get_target_type() const noexcept;
     const Expr *get_operand() const noexcept;
@@ -813,8 +819,7 @@ class AssignExpr : public Expr {
 
   public:
     AssignExpr(std::string operator_text, std::unique_ptr<Expr> target,
-               std::unique_ptr<Expr> value,
-               SourceSpan source_span = {});
+               std::unique_ptr<Expr> value, SourceSpan source_span = {});
 
     const std::string &get_operator_text() const noexcept;
     const Expr *get_target() const noexcept;

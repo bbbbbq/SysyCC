@@ -485,39 +485,39 @@ AstBuilder::build_function_decl(const ParseTreeNode *node) const {
                     function_declarator->children[3].get(), "RPAREN") &&
                 ParseTreeMatcher::label_starts_with(
                     function_declarator->children[4].get(), "LPAREN") &&
-                is_parameter_list_node(function_declarator->children[5].get()) &&
+                is_parameter_list_node(
+                    function_declarator->children[5].get()) &&
                 ParseTreeMatcher::label_starts_with(
                     function_declarator->children[6].get(), "RPAREN")) {
                 auto return_function_type = std::make_unique<FunctionTypeNode>(
                     build_declared_type(type_specifier, nullptr,
                                         leading_qualifiers.is_const,
-                                        leading_qualifiers.is_volatile),
+                                        leading_qualifiers.is_volatile, true),
                     build_function_parameter_types(
                         function_declarator->children[5].get()),
                     has_variadic_marker(function_declarator->children[5].get()),
                     get_node_source_span(function_declarator));
-                return_type = build_pointer_type(
-                    std::move(return_function_type),
-                    function_declarator->children[1].get());
-                parameter_list_like_node =
-                    find_parameter_list_node(
-                        function_declarator->children[2].get());
+                return_type =
+                    build_pointer_type(std::move(return_function_type),
+                                       function_declarator->children[1].get());
+                parameter_list_like_node = find_parameter_list_node(
+                    function_declarator->children[2].get());
             } else {
                 const ParseTreeNode *pointer =
                     ParseTreeMatcher::find_first_child_with_label(
                         function_declarator, "pointer");
-                return_type = build_declared_type(type_specifier, pointer,
-                                                  leading_qualifiers.is_const,
-                                                  leading_qualifiers.is_volatile);
+                return_type = build_declared_type(
+                    type_specifier, pointer, leading_qualifiers.is_const,
+                    leading_qualifiers.is_volatile, true);
                 parameter_list_like_node =
                     find_parameter_list_node(function_declarator);
             }
             parameters = build_parameters(parameter_list_like_node);
             is_variadic = has_variadic_marker(parameter_list_like_node);
         } else if (type_specifier != nullptr) {
-            return_type = build_declared_type(type_specifier, nullptr,
-                                              leading_qualifiers.is_const,
-                                              leading_qualifiers.is_volatile);
+            return_type = build_declared_type(
+                type_specifier, nullptr, leading_qualifiers.is_const,
+                leading_qualifiers.is_volatile, true);
         }
     }
 
@@ -599,7 +599,7 @@ AstBuilder::build_parameters(const ParseTreeNode *node) const {
                                     declarator == nullptr ? pointer
                                                           : declarator,
                                     pointee_qualifiers.is_const,
-                                    pointee_qualifiers.is_volatile),
+                                    pointee_qualifiers.is_volatile, true),
                 collect_declarator_dimensions(declarator),
                 get_node_source_span(current)));
             continue;
@@ -1023,7 +1023,8 @@ AstBuilder::build_enum_decl(const ParseTreeNode *node) const {
 }
 
 std::unique_ptr<TypeNode>
-AstBuilder::build_return_type(const ParseTreeNode *node) const {
+AstBuilder::build_return_type(const ParseTreeNode *node,
+                              bool include_inline_enum_enumerators) const {
     if (node == nullptr) {
         return std::make_unique<UnknownTypeNode>("null type_specifier");
     }
@@ -1051,7 +1052,8 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
     if (ParseTreeMatcher::label_starts_with(node, "TYPE_NAME")) {
         const std::string suffix =
             ParseTreeMatcher::extract_terminal_suffix(node, "TYPE_NAME");
-        const std::string builtin_name = builtin_name_from_type_name_token(node);
+        const std::string builtin_name =
+            builtin_name_from_type_name_token(node);
         if (!builtin_name.empty()) {
             return std::make_unique<BuiltinTypeNode>(
                 builtin_name, get_node_source_span(node));
@@ -1377,15 +1379,21 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
             ParseTreeMatcher::find_first_child_with_label(node,
                                                           "enum_specifier")) {
         std::string name = "<anonymous>";
+        std::vector<std::unique_ptr<Decl>> enumerators;
         for (const auto &child : enum_specifier->children) {
             std::string tag_name;
             if (extract_tag_identifier_name(child.get(), tag_name)) {
                 name = tag_name;
-                break;
+                continue;
+            }
+            if (ParseTreeMatcher::label_equals(child.get(),
+                                               "enumerator_list_opt") &&
+                include_inline_enum_enumerators) {
+                enumerators = build_enumerators(child.get());
             }
         }
         return std::make_unique<EnumTypeNode>(
-            name, get_node_source_span(enum_specifier));
+            name, std::move(enumerators), get_node_source_span(enum_specifier));
     }
 
     return std::make_unique<UnknownTypeNode>(node->label,
@@ -1398,10 +1406,11 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
 std::unique_ptr<TypeNode>
 AstBuilder::build_declared_type(const ParseTreeNode *type_specifier,
                                 const ParseTreeNode *declarator,
-                                bool pointee_is_const,
-                                bool pointee_is_volatile)
+                                bool pointee_is_const, bool pointee_is_volatile,
+                                bool include_inline_enum_enumerators)
     const { // NOLINT(bugprone-easily-swappable-parameters)
-    std::unique_ptr<TypeNode> declared_type = build_return_type(type_specifier);
+    std::unique_ptr<TypeNode> declared_type =
+        build_return_type(type_specifier, include_inline_enum_enumerators);
     if (pointee_is_const || pointee_is_volatile) {
         declared_type = std::make_unique<QualifiedTypeNode>(
             pointee_is_const, pointee_is_volatile, std::move(declared_type),
@@ -1709,7 +1718,8 @@ AstBuilder::build_function_parameter_types(
             }
             parameter_types.push_back(build_declared_type(
                 type_specifier, declarator == nullptr ? pointer : declarator,
-                pointee_qualifiers.is_const, pointee_qualifiers.is_volatile));
+                pointee_qualifiers.is_const, pointee_qualifiers.is_volatile,
+                true));
             continue;
         }
         for (auto it = current->children.rbegin();
@@ -2345,8 +2355,8 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
             get_node_source_span(node));
     }
 
-    if (ParseTreeMatcher::label_equals(
-            node, "gnu_builtin_types_compatible_expr") &&
+    if (ParseTreeMatcher::label_equals(node,
+                                       "gnu_builtin_types_compatible_expr") &&
         node->children.size() == 6) {
         const std::string callee_name =
             ParseTreeMatcher::extract_terminal_suffix(node->children[0].get(),
@@ -2379,9 +2389,8 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
         arguments.push_back(build_typeof_argument(node->children[2].get()));
         arguments.push_back(build_typeof_argument(node->children[4].get()));
         return std::make_unique<CallExpr>(
-            std::make_unique<IdentifierExpr>(callee_name,
-                                             get_node_source_span(
-                                                 node->children[0].get())),
+            std::make_unique<IdentifierExpr>(
+                callee_name, get_node_source_span(node->children[0].get())),
             std::move(arguments), get_node_source_span(node));
     }
 
@@ -2498,7 +2507,8 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
 
     if (ParseTreeMatcher::label_equals(node, "designated_init_val")) {
         if (const ParseTreeNode *init_node =
-                ParseTreeMatcher::find_first_child_with_label(node, "init_val")) {
+                ParseTreeMatcher::find_first_child_with_label(node,
+                                                              "init_val")) {
             return build_expr(init_node);
         }
     }
@@ -2849,7 +2859,8 @@ AstBuilder::build_initializer_designator_path(const ParseTreeNode *node) const {
             if (child == nullptr) {
                 continue;
             }
-            if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
+            if (ParseTreeMatcher::label_starts_with(child.get(),
+                                                    "IDENTIFIER")) {
                 path.push_back({InitListExpr::Designator::Kind::Field,
                                 ParseTreeMatcher::extract_terminal_suffix(
                                     child.get(), "IDENTIFIER")});
@@ -2862,8 +2873,8 @@ AstBuilder::build_initializer_designator_path(const ParseTreeNode *node) const {
                 break;
             }
             if (ParseTreeMatcher::label_equals(child.get(), "const_expr")) {
-                path.push_back({InitListExpr::Designator::Kind::Index,
-                                child->label});
+                path.push_back(
+                    {InitListExpr::Designator::Kind::Index, child->label});
                 break;
             }
         }

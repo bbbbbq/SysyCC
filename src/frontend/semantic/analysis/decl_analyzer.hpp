@@ -1,6 +1,8 @@
 #pragma once
 
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "common/source_span.hpp"
 
@@ -8,6 +10,7 @@ namespace sysycc {
 
 class Decl;
 class SemanticSymbol;
+class TypeNode;
 
 namespace detail {
 
@@ -37,6 +40,14 @@ class DeclAnalyzer {
                  const ConversionChecker &conversion_checker,
                  const ConstantEvaluator &constant_evaluator,
                  const ExprAnalyzer &expr_analyzer);
+
+    void analyze_inline_type_declarations(const TypeNode *type_node,
+                                          SemanticContext &semantic_context,
+                                          ScopeStack &scope_stack) const;
+
+    void analyze_enum_enumerators(
+        const std::vector<std::unique_ptr<Decl>> &enumerators,
+        SemanticContext &semantic_context, ScopeStack &scope_stack) const;
 
     void analyze_decl(const Decl *decl, SemanticContext &semantic_context,
                       ScopeStack &scope_stack) const;
