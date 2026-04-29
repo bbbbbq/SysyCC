@@ -1998,8 +1998,13 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
                       call_expr->get_source_span());
             return;
         }
+        const bool has_void_parameter_list =
+            function_type->get_parameter_types().size() == 1 &&
+            conversion_checker_.is_void_type(
+                function_type->get_parameter_types().front());
         const std::size_t fixed_parameter_count =
-            function_type->get_parameter_types().size();
+            has_void_parameter_list ? 0
+                                    : function_type->get_parameter_types().size();
         const std::size_t argument_count = call_expr->get_arguments().size();
         const bool variadic = function_type->get_is_variadic();
         if ((variadic && argument_count < fixed_parameter_count) ||

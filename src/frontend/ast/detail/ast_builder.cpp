@@ -41,6 +41,22 @@ bool is_int_type_token(const ParseTreeNode *node) {
            builtin_name_from_type_name_token(node) == "int";
 }
 
+bool is_void_type_specifier_node(const ParseTreeNode *node) {
+    if (node == nullptr) {
+        return false;
+    }
+    if (ParseTreeMatcher::label_starts_with(node, "VOID") ||
+        builtin_name_from_type_name_token(node) == "void") {
+        return true;
+    }
+    for (const auto &child : node->children) {
+        if (is_void_type_specifier_node(child.get())) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string decode_string_literal_token(std::string token_text) {
     if (token_text.size() >= 2 && token_text.front() == '"' &&
         token_text.back() == '"') {
@@ -623,6 +639,10 @@ AstBuilder::build_parameters(const ParseTreeNode *node) const {
             const ParseTreeNode *pointer =
                 ParseTreeMatcher::find_first_child_with_label(current,
                                                               "pointer");
+            if (declarator == nullptr && pointer == nullptr &&
+                is_void_type_specifier_node(type_specifier)) {
+                continue;
+            }
             TypeQualifierFlags pointee_qualifiers;
             for (const auto &child : current->children) {
                 if (ParseTreeMatcher::label_equals(child.get(),
