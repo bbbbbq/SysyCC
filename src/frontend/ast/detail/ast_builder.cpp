@@ -789,6 +789,9 @@ AstBuilder::build_var_decls(const ParseTreeNode *node) const {
     if (has_union_field_list(type_specifier)) {
         decls.push_back(build_union_decl(type_specifier));
     }
+    if (has_enumerator_list(type_specifier)) {
+        decls.push_back(build_enum_decl(type_specifier));
+    }
 
     std::vector<const ParseTreeNode *> declarators;
     std::vector<const ParseTreeNode *> stack;
