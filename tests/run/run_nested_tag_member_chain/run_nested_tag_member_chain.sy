@@ -1,0 +1,27 @@
+struct hashmap {
+    struct entry {
+        int value;
+        struct entry *next;
+        struct entry *previous;
+    } *first;
+};
+
+int main(void) {
+    struct entry first;
+    struct entry second;
+    struct hashmap map;
+
+    first.value = 1;
+    second.value = 2;
+    first.next = &second;
+    first.previous = 0;
+    second.next = 0;
+    second.previous = &first;
+    map.first = &first;
+
+    second.previous->next = &second;
+    if (map.first->next->previous->next != &second) {
+        return 1;
+    }
+    return map.first->next->value == 2 ? 0 : 2;
+}

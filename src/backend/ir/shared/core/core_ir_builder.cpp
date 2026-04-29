@@ -14,6 +14,7 @@
 #include <string_view>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 #include "backend/ir/analysis/analysis_manager.hpp"
@@ -7284,29 +7285,67 @@ class CoreIrBuildSession {
         const TranslationUnit &translation_unit) {
         named_struct_types_.clear();
         named_union_types_.clear();
+        std::unordered_set<const SemanticType *> visited;
         for (const auto &decl : translation_unit.get_top_level_decls()) {
             if (decl == nullptr) {
                 continue;
             }
-            const SemanticType *type = semantic_model_.get_node_type(decl.get());
-            type = strip_qualifiers(type);
-            if (type == nullptr) {
-                continue;
+            collect_named_aggregate_type(semantic_model_.get_node_type(decl.get()),
+                                         visited);
+        }
+    }
+
+    void collect_named_aggregate_type(
+        const SemanticType *type,
+        std::unordered_set<const SemanticType *> &visited) {
+        type = strip_qualifiers(type);
+        if (type == nullptr || !visited.insert(type).second) {
+            return;
+        }
+
+        if (type->get_kind() == SemanticTypeKind::Pointer) {
+            collect_named_aggregate_type(
+                static_cast<const PointerSemanticType *>(type)->get_pointee_type(),
+                visited);
+            return;
+        }
+        if (type->get_kind() == SemanticTypeKind::Array) {
+            collect_named_aggregate_type(
+                static_cast<const ArraySemanticType *>(type)->get_element_type(),
+                visited);
+            return;
+        }
+        if (type->get_kind() == SemanticTypeKind::Function) {
+            const auto *function_type =
+                static_cast<const FunctionSemanticType *>(type);
+            collect_named_aggregate_type(function_type->get_return_type(),
+                                         visited);
+            for (const SemanticType *parameter_type :
+                 function_type->get_parameter_types()) {
+                collect_named_aggregate_type(parameter_type, visited);
             }
-            if (type->get_kind() == SemanticTypeKind::Struct) {
-                const auto *struct_type =
-                    static_cast<const StructSemanticType *>(type);
-                if (!struct_type->get_name().empty() &&
-                    !struct_type->get_fields().empty()) {
-                    named_struct_types_[struct_type->get_name()] = struct_type;
-                }
-            } else if (type->get_kind() == SemanticTypeKind::Union) {
-                const auto *union_type =
-                    static_cast<const UnionSemanticType *>(type);
-                if (!union_type->get_name().empty() &&
-                    !union_type->get_fields().empty()) {
-                    named_union_types_[union_type->get_name()] = union_type;
-                }
+            return;
+        }
+        if (type->get_kind() == SemanticTypeKind::Struct) {
+            const auto *struct_type =
+                static_cast<const StructSemanticType *>(type);
+            if (!struct_type->get_name().empty() &&
+                !struct_type->get_fields().empty()) {
+                named_struct_types_[struct_type->get_name()] = struct_type;
+            }
+            for (const auto &field : struct_type->get_fields()) {
+                collect_named_aggregate_type(field.get_type(), visited);
+            }
+            return;
+        }
+        if (type->get_kind() == SemanticTypeKind::Union) {
+            const auto *union_type = static_cast<const UnionSemanticType *>(type);
+            if (!union_type->get_name().empty() &&
+                !union_type->get_fields().empty()) {
+                named_union_types_[union_type->get_name()] = union_type;
+            }
+            for (const auto &field : union_type->get_fields()) {
+                collect_named_aggregate_type(field.get_type(), visited);
             }
         }
     }
