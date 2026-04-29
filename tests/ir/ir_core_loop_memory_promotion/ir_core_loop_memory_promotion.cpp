@@ -844,5 +844,100 @@ int main() {
                std::string::npos);
         assert(block_has_phi(*join10));
     }
+    {
+        auto context11 = std::make_unique<CoreIrContext>();
+        auto *void_type11 = context11->create_type<CoreIrVoidType>();
+        auto *i1_type11 = context11->create_type<CoreIrIntegerType>(1);
+        auto *i8_type11 = context11->create_type<CoreIrIntegerType>(8);
+        auto *i32_type11 = context11->create_type<CoreIrIntegerType>(32);
+        auto *ptr_i8_type11 = context11->create_type<CoreIrPointerType>(i8_type11);
+        auto *struct_type11 = context11->create_type<CoreIrStructType>(
+            std::vector<const CoreIrType *>{ptr_i8_type11, i32_type11});
+        auto *ptr_struct_type11 =
+            context11->create_type<CoreIrPointerType>(struct_type11);
+        auto *function_type11 = context11->create_type<CoreIrFunctionType>(
+            i32_type11, std::vector<const CoreIrType *>{}, false);
+        auto *sink_type11 = context11->create_type<CoreIrFunctionType>(
+            void_type11, std::vector<const CoreIrType *>{ptr_struct_type11}, false);
+        auto *module11 = context11->create_module<CoreIrModule>(
+            "ir_core_loop_memory_promotion_null_unit_seed");
+        auto *function11 =
+            module11->create_function<CoreIrFunction>("main", function_type11, false);
+        auto *entry11 = function11->create_basic_block<CoreIrBasicBlock>("entry");
+        auto *header11 = function11->create_basic_block<CoreIrBasicBlock>("header");
+        auto *body11 = function11->create_basic_block<CoreIrBasicBlock>("body");
+        auto *exit11 = function11->create_basic_block<CoreIrBasicBlock>("exit");
+        auto *state11 =
+            function11->create_stack_slot<CoreIrStackSlot>("state", struct_type11, 8);
+        auto *unrelated11 =
+            function11->create_stack_slot<CoreIrStackSlot>("unrelated", i32_type11, 4);
+        auto *zero11 = context11->create_constant<CoreIrConstantInt>(i32_type11, 0);
+        auto *one11 = context11->create_constant<CoreIrConstantInt>(i32_type11, 1);
+        auto *two11 = context11->create_constant<CoreIrConstantInt>(i32_type11, 2);
+        auto *seven11 = context11->create_constant<CoreIrConstantInt>(i32_type11, 7);
+        auto *null11 =
+            context11->create_constant<CoreIrConstantNull>(ptr_i8_type11);
+
+        auto *entry_state_addr11 =
+            entry11->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_struct_type11, "state.addr", state11);
+        auto *entry_ptr_addr11 =
+            entry11->create_instruction<CoreIrGetElementPtrInst>(
+                context11->create_type<CoreIrPointerType>(ptr_i8_type11),
+                "state.ptr.addr", entry_state_addr11,
+                std::vector<CoreIrValue *>{zero11, zero11});
+        entry11->create_instruction<CoreIrStoreInst>(void_type11, null11,
+                                                     entry_ptr_addr11);
+        entry11->create_instruction<CoreIrStoreInst>(void_type11, seven11,
+                                                     unrelated11);
+        auto *unrelated_load11 = entry11->create_instruction<CoreIrLoadInst>(
+            i32_type11, "unrelated.load", unrelated11);
+        entry11->create_instruction<CoreIrJumpInst>(void_type11, header11);
+
+        auto *iv11 = header11->create_instruction<CoreIrPhiInst>(i32_type11, "iv");
+        auto *cmp11 = header11->create_instruction<CoreIrCompareInst>(
+            CoreIrComparePredicate::SignedLess, i1_type11, "cmp", iv11, two11);
+        header11->create_instruction<CoreIrCondJumpInst>(void_type11, cmp11, body11,
+                                                         exit11);
+
+        auto *loop_state_addr11 =
+            body11->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_struct_type11, "state.addr.loop", state11);
+        auto *loop_ptr_addr11 = body11->create_instruction<CoreIrGetElementPtrInst>(
+            context11->create_type<CoreIrPointerType>(ptr_i8_type11),
+            "state.ptr.addr.loop", loop_state_addr11,
+            std::vector<CoreIrValue *>{zero11, zero11});
+        auto *ptr_load11 = body11->create_instruction<CoreIrLoadInst>(
+            ptr_i8_type11, "state.ptr.load", loop_ptr_addr11);
+        body11->create_instruction<CoreIrStoreInst>(void_type11, ptr_load11,
+                                                    loop_ptr_addr11);
+        auto *next_iv11 = body11->create_instruction<CoreIrBinaryInst>(
+            CoreIrBinaryOpcode::Add, i32_type11, "iv.next", iv11, one11);
+        body11->create_instruction<CoreIrJumpInst>(void_type11, header11);
+
+        auto *exit_state_addr11 =
+            exit11->create_instruction<CoreIrAddressOfStackSlotInst>(
+                ptr_struct_type11, "state.addr.exit", state11);
+        exit11->create_instruction<CoreIrCallInst>(
+            void_type11, "", "sink", sink_type11,
+            std::vector<CoreIrValue *>{exit_state_addr11});
+        exit11->create_instruction<CoreIrReturnInst>(void_type11,
+                                                     unrelated_load11);
+        iv11->add_incoming(entry11, zero11);
+        iv11->add_incoming(body11, next_iv11);
+
+        CompilerContext compiler_context11;
+        compiler_context11.set_core_ir_build_result(
+            std::make_unique<CoreIrBuildResult>(std::move(context11), module11));
+        CoreIrLcssaPass lcssa11;
+        assert(lcssa11.Run(compiler_context11).ok);
+        CoreIrLoopMemoryPromotionPass pass11;
+        assert(pass11.Run(compiler_context11).ok);
+        assert_module_verifies(*module11);
+
+        const std::string text11 = printer.print_module(*module11);
+        assert(text11.find("%state.ptr.load = load ptr") == std::string::npos);
+        assert(text11.find("%state.loop.") != std::string::npos);
+    }
     return 0;
 }

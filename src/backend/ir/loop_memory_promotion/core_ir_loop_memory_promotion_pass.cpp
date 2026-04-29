@@ -267,6 +267,14 @@ bool instruction_matches_access_info(const CoreIrInstruction &instruction,
                                         : store->get_value()->get_type());
 }
 
+bool instruction_belongs_to_promotable_unit(
+    const CoreIrPromotableStackSlotAnalysisResult &promotable_units,
+    const CoreIrInstruction *instruction, const UnitLoopAccessInfo &access_info) {
+    return access_info.unit_info != nullptr &&
+           promotable_units.find_unit_for_instruction(instruction) ==
+               access_info.unit_info;
+}
+
 const CoreIrType *
 resolve_access_path_type(const CoreIrType *root_type,
                          const std::vector<std::uint64_t> &path);
@@ -626,8 +634,8 @@ CoreIrValue *find_initial_value_in_preheader(
                 return load;
             }
             if (access_info.kind == CoreIrPromotionUnitKind::AccessPath &&
-                promotable_units.find_unit_for_instruction(load) ==
-                    access_info.unit_info) {
+                instruction_belongs_to_promotable_unit(promotable_units, load,
+                                                       access_info)) {
                 return load;
             }
         }
@@ -1092,8 +1100,8 @@ bool unit_has_outside_accesses(
             if (instruction_matches_access_info(*instruction, access_info)) {
                 return true;
             }
-            if (promotable_units.find_unit_for_instruction(instruction) ==
-                access_info.unit_info) {
+            if (instruction_belongs_to_promotable_unit(
+                    promotable_units, instruction, access_info)) {
                 return true;
             }
         }
@@ -1154,8 +1162,8 @@ bool unit_has_outside_store(
             if (instruction_matches_access_info(*store, access_info)) {
                 return true;
             }
-            if (promotable_units.find_unit_for_instruction(instruction) ==
-                access_info.unit_info) {
+            if (instruction_belongs_to_promotable_unit(
+                    promotable_units, instruction, access_info)) {
                 return true;
             }
         }
@@ -1185,6 +1193,22 @@ bool exit_blocks_contain_local_store_conflict(
         }
     }
     return false;
+}
+
+bool loop_has_dedicated_exit_blocks(const CoreIrLoopInfo &loop,
+                                    const CoreIrCfgAnalysisResult &cfg_analysis) {
+    for (CoreIrBasicBlock *exit_block : loop.get_exit_blocks()) {
+        if (exit_block == nullptr) {
+            continue;
+        }
+        for (CoreIrBasicBlock *predecessor :
+             cfg_analysis.get_predecessors(exit_block)) {
+            if (!loop_contains_block(loop, predecessor)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool whole_slot_accesses_nested_subloop(const CoreIrLoopInfo &loop,
@@ -1312,6 +1336,11 @@ bool promote_slot_in_loop(
     CoreIrBasicBlock *header = loop.get_header();
     CoreIrBasicBlock *preheader = loop.get_preheader();
     if (header == nullptr || preheader == nullptr) {
+        return false;
+    }
+    const CoreIrCfgAnalysisResult &cfg_analysis =
+        analysis_manager.get_or_compute<CoreIrCfgAnalysis>(function);
+    if (!loop_has_dedicated_exit_blocks(loop, cfg_analysis)) {
         return false;
     }
 
