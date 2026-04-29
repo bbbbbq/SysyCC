@@ -321,6 +321,21 @@ bool has_struct_field_list(const ParseTreeNode *node) {
     return field_list != nullptr && !field_list->children.empty();
 }
 
+bool has_struct_tag_name(const ParseTreeNode *node) {
+    const ParseTreeNode *struct_specifier =
+        ParseTreeMatcher::find_first_child_with_label(node, "struct_specifier");
+    if (struct_specifier == nullptr) {
+        return false;
+    }
+    for (const auto &child : struct_specifier->children) {
+        std::string tag_name;
+        if (extract_tag_identifier_name(child.get(), tag_name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool has_union_field_list(const ParseTreeNode *node) {
     const ParseTreeNode *union_specifier =
         ParseTreeMatcher::find_first_child_with_label(node, "union_specifier");
@@ -701,7 +716,8 @@ AstBuilder::build_const_decls(const ParseTreeNode *node) const {
         }
     }
 
-    if (has_struct_field_list(type_specifier)) {
+    if (has_struct_field_list(type_specifier) &&
+        has_struct_tag_name(type_specifier)) {
         decls.push_back(build_struct_decl(type_specifier));
     }
     if (has_union_field_list(type_specifier)) {
@@ -784,7 +800,8 @@ AstBuilder::build_var_decls(const ParseTreeNode *node) const {
         }
     }
 
-    if (has_struct_field_list(type_specifier)) {
+    if (has_struct_field_list(type_specifier) &&
+        has_struct_tag_name(type_specifier)) {
         decls.push_back(build_struct_decl(type_specifier));
     }
     if (has_union_field_list(type_specifier)) {
@@ -863,7 +880,8 @@ AstBuilder::build_typedef_decls(const ParseTreeNode *node) const {
             }
         }
     }
-    if (has_struct_field_list(type_specifier)) {
+    if (has_struct_field_list(type_specifier) &&
+        has_struct_tag_name(type_specifier)) {
         decls.push_back(build_struct_decl(type_specifier));
     }
     if (has_union_field_list(type_specifier)) {

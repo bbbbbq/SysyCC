@@ -1,0 +1,15 @@
+int parse_describe_args(void) {
+    struct {
+        const char *name;
+        enum {
+            DESCRIBE_ARG_BOOL,
+            DESCRIBE_ARG_INTEGER,
+            DESCRIBE_ARG_STRING,
+        } type;
+    } option[] = {
+        { "tags", DESCRIBE_ARG_BOOL },
+        { "abbrev", DESCRIBE_ARG_INTEGER },
+        { "exclude", DESCRIBE_ARG_STRING },
+    };
+    return option[1].type == DESCRIBE_ARG_INTEGER;
+}
