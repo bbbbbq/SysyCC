@@ -5,15 +5,15 @@
 
 #include "common/diagnostic/warning_options.hpp"
 #include "frontend/ast/ast_node.hpp"
-#include "frontend/semantic/type_system/constant_evaluator.hpp"
-#include "frontend/semantic/type_system/conversion_checker.hpp"
 #include "frontend/semantic/analysis/decl_analyzer.hpp"
 #include "frontend/semantic/analysis/expr_analyzer.hpp"
-#include "frontend/semantic/support/scope_stack.hpp"
-#include "frontend/semantic/support/semantic_context.hpp"
 #include "frontend/semantic/model/semantic_diagnostic.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
+#include "frontend/semantic/support/scope_stack.hpp"
+#include "frontend/semantic/support/semantic_context.hpp"
+#include "frontend/semantic/type_system/constant_evaluator.hpp"
+#include "frontend/semantic/type_system/conversion_checker.hpp"
 
 namespace sysycc::detail {
 
@@ -23,10 +23,17 @@ const SemanticType *strip_qualifiers(const SemanticType *type) {
     const SemanticType *current = type;
     while (current != nullptr &&
            current->get_kind() == SemanticTypeKind::Qualified) {
-        current =
-            static_cast<const QualifiedSemanticType *>(current)->get_base_type();
+        current = static_cast<const QualifiedSemanticType *>(current)
+                      ->get_base_type();
     }
     return current;
+}
+
+const SemanticType *
+get_decayed_expr_type(const Expr *expr, SemanticModel &semantic_model,
+                      const ConversionChecker &conversion_checker) {
+    return conversion_checker.get_decayed_type(
+        semantic_model.get_node_type(expr), semantic_model);
 }
 
 bool is_void_cast_expr(const Expr *expr, const SemanticModel &semantic_model) {
@@ -34,9 +41,10 @@ bool is_void_cast_expr(const Expr *expr, const SemanticModel &semantic_model) {
         return false;
     }
 
-    const SemanticType *expr_type = strip_qualifiers(
-        semantic_model.get_node_type(expr));
-    if (expr_type == nullptr || expr_type->get_kind() != SemanticTypeKind::Builtin) {
+    const SemanticType *expr_type =
+        strip_qualifiers(semantic_model.get_node_type(expr));
+    if (expr_type == nullptr ||
+        expr_type->get_kind() != SemanticTypeKind::Builtin) {
         return false;
     }
 
@@ -72,7 +80,8 @@ bool expr_has_side_effects(const Expr *expr,
         return expr_has_side_effects(
             static_cast<const CastExpr *>(expr)->get_operand(), semantic_model);
     case AstKind::ConditionalExpr: {
-        const auto *conditional_expr = static_cast<const ConditionalExpr *>(expr);
+        const auto *conditional_expr =
+            static_cast<const ConditionalExpr *>(expr);
         return expr_has_side_effects(conditional_expr->get_condition(),
                                      semantic_model) ||
                expr_has_side_effects(conditional_expr->get_true_expr(),
@@ -136,9 +145,9 @@ bool stmt_terminates_current_block(const Stmt *stmt,
         return if_stmt->get_then_branch() != nullptr &&
                if_stmt->get_else_branch() != nullptr &&
                stmt_terminates_current_block(if_stmt->get_then_branch(),
-                                            semantic_context) &&
+                                             semantic_context) &&
                stmt_terminates_current_block(if_stmt->get_else_branch(),
-                                            semantic_context);
+                                             semantic_context);
     }
     case AstKind::BlockStmt: {
         const auto *block_stmt = static_cast<const BlockStmt *>(stmt);
@@ -154,15 +163,14 @@ bool stmt_terminates_current_block(const Stmt *stmt,
             if (subsequent_statement_unreachable) {
                 continue;
             }
-            subsequent_statement_unreachable =
-                stmt_terminates_current_block(statement.get(), semantic_context);
+            subsequent_statement_unreachable = stmt_terminates_current_block(
+                statement.get(), semantic_context);
         }
         return subsequent_statement_unreachable;
     }
     case AstKind::LabelStmt:
         return stmt_terminates_current_block(
-            static_cast<const LabelStmt *>(stmt)->get_body(),
-            semantic_context);
+            static_cast<const LabelStmt *>(stmt)->get_body(), semantic_context);
     default:
         return false;
     }
@@ -178,7 +186,8 @@ void warn_on_constant_condition(SemanticContext &semantic_context,
     }
 
     const std::optional<long long> constant_value =
-        constant_evaluator.get_integer_constant_value(condition, semantic_context);
+        constant_evaluator.get_integer_constant_value(condition,
+                                                      semantic_context);
     if (!constant_value.has_value()) {
         return;
     }
@@ -200,17 +209,15 @@ StmtAnalyzer::StmtAnalyzer(const DeclAnalyzer &decl_analyzer,
                            const ExprAnalyzer &expr_analyzer,
                            const ConversionChecker &conversion_checker,
                            const ConstantEvaluator &constant_evaluator)
-    : decl_analyzer_(decl_analyzer),
-      expr_analyzer_(expr_analyzer),
+    : decl_analyzer_(decl_analyzer), expr_analyzer_(expr_analyzer),
       conversion_checker_(conversion_checker),
       constant_evaluator_(constant_evaluator) {}
 
 void StmtAnalyzer::add_error(SemanticContext &semantic_context,
                              std::string message,
                              const SourceSpan &source_span) const {
-    semantic_context.get_semantic_model().add_diagnostic(
-        SemanticDiagnostic(DiagnosticSeverity::Error, std::move(message),
-                           source_span));
+    semantic_context.get_semantic_model().add_diagnostic(SemanticDiagnostic(
+        DiagnosticSeverity::Error, std::move(message), source_span));
 }
 
 void StmtAnalyzer::add_warning(SemanticContext &semantic_context,
@@ -251,8 +258,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
                             warning_options::kUnreachableCode);
             }
             analyze_stmt(statement.get(), semantic_context, scope_stack);
-            subsequent_statement_unreachable =
-                stmt_terminates_current_block(statement.get(), semantic_context);
+            subsequent_statement_unreachable = stmt_terminates_current_block(
+                statement.get(), semantic_context);
         }
         scope_stack.pop_scope();
         return;
@@ -260,17 +267,20 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
     case AstKind::DeclStmt: {
         const auto *decl_stmt = static_cast<const DeclStmt *>(stmt);
         for (const auto &decl : decl_stmt->get_declarations()) {
-            decl_analyzer_.analyze_decl(decl.get(), semantic_context, scope_stack);
+            decl_analyzer_.analyze_decl(decl.get(), semantic_context,
+                                        scope_stack);
         }
         return;
     }
     case AstKind::ExprStmt: {
         const auto *expr_stmt = static_cast<const ExprStmt *>(stmt);
-        expr_analyzer_.analyze_expr(expr_stmt->get_expression(), semantic_context,
-                                    scope_stack);
+        expr_analyzer_.analyze_expr(expr_stmt->get_expression(),
+                                    semantic_context, scope_stack);
         if (expr_stmt->get_expression() != nullptr &&
-            semantic_model.get_node_type(expr_stmt->get_expression()) != nullptr &&
-            !expr_has_side_effects(expr_stmt->get_expression(), semantic_model)) {
+            semantic_model.get_node_type(expr_stmt->get_expression()) !=
+                nullptr &&
+            !expr_has_side_effects(expr_stmt->get_expression(),
+                                   semantic_model)) {
             add_warning(semantic_context, "statement has no effect",
                         expr_stmt->get_expression()->get_source_span(),
                         warning_options::kUnusedValue);
@@ -282,7 +292,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         expr_analyzer_.analyze_expr(if_stmt->get_condition(), semantic_context,
                                     scope_stack);
         if (!conversion_checker_.is_scalar_type(
-                semantic_model.get_node_type(if_stmt->get_condition()))) {
+                get_decayed_expr_type(if_stmt->get_condition(), semantic_model,
+                                      conversion_checker_))) {
             add_error(semantic_context,
                       "condition expression must have scalar type",
                       if_stmt->get_condition()->get_source_span());
@@ -296,10 +307,11 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
     }
     case AstKind::WhileStmt: {
         const auto *while_stmt = static_cast<const WhileStmt *>(stmt);
-        expr_analyzer_.analyze_expr(while_stmt->get_condition(), semantic_context,
-                                    scope_stack);
+        expr_analyzer_.analyze_expr(while_stmt->get_condition(),
+                                    semantic_context, scope_stack);
         if (!conversion_checker_.is_scalar_type(
-                semantic_model.get_node_type(while_stmt->get_condition()))) {
+                get_decayed_expr_type(while_stmt->get_condition(),
+                                      semantic_model, conversion_checker_))) {
             add_error(semantic_context,
                       "condition expression must have scalar type",
                       while_stmt->get_condition()->get_source_span());
@@ -320,7 +332,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         expr_analyzer_.analyze_expr(do_while_stmt->get_condition(),
                                     semantic_context, scope_stack);
         if (!conversion_checker_.is_scalar_type(
-                semantic_model.get_node_type(do_while_stmt->get_condition()))) {
+                get_decayed_expr_type(do_while_stmt->get_condition(),
+                                      semantic_model, conversion_checker_))) {
             add_error(semantic_context,
                       "condition expression must have scalar type",
                       do_while_stmt->get_condition()->get_source_span());
@@ -347,7 +360,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
                                     scope_stack);
         if (for_stmt->get_condition() != nullptr &&
             !conversion_checker_.is_scalar_type(
-                semantic_model.get_node_type(for_stmt->get_condition()))) {
+                get_decayed_expr_type(for_stmt->get_condition(), semantic_model,
+                                      conversion_checker_))) {
             add_error(semantic_context,
                       "condition expression must have scalar type",
                       for_stmt->get_condition()->get_source_span());
@@ -364,8 +378,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
     }
     case AstKind::SwitchStmt: {
         const auto *switch_stmt = static_cast<const SwitchStmt *>(stmt);
-        expr_analyzer_.analyze_expr(switch_stmt->get_condition(), semantic_context,
-                                    scope_stack);
+        expr_analyzer_.analyze_expr(switch_stmt->get_condition(),
+                                    semantic_context, scope_stack);
         if (!conversion_checker_.is_scalar_type(
                 semantic_model.get_node_type(switch_stmt->get_condition()))) {
             add_error(semantic_context,
@@ -387,7 +401,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         expr_analyzer_.analyze_expr(case_stmt->get_value(), semantic_context,
                                     scope_stack);
         if (!constant_evaluator_.is_integer_constant_expr(
-                case_stmt->get_value(), semantic_context, conversion_checker_)) {
+                case_stmt->get_value(), semantic_context,
+                conversion_checker_)) {
             add_error(semantic_context,
                       "case label must be an integer constant expression",
                       case_stmt->get_value()->get_source_span());
@@ -420,8 +435,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
     }
     case AstKind::LabelStmt: {
         const auto *label_stmt = static_cast<const LabelStmt *>(stmt);
-        if (!semantic_context.record_label_definition(label_stmt->get_label_name(),
-                                                      label_stmt->get_source_span())) {
+        if (!semantic_context.record_label_definition(
+                label_stmt->get_label_name(), label_stmt->get_source_span())) {
             add_error(semantic_context,
                       "duplicate label '" + label_stmt->get_label_name() + "'",
                       label_stmt->get_source_span());
@@ -453,9 +468,10 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         }
 
         if (return_stmt->get_value() == nullptr) {
-            add_error(semantic_context,
-                      "return statement is missing a value for a non-void function",
-                      return_stmt->get_source_span());
+            add_error(
+                semantic_context,
+                "return statement is missing a value for a non-void function",
+                return_stmt->get_source_span());
             return;
         }
 
@@ -493,7 +509,8 @@ void StmtAnalyzer::analyze_stmt(const Stmt *stmt,
         if (semantic_context.get_loop_depth() <= 0 &&
             semantic_context.get_switch_depth() <= 0) {
             add_error(semantic_context,
-                      "break statement is only allowed inside loops or switch statements",
+                      "break statement is only allowed inside loops or switch "
+                      "statements",
                       stmt->get_source_span());
         }
         return;
