@@ -53,6 +53,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::KwExtension;
     case INLINE:
         return TokenKind::KwInline;
+    case NORETURN:
+        return TokenKind::KwNoreturn;
     case RESTRICT:
         return TokenKind::KwRestrict;
     case NULLABILITY:

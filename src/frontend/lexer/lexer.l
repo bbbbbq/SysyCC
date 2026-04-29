@@ -50,6 +50,8 @@ static int get_keyword_parser_token(sysycc::TokenKind kind) {
         return EXTENSION;
     case sysycc::TokenKind::KwInline:
         return INLINE;
+    case sysycc::TokenKind::KwNoreturn:
+        return NORETURN;
     case sysycc::TokenKind::KwRestrict:
         return RESTRICT;
     case sysycc::TokenKind::KwNullability:
@@ -133,6 +135,8 @@ static const char *get_keyword_token_label(int token) {
         return "EXTENSION";
     case INLINE:
         return "INLINE";
+    case NORETURN:
+        return "NORETURN";
     case RESTRICT:
         return "RESTRICT";
     case NULLABILITY:
@@ -288,6 +292,7 @@ ANNOT_IDENT _LIBC_[A-Z0-9_]*
 "_Null_unspecified"         { return make_token(NULLABILITY, "NULLABILITY", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "__const"                   { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "__const__"                 { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"_Noreturn"                 { return make_token(NORETURN, "NORETURN", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "typeof"                    { return make_token(TYPEOF, "TYPEOF", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "__typeof__"                { return make_token(TYPEOF, "TYPEOF", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "_Alignas"                  { return make_token(ALIGNAS, "ALIGNAS", (sysycc::LexerState *)yyextra, yytext, yylval); }
