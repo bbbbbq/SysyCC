@@ -1602,19 +1602,12 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             }
             semantic_model.bind_node_type(binary_expr,
                                           get_int_semantic_type(semantic_model));
-            if (lhs_constant.has_value() && rhs_constant.has_value()) {
-                long long result = 0;
-                if (operator_text == "<") {
-                    result = *lhs_constant < *rhs_constant;
-                } else if (operator_text == "<=") {
-                    result = *lhs_constant <= *rhs_constant;
-                } else if (operator_text == ">") {
-                    result = *lhs_constant > *rhs_constant;
-                } else {
-                    result = *lhs_constant >= *rhs_constant;
-                }
+            if (const auto result =
+                    constant_evaluator_.get_integer_constant_value(
+                        binary_expr, semantic_context);
+                result.has_value()) {
                 constant_evaluator_.bind_integer_constant_value(
-                    binary_expr, result, semantic_context);
+                    binary_expr, *result, semantic_context);
             }
             return;
         }

@@ -100,6 +100,49 @@ const CallExpr *get_gnu_typeof_call_expr(const Expr *expr) {
     return call_expr;
 }
 
+bool is_negative_one_expr(const Expr *expr) {
+    if (const auto value = get_simple_integer_literal_value(expr);
+        value.has_value()) {
+        return *value == -1;
+    }
+    const auto *unary_expr = dynamic_cast<const UnaryExpr *>(expr);
+    if (unary_expr == nullptr || unary_expr->get_operator_text() != "-") {
+        return false;
+    }
+    const auto operand_value =
+        get_simple_integer_literal_value(unary_expr->get_operand());
+    return operand_value.has_value() && *operand_value == 1;
+}
+
+const SemanticType *get_gnu_typeof_cast_operand_type(
+    const Expr *expr, const SemanticModel &semantic_model) {
+    const auto *cast_expr = dynamic_cast<const CastExpr *>(expr);
+    if (cast_expr == nullptr || !is_negative_one_expr(cast_expr->get_operand())) {
+        return nullptr;
+    }
+    const auto *typeof_type =
+        dynamic_cast<const TypeofTypeNode *>(cast_expr->get_target_type());
+    if (typeof_type == nullptr) {
+        return nullptr;
+    }
+    return semantic_model.get_node_type(typeof_type->get_operand());
+}
+
+std::optional<long long> signedness_probe_result(
+    const SemanticType *type, const std::string &operator_text) {
+    const auto type_info =
+        IntegerConversionService().get_integer_type_info(type);
+    if (!type_info.has_value()) {
+        return std::nullopt;
+    }
+
+    const bool is_signed = type_info->get_is_signed();
+    if (operator_text == "<") {
+        return is_signed ? 1LL : 0LL;
+    }
+    return is_signed ? 0LL : 1LL;
+}
+
 std::optional<long long> evaluate_gnu_typeof_signedness_probe(
     const BinaryExpr *binary_expr, const SemanticModel &semantic_model) {
     if (binary_expr == nullptr ||
@@ -112,6 +155,14 @@ std::optional<long long> evaluate_gnu_typeof_signedness_probe(
         get_simple_integer_literal_value(binary_expr->get_rhs());
     if (!rhs_value.has_value() || *rhs_value != 0) {
         return std::nullopt;
+    }
+
+    if (const SemanticType *typeof_cast_operand_type =
+            get_gnu_typeof_cast_operand_type(binary_expr->get_lhs(),
+                                             semantic_model);
+        typeof_cast_operand_type != nullptr) {
+        return signedness_probe_result(typeof_cast_operand_type,
+                                       binary_expr->get_operator_text());
     }
 
     const auto *sub_expr = dynamic_cast<const BinaryExpr *>(binary_expr->get_lhs());
@@ -130,17 +181,8 @@ std::optional<long long> evaluate_gnu_typeof_signedness_probe(
     }
     const SemanticType *typeof_argument_type =
         semantic_model.get_node_type(typeof_call->get_arguments().front().get());
-    const auto type_info =
-        IntegerConversionService().get_integer_type_info(typeof_argument_type);
-    if (!type_info.has_value()) {
-        return std::nullopt;
-    }
-
-    const bool is_signed = type_info->get_is_signed();
-    if (binary_expr->get_operator_text() == "<") {
-        return is_signed ? 1LL : 0LL;
-    }
-    return is_signed ? 0LL : 1LL;
+    return signedness_probe_result(typeof_argument_type,
+                                   binary_expr->get_operator_text());
 }
 
 bool is_pointer_semantic_type(const SemanticType *type) {
