@@ -127,6 +127,11 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
     case AstKind::ReturnStmt:
         dump_return_stmt(static_cast<const ReturnStmt *>(node), os, indent);
         return;
+    case AstKind::GnuAsmStmt:
+        write_indent(os, indent);
+        os << "GnuAsmStmt\n";
+        dump_source_span(node, os, indent + 2);
+        return;
     case AstKind::BuiltinType: {
         const auto *builtin_type =
             static_cast<const BuiltinTypeNode *>(node);

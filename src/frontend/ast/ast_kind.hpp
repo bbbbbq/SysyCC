@@ -44,6 +44,7 @@ enum class AstKind : uint8_t {
     ContinueStmt,
     GotoStmt,
     ReturnStmt,
+    GnuAsmStmt,
     UnknownStmt,
     IntegerLiteralExpr,
     FloatLiteralExpr,

@@ -623,6 +623,13 @@ class ReturnStmt : public Stmt {
     const Expr *get_value() const noexcept;
 };
 
+// Represents a GNU inline asm statement. The current frontend preserves it as
+// a statement boundary; Core IR treats it as a conservative no-op barrier.
+class GnuAsmStmt : public Stmt {
+  public:
+    explicit GnuAsmStmt(SourceSpan source_span = {});
+};
+
 // Placeholder statement node used until lowering is implemented.
 class UnknownStmt : public Stmt {
   private:

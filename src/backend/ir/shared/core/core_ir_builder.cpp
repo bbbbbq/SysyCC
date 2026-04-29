@@ -183,6 +183,7 @@ bool stmt_contains_break(const Stmt *stmt) {
     case AstKind::GotoStmt:
     case AstKind::CaseStmt:
     case AstKind::DefaultStmt:
+    case AstKind::GnuAsmStmt:
     case AstKind::UnknownStmt:
         return false;
     case AstKind::LabelStmt:
@@ -4140,6 +4141,9 @@ class CoreIrBuildSession {
         if (const auto *expr_stmt = dynamic_cast<const ExprStmt *>(stmt);
             expr_stmt != nullptr) {
             return emit_expr_stmt(*expr_stmt);
+        }
+        if (dynamic_cast<const GnuAsmStmt *>(stmt) != nullptr) {
+            return true;
         }
         if (const auto *label_stmt = dynamic_cast<const LabelStmt *>(stmt);
             label_stmt != nullptr) {

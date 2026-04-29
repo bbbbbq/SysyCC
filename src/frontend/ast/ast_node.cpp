@@ -573,6 +573,9 @@ ReturnStmt::ReturnStmt(std::unique_ptr<Expr> value, SourceSpan source_span)
 
 const Expr *ReturnStmt::get_value() const noexcept { return value_.get(); }
 
+GnuAsmStmt::GnuAsmStmt(SourceSpan source_span)
+    : Stmt(AstKind::GnuAsmStmt, source_span) {}
+
 UnknownStmt::UnknownStmt(std::string summary, SourceSpan source_span)
     : Stmt(AstKind::UnknownStmt, source_span), summary_(std::move(summary)) {}
 

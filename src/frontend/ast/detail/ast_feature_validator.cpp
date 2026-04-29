@@ -208,6 +208,7 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
         return validate_node(label_stmt->get_body(), feature_registry, error_info);
     }
     case AstKind::GotoStmt:
+    case AstKind::GnuAsmStmt:
         return true;
     case AstKind::ReturnStmt: {
         const auto *return_stmt = static_cast<const ReturnStmt *>(node);

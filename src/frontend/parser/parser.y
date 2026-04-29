@@ -57,6 +57,9 @@ char *yyget_text(void *yyscanner);
 %type <node> attribute_list_opt attribute_list attribute attribute_name attribute_argument_list_opt
 %type <node> attribute_argument_list attribute_argument
 %type <node> block block_scope_enter block_items block_item stmt
+%type <node> gnu_asm_stmt gnu_asm_qualifier_opt gnu_asm_operands_opt
+%type <node> gnu_asm_operand_list_opt gnu_asm_operand_list gnu_asm_operand gnu_asm_symbolic_name_opt
+%type <node> gnu_asm_clobber_list_opt gnu_asm_clobber_list gnu_asm_label_list_opt gnu_asm_label_list
 %type <node> expr const_expr cond argument_expr_list
 %type <node> assignment_expr conditional_expr logical_or_expr logical_and_expr bit_or_expr
 %type <node> bit_xor_expr bit_and_expr eq_expr rel_expr shift_expr add_expr
@@ -1394,6 +1397,87 @@ stmt
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3, $4}); }
     | RETURN expr_opt SEMICOLON
       { $$ = sysycc::make_nonterminal_node("stmt", {$1, $2, $3}); }
+    | gnu_asm_stmt
+      { $$ = sysycc::make_nonterminal_node("stmt", {$1}); }
+    ;
+
+gnu_asm_stmt
+    : ASM gnu_asm_qualifier_opt LPAREN string_literal_seq gnu_asm_operands_opt RPAREN SEMICOLON
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_stmt", {$1, $2, $3, $4, $5, $6, $7}); }
+    ;
+
+gnu_asm_qualifier_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_qualifier_opt", {}); }
+    | VOLATILE
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_qualifier_opt", {$1}); }
+    ;
+
+gnu_asm_operands_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operands_opt", {}); }
+    | COLON gnu_asm_operand_list_opt
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operands_opt", {$1, $2}); }
+    | COLON gnu_asm_operand_list_opt COLON gnu_asm_operand_list_opt
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operands_opt", {$1, $2, $3, $4}); }
+    | COLON gnu_asm_operand_list_opt COLON gnu_asm_operand_list_opt COLON gnu_asm_clobber_list_opt
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operands_opt", {$1, $2, $3, $4, $5, $6}); }
+    | COLON gnu_asm_operand_list_opt COLON gnu_asm_operand_list_opt COLON gnu_asm_clobber_list_opt COLON gnu_asm_label_list_opt
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operands_opt", {$1, $2, $3, $4, $5, $6, $7, $8}); }
+    ;
+
+gnu_asm_operand_list_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operand_list_opt", {}); }
+    | gnu_asm_operand_list
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operand_list_opt", {$1}); }
+    ;
+
+gnu_asm_operand_list
+    : gnu_asm_operand
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operand_list", {$1}); }
+    | gnu_asm_operand_list COMMA gnu_asm_operand
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operand_list", {$1, $2, $3}); }
+    ;
+
+gnu_asm_operand
+    : gnu_asm_symbolic_name_opt string_literal_seq LPAREN expr RPAREN
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_operand", {$1, $2, $3, $4, $5}); }
+    ;
+
+gnu_asm_symbolic_name_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_symbolic_name_opt", {}); }
+    | LBRACKET IDENTIFIER RBRACKET
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_symbolic_name_opt", {$1, $2, $3}); }
+    ;
+
+gnu_asm_clobber_list_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_clobber_list_opt", {}); }
+    | gnu_asm_clobber_list
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_clobber_list_opt", {$1}); }
+    ;
+
+gnu_asm_clobber_list
+    : string_literal_seq
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_clobber_list", {$1}); }
+    | gnu_asm_clobber_list COMMA string_literal_seq
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_clobber_list", {$1, $2, $3}); }
+    ;
+
+gnu_asm_label_list_opt
+    : /* empty */
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_label_list_opt", {}); }
+    | gnu_asm_label_list
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_label_list_opt", {$1}); }
+    ;
+
+gnu_asm_label_list
+    : IDENTIFIER
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_label_list", {$1}); }
+    | gnu_asm_label_list COMMA IDENTIFIER
+      { $$ = sysycc::make_nonterminal_node("gnu_asm_label_list", {$1, $2, $3}); }
     ;
 
 expr_opt

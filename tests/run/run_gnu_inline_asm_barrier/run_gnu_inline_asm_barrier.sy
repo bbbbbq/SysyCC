@@ -1,0 +1,6 @@
+int main(void) {
+    unsigned long ha = 5381;
+    unsigned long c0 = 7;
+    __asm__("" : "+r"(c0), "+r"(ha));
+    return ha == 5381 && c0 == 7 ? 0 : 1;
+}

@@ -204,6 +204,8 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
         const auto *goto_stmt = static_cast<const GotoStmt *>(node);
         return ast_contains_unknown_nodes(goto_stmt->get_indirect_target());
     }
+    case AstKind::GnuAsmStmt:
+        return false;
     case AstKind::ReturnStmt: {
         const auto *return_stmt = static_cast<const ReturnStmt *>(node);
         return ast_contains_unknown_nodes(return_stmt->get_value());

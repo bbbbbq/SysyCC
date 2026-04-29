@@ -2392,6 +2392,12 @@ std::unique_ptr<Stmt> AstBuilder::build_stmt(const ParseTreeNode *node) const {
             get_node_source_span(stmt_node));
     }
 
+    if (!stmt_node->children.empty() &&
+        ParseTreeMatcher::label_equals(stmt_node->children[0].get(),
+                                       "gnu_asm_stmt")) {
+        return std::make_unique<GnuAsmStmt>(get_node_source_span(stmt_node));
+    }
+
     for (const auto &child : stmt_node->children) {
         if (ParseTreeMatcher::label_starts_with(child.get(), "RETURN")) {
             const ParseTreeNode *expr_opt =
