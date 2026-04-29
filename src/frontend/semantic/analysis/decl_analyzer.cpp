@@ -166,6 +166,72 @@ void analyze_type_operand_expressions(const TypeNode *type_node,
     }
 }
 
+void analyze_inline_type_declarations(const TypeNode *type_node,
+                                      const DeclAnalyzer &decl_analyzer,
+                                      SemanticContext &semantic_context,
+                                      ScopeStack &scope_stack) {
+    if (type_node == nullptr) {
+        return;
+    }
+
+    switch (type_node->get_kind()) {
+    case AstKind::QualifiedType: {
+        const auto *qualified_type =
+            static_cast<const QualifiedTypeNode *>(type_node);
+        analyze_inline_type_declarations(qualified_type->get_base_type(),
+                                         decl_analyzer, semantic_context,
+                                         scope_stack);
+        return;
+    }
+    case AstKind::PointerType: {
+        const auto *pointer_type =
+            static_cast<const PointerTypeNode *>(type_node);
+        analyze_inline_type_declarations(pointer_type->get_pointee_type(),
+                                         decl_analyzer, semantic_context,
+                                         scope_stack);
+        return;
+    }
+    case AstKind::ArrayType: {
+        const auto *array_type = static_cast<const ArrayTypeNode *>(type_node);
+        analyze_inline_type_declarations(array_type->get_element_type(),
+                                         decl_analyzer, semantic_context,
+                                         scope_stack);
+        return;
+    }
+    case AstKind::FunctionType: {
+        const auto *function_type =
+            static_cast<const FunctionTypeNode *>(type_node);
+        analyze_inline_type_declarations(function_type->get_return_type(),
+                                         decl_analyzer, semantic_context,
+                                         scope_stack);
+        for (const auto &parameter_type :
+             function_type->get_parameter_types()) {
+            analyze_inline_type_declarations(parameter_type.get(), decl_analyzer,
+                                             semantic_context, scope_stack);
+        }
+        return;
+    }
+    case AstKind::StructType: {
+        const auto *struct_type = static_cast<const StructTypeNode *>(type_node);
+        for (const auto &field : struct_type->get_fields()) {
+            decl_analyzer.analyze_decl(field.get(), semantic_context,
+                                       scope_stack);
+        }
+        return;
+    }
+    case AstKind::UnionType: {
+        const auto *union_type = static_cast<const UnionTypeNode *>(type_node);
+        for (const auto &field : union_type->get_fields()) {
+            decl_analyzer.analyze_decl(field.get(), semantic_context,
+                                       scope_stack);
+        }
+        return;
+    }
+    default:
+        return;
+    }
+}
+
 void register_inline_struct_tag(const FieldDecl *field_decl,
                                 const SemanticType *field_type,
                                 const TypeResolver &type_resolver,
@@ -524,6 +590,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     switch (decl->get_kind()) {
     case AstKind::ParamDecl: {
         const auto *param_decl = static_cast<const ParamDecl *>(decl);
+        analyze_inline_type_declarations(param_decl->get_declared_type(), *this,
+                                         semantic_context, scope_stack);
         analyze_type_operand_expressions(param_decl->get_declared_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
@@ -565,6 +633,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     }
     case AstKind::VarDecl: {
         const auto *var_decl = static_cast<const VarDecl *>(decl);
+        analyze_inline_type_declarations(var_decl->get_declared_type(), *this,
+                                         semantic_context, scope_stack);
         analyze_type_operand_expressions(var_decl->get_declared_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
@@ -722,6 +792,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     }
     case AstKind::ConstDecl: {
         const auto *const_decl = static_cast<const ConstDecl *>(decl);
+        analyze_inline_type_declarations(const_decl->get_declared_type(), *this,
+                                         semantic_context, scope_stack);
         analyze_type_operand_expressions(const_decl->get_declared_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
@@ -843,6 +915,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     }
     case AstKind::FieldDecl: {
         const auto *field_decl = static_cast<const FieldDecl *>(decl);
+        analyze_inline_type_declarations(field_decl->get_declared_type(), *this,
+                                         semantic_context, scope_stack);
         analyze_type_operand_expressions(field_decl->get_declared_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
@@ -916,6 +990,8 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
     }
     case AstKind::TypedefDecl: {
         const auto *typedef_decl = static_cast<const TypedefDecl *>(decl);
+        analyze_inline_type_declarations(typedef_decl->get_aliased_type(), *this,
+                                         semantic_context, scope_stack);
         analyze_type_operand_expressions(typedef_decl->get_aliased_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
