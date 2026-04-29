@@ -4,9 +4,14 @@ struct strbuf {
     char *buf;
 };
 
+struct options {
+    int context;
+};
+
 void *memcpy(void *dst, const void *src, unsigned long n);
 
 #define BUILD_ASSERT_OR_ZERO(cond) (sizeof(char[1 - 2 * !(cond)]) - 1)
+#define BARF_UNLESS_SIGNED(var) BUILD_ASSERT_OR_ZERO(((__typeof__(var)) -1) < 0)
 #define SWAP(a, b) do { \
     void *_swap_a_ptr = &(a); \
     void *_swap_b_ptr = &(b); \
@@ -29,8 +34,10 @@ static struct strbuf commands[] = {
 int main(void) {
     struct strbuf a = { 5, 6, (char *)0 };
     struct strbuf b = { 7, 8, (char *)0 };
+    struct options option_context = { .context = 0 };
     SWAP(a, b);
-    putint((int)(ARRAY_SIZE(commands) + a.alloc + b.alloc));
+    putint((int)(ARRAY_SIZE(commands) + a.alloc + b.alloc +
+                 BARF_UNLESS_SIGNED(*(&option_context.context))));
     putch(10);
     return 0;
 }

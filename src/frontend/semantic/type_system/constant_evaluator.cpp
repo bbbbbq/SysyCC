@@ -78,6 +78,71 @@ bool is_float_semantic_type(const SemanticType *type) {
            name == "long double";
 }
 
+std::optional<long long> get_simple_integer_literal_value(const Expr *expr) {
+    const auto *integer_literal = dynamic_cast<const IntegerLiteralExpr *>(expr);
+    if (integer_literal == nullptr) {
+        return std::nullopt;
+    }
+    return parse_integer_literal(integer_literal->get_value_text());
+}
+
+const CallExpr *get_gnu_typeof_call_expr(const Expr *expr) {
+    const auto *call_expr = dynamic_cast<const CallExpr *>(expr);
+    if (call_expr == nullptr) {
+        return nullptr;
+    }
+    const auto *callee =
+        dynamic_cast<const IdentifierExpr *>(call_expr->get_callee());
+    if (callee == nullptr || callee->get_name() != "__typeof__" ||
+        call_expr->get_arguments().size() != 1) {
+        return nullptr;
+    }
+    return call_expr;
+}
+
+std::optional<long long> evaluate_gnu_typeof_signedness_probe(
+    const BinaryExpr *binary_expr, const SemanticModel &semantic_model) {
+    if (binary_expr == nullptr ||
+        (binary_expr->get_operator_text() != "<" &&
+         binary_expr->get_operator_text() != ">")) {
+        return std::nullopt;
+    }
+
+    const auto rhs_value =
+        get_simple_integer_literal_value(binary_expr->get_rhs());
+    if (!rhs_value.has_value() || *rhs_value != 0) {
+        return std::nullopt;
+    }
+
+    const auto *sub_expr = dynamic_cast<const BinaryExpr *>(binary_expr->get_lhs());
+    if (sub_expr == nullptr || sub_expr->get_operator_text() != "-") {
+        return std::nullopt;
+    }
+    const auto subtract_value =
+        get_simple_integer_literal_value(sub_expr->get_rhs());
+    if (!subtract_value.has_value() || *subtract_value != 1) {
+        return std::nullopt;
+    }
+
+    const CallExpr *typeof_call = get_gnu_typeof_call_expr(sub_expr->get_lhs());
+    if (typeof_call == nullptr) {
+        return std::nullopt;
+    }
+    const SemanticType *typeof_argument_type =
+        semantic_model.get_node_type(typeof_call->get_arguments().front().get());
+    const auto type_info =
+        IntegerConversionService().get_integer_type_info(typeof_argument_type);
+    if (!type_info.has_value()) {
+        return std::nullopt;
+    }
+
+    const bool is_signed = type_info->get_is_signed();
+    if (binary_expr->get_operator_text() == "<") {
+        return is_signed ? 1LL : 0LL;
+    }
+    return is_signed ? 0LL : 1LL;
+}
+
 bool is_pointer_semantic_type(const SemanticType *type) {
     const SemanticType *unqualified = strip_qualifiers(type);
     return unqualified != nullptr &&
@@ -474,6 +539,11 @@ std::optional<long long> ConstantEvaluator::evaluate_integer_expr(
     }
     case AstKind::BinaryExpr: {
         const auto *binary_expr = static_cast<const BinaryExpr *>(expr);
+        if (const auto typeof_probe =
+                evaluate_gnu_typeof_signedness_probe(binary_expr, semantic_model);
+            typeof_probe.has_value()) {
+            return typeof_probe;
+        }
         const auto lhs =
             evaluate_integer_expr(binary_expr->get_lhs(), semantic_model);
         const auto rhs =
