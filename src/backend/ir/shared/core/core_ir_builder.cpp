@@ -1003,6 +1003,35 @@ class CoreIrBuildSession {
         return nullptr;
     }
 
+    bool emit_statement_expr_prefix(const Stmt *stmt, const Expr *result_expr) {
+        if (stmt == nullptr) {
+            return true;
+        }
+        if (const auto *expr_stmt = dynamic_cast<const ExprStmt *>(stmt);
+            expr_stmt != nullptr && expr_stmt->get_expression() == result_expr) {
+            return true;
+        }
+        if (const auto *block_stmt = dynamic_cast<const BlockStmt *>(stmt);
+            block_stmt != nullptr) {
+            const auto &statements = block_stmt->get_statements();
+            for (std::size_t index = 0; index < statements.size(); ++index) {
+                const Stmt *statement = statements[index].get();
+                const bool is_last = index + 1 == statements.size();
+                if (is_last) {
+                    if (!emit_statement_expr_prefix(statement, result_expr)) {
+                        return false;
+                    }
+                    continue;
+                }
+                if (!emit_stmt(statement)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return emit_stmt(stmt);
+    }
+
     CoreIrValue *build_statement_expr(const StatementExpr &expr) {
         const CoreIrType *result_type = get_or_create_type(get_node_type(&expr));
         if (result_type == nullptr) {
@@ -1023,6 +1052,9 @@ class CoreIrBuildSession {
             add_error("core ir generation expected a value-producing final "
                       "expression in GNU statement expression",
                       expr.get_source_span());
+            return nullptr;
+        }
+        if (!emit_statement_expr_prefix(expr.get_body(), result_expr)) {
             return nullptr;
         }
         return build_expr(result_expr);

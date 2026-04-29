@@ -34,6 +34,18 @@ class ExprAnalyzer {
                  const ConversionChecker &conversion_checker,
                  const ConstantEvaluator &constant_evaluator);
 
+    const TypeResolver &get_type_resolver() const noexcept {
+        return type_resolver_;
+    }
+
+    const ConversionChecker &get_conversion_checker() const noexcept {
+        return conversion_checker_;
+    }
+
+    const ConstantEvaluator &get_constant_evaluator() const noexcept {
+        return constant_evaluator_;
+    }
+
     void analyze_expr(const Expr *expr, SemanticContext &semantic_context,
                       ScopeStack &scope_stack) const;
 };

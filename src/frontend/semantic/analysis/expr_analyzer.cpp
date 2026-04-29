@@ -8,6 +8,7 @@
 #include "common/string_literal.hpp"
 #include "common/diagnostic/warning_options.hpp"
 #include "frontend/ast/ast_node.hpp"
+#include "frontend/semantic/analysis/decl_analyzer.hpp"
 #include "frontend/semantic/type_system/integer_conversion_service.hpp"
 #include "frontend/semantic/type_system/constant_evaluator.hpp"
 #include "frontend/semantic/type_system/conversion_checker.hpp"
@@ -948,6 +949,17 @@ void analyze_statement_expr_stmt(const Stmt *stmt,
                                         semantic_context, scope_stack);
         }
         scope_stack.pop_scope();
+        return;
+    }
+    case AstKind::DeclStmt: {
+        const auto *decl_stmt = static_cast<const DeclStmt *>(stmt);
+        DeclAnalyzer decl_analyzer(expr_analyzer.get_type_resolver(),
+                                   expr_analyzer.get_conversion_checker(),
+                                   expr_analyzer.get_constant_evaluator(),
+                                   expr_analyzer);
+        for (const auto &decl : decl_stmt->get_declarations()) {
+            decl_analyzer.analyze_decl(decl.get(), semantic_context, scope_stack);
+        }
         return;
     }
     case AstKind::ExprStmt:
