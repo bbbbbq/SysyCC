@@ -1,0 +1,19 @@
+struct Transport;
+
+struct VTable {
+    int (*connect)(struct Transport *transport, const char *name, int fd[2]);
+    int (*disconnect)(struct Transport *transport);
+};
+
+int connect_impl(struct Transport *transport, const char *name, int fd[2]) {
+    return fd[0];
+}
+
+int disconnect_impl(struct Transport *transport) {
+    return 0;
+}
+
+static struct VTable vtable = {
+    .connect = connect_impl,
+    .disconnect = disconnect_impl,
+};

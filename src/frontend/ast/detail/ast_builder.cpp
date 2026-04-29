@@ -2829,6 +2829,11 @@ AstBuilder::collect_declarator_dimensions(const ParseTreeNode *node) const {
     if (node == nullptr) {
         return dimensions;
     }
+    if (ParseTreeMatcher::label_equals(node, "function_parameter_list_opt") ||
+        ParseTreeMatcher::label_equals(node, "parameter_list") ||
+        ParseTreeMatcher::label_equals(node, "parameter_decl")) {
+        return dimensions;
+    }
 
     for (const auto &child : node->children) {
         if (ParseTreeMatcher::label_equals(child.get(), "expr_opt")) {
