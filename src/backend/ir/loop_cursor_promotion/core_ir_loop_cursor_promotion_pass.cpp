@@ -219,9 +219,23 @@ std::vector<CursorCandidate> collect_candidates(const CoreIrLoopInfo &loop,
 
 bool promote_candidate(const CursorCandidate &candidate,
                        std::size_t &phi_counter) {
+    const CoreIrType *phi_type = nullptr;
+    if (!candidate.loads.empty() && candidate.loads.front() != nullptr) {
+        phi_type = candidate.loads.front()->get_type();
+    } else if (!candidate.exit_loads.empty() &&
+               candidate.exit_loads.front() != nullptr) {
+        phi_type = candidate.exit_loads.front()->get_type();
+    } else if (candidate.latch_store != nullptr &&
+               candidate.latch_store->get_value() != nullptr) {
+        phi_type = candidate.latch_store->get_value()->get_type();
+    }
+    if (phi_type == nullptr) {
+        return false;
+    }
+
     auto phi = std::make_unique<CoreIrPhiInst>(
-        candidate.loads.front()->get_type(),
-        candidate.slot->get_name() + ".cursor." + std::to_string(phi_counter++));
+        phi_type, candidate.slot->get_name() + ".cursor." +
+                      std::to_string(phi_counter++));
     CoreIrPhiInst *phi_ptr = static_cast<CoreIrPhiInst *>(
         candidate.header->insert_instruction_before_first_non_phi(std::move(phi)));
     if (phi_ptr == nullptr) {

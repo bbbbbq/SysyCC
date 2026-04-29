@@ -79,9 +79,11 @@ int main(int argc, char **argv) {
     CoreIrFunction *pair_function = find_function(*module, "cursor_pair");
     CoreIrFunction *nested_function = find_function(*module, "cursor_nested_accum");
     CoreIrFunction *exit_function = find_function(*module, "cursor_exit_accum");
+    CoreIrFunction *exit_only_function = find_function(*module, "cursor_exit_only");
     assert(pair_function != nullptr);
     assert(nested_function != nullptr);
     assert(exit_function != nullptr);
+    assert(exit_only_function != nullptr);
 
     CoreIrVerifier verifier;
     assert(verifier.verify_module(*module).ok);
@@ -109,10 +111,13 @@ int main(int argc, char **argv) {
                               "define i32 @cursor_nested_accum(");
     const std::string llvm_exit_function =
         extract_llvm_function(ir_result->get_text(), "define i32 @cursor_exit_accum(");
+    const std::string llvm_exit_only_function =
+        extract_llvm_function(ir_result->get_text(), "define i32 @cursor_exit_only(");
     assert(llvm_pair_function.find("%j.addr") == std::string::npos);
     assert(llvm_nested_function.find("%j.addr") == std::string::npos);
     assert(llvm_nested_function.find("%k.addr") == std::string::npos);
     assert(llvm_exit_function.find("%w.addr") == std::string::npos);
+    assert(llvm_exit_only_function.find("%w.addr") == std::string::npos);
 
     return 0;
 }

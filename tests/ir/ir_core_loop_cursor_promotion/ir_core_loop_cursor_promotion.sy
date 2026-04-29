@@ -56,6 +56,17 @@ int cursor_exit_accum(int n, int vals[]) {
     return sum;
 }
 
+int cursor_exit_only(int n) {
+    int i, w;
+    i = 0;
+    w = 0;
+    while (i < n) {
+        w = i + 1;
+        i = i + 1;
+    }
+    return w;
+}
+
 int main() {
     int xptr[4];
     int vals[6];
@@ -70,5 +81,5 @@ int main() {
     vals[4] = 5;
     vals[5] = 6;
     return cursor_pair(3, xptr, vals) + cursor_nested_accum(3, vals) +
-           cursor_exit_accum(3, vals);
+           cursor_exit_accum(3, vals) + cursor_exit_only(3);
 }
