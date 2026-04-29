@@ -1964,7 +1964,9 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
             const SemanticType *rhs_type = semantic_model.get_node_type(rhs);
             const long long is_compatible =
                 lhs_type != nullptr && rhs_type != nullptr &&
-                        conversion_checker_.is_same_type(lhs_type, rhs_type)
+                        conversion_checker_.is_same_type(
+                            strip_qualifiers(lhs_type),
+                            strip_qualifiers(rhs_type))
                     ? 1LL
                     : 0LL;
             semantic_model.bind_node_type(
