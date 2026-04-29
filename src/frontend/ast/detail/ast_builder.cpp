@@ -2765,6 +2765,11 @@ void AstBuilder::collect_direct_init_value_nodes(
             nodes.push_back(child.get());
             continue;
         }
+        if (ParseTreeMatcher::label_equals(child.get(),
+                                           "designated_init_val")) {
+            nodes.push_back(child.get());
+            continue;
+        }
         if (ParseTreeMatcher::label_equals(child.get(), "init_val_list")) {
             collect_direct_init_value_nodes(child.get(), nodes);
         }
