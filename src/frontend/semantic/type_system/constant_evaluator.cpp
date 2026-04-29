@@ -1097,6 +1097,14 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
     }
     if (is_integer_like_semantic_type(target_type) ||
         is_float_semantic_type(target_type)) {
+        if (is_integer_like_semantic_type(target_type)) {
+            const auto *cast_expr = dynamic_cast<const CastExpr *>(expr);
+            if (cast_expr != nullptr &&
+                is_static_address_value_expr(cast_expr->get_operand(),
+                                             semantic_model)) {
+                return true;
+            }
+        }
         return get_scalar_numeric_constant_value(expr, semantic_model)
             .has_value();
     }

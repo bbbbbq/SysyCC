@@ -6338,6 +6338,26 @@ class CoreIrBuildSession {
                 : constant_evaluator_.get_scalar_constant_value_as_integer(
                       initializer, declared_semantic_type, semantic_model_);
         if (!converted_constant_value.has_value()) {
+            if (declared_type->get_kind() == CoreIrTypeKind::Integer) {
+                const auto *cast_expr = dynamic_cast<const CastExpr *>(initializer);
+                if (cast_expr != nullptr) {
+                    const auto *pointer_type =
+                        core_ir_context_->create_type<CoreIrPointerType>(
+                            declared_type);
+                    const CoreIrConstant *pointer_constant =
+                        build_global_constant_pointer_value(
+                            cast_expr->get_operand(), pointer_type,
+                            cast_expr->get_operand() == nullptr
+                                ? source_span
+                                : cast_expr->get_operand()->get_source_span());
+                    if (pointer_constant != nullptr) {
+                        return core_ir_context_
+                            ->create_constant<CoreIrConstantCast>(
+                                declared_type, CoreIrCastKind::PtrToInt,
+                                pointer_constant);
+                    }
+                }
+            }
             if (declared_type->get_kind() == CoreIrTypeKind::Pointer) {
                 const CoreIrConstant *pointer_constant =
                     build_global_constant_pointer_value(
@@ -6759,6 +6779,26 @@ class CoreIrBuildSession {
             return core_ir_context_->create_constant<CoreIrConstantInt>(
                 declared_type,
                 static_cast<std::uint64_t>(*converted_constant_value));
+        }
+        if (declared_type->get_kind() == CoreIrTypeKind::Integer) {
+            const auto *cast_expr = dynamic_cast<const CastExpr *>(initializer);
+            if (cast_expr != nullptr) {
+                const auto *pointer_type =
+                    core_ir_context_->create_type<CoreIrPointerType>(
+                        declared_type);
+                const CoreIrConstant *pointer_constant =
+                    build_global_constant_pointer_value(
+                        cast_expr->get_operand(), pointer_type,
+                        cast_expr->get_operand() == nullptr
+                            ? source_span
+                            : cast_expr->get_operand()->get_source_span());
+                if (pointer_constant != nullptr) {
+                    return core_ir_context_
+                        ->create_constant<CoreIrConstantCast>(
+                            declared_type, CoreIrCastKind::PtrToInt,
+                            pointer_constant);
+                }
+            }
         }
         if (declared_type->get_kind() == CoreIrTypeKind::Pointer &&
             is_null_pointer_constant_expr(initializer)) {
