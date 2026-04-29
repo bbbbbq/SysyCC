@@ -1899,6 +1899,14 @@ AstBuilder::build_struct_fields(const ParseTreeNode *node) const {
         collect_declaration_type_qualifiers(field_node,
                                             leading_qualifiers.is_const,
                                             leading_qualifiers.is_volatile);
+        if (has_struct_field_list(type_specifier) &&
+            has_struct_tag_name(type_specifier)) {
+            fields.push_back(build_struct_decl(type_specifier));
+        }
+        if (has_union_field_list(type_specifier) &&
+            has_union_tag_name(type_specifier)) {
+            fields.push_back(build_union_decl(type_specifier));
+        }
         if (has_enumerator_list(type_specifier)) {
             fields.push_back(build_enum_decl(type_specifier));
         }
@@ -2004,6 +2012,14 @@ AstBuilder::build_union_fields(const ParseTreeNode *node) const {
         collect_declaration_type_qualifiers(field_node,
                                             leading_qualifiers.is_const,
                                             leading_qualifiers.is_volatile);
+        if (has_struct_field_list(type_specifier) &&
+            has_struct_tag_name(type_specifier)) {
+            fields.push_back(build_struct_decl(type_specifier));
+        }
+        if (has_union_field_list(type_specifier) &&
+            has_union_tag_name(type_specifier)) {
+            fields.push_back(build_union_decl(type_specifier));
+        }
         if (has_enumerator_list(type_specifier)) {
             fields.push_back(build_enum_decl(type_specifier));
         }

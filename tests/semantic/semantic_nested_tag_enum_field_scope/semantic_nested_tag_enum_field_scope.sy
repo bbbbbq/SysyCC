@@ -1,0 +1,15 @@
+struct rev_cmdline_info {
+    unsigned int nr;
+    struct rev_cmdline_entry {
+        enum {
+            REV_CMD_REF,
+            REV_CMD_LEFT,
+            REV_CMD_RIGHT
+        } whence;
+        unsigned flags;
+    } *rev;
+};
+
+int main(void) {
+    return REV_CMD_RIGHT == 2 ? 0 : 1;
+}

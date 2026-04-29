@@ -279,6 +279,9 @@ void register_inline_struct_tag(const FieldDecl *field_decl,
             struct_type_node->get_name() == "<anonymous>") {
             continue;
         }
+        if (!struct_type_node->get_fields().empty()) {
+            continue;
+        }
 
         const auto *struct_type = dynamic_cast<const StructSemanticType *>(
             strip_qualifiers(type_resolver.resolve_type(
