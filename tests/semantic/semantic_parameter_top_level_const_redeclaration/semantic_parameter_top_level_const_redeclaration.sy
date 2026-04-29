@@ -1,0 +1,10 @@
+struct Source;
+struct List;
+
+int write_graph(struct Source *source, const struct List *pack_indexes);
+
+int write_graph(struct Source *source, const struct List *const pack_indexes) {
+    (void)source;
+    (void)pack_indexes;
+    return 0;
+}

@@ -276,6 +276,12 @@ const SemanticType *TypeResolver::adjust_parameter_type(
     if (type == nullptr) {
         return nullptr;
     }
+    if (type->get_kind() == SemanticTypeKind::Qualified) {
+        type = static_cast<const QualifiedSemanticType *>(type)->get_base_type();
+        if (type == nullptr) {
+            return nullptr;
+        }
+    }
 
     SemanticModel &semantic_model = semantic_context.get_semantic_model();
     if (type->get_kind() == SemanticTypeKind::Array) {
