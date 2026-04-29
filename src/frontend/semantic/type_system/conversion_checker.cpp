@@ -356,6 +356,19 @@ bool ConversionChecker::is_assignable_value(
         }
     }
 
+    const SemanticType *unqualified_target = strip_qualifiers(target);
+    if (unqualified_target != nullptr &&
+        unqualified_target->get_kind() == SemanticTypeKind::Union) {
+        const auto *union_type =
+            static_cast<const UnionSemanticType *>(unqualified_target);
+        for (const auto &field : union_type->get_fields()) {
+            if (is_assignable_value(field.get_type(), value, value_expr,
+                                    semantic_context, constant_evaluator)) {
+                return true;
+            }
+        }
+    }
+
     const SemanticType *decayed_target = get_decayed_type(target, semantic_model);
     const SemanticType *decayed_value = get_decayed_type(value, semantic_model);
     if (decayed_target != target || decayed_value != value) {

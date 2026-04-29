@@ -1358,6 +1358,25 @@ class CoreIrBuildSession {
     }
 
     const SemanticType *
+    get_pointer_union_parameter_carrier_type(const SemanticType *type) const {
+        const SemanticType *unqualified = strip_qualifiers(type);
+        if (unqualified == nullptr ||
+            unqualified->get_kind() != SemanticTypeKind::Union) {
+            return nullptr;
+        }
+        const auto *union_type = static_cast<const UnionSemanticType *>(unqualified);
+        if (union_type->get_fields().empty()) {
+            return nullptr;
+        }
+        for (const auto &field : union_type->get_fields()) {
+            if (!is_pointer_semantic_type(field.get_type())) {
+                return nullptr;
+            }
+        }
+        return union_type->get_fields().front().get_type();
+    }
+
+    const SemanticType *
     adjust_function_parameter_semantic_type(const SemanticType *type) {
         const SemanticType *unqualified = strip_qualifiers(type);
         if (unqualified == nullptr) {
@@ -1372,6 +1391,11 @@ class CoreIrBuildSession {
         if (unqualified->get_kind() == SemanticTypeKind::Function) {
             return semantic_model_.own_type(
                 std::make_unique<PointerSemanticType>(unqualified));
+        }
+        if (const SemanticType *carrier_type =
+                get_pointer_union_parameter_carrier_type(unqualified);
+            carrier_type != nullptr) {
+            return carrier_type;
         }
         return type;
     }
