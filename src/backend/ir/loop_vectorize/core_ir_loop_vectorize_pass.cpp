@@ -926,6 +926,13 @@ bool match_runtime_iv_access(CoreIrBasicBlock *header, CoreIrBasicBlock *body,
         indices.empty()) {
         return false;
     }
+    if (auto *root_instruction =
+            dynamic_cast<CoreIrInstruction *>(info.root_base);
+        root_instruction != nullptr &&
+        (root_instruction->get_parent() == header ||
+         root_instruction->get_parent() == body)) {
+        return false;
+    }
     auto iv_it = std::find(indices.begin(), indices.end(), iv);
     if (iv_it == indices.end() ||
         std::find(iv_it + 1, indices.end(), iv) != indices.end()) {
@@ -1509,6 +1516,9 @@ bool match_runtime_add_reduction_loop_pattern(const CoreIrCfgAnalysisResult &cfg
             if (outside_incoming != nullptr &&
                 instruction_is_iv_increment(
                     dynamic_cast<CoreIrInstruction *>(body_incoming), phi)) {
+                if (!is_zero_integer_constant(outside_incoming)) {
+                    continue;
+                }
                 pattern.iv = phi;
                 pattern.iv_next = dynamic_cast<CoreIrInstruction *>(body_incoming);
                 break;
@@ -1516,6 +1526,17 @@ bool match_runtime_add_reduction_loop_pattern(const CoreIrCfgAnalysisResult &cfg
         }
     }
     if (pattern.iv == nullptr || pattern.iv_next == nullptr) {
+        return false;
+    }
+    CoreIrValue *compare_bound = nullptr;
+    if (header_compare->get_lhs() == pattern.iv) {
+        compare_bound = header_compare->get_rhs();
+    } else if (header_compare->get_rhs() == pattern.iv) {
+        compare_bound = header_compare->get_lhs();
+    }
+    if (compare_bound == nullptr ||
+        !value_is_block_pair_invariant(pattern.header, pattern.body,
+                                       compare_bound)) {
         return false;
     }
 
