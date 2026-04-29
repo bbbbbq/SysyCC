@@ -5311,7 +5311,9 @@ class CoreIrBuildSession {
     }
 
     bool emit_while_stmt(const WhileStmt &while_stmt) {
-        if (current_block_ == nullptr) {
+        const bool has_label_entry =
+            current_block_ == nullptr && stmt_contains_label(while_stmt.get_body());
+        if (current_block_ == nullptr && !has_label_entry) {
             add_error("core ir generation reached a while statement in a "
                       "terminated control-flow path",
                       while_stmt.get_source_span());
@@ -5334,7 +5336,9 @@ class CoreIrBuildSession {
                 : current_function_->create_basic_block<CoreIrBasicBlock>(
                       "while.end" + loop_suffix);
 
-        emit_jump_to(condition_block, while_stmt.get_source_span());
+        if (!has_label_entry) {
+            emit_jump_to(condition_block, while_stmt.get_source_span());
+        }
 
         current_block_ = condition_block;
         if (infinite_loop_without_break) {
