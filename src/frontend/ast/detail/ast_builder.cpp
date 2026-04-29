@@ -1793,10 +1793,15 @@ AstBuilder::build_function_parameter_types(
                                             pointee_qualifiers.is_volatile);
                 }
             }
-            parameter_types.push_back(build_declared_type(
+            std::unique_ptr<TypeNode> parameter_type = build_declared_type(
                 type_specifier, declarator == nullptr ? pointer : declarator,
                 pointee_qualifiers.is_const, pointee_qualifiers.is_volatile,
-                true));
+                true);
+            if (!collect_declarator_dimensions(declarator).empty()) {
+                parameter_type = std::make_unique<PointerTypeNode>(
+                    std::move(parameter_type), get_node_source_span(current));
+            }
+            parameter_types.push_back(std::move(parameter_type));
             continue;
         }
         for (auto it = current->children.rbegin();

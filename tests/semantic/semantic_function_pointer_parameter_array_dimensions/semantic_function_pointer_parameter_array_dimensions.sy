@@ -17,3 +17,8 @@ static struct VTable vtable = {
     .connect = connect_impl,
     .disconnect = disconnect_impl,
 };
+
+int call_connect(struct Transport *transport) {
+    int fd[2];
+    return vtable.connect(transport, "origin", fd);
+}
