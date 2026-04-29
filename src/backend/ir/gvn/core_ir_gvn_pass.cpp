@@ -29,6 +29,8 @@ using sysycc::detail::append_value_key;
 using sysycc::detail::are_equivalent_types;
 using sysycc::detail::collect_structural_gep_chain;
 using sysycc::detail::erase_instruction;
+using sysycc::detail::get_pointer_pointee_type;
+using sysycc::detail::get_structural_gep_source_pointee_type;
 using sysycc::detail::unwrap_trivial_zero_index_geps;
 
 PassResult fail_missing_core_ir(CompilerContext &context,
@@ -233,6 +235,8 @@ std::string build_gvn_key(const CoreIrInstruction &instruction) {
         CoreIrValue *root_base = nullptr;
         std::vector<CoreIrValue *> indices;
         if (collect_structural_gep_chain(*gep, root_base, indices)) {
+            key += "src:";
+            append_type_key(key, get_structural_gep_source_pointee_type(*gep));
             append_value_key(key, root_base);
             key += std::to_string(indices.size());
             key.push_back(':');
@@ -241,6 +245,10 @@ std::string build_gvn_key(const CoreIrInstruction &instruction) {
             }
             return key;
         }
+        key += "src:";
+        append_type_key(key, gep->get_source_pointee_type() != nullptr
+                                 ? gep->get_source_pointee_type()
+                                 : get_pointer_pointee_type(gep->get_base()));
         append_value_key(key, unwrap_trivial_zero_index_geps(gep->get_base()));
         key += std::to_string(gep->get_index_count());
         key.push_back(':');

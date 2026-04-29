@@ -599,6 +599,14 @@ class CoreIrGetElementPtrInst final : public CoreIrInstruction {
         : CoreIrInstruction(CoreIrOpcode::GetElementPtr, type,
                             std::move(name)),
           source_pointee_type_(source_pointee_type) {
+        if (source_pointee_type_ == nullptr && base != nullptr) {
+            const auto *base_pointer_type =
+                dynamic_cast<const CoreIrPointerType *>(base->get_type());
+            source_pointee_type_ =
+                base_pointer_type != nullptr
+                    ? base_pointer_type->get_pointee_type()
+                    : nullptr;
+        }
         append_operand(base);
         for (CoreIrValue *index : indices) {
             append_operand(index);

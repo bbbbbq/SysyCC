@@ -178,7 +178,7 @@ CoreIrInstruction *clone_instruction(
         }
         auto clone = std::make_unique<CoreIrGetElementPtrInst>(
             gep.get_type(), gep.get_name(), remap(gep.get_base()),
-            std::move(indices));
+            std::move(indices), gep.get_source_pointee_type());
         clone->set_source_span(gep.get_source_span());
         return clone.release();
     }

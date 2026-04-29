@@ -399,20 +399,17 @@ int main() {
     auto *void_type5 = context5->create_type<CoreIrVoidType>();
     auto *i1_type5 = context5->create_type<CoreIrIntegerType>(1);
     auto *i32_type5 = context5->create_type<CoreIrIntegerType>(32);
-    auto *array4_i32_5 = context5->create_type<CoreIrArrayType>(i32_type5, 4);
-    auto *ptr_array4_i32_5 =
-        context5->create_type<CoreIrPointerType>(array4_i32_5);
     auto *ptr_i32_type5 = context5->create_type<CoreIrPointerType>(i32_type5);
     auto *function_type5 = context5->create_type<CoreIrFunctionType>(
-        i32_type5, std::vector<const CoreIrType *>{}, false);
+        i32_type5, std::vector<const CoreIrType *>{ptr_i32_type5}, false);
     auto *module5 = context5->create_module<CoreIrModule>(
         "ir_core_loop_unroll_after_unswitch");
     auto *function5 =
         module5->create_function<CoreIrFunction>("main", function_type5, false);
     auto *flag_slot5 =
         function5->create_stack_slot<CoreIrStackSlot>("flag", i32_type5, 4);
-    auto *arr_slot5 =
-        function5->create_stack_slot<CoreIrStackSlot>("arr", array4_i32_5, 4);
+    auto *arr_addr5 =
+        function5->create_parameter<CoreIrParameter>(ptr_i32_type5, "arr");
     auto *entry5 = function5->create_basic_block<CoreIrBasicBlock>("entry");
     auto *outer_header5 =
         function5->create_basic_block<CoreIrBasicBlock>("outer.header");
@@ -433,20 +430,6 @@ int main() {
     auto *one5 = context5->create_constant<CoreIrConstantInt>(i32_type5, 1);
     auto *four5 = context5->create_constant<CoreIrConstantInt>(i32_type5, 4);
 
-    auto *arr_addr5 = entry5->create_instruction<CoreIrAddressOfStackSlotInst>(
-        ptr_array4_i32_5, "arr.addr", arr_slot5);
-    for (std::uint64_t index = 0; index < 4; ++index) {
-        auto *index_value =
-            context5->create_constant<CoreIrConstantInt>(i32_type5, index + 1);
-        auto *element_addr =
-            entry5->create_instruction<CoreIrGetElementPtrInst>(
-                ptr_i32_type5, "arr.init." + std::to_string(index), arr_addr5,
-                std::vector<CoreIrValue *>{
-                    zero5, context5->create_constant<CoreIrConstantInt>(
-                               i32_type5, index)});
-        entry5->create_instruction<CoreIrStoreInst>(void_type5, index_value,
-                                                    element_addr);
-    }
     entry5->create_instruction<CoreIrStoreInst>(void_type5, one5, flag_slot5);
     entry5->create_instruction<CoreIrJumpInst>(void_type5, outer_header5);
     auto *outer_iv5 =
@@ -475,7 +458,7 @@ int main() {
         void_type5, inner_cmp5, inner_body5, inner_exit5);
     auto *elem_addr5 = inner_body5->create_instruction<CoreIrGetElementPtrInst>(
         ptr_i32_type5, "elem.addr", arr_addr5,
-        std::vector<CoreIrValue *>{zero5, inner_iv5});
+        std::vector<CoreIrValue *>{inner_iv5});
     auto *elem_load5 = inner_body5->create_instruction<CoreIrLoadInst>(
         i32_type5, "elem.load", elem_addr5);
     auto *inner_sum_next5 = inner_body5->create_instruction<CoreIrBinaryInst>(

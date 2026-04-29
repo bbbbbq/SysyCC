@@ -155,8 +155,9 @@ void test_unswitches_loop_body_compare_chain_from_invariant_access_path() {
     auto *void_type = context->create_type<CoreIrVoidType>();
     auto *i1_type = context->create_type<CoreIrIntegerType>(1);
     auto *i32_type = context->create_type<CoreIrIntegerType>(32);
-    auto *array2_i32 = context->create_type<CoreIrArrayType>(i32_type, 2);
-    auto *ptr_array2_i32 = context->create_type<CoreIrPointerType>(array2_i32);
+    auto *state_type = context->create_type<CoreIrStructType>(
+        std::vector<const CoreIrType *>{i32_type, i32_type});
+    auto *ptr_state_type = context->create_type<CoreIrPointerType>(state_type);
     auto *ptr_i32_type = context->create_type<CoreIrPointerType>(i32_type);
     auto *function_type = context->create_type<CoreIrFunctionType>(
         i32_type, std::vector<const CoreIrType *>{}, false);
@@ -167,7 +168,7 @@ void test_unswitches_loop_body_compare_chain_from_invariant_access_path() {
     auto *counter_slot =
         function->create_stack_slot<CoreIrStackSlot>("counter", i32_type, 4);
     auto *state_slot =
-        function->create_stack_slot<CoreIrStackSlot>("state", array2_i32, 4);
+        function->create_stack_slot<CoreIrStackSlot>("state", state_type, 4);
     auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
     auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
     auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
@@ -180,7 +181,7 @@ void test_unswitches_loop_body_compare_chain_from_invariant_access_path() {
     auto *three = context->create_constant<CoreIrConstantInt>(i32_type, 3);
 
     auto *entry_state_addr = entry->create_instruction<CoreIrAddressOfStackSlotInst>(
-        ptr_array2_i32, "state.addr", state_slot);
+        ptr_state_type, "state.addr", state_slot);
     auto *entry_flag_addr = entry->create_instruction<CoreIrGetElementPtrInst>(
         ptr_i32_type, "state.flag.addr", entry_state_addr,
         std::vector<CoreIrValue *>{zero, zero});
@@ -194,7 +195,7 @@ void test_unswitches_loop_body_compare_chain_from_invariant_access_path() {
         three);
     header->create_instruction<CoreIrCondJumpInst>(void_type, counter_cmp, body, exit);
     auto *loop_state_addr = body->create_instruction<CoreIrAddressOfStackSlotInst>(
-        ptr_array2_i32, "state.addr.loop", state_slot);
+        ptr_state_type, "state.addr.loop", state_slot);
     auto *loop_flag_addr = body->create_instruction<CoreIrGetElementPtrInst>(
         ptr_i32_type, "state.flag.addr.loop", loop_state_addr,
         std::vector<CoreIrValue *>{zero, zero});
@@ -254,6 +255,89 @@ void test_unswitches_loop_body_compare_chain_from_invariant_access_path() {
     assert(false_jump != nullptr);
     assert(true_jump->get_target_block()->get_name() == "then.unsw.true");
     assert(false_jump->get_target_block()->get_name() == "latch.unsw.false");
+}
+
+void test_unswitch_preserves_gep_source_type_when_cloning_void_base() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *struct_type = context->create_type<CoreIrStructType>(
+        std::vector<const CoreIrType *>{i32_type, i32_type});
+    auto *ptr_void_type = context->create_type<CoreIrPointerType>(void_type);
+    auto *ptr_i32_type = context->create_type<CoreIrPointerType>(i32_type);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{ptr_void_type}, false);
+    auto *module = context->create_module<CoreIrModule>(
+        "simple_unswitch_preserve_gep_source_type");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *opaque =
+        function->create_parameter<CoreIrParameter>(ptr_void_type, "opaque");
+    auto *flag_slot =
+        function->create_stack_slot<CoreIrStackSlot>("flag", i32_type, 4);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *then_block = function->create_basic_block<CoreIrBasicBlock>("then");
+    auto *latch = function->create_basic_block<CoreIrBasicBlock>("latch");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *three = context->create_constant<CoreIrConstantInt>(i32_type, 3);
+
+    entry->create_instruction<CoreIrStoreInst>(void_type, one, flag_slot);
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *iv = header->create_instruction<CoreIrPhiInst>(i32_type, "iv");
+    auto *iv_cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "iv.cmp", iv, three);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, iv_cmp, body, exit);
+    auto *field_addr = body->create_instruction<CoreIrGetElementPtrInst>(
+        ptr_i32_type, "field.addr", opaque,
+        std::vector<CoreIrValue *>{zero, one}, struct_type);
+    auto *field_value =
+        body->create_instruction<CoreIrLoadInst>(i32_type, "field", field_addr);
+    auto *flag_load =
+        body->create_instruction<CoreIrLoadInst>(i32_type, "flag", flag_slot);
+    auto *flag_cmp = body->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::NotEqual, i1_type, "flag.cmp", flag_load, zero);
+    body->create_instruction<CoreIrCondJumpInst>(void_type, flag_cmp, then_block,
+                                                 latch);
+    then_block->create_instruction<CoreIrJumpInst>(void_type, latch);
+    auto *next = latch->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "iv.next", iv, one);
+    auto *mixed = latch->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "mixed", next, field_value);
+    (void)mixed;
+    latch->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+    iv->add_incoming(entry, zero);
+    iv->add_incoming(latch, next);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrSimpleLoopUnswitchPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    std::size_t cloned_gep_count = 0;
+    for (const auto &block_ptr : function->get_basic_blocks()) {
+        if (block_ptr == nullptr ||
+            (block_ptr->get_name() != "body.unsw.true" &&
+             block_ptr->get_name() != "body.unsw.false")) {
+            continue;
+        }
+        for (const auto &instruction_ptr : block_ptr->get_instructions()) {
+            auto *gep =
+                dynamic_cast<CoreIrGetElementPtrInst *>(instruction_ptr.get());
+            if (gep == nullptr || gep->get_name() != "field.addr") {
+                continue;
+            }
+            ++cloned_gep_count;
+            assert(gep->get_base() == opaque);
+            assert(gep->get_source_pointee_type() == struct_type);
+        }
+    }
+    assert(cloned_gep_count == 2);
 }
 
 void test_unswitches_outer_loop_even_with_nested_inner_loop_phi() {
@@ -466,6 +550,7 @@ int main() {
     test_unswitches_invariant_header_condition();
     test_unswitches_loop_body_invariant_condition();
     test_unswitches_loop_body_compare_chain_from_invariant_access_path();
+    test_unswitch_preserves_gep_source_type_when_cloning_void_base();
     test_unswitches_outer_loop_even_with_nested_inner_loop_phi();
     test_stops_unswitch_after_depth_budget();
     test_skips_loop_body_unswitch_when_successor_has_phi();

@@ -518,7 +518,8 @@ clone_instruction_preserving_operands(const CoreIrInstruction &instruction) {
             indices.push_back(gep.get_index(index));
         }
         auto clone = std::make_unique<CoreIrGetElementPtrInst>(
-            gep.get_type(), gep.get_name(), gep.get_base(), std::move(indices));
+            gep.get_type(), gep.get_name(), gep.get_base(), std::move(indices),
+            gep.get_source_pointee_type());
         clone->set_source_span(gep.get_source_span());
         return clone.release();
     }

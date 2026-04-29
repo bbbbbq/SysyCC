@@ -1425,3 +1425,39 @@ assert_program_output() {
 
     rm -f "${actual_output_file}"
 }
+
+collect_sysycc_cpp_test_link_inputs() {
+    local build_dir="$1"
+    local static_libs=(
+        "libsysycc_compiler_driver.a"
+        "libsysycc_core_ir.a"
+        "libsysycc_frontend.a"
+        "libsysycc_common.a"
+    )
+    local lib_name=""
+    local shared_lib=""
+
+    for lib_name in "${static_libs[@]}"; do
+        if [[ -f "${build_dir}/${lib_name}" ]]; then
+            printf '%s\0' "${build_dir}/${lib_name}"
+        fi
+    done
+
+    for shared_lib in \
+        "${build_dir}"/libsysycc_aarch64_codegen.* \
+        "${build_dir}"/libsysycc_riscv64_codegen.*; do
+        if [[ -f "${shared_lib}" ]] &&
+           [[ "${shared_lib}" =~ \.(dylib|so)$ ]]; then
+            printf '%s\0' "${shared_lib}"
+        fi
+    done
+}
+
+collect_sysycc_cpp_test_rpath_args() {
+    local build_dir="$1"
+
+    if compgen -G "${build_dir}/libsysycc_*_codegen.dylib" >/dev/null ||
+       compgen -G "${build_dir}/libsysycc_*_codegen.so" >/dev/null; then
+        printf '%s\0' "-Wl,-rpath,${build_dir}"
+    fi
+}

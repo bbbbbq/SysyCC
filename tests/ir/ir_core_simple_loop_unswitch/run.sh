@@ -15,14 +15,20 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 mkdir -p "${TEST_BUILD_DIR}"
 
-OBJECT_FILES=()
-while IFS= read -r -d '' object_file; do
-    OBJECT_FILES+=("${object_file}")
-done < <(find "${BUILD_DIR}/CMakeFiles/SysyCC.dir" -name '*.o' ! -name 'main.cpp.o' -print0)
+LINK_INPUTS=()
+while IFS= read -r -d '' link_input; do
+    LINK_INPUTS+=("${link_input}")
+done < <(collect_sysycc_cpp_test_link_inputs "${BUILD_DIR}")
+
+RPATH_ARGS=()
+while IFS= read -r -d '' rpath_arg; do
+    RPATH_ARGS+=("${rpath_arg}")
+done < <(collect_sysycc_cpp_test_rpath_args "${BUILD_DIR}")
 
 clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
+    "${RPATH_ARGS[@]}" \
     "${TEST_SOURCE}" \
-    "${OBJECT_FILES[@]}" \
+    "${LINK_INPUTS[@]}" \
     -o "${TEST_BINARY}"
 
 "${TEST_BINARY}"
