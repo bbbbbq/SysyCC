@@ -56,6 +56,15 @@ NamedTypeNode::NamedTypeNode(std::string name, SourceSpan source_span)
 
 const std::string &NamedTypeNode::get_name() const noexcept { return name_; }
 
+TypeofTypeNode::TypeofTypeNode(std::unique_ptr<Expr> operand,
+                               SourceSpan source_span)
+    : TypeNode(AstKind::TypeofType, source_span),
+      operand_(std::move(operand)) {}
+
+const Expr *TypeofTypeNode::get_operand() const noexcept {
+    return operand_.get();
+}
+
 QualifiedTypeNode::QualifiedTypeNode(bool is_const, bool is_volatile,
                                      std::unique_ptr<TypeNode> base_type,
                                      SourceSpan source_span)

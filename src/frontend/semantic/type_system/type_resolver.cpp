@@ -140,6 +140,19 @@ const SemanticType *TypeResolver::resolve_type(
         }
         return resolve_completed_tag_type(symbol->get_type(), *scope_stack);
     }
+    case AstKind::TypeofType: {
+        const auto *typeof_type = static_cast<const TypeofTypeNode *>(type_node);
+        const SemanticType *operand_type =
+            semantic_model.get_node_type(typeof_type->get_operand());
+        if (operand_type == nullptr) {
+            semantic_model.add_diagnostic(SemanticDiagnostic(
+                DiagnosticSeverity::Error,
+                "unable to resolve GNU typeof operand type",
+                type_node->get_source_span()));
+            return nullptr;
+        }
+        return operand_type;
+    }
     case AstKind::QualifiedType: {
         const auto *qualified_type =
             static_cast<const QualifiedTypeNode *>(type_node);

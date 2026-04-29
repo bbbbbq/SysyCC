@@ -879,6 +879,12 @@ void analyze_type_constant_expressions(const TypeNode *type_node,
         return;
     }
     switch (type_node->get_kind()) {
+    case AstKind::TypeofType: {
+        const auto *typeof_type = static_cast<const TypeofTypeNode *>(type_node);
+        expr_analyzer.analyze_expr(typeof_type->get_operand(), semantic_context,
+                                   scope_stack);
+        return;
+    }
     case AstKind::QualifiedType: {
         const auto *qualified_type =
             static_cast<const QualifiedTypeNode *>(type_node);
@@ -1164,6 +1170,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
         const auto *va_arg_expr = static_cast<const BuiltinVaArgExpr *>(expr);
         analyze_expr(va_arg_expr->get_va_list_expr(), semantic_context,
                      scope_stack);
+        analyze_type_constant_expressions(va_arg_expr->get_target_type(), *this,
+                                          semantic_context, scope_stack);
         const SemanticType *target_type = type_resolver_.resolve_type(
             va_arg_expr->get_target_type(), semantic_context, &scope_stack);
         if (target_type == nullptr) {
@@ -1660,6 +1668,8 @@ void ExprAnalyzer::analyze_expr(const Expr *expr,
     }
     case AstKind::CastExpr: {
         const auto *cast_expr = static_cast<const CastExpr *>(expr);
+        analyze_type_constant_expressions(cast_expr->get_target_type(), *this,
+                                          semantic_context, scope_stack);
         analyze_expr(cast_expr->get_operand(), semantic_context, scope_stack);
 
         const SemanticType *operand_type =

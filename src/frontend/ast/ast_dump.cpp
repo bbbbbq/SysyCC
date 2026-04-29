@@ -142,6 +142,14 @@ void AstDumper::dump_node(const AstNode *node, std::ostream &os,
         dump_source_span(node, os, indent + 2);
         return;
     }
+    case AstKind::TypeofType: {
+        const auto *typeof_type = static_cast<const TypeofTypeNode *>(node);
+        write_indent(os, indent);
+        os << "TypeofType\n";
+        dump_source_span(node, os, indent + 2);
+        dump_node(typeof_type->get_operand(), os, indent + 2);
+        return;
+    }
     case AstKind::QualifiedType: {
         const auto *qualified_type =
             static_cast<const QualifiedTypeNode *>(node);

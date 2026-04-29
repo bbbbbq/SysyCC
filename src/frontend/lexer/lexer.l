@@ -191,6 +191,8 @@ static const char *get_keyword_token_label(int token) {
         return "TYPEDEF";
     case SIZEOF:
         return "SIZEOF";
+    case TYPEOF:
+        return "TYPEOF";
     case ALIGNAS:
         return "ALIGNAS";
     default:
@@ -286,6 +288,8 @@ ANNOT_IDENT _LIBC_[A-Z0-9_]*
 "_Null_unspecified"         { return make_token(NULLABILITY, "NULLABILITY", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "__const"                   { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "__const__"                 { return make_token(CONST, "CONST", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"typeof"                    { return make_token(TYPEOF, "TYPEOF", (sysycc::LexerState *)yyextra, yytext, yylval); }
+"__typeof__"                { return make_token(TYPEOF, "TYPEOF", (sysycc::LexerState *)yyextra, yytext, yylval); }
 "_Alignas"                  { return make_token(ALIGNAS, "ALIGNAS", (sysycc::LexerState *)yyextra, yytext, yylval); }
 
 {STRING_CONST}              { return make_token(STRING_LITERAL, "STRING_LITERAL", (sysycc::LexerState *)yyextra, yytext, yylval); }

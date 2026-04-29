@@ -241,6 +241,10 @@ bool ast_contains_unknown_nodes(const AstNode *node) {
             static_cast<const QualifiedTypeNode *>(node);
         return ast_contains_unknown_nodes(qualified_type->get_base_type());
     }
+    case AstKind::TypeofType: {
+        const auto *typeof_type = static_cast<const TypeofTypeNode *>(node);
+        return ast_contains_unknown_nodes(typeof_type->get_operand());
+    }
     case AstKind::StructType: {
         const auto *struct_type = static_cast<const StructTypeNode *>(node);
         for (const auto &field : struct_type->get_fields()) {

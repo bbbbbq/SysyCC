@@ -92,6 +92,18 @@ class NamedTypeNode : public TypeNode {
     const std::string &get_name() const noexcept;
 };
 
+// Represents a GNU typeof(expr) type-name extension.
+class TypeofTypeNode : public TypeNode {
+  private:
+    std::unique_ptr<Expr> operand_;
+
+  public:
+    explicit TypeofTypeNode(std::unique_ptr<Expr> operand,
+                            SourceSpan source_span = {});
+
+    const Expr *get_operand() const noexcept;
+};
+
 // Represents a qualified type such as const char.
 class QualifiedTypeNode : public TypeNode {
   private:

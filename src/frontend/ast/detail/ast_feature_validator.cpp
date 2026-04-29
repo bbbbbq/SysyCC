@@ -342,6 +342,10 @@ bool validate_node(const AstNode *node, const AstFeatureRegistry &feature_regist
     }
     case AstKind::NamedType:
         return true;
+    case AstKind::TypeofType:
+        return validate_node(
+            static_cast<const TypeofTypeNode *>(node)->get_operand(),
+            feature_registry, error_info);
     case AstKind::ArrayType: {
         const auto *array_type = static_cast<const ArrayTypeNode *>(node);
         if (!validate_node(array_type->get_element_type(), feature_registry,

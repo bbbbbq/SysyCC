@@ -1,0 +1,18 @@
+struct hashmap_entry {
+    int hash;
+};
+
+struct commit_name {
+    int tag;
+    struct hashmap_entry entry;
+};
+
+#define OFFSETOF_VAR(ptr, member) \
+    ((unsigned long)(&(((__typeof__(*ptr) *)0)->member)))
+
+int main(void) {
+    struct commit_name *name = (struct commit_name *)0;
+    putint((int)OFFSETOF_VAR(name, entry));
+    putch(10);
+    return 0;
+}

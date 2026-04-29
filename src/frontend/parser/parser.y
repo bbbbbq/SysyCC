@@ -29,7 +29,7 @@ char *yyget_text(void *yyscanner);
 %lex-param { void *scanner }
 
 %token <node> INVALID
-%token <node> CONST VOLATILE EXTERN STATIC REGISTER ATTRIBUTE ASM EXTENSION INLINE RESTRICT NULLABILITY LONG SIGNED SHORT UNSIGNED INT CHAR VOID FLOAT DOUBLE FLOAT16 IF ELSE WHILE FOR DO SWITCH CASE DEFAULT BREAK CONTINUE GOTO RETURN STRUCT UNION ENUM TYPEDEF SIZEOF ALIGNAS TYPE_NAME
+%token <node> CONST VOLATILE EXTERN STATIC REGISTER ATTRIBUTE ASM EXTENSION INLINE RESTRICT NULLABILITY LONG SIGNED SHORT UNSIGNED INT CHAR VOID FLOAT DOUBLE FLOAT16 IF ELSE WHILE FOR DO SWITCH CASE DEFAULT BREAK CONTINUE GOTO RETURN STRUCT UNION ENUM TYPEDEF SIZEOF TYPEOF ALIGNAS TYPE_NAME
 %token <node> IDENTIFIER ANNOTATION_IDENT INT_LITERAL FLOAT_LITERAL CHAR_LITERAL STRING_LITERAL
 %token <node> PLUS MINUS MUL DIV MOD
 %token <node> INC DEC BITAND BITOR BITXOR BITNOT SHL SHR ARROW
@@ -48,7 +48,7 @@ char *yyget_text(void *yyscanner);
 %type <node> tag_identifier
 %type <node> direct_declarator declarator_identifier expr_opt annotation_argument annotation_invocation_opt
 %type <node> typedef_decl struct_decl union_decl enum_decl
-%type <node> type_specifier object_type_specifier nonvoid_type_specifier basic_type struct_specifier union_specifier enum_specifier
+%type <node> type_specifier object_type_specifier nonvoid_type_specifier basic_type struct_specifier union_specifier enum_specifier gnu_typeof_type_specifier
 %type <node> struct_field_list_opt struct_field_list struct_field_decl struct_field_declarator_list struct_field_declarator field_bit_width_opt
 %type <node> union_field_list_opt union_field_list union_field_decl union_field_declarator_list union_field_declarator
 %type <node> enumerator_list_opt enumerator_list enumerator
@@ -60,7 +60,7 @@ char *yyget_text(void *yyscanner);
 %type <node> expr const_expr cond argument_expr_list
 %type <node> assignment_expr conditional_expr logical_or_expr logical_and_expr bit_or_expr
 %type <node> bit_xor_expr bit_and_expr eq_expr rel_expr shift_expr add_expr
-%type <node> mul_expr cast_expr unary_expr postfix_expr primary_expr statement_expr builtin_va_arg_expr
+%type <node> mul_expr cast_expr unary_expr postfix_expr primary_expr statement_expr builtin_va_arg_expr gnu_builtin_types_compatible_expr
 %type <node> cast_target_type sizeof_type_name sizeof_type_suffix_opt abstract_array_suffix_list
 %type <node> init_val init_val_list designated_init_val designator designator_seq
 
@@ -379,6 +379,8 @@ type_specifier
       { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
     | TYPE_NAME
       { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
+    | gnu_typeof_type_specifier
+      { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
     | struct_specifier
       { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
     | union_specifier
@@ -391,6 +393,8 @@ object_type_specifier
     : basic_type
       { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
     | TYPE_NAME
+      { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
+    | gnu_typeof_type_specifier
       { $$ = sysycc::make_nonterminal_node("type_specifier", {$1}); }
     ;
 
@@ -661,6 +665,11 @@ basic_type
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
     | FLOAT16
       { $$ = sysycc::make_nonterminal_node("basic_type", {$1}); }
+    ;
+
+gnu_typeof_type_specifier
+    : TYPEOF LPAREN expr RPAREN %dprec 2
+      { $$ = sysycc::make_nonterminal_node("gnu_typeof_type_specifier", {$1, $2, $3, $4}); }
     ;
 
 struct_specifier
@@ -1567,8 +1576,15 @@ primary_expr
       { $$ = sysycc::make_nonterminal_node("primary_expr", {$1}); }
     | statement_expr
       { $$ = sysycc::make_nonterminal_node("primary_expr", {$1}); }
+    | gnu_builtin_types_compatible_expr
+      { $$ = sysycc::make_nonterminal_node("primary_expr", {$1}); }
     | LPAREN expr RPAREN
       { $$ = sysycc::make_nonterminal_node("primary_expr", {$1, $2, $3}); }
+    ;
+
+gnu_builtin_types_compatible_expr
+    : IDENTIFIER LPAREN gnu_typeof_type_specifier COMMA gnu_typeof_type_specifier RPAREN
+      { $$ = sysycc::make_nonterminal_node("gnu_builtin_types_compatible_expr", {$1, $2, $3, $4, $5, $6}); }
     ;
 
 statement_expr

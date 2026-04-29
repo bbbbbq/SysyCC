@@ -9,6 +9,7 @@ enum class AstKind : uint8_t {
     TranslationUnit,
     BuiltinType,
     NamedType,
+    TypeofType,
     QualifiedType,
     PointerType,
     ArrayType,

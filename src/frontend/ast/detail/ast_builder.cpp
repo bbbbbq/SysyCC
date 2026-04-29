@@ -1028,6 +1028,26 @@ AstBuilder::build_return_type(const ParseTreeNode *node) const {
         return std::make_unique<UnknownTypeNode>("null type_specifier");
     }
 
+    if (const ParseTreeNode *typeof_type =
+            ParseTreeMatcher::find_first_child_with_label(
+                node, "gnu_typeof_type_specifier")) {
+        if (!typeof_type->children.empty() &&
+            ParseTreeMatcher::label_starts_with(typeof_type->children[0].get(),
+                                                "TYPEOF")) {
+            std::unique_ptr<Expr> operand =
+                typeof_type->children.size() >= 3
+                    ? build_expr(typeof_type->children[2].get())
+                    : std::unique_ptr<Expr>(std::make_unique<UnknownExpr>(
+                          "missing typeof operand",
+                          get_node_source_span(typeof_type)));
+            return std::make_unique<TypeofTypeNode>(
+                std::move(operand), get_node_source_span(typeof_type));
+        }
+        return std::make_unique<UnknownTypeNode>(
+            "unsupported typeof-like type specifier",
+            get_node_source_span(typeof_type));
+    }
+
     if (ParseTreeMatcher::label_starts_with(node, "TYPE_NAME")) {
         const std::string suffix =
             ParseTreeMatcher::extract_terminal_suffix(node, "TYPE_NAME");
@@ -2323,6 +2343,46 @@ std::unique_ptr<Expr> AstBuilder::build_expr(const ParseTreeNode *node) const {
         return std::make_unique<StringLiteralExpr>(
             build_string_literal_sequence_text(node),
             get_node_source_span(node));
+    }
+
+    if (ParseTreeMatcher::label_equals(
+            node, "gnu_builtin_types_compatible_expr") &&
+        node->children.size() == 6) {
+        const std::string callee_name =
+            ParseTreeMatcher::extract_terminal_suffix(node->children[0].get(),
+                                                      "IDENTIFIER");
+        if (callee_name != "__builtin_types_compatible_p") {
+            return std::make_unique<UnknownExpr>(
+                "unsupported GNU type-compatible builtin",
+                get_node_source_span(node));
+        }
+
+        auto build_typeof_argument =
+            [this](const ParseTreeNode *typeof_type) -> std::unique_ptr<Expr> {
+            std::vector<std::unique_ptr<Expr>> typeof_arguments;
+            typeof_arguments.push_back(
+                typeof_type != nullptr && typeof_type->children.size() >= 3
+                    ? build_expr(typeof_type->children[2].get())
+                    : std::unique_ptr<Expr>(std::make_unique<UnknownExpr>(
+                          "missing typeof operand",
+                          get_node_source_span(typeof_type))));
+            return std::make_unique<CallExpr>(
+                std::make_unique<IdentifierExpr>(
+                    "__typeof__",
+                    typeof_type != nullptr && !typeof_type->children.empty()
+                        ? get_node_source_span(typeof_type->children[0].get())
+                        : get_node_source_span(typeof_type)),
+                std::move(typeof_arguments), get_node_source_span(typeof_type));
+        };
+
+        std::vector<std::unique_ptr<Expr>> arguments;
+        arguments.push_back(build_typeof_argument(node->children[2].get()));
+        arguments.push_back(build_typeof_argument(node->children[4].get()));
+        return std::make_unique<CallExpr>(
+            std::make_unique<IdentifierExpr>(callee_name,
+                                             get_node_source_span(
+                                                 node->children[0].get())),
+            std::move(arguments), get_node_source_span(node));
     }
 
     if (ParseTreeMatcher::label_starts_with(node, "IDENTIFIER")) {
