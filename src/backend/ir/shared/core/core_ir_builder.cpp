@@ -5341,19 +5341,24 @@ class CoreIrBuildSession {
     }
 
     bool emit_for_stmt(const ForStmt &for_stmt) {
-        if (current_block_ == nullptr) {
+        const bool has_label_entry =
+            current_block_ == nullptr && stmt_contains_label(for_stmt.get_body());
+        if (current_block_ == nullptr && !has_label_entry) {
             add_error("core ir generation reached a for statement in a "
                       "terminated control-flow path",
                       for_stmt.get_source_span());
             return false;
         }
 
-        if (for_stmt.get_init_decl() != nullptr &&
-            !emit_decl_stmt(*for_stmt.get_init_decl())) {
-            return false;
-        }
-        if (for_stmt.get_init() != nullptr && build_expr(for_stmt.get_init()) == nullptr) {
-            return false;
+        if (!has_label_entry) {
+            if (for_stmt.get_init_decl() != nullptr &&
+                !emit_decl_stmt(*for_stmt.get_init_decl())) {
+                return false;
+            }
+            if (for_stmt.get_init() != nullptr &&
+                build_expr(for_stmt.get_init()) == nullptr) {
+                return false;
+            }
         }
 
         const std::string loop_suffix = next_loop_suffix();
@@ -5370,7 +5375,9 @@ class CoreIrBuildSession {
             current_function_->create_basic_block<CoreIrBasicBlock>(
                 "for.end" + loop_suffix);
 
-        emit_jump_to(condition_block, for_stmt.get_source_span());
+        if (!has_label_entry) {
+            emit_jump_to(condition_block, for_stmt.get_source_span());
+        }
 
         current_block_ = condition_block;
         if (for_stmt.get_condition() != nullptr) {
