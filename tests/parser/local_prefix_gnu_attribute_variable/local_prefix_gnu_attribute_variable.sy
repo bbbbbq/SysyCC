@@ -1,0 +1,5 @@
+int test_bitmap_commits(void) {
+    __attribute__((__unused__)) void *value;
+    value = 0;
+    return value == 0;
+}

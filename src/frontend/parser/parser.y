@@ -143,6 +143,8 @@ decl
       { $$ = sysycc::make_nonterminal_node("decl", {$1}); }
     | var_decl %dprec 1
       { $$ = sysycc::make_nonterminal_node("decl", {$1}); }
+    | attribute_specifier_seq var_decl %dprec 1
+      { $$ = sysycc::make_nonterminal_node("decl", {$1, $2}); }
     | typedef_decl
       { $$ = sysycc::make_nonterminal_node("decl", {$1}); }
     | struct_decl
