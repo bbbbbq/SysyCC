@@ -456,6 +456,78 @@ void test_if_converts_short_circuit_bool() {
            nullptr);
 }
 
+void test_rejects_short_circuit_with_carried_phis() {
+    auto context = std::make_unique<CoreIrContext>();
+    auto *void_type = context->create_type<CoreIrVoidType>();
+    auto *i1_type = context->create_type<CoreIrIntegerType>(1);
+    auto *i32_type = context->create_type<CoreIrIntegerType>(32);
+    auto *function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
+    auto *module = context->create_module<CoreIrModule>(
+        "ir_core_if_conversion_short_carried_phi");
+    auto *function =
+        module->create_function<CoreIrFunction>("main", function_type, false);
+    auto *entry = function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *header = function->create_basic_block<CoreIrBasicBlock>("header");
+    auto *body = function->create_basic_block<CoreIrBasicBlock>("body");
+    auto *rhs = function->create_basic_block<CoreIrBasicBlock>("rhs");
+    auto *false_block = function->create_basic_block<CoreIrBasicBlock>("false");
+    auto *merge = function->create_basic_block<CoreIrBasicBlock>("merge");
+    auto *exit = function->create_basic_block<CoreIrBasicBlock>("exit");
+    auto *zero = context->create_constant<CoreIrConstantInt>(i32_type, 0);
+    auto *one = context->create_constant<CoreIrConstantInt>(i32_type, 1);
+    auto *two = context->create_constant<CoreIrConstantInt>(i32_type, 2);
+    auto *three = context->create_constant<CoreIrConstantInt>(i32_type, 3);
+
+    entry->create_instruction<CoreIrJumpInst>(void_type, header);
+    auto *iv = header->create_instruction<CoreIrPhiInst>(i32_type, "iv");
+    auto *header_cmp = header->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "header.cmp", iv, three);
+    header->create_instruction<CoreIrCondJumpInst>(void_type, header_cmp, body,
+                                                   exit);
+    auto *outer_cmp = body->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::SignedLess, i1_type, "outer.cmp", iv, two);
+    body->create_instruction<CoreIrCondJumpInst>(void_type, outer_cmp, rhs,
+                                                 false_block);
+    auto *rhs_next = rhs->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "rhs.next", iv, one);
+    auto *inner_cmp = rhs->create_instruction<CoreIrCompareInst>(
+        CoreIrComparePredicate::Equal, i1_type, "inner.cmp", rhs_next, two);
+    rhs->create_instruction<CoreIrCondJumpInst>(void_type, inner_cmp, merge,
+                                                false_block);
+    auto *false_phi =
+        false_block->create_instruction<CoreIrPhiInst>(i32_type, "false.carried");
+    false_block->create_instruction<CoreIrJumpInst>(void_type, merge);
+    auto *short_phi =
+        merge->create_instruction<CoreIrPhiInst>(i32_type, "short.phi");
+    auto *carried_phi =
+        merge->create_instruction<CoreIrPhiInst>(i32_type, "carried.phi");
+    auto *next = merge->create_instruction<CoreIrBinaryInst>(
+        CoreIrBinaryOpcode::Add, i32_type, "next", carried_phi, one);
+    merge->create_instruction<CoreIrJumpInst>(void_type, header);
+    exit->create_instruction<CoreIrReturnInst>(void_type, zero);
+
+    iv->add_incoming(entry, zero);
+    iv->add_incoming(merge, next);
+    false_phi->add_incoming(body, iv);
+    false_phi->add_incoming(rhs, rhs_next);
+    short_phi->add_incoming(rhs, one);
+    short_phi->add_incoming(false_block, zero);
+    carried_phi->add_incoming(rhs, rhs_next);
+    carried_phi->add_incoming(false_block, false_phi);
+
+    CompilerContext compiler_context =
+        make_compiler_context(std::move(context), module);
+    CoreIrIfConversionPass pass;
+    assert(pass.Run(compiler_context).ok);
+
+    auto *body_branch =
+        dynamic_cast<CoreIrCondJumpInst *>(body->get_instructions().back().get());
+    assert(body_branch != nullptr);
+    assert(body_branch->get_true_block() == rhs);
+    assert(body_branch->get_false_block() == false_block);
+}
+
 } // namespace
 
 int main() {
@@ -465,5 +537,6 @@ int main() {
     test_if_converts_same_address_store_diamond();
     test_if_converts_same_store_triangle();
     test_if_converts_short_circuit_bool();
+    test_rejects_short_circuit_with_carried_phis();
     return 0;
 }

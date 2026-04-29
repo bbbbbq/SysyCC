@@ -657,6 +657,10 @@ bool verify_core_ir_after_pass(CompilerContext &context, const Pass &pass,
     }
 
     CoreIrVerifier verifier;
+    if (force_core_ir_verification_enabled()) {
+        return emit_core_ir_verify_result(context, verifier.verify_module(*module),
+                                          pass.Name());
+    }
     if (metadata.produces_core_ir) {
         return emit_core_ir_verify_result(
             context, verifier.verify_module(*module), pass.Name());

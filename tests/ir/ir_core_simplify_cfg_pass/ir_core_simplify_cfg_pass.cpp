@@ -66,6 +66,8 @@ void test_cfg_second_stage_rules() {
     auto *i32_type = context->create_type<CoreIrIntegerType>(32);
     auto *void_function_type = context->create_type<CoreIrFunctionType>(
         void_type, std::vector<const CoreIrType *>{}, false);
+    auto *i32_function_type = context->create_type<CoreIrFunctionType>(
+        i32_type, std::vector<const CoreIrType *>{}, false);
     auto *module =
         context->create_module<CoreIrModule>("ir_core_simplify_cfg_phase2");
 
@@ -76,8 +78,23 @@ void test_cfg_second_stage_rules() {
     auto *target =
         same_target_function->create_basic_block<CoreIrBasicBlock>("target");
     auto *one = context->create_constant<CoreIrConstantInt>(i1_type, 1);
+    auto *true_value = context->create_constant<CoreIrConstantInt>(i32_type, 7);
+    auto *false_value = context->create_constant<CoreIrConstantInt>(i32_type, 9);
     entry->create_instruction<CoreIrCondJumpInst>(void_type, one, target, target);
     target->create_instruction<CoreIrReturnInst>(void_type);
+
+    auto *same_target_phi_function = module->create_function<CoreIrFunction>(
+        "same_target_const_cond_phi", i32_function_type, false);
+    auto *phi_entry =
+        same_target_phi_function->create_basic_block<CoreIrBasicBlock>("entry");
+    auto *phi_target =
+        same_target_phi_function->create_basic_block<CoreIrBasicBlock>("target");
+    phi_entry->create_instruction<CoreIrCondJumpInst>(void_type, one, phi_target,
+                                                      phi_target);
+    auto *same_target_phi =
+        phi_target->create_instruction<CoreIrPhiInst>(i32_type, "same.target");
+    same_target_phi->add_incoming(phi_entry, true_value);
+    phi_target->create_instruction<CoreIrReturnInst>(void_type, same_target_phi);
 
     auto *trampoline_chain_function = module->create_function<CoreIrFunction>(
         "trampoline_chain", void_function_type, false);
@@ -117,8 +134,6 @@ void test_cfg_second_stage_rules() {
         "true_block");
     auto *constant_false =
         constant_cond_function->create_basic_block<CoreIrBasicBlock>("false_block");
-    auto *true_value = context->create_constant<CoreIrConstantInt>(i32_type, 7);
-    auto *false_value = context->create_constant<CoreIrConstantInt>(i32_type, 9);
     auto *zero1 = context->create_constant<CoreIrConstantInt>(i1_type, 0);
     constant_entry->create_instruction<CoreIrCondJumpInst>(
         void_type, zero1, constant_true, constant_false);
@@ -134,6 +149,15 @@ void test_cfg_second_stage_rules() {
            nullptr);
     assert(dynamic_cast<CoreIrReturnInst *>(entry->get_instructions().back().get()) !=
            nullptr);
+    assert(same_target_phi_function->get_basic_blocks().size() == 1);
+    auto *same_target_return = dynamic_cast<CoreIrReturnInst *>(
+        same_target_phi_function->get_basic_blocks()
+            .front()
+            ->get_instructions()
+            .back()
+            .get());
+    assert(same_target_return != nullptr);
+    assert(same_target_return->get_return_value() == true_value);
     assert(trampoline_chain_function->get_basic_blocks().size() == 1);
     auto *chain_entry_terminator = trampoline_chain_function->get_basic_blocks()
                                        .front()

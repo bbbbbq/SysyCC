@@ -1392,6 +1392,20 @@ bool if_convert_short_circuit_bool(const CoreIrCfgAnalysisResult &cfg,
         phi->get_incoming_block(0) == phi->get_incoming_block(1)) {
         return false;
     }
+    if (block_has_phi(*false_block)) {
+        return false;
+    }
+    bool saw_merge_phi = false;
+    for (const auto &instruction_ptr : merge_block->get_instructions()) {
+        auto *merge_phi = dynamic_cast<CoreIrPhiInst *>(instruction_ptr.get());
+        if (merge_phi == nullptr) {
+            break;
+        }
+        if (saw_merge_phi) {
+            return false;
+        }
+        saw_merge_phi = true;
+    }
 
     CoreIrValue *rhs_value = get_phi_incoming_for_block(*phi, rhs_block);
     CoreIrValue *false_value = get_phi_incoming_for_block(*phi, false_block);

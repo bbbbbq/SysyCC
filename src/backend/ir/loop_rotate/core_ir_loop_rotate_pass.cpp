@@ -247,6 +247,13 @@ bool rewrite_outside_successor_phis(
         return false;
     }
 
+    struct PhiRewritePlan {
+        CoreIrPhiInst *phi = nullptr;
+        CoreIrValue *preheader_value = nullptr;
+        CoreIrValue *latch_value = nullptr;
+    };
+    std::vector<PhiRewritePlan> rewrite_plans;
+
     for (const auto &instruction : outside_successor->get_instructions()) {
         auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction.get());
         if (phi == nullptr) {
@@ -284,9 +291,17 @@ bool rewrite_outside_successor_phis(
             return false;
         }
 
-        phi->remove_incoming_block(header);
-        phi->add_incoming(preheader, preheader_value);
-        phi->add_incoming(latch, latch_value);
+        rewrite_plans.push_back(
+            PhiRewritePlan{phi, preheader_value, latch_value});
+    }
+
+    for (const PhiRewritePlan &plan : rewrite_plans) {
+        if (plan.phi == nullptr) {
+            return false;
+        }
+        plan.phi->remove_incoming_block(header);
+        plan.phi->add_incoming(preheader, plan.preheader_value);
+        plan.phi->add_incoming(latch, plan.latch_value);
     }
     return true;
 }
@@ -529,12 +544,6 @@ bool rotate_phi_header_loop(
         return false;
     }
 
-    if (!rewrite_outside_successor_phis(outside_successor, header, preheader, latch,
-                                        header_phi_map) ||
-        !repair_phi_external_uses(loop, outside_successor, header_phis)) {
-        return false;
-    }
-
     std::vector<std::unique_ptr<CoreIrInstruction>> preheader_clones;
     CoreIrValue *preheader_condition = nullptr;
     if (!build_cloned_header_condition(header_instructions,
@@ -550,6 +559,12 @@ bool rotate_phi_header_loop(
                                        header_branch->get_condition(),
                                        latch_value_map, latch_clones,
                                        latch_condition)) {
+        return false;
+    }
+
+    if (!rewrite_outside_successor_phis(outside_successor, header, preheader, latch,
+                                        header_phi_map) ||
+        !repair_phi_external_uses(loop, outside_successor, header_phis)) {
         return false;
     }
 

@@ -152,6 +152,8 @@ class CoreIrInstruction : public CoreIrValue {
                       std::string name = {})
         : CoreIrValue(type, std::move(name)), opcode_(opcode) {}
 
+    virtual ~CoreIrInstruction() { detach_operands(); }
+
     CoreIrOpcode get_opcode() const noexcept { return opcode_; }
 
     CoreIrBasicBlock *get_parent() const noexcept { return parent_; }

@@ -279,7 +279,9 @@ bool simplify_constant_cond_jumps(CoreIrFunction &function) {
         CoreIrBasicBlock *removed_successor =
             constant->get_value() == 0 ? cond_jump->get_true_block()
                                        : cond_jump->get_false_block();
-        remove_phi_incoming_from_predecessor(removed_successor, block.get());
+        if (removed_successor != target) {
+            remove_phi_incoming_from_predecessor(removed_successor, block.get());
+        }
         cond_jump->detach_operands();
         auto replacement =
             std::make_unique<CoreIrJumpInst>(cond_jump->get_type(), target);
