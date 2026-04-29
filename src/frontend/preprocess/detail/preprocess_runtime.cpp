@@ -28,8 +28,7 @@ void PreprocessRuntime::mark_file_processed(const std::string &file_path) {
 
 bool PreprocessRuntime::should_skip_file(
     const std::string &file_path) const noexcept {
-    return pragma_once_files_.find(file_path) != pragma_once_files_.end() &&
-           processed_files_.find(file_path) != processed_files_.end();
+    return pragma_once_files_.find(file_path) != pragma_once_files_.end();
 }
 
 std::string PreprocessRuntime::build_output_text() const {
