@@ -1,0 +1,10 @@
+typedef struct DSA_SIG DSA_SIG;
+typedef struct DSA_METHOD DSA_METHOD;
+typedef struct DSA DSA;
+
+DSA_SIG *(*DSA_meth_get_sign(const DSA_METHOD *dsam))(const unsigned char *,
+                                                      int, DSA *);
+
+int main(void) {
+    return 0;
+}

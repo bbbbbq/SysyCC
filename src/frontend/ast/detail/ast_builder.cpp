@@ -563,6 +563,41 @@ AstBuilder::build_function_decl(const ParseTreeNode *node) const {
                                        function_declarator->children[1].get());
                 parameter_list_like_node = find_parameter_list_node(
                     function_declarator->children[2].get());
+            } else if (function_declarator->children.size() == 8 &&
+                       ParseTreeMatcher::label_equals(
+                           function_declarator->children[0].get(),
+                           "pointer") &&
+                       ParseTreeMatcher::label_starts_with(
+                           function_declarator->children[1].get(), "LPAREN") &&
+                       ParseTreeMatcher::label_equals(
+                           function_declarator->children[2].get(),
+                           "pointer") &&
+                       ParseTreeMatcher::label_equals(
+                           function_declarator->children[3].get(),
+                           "function_declarator") &&
+                       ParseTreeMatcher::label_starts_with(
+                           function_declarator->children[4].get(), "RPAREN") &&
+                       ParseTreeMatcher::label_starts_with(
+                           function_declarator->children[5].get(), "LPAREN") &&
+                       is_parameter_list_node(
+                           function_declarator->children[6].get()) &&
+                       ParseTreeMatcher::label_starts_with(
+                           function_declarator->children[7].get(),
+                           "RPAREN")) {
+                auto return_function_type = std::make_unique<FunctionTypeNode>(
+                    build_declared_type(type_specifier,
+                                        function_declarator->children[0].get(),
+                                        leading_qualifiers.is_const,
+                                        leading_qualifiers.is_volatile, true),
+                    build_function_parameter_types(
+                        function_declarator->children[6].get()),
+                    has_variadic_marker(function_declarator->children[6].get()),
+                    get_node_source_span(function_declarator));
+                return_type =
+                    build_pointer_type(std::move(return_function_type),
+                                       function_declarator->children[2].get());
+                parameter_list_like_node = find_parameter_list_node(
+                    function_declarator->children[3].get());
             } else {
                 const ParseTreeNode *pointer =
                     ParseTreeMatcher::find_first_child_with_label(
@@ -1187,6 +1222,14 @@ AstBuilder::build_return_type(const ParseTreeNode *node,
         if (basic_type->children.size() == 2 &&
             ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
                                                 "SIGNED") &&
+            builtin_name_from_type_name_token(basic_type->children[1].get()) ==
+                "char") {
+            return std::make_unique<BuiltinTypeNode>(
+                "signed char", get_node_source_span(node));
+        }
+        if (basic_type->children.size() == 2 &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
+                                                "SIGNED") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
                                                 "LONG")) {
             return std::make_unique<BuiltinTypeNode>(
@@ -1257,6 +1300,14 @@ AstBuilder::build_return_type(const ParseTreeNode *node,
                                                 "UNSIGNED") &&
             ParseTreeMatcher::label_starts_with(basic_type->children[1].get(),
                                                 "CHAR")) {
+            return std::make_unique<BuiltinTypeNode>(
+                "unsigned char", get_node_source_span(node));
+        }
+        if (basic_type->children.size() == 2 &&
+            ParseTreeMatcher::label_starts_with(basic_type->children[0].get(),
+                                                "UNSIGNED") &&
+            builtin_name_from_type_name_token(basic_type->children[1].get()) ==
+                "char") {
             return std::make_unique<BuiltinTypeNode>(
                 "unsigned char", get_node_source_span(node));
         }
