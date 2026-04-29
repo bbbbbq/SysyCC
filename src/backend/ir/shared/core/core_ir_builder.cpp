@@ -6139,6 +6139,10 @@ class CoreIrBuildSession {
                 base_expr == binary_expr->get_lhs()) {
                 *step = -*step;
             }
+            if (*step == 0) {
+                return build_global_constant_pointer_value(
+                    base_expr, target_type, base_expr->get_source_span());
+            }
             const SemanticType *base_semantic_type =
                 strip_qualifiers(get_node_type(base_expr));
             if (base_semantic_type != nullptr &&

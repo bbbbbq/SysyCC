@@ -8,6 +8,10 @@ struct options {
     int context;
 };
 
+struct option_value {
+    void *value;
+};
+
 void *memcpy(void *dst, const void *src, unsigned long n);
 
 #define BUILD_ASSERT_OR_ZERO(cond) (sizeof(char[1 - 2 * !(cond)]) - 1)
@@ -30,6 +34,11 @@ static struct strbuf commands[] = {
     { 1, 2, (char *)0 },
     { 3, 4, (char *)0 },
 };
+static struct options global_options = { .context = 0 };
+static struct option_value global_option_values[] = {
+    { .value = &global_options.context +
+               BARF_UNLESS_SIGNED(*(&global_options.context)) },
+};
 
 int main(void) {
     struct strbuf a = { 5, 6, (char *)0 };
@@ -38,6 +47,7 @@ int main(void) {
     SWAP(a, b);
     putint((int)(ARRAY_SIZE(commands) + a.alloc + b.alloc +
                  BARF_UNLESS_SIGNED(*(&option_context.context))));
+    putint(global_option_values[0].value == &global_options.context);
     putch(10);
     return 0;
 }
