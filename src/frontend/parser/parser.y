@@ -954,6 +954,15 @@ func_def
           $$ = sysycc::make_nonterminal_node("func_def",
                                              {$2, attribute_opt, $3, $4, $6, $7, $8});
       }
+    | attribute_specifier_seq storage_specifier attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator block
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$2});
+          void *attribute_opt = sysycc::make_nonterminal_node(
+              "attribute_specifier_seq_opt", {$1, $3});
+          $$ = sysycc::make_nonterminal_node("func_def",
+                                             {storage_opt, attribute_opt, $4, $5, $6, $7, $8});
+      }
     | storage_specifier_opt type_qualifier_seq_opt type_specifier attribute_specifier_seq type_qualifier_seq_opt function_declarator block
       {
           void *attribute_opt = sysycc::make_nonterminal_node(
@@ -1006,6 +1015,16 @@ func_decl
           $$ = sysycc::make_nonterminal_node(
               "func_decl",
               {$2, leading_attribute_opt, $3, $4, $6, $7, $8, $9, $10});
+      }
+    | attribute_specifier_seq storage_specifier attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator asm_label_opt attribute_specifier_seq_opt SEMICOLON %dprec 2
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$2});
+          void *leading_attribute_opt = sysycc::make_nonterminal_node(
+              "attribute_specifier_seq_opt", {$1, $3});
+          $$ = sysycc::make_nonterminal_node(
+              "func_decl",
+              {storage_opt, leading_attribute_opt, $4, $5, $6, $7, $8, $9, $10});
       }
     | storage_specifier_opt type_qualifier_seq_opt type_specifier attribute_specifier_seq type_qualifier_seq_opt function_declarator asm_label_opt attribute_specifier_seq_opt SEMICOLON %dprec 2
       {

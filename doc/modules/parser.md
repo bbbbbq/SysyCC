@@ -65,6 +65,9 @@ Generated parser outputs live under the active build tree:
   function declarations and definitions
 - accept leading GNU attribute specifier sequences ahead of function
   declarations such as `__attribute__((__always_inline__)) int foo(void);`
+- accept combined leading and mid-declaration GNU attributes around storage
+  specifiers, such as `__attribute__((format(printf, 2, 3))) static
+  __attribute__((noreturn)) void die(const char *, ...);`
 - recognize GNU-style `__asm("_symbol")` declaration suffixes attached to
   function prototypes, including adjacent string-literal concatenation used by
   Darwin alias macros
