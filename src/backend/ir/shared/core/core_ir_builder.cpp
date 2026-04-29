@@ -3804,9 +3804,10 @@ class CoreIrBuildSession {
         if (const auto *callee_identifier =
                 dynamic_cast<const IdentifierExpr *>(expr.get_callee());
             callee_identifier != nullptr &&
-            callee_identifier->get_name() == "__builtin_clzll") {
+            (callee_identifier->get_name() == "__builtin_clzll" ||
+             callee_identifier->get_name() == "__builtin_ctzll")) {
             if (expr.get_arguments().size() != 1) {
-                add_error("core ir generation found malformed clzll builtin",
+                add_error("core ir generation found malformed bit-scan builtin",
                           expr.get_source_span());
                 return nullptr;
             }
@@ -3814,7 +3815,7 @@ class CoreIrBuildSession {
                 get_function_semantic_type(get_node_type(expr.get_callee()));
             if (callee_semantic_type == nullptr ||
                 callee_semantic_type->get_parameter_types().empty()) {
-                add_error("core ir generation could not resolve clzll builtin type",
+                add_error("core ir generation could not resolve bit-scan builtin type",
                           expr.get_source_span());
                 return nullptr;
             }
@@ -3837,18 +3838,22 @@ class CoreIrBuildSession {
                 core_ir_context_->create_constant<CoreIrConstantInt>(i1_type, 0);
             is_zero_undef->set_source_span(expr.get_source_span());
 
-            auto *ctlz_call = current_block_->create_instruction<CoreIrCallInst>(
-                argument_value->get_type(), next_temp_name(), "llvm.ctlz.i64",
+            const char *intrinsic_name =
+                callee_identifier->get_name() == "__builtin_clzll"
+                    ? "llvm.ctlz.i64"
+                    : "llvm.cttz.i64";
+            auto *bitscan_call = current_block_->create_instruction<CoreIrCallInst>(
+                argument_value->get_type(), next_temp_name(), intrinsic_name,
                 core_ir_context_->create_type<CoreIrFunctionType>(
                     argument_value->get_type(),
                     std::vector<const CoreIrType *>{argument_value->get_type(),
                                                     i1_type},
                     false),
                 std::vector<CoreIrValue *>{argument_value, is_zero_undef});
-            ctlz_call->set_source_span(expr.get_source_span());
+            bitscan_call->set_source_span(expr.get_source_span());
 
             return build_converted_value(
-                ctlz_call, callee_semantic_type->get_parameter_types().front(),
+                bitscan_call, callee_semantic_type->get_parameter_types().front(),
                 get_node_type(&expr), expr.get_source_span());
         }
 

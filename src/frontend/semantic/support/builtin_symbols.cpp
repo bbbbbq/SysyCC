@@ -211,6 +211,8 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
                               {unsigned_long_long_type});
     register_builtin_function(semantic_model, scope_stack, "__builtin_clzll",
                               int_type, {unsigned_long_long_type});
+    register_builtin_function(semantic_model, scope_stack, "__builtin_ctzll",
+                              int_type, {unsigned_long_long_type});
     register_builtin_function(semantic_model, scope_stack,
                               "__builtin_add_overflow", int_type, {}, true);
     register_builtin_function(semantic_model, scope_stack,

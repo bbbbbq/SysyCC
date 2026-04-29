@@ -108,6 +108,9 @@ The current implementation has a first batch of real semantic rules:
   compatibility builtin names such as `__int128_t` and `__uint128_t`, so
   common macOS system-header typedef chains can bind without ad hoc shim
   headers
+- common compiler bit-scan builtins such as `__builtin_clzll` and
+  `__builtin_ctzll` are predeclared and lowered through LLVM intrinsics for
+  real-project bitmap code paths
 - dedicated semantic smoke coverage now exercises real host-header includes
   for `stdlib.h`, `string.h`, `math.h`, `ctype.h`, `assert.h`, `stddef.h`,
   `time.h`, `float.h`, `stdalign.h`, `stdbool.h`, `stdint.h`, `limits.h`, and

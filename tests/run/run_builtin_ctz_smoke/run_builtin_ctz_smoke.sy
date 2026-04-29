@@ -1,0 +1,12 @@
+int main(void) {
+    if (__builtin_ctzll(1ULL) != 0) {
+        return 1;
+    }
+    if (__builtin_ctzll(8ULL) != 3) {
+        return 2;
+    }
+    if (__builtin_ctzll(0x8000000000000000ULL) != 63) {
+        return 3;
+    }
+    return 0;
+}
