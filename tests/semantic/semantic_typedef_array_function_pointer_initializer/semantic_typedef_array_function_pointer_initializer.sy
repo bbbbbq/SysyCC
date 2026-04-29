@@ -1,0 +1,14 @@
+typedef int one_int[1];
+typedef void (*report_fn)(one_int values);
+
+void report_impl(one_int values) {
+    values[0] = 7;
+}
+
+static __attribute__((__noreturn__)) report_fn report_routine = report_impl;
+
+int main(void) {
+    int values[1] = {0};
+    report_routine(values);
+    return values[0] != 7;
+}

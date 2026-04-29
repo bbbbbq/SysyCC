@@ -192,8 +192,9 @@ const SemanticType *TypeResolver::resolve_type(
         std::vector<const SemanticType *> parameter_types;
         parameter_types.reserve(function_type->get_parameter_types().size());
         for (const auto &parameter_type : function_type->get_parameter_types()) {
-            parameter_types.push_back(resolve_type(parameter_type.get(),
-                                                   semantic_context, scope_stack));
+            parameter_types.push_back(adjust_parameter_type(
+                resolve_type(parameter_type.get(), semantic_context, scope_stack),
+                semantic_context));
         }
         return semantic_model.own_type(std::make_unique<FunctionSemanticType>(
             resolve_type(function_type->get_return_type(), semantic_context,

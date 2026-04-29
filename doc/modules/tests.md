@@ -540,6 +540,8 @@ Parser-oriented frontend smoke tests, including:
 - named `struct` forward declarations such as `struct Node;`
 - leading GNU attribute function declarations such as
   `__attribute__((__always_inline__)) int foo(void);`
+- mid-declaration GNU attributes on static typedef-name variables, matching
+  Git-style `NORETURN_PTR report_fn` declarations
 - declaration-only function prototypes
 - `inline` declaration-only function prototypes
 - unnamed prototype parameters
@@ -586,6 +588,7 @@ Representative paths:
 - [tests/parser/pointer_return_prototype](/Users/caojunze424/code/SysyCC/tests/parser/pointer_return_prototype)
 - [tests/parser/const_struct_object_decl](/Users/caojunze424/code/SysyCC/tests/parser/const_struct_object_decl)
 - [tests/parser/leading_attribute_function_decl](/Users/caojunze424/code/SysyCC/tests/parser/leading_attribute_function_decl)
+- [tests/parser/static_mid_attribute_typedef_variable](/Users/caojunze424/code/SysyCC/tests/parser/static_mid_attribute_typedef_variable)
 - [tests/parser/suffix_gnu_attribute_prototype](/Users/caojunze424/code/SysyCC/tests/parser/suffix_gnu_attribute_prototype)
 - [tests/parser/struct_forward_decl](/Users/caojunze424/code/SysyCC/tests/parser/struct_forward_decl)
 - [tests/parser/unnamed_typedef_parameter_prototype](/Users/caojunze424/code/SysyCC/tests/parser/unnamed_typedef_parameter_prototype)
@@ -751,6 +754,7 @@ Representative paths:
 - [tests/semantic/semantic_string_literal_array_initializer](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_string_literal_array_initializer)
 - [tests/semantic/semantic_enum_value_flow](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_enum_value_flow)
 - [tests/semantic/semantic_function_pointer_call](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_function_pointer_call)
+- [tests/semantic/semantic_typedef_array_function_pointer_initializer](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_typedef_array_function_pointer_initializer)
 - [tests/semantic/semantic_inline_function_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_inline_function_prototype)
 - [tests/semantic/semantic_long_double_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_long_double_type)
 - [tests/semantic/semantic_pointer_return_prototype](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_pointer_return_prototype)

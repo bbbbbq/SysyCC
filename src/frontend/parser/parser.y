@@ -217,6 +217,15 @@ var_decl
           sysycc::hide_typedef_names_from_declarator_list(
               static_cast<const sysycc::ParseTreeNode *>($7));
       }
+    | storage_specifier attribute_specifier_seq alignment_specifier_seq_opt type_qualifier_seq_opt object_type_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          $$ = sysycc::make_nonterminal_node("var_decl",
+                                             {storage_opt, $2, $3, $4, $5, $6, $7, $8, $9});
+          sysycc::hide_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($8));
+      }
     | storage_specifier_opt alignment_specifier_seq_opt type_qualifier_seq_opt struct_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
       {
           void *type_specifier =
@@ -225,6 +234,17 @@ var_decl
                                              {$1, $2, $3, type_specifier, $5, $6, $7, $8});
           sysycc::hide_typedef_names_from_declarator_list(
               static_cast<const sysycc::ParseTreeNode *>($7));
+      }
+    | storage_specifier attribute_specifier_seq alignment_specifier_seq_opt type_qualifier_seq_opt struct_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          void *type_specifier =
+              sysycc::make_nonterminal_node("type_specifier", {$5});
+          $$ = sysycc::make_nonterminal_node("var_decl",
+                                             {storage_opt, $2, $3, $4, type_specifier, $6, $7, $8, $9});
+          sysycc::hide_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($8));
       }
     | storage_specifier_opt alignment_specifier_seq_opt type_qualifier_seq_opt union_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
       {
@@ -235,6 +255,17 @@ var_decl
           sysycc::hide_typedef_names_from_declarator_list(
               static_cast<const sysycc::ParseTreeNode *>($7));
       }
+    | storage_specifier attribute_specifier_seq alignment_specifier_seq_opt type_qualifier_seq_opt union_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          void *type_specifier =
+              sysycc::make_nonterminal_node("type_specifier", {$5});
+          $$ = sysycc::make_nonterminal_node("var_decl",
+                                             {storage_opt, $2, $3, $4, type_specifier, $6, $7, $8, $9});
+          sysycc::hide_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($8));
+      }
     | storage_specifier_opt alignment_specifier_seq_opt type_qualifier_seq_opt enum_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
       {
           void *type_specifier =
@@ -243,6 +274,17 @@ var_decl
                                              {$1, $2, $3, type_specifier, $5, $6, $7, $8});
           sysycc::hide_typedef_names_from_declarator_list(
               static_cast<const sysycc::ParseTreeNode *>($7));
+      }
+    | storage_specifier attribute_specifier_seq alignment_specifier_seq_opt type_qualifier_seq_opt enum_specifier alignment_specifier_seq_opt type_qualifier_seq_opt init_declarator_list SEMICOLON %dprec 1
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          void *type_specifier =
+              sysycc::make_nonterminal_node("type_specifier", {$5});
+          $$ = sysycc::make_nonterminal_node("var_decl",
+                                             {storage_opt, $2, $3, $4, type_specifier, $6, $7, $8, $9});
+          sysycc::hide_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($8));
       }
     ;
 

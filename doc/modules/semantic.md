@@ -146,6 +146,9 @@ The current implementation has a first batch of real semantic rules:
   in assignment and call-argument compatibility checks, so declarations such
   as `int (*fp)(int) = inc;` and fixed-parameter calls such as `apply(inc, 4)`
   are accepted through the same semantic conversion path as array decay
+- function parameter adjustment also applies after resolving typedef names, so
+  array typedef parameters such as `va_list` decay consistently inside function
+  pointer typedefs and matching function definitions
 - call analysis now accepts both direct function designators and
   pointer-to-function callees, so `fn(value)` is no longer rejected when `fn`
   is a function pointer parameter or local variable
