@@ -200,6 +200,9 @@ Function lowering also preserves declaration-only prototypes:
 - top-level function lowering now also preserves pointer-return prototypes
   such as `void *memchr(...)` by wrapping the function return type in
   `PointerTypeNode`
+- declarator dimension collection now stops at the captured dimension
+  expression, so nested subscripts inside macros such as `ARRAY_SIZE(x)` or
+  `__typeof__(&(x)[0])` do not leak into the declared variable's array rank
 
 ## Notes
 

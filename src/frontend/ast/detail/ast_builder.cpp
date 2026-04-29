@@ -2730,6 +2730,7 @@ AstBuilder::collect_declarator_dimensions(const ParseTreeNode *node) const {
             } else {
                 dimensions.push_back(build_expr(child->children[0].get()));
             }
+            continue;
         }
         auto nested_dimensions = collect_declarator_dimensions(child.get());
         for (auto &dimension : nested_dimensions) {
