@@ -1209,6 +1209,13 @@ parameter_decl
       }
     | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator %dprec 2
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3, $4}); }
+    | storage_specifier type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator %dprec 2
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          $$ = sysycc::make_nonterminal_node("parameter_decl",
+                                             {storage_opt, $2, $3, $4, $5});
+      }
     | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator attribute_specifier_seq %dprec 2
       {
           void *attribute_opt = sysycc::make_nonterminal_node(
@@ -1231,6 +1238,13 @@ parameter_decl
       }
     | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer %dprec 1
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3, $4}); }
+    | storage_specifier type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer %dprec 1
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          $$ = sysycc::make_nonterminal_node("parameter_decl",
+                                             {storage_opt, $2, $3, $4, $5});
+      }
     | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer attribute_specifier_seq %dprec 1
       {
           void *attribute_opt = sysycc::make_nonterminal_node(
@@ -1245,8 +1259,22 @@ parameter_decl
       }
     | type_qualifier_seq_opt TYPE_NAME type_qualifier_seq_opt
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3}); }
+    | storage_specifier type_qualifier_seq_opt TYPE_NAME type_qualifier_seq_opt
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          $$ = sysycc::make_nonterminal_node("parameter_decl",
+                                             {storage_opt, $2, $3, $4});
+      }
     | type_qualifier_seq_opt nonvoid_type_specifier type_qualifier_seq_opt
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3}); }
+    | storage_specifier type_qualifier_seq_opt nonvoid_type_specifier type_qualifier_seq_opt
+      {
+          void *storage_opt =
+              sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
+          $$ = sysycc::make_nonterminal_node("parameter_decl",
+                                             {storage_opt, $2, $3, $4});
+      }
     ;
 
 block
