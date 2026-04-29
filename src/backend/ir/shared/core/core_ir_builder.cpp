@@ -4340,11 +4340,21 @@ class CoreIrBuildSession {
         switch (semantic_type->get_kind()) {
         case SemanticTypeKind::Builtin:
         case SemanticTypeKind::Enum:
+            if (initializer->get_kind() == AstKind::InitListExpr) {
+                return false;
+            }
             if (is_integer_semantic_type(semantic_type)) {
-                return get_integer_constant_value(initializer).has_value();
+                const SemanticType *initializer_type =
+                    strip_qualifiers(get_node_type(initializer));
+                return get_integer_constant_value(initializer).has_value() ||
+                       is_integer_semantic_type(initializer_type);
             }
             if (is_float_semantic_type(semantic_type)) {
-                return get_scalar_numeric_constant_value(initializer).has_value();
+                const SemanticType *initializer_type =
+                    strip_qualifiers(get_node_type(initializer));
+                return get_scalar_numeric_constant_value(initializer).has_value() ||
+                       is_integer_semantic_type(initializer_type) ||
+                       is_float_semantic_type(initializer_type);
             }
             return false;
         case SemanticTypeKind::Pointer: {
