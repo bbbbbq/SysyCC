@@ -988,6 +988,16 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
         return true;
     }
 
+    if ((target_type->get_kind() == SemanticTypeKind::Array ||
+         target_type->get_kind() == SemanticTypeKind::Struct ||
+         target_type->get_kind() == SemanticTypeKind::Union)) {
+        const auto integer_value =
+            get_integer_constant_value(expr, semantic_model);
+        if (integer_value.has_value() && *integer_value == 0) {
+            return true;
+        }
+    }
+
     switch (target_type->get_kind()) {
     case SemanticTypeKind::Array: {
         const auto *array_type =
