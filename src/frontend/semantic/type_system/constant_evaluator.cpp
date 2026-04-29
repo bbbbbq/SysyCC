@@ -943,6 +943,7 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
             static_cast<const StructSemanticType *>(target_type);
         const auto *init_list = static_cast<const InitListExpr *>(expr);
         std::size_t cursor = 0;
+        bool sequential_initializer_is_valid = true;
         for (const auto &field : struct_type->get_fields()) {
             if (field.get_name().empty()) {
                 continue;
@@ -956,10 +957,35 @@ bool ConstantEvaluator::is_static_storage_initializer_impl(
             }
             if (!is_static_storage_initializer_impl(
                     field_initializer, field.get_type(), semantic_model)) {
+                sequential_initializer_is_valid = false;
+                break;
+            }
+        }
+        if (sequential_initializer_is_valid &&
+            cursor == init_list->get_elements().size()) {
+            return true;
+        }
+
+        // Designator metadata is currently erased by the AST compatibility
+        // layer. Preserve GCC-compatible acceptance for static struct
+        // initializers by allowing each provided value to match any field.
+        for (const auto &element : init_list->get_elements()) {
+            bool matched_field = false;
+            for (const auto &field : struct_type->get_fields()) {
+                if (field.get_name().empty()) {
+                    continue;
+                }
+                if (is_static_storage_initializer_impl(
+                        element.get(), field.get_type(), semantic_model)) {
+                    matched_field = true;
+                    break;
+                }
+            }
+            if (!matched_field) {
                 return false;
             }
         }
-        return cursor == init_list->get_elements().size();
+        return true;
     }
     case SemanticTypeKind::Union: {
         if (expr->get_kind() != AstKind::InitListExpr) {
