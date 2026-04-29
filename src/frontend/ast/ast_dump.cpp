@@ -1,5 +1,6 @@
 #include "frontend/ast/ast_dump.hpp"
 
+#include <cstddef>
 #include <ostream>
 #include <string>
 
@@ -856,8 +857,23 @@ void AstDumper::dump_init_list_expr(const InitListExpr *node, std::ostream &os,
     write_indent(os, indent);
     os << "InitListExpr\n";
     dump_source_span(node, os, indent + 2);
-    for (const auto &element : node->get_elements()) {
-        dump_node(element.get(), os, indent + 2);
+    const auto &elements = node->get_elements();
+    for (std::size_t index = 0; index < elements.size(); ++index) {
+        const auto &designator = node->get_element_designator(index);
+        if (designator.has_value()) {
+            write_indent(os, indent + 2);
+            os << "Designator";
+            for (const auto &part : *designator) {
+                os << (part.kind == InitListExpr::Designator::Kind::Field ? " ."
+                                                                           : " [")
+                   << part.text;
+                if (part.kind == InitListExpr::Designator::Kind::Index) {
+                    os << "]";
+                }
+            }
+            os << "\n";
+        }
+        dump_node(elements[index].get(), os, indent + 2);
     }
 }
 

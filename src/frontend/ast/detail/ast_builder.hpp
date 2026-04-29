@@ -80,6 +80,8 @@ class AstBuilder {
         std::vector<const ParseTreeNode *> &expr_nodes) const;
     std::unique_ptr<InitListExpr> build_init_list_expr(
         const ParseTreeNode *node) const;
+    InitListExpr::DesignatorPath build_initializer_designator_path(
+        const ParseTreeNode *node) const;
     std::unique_ptr<TypeNode> build_cast_target_type(
         const ParseTreeNode *node) const;
     void collect_direct_init_value_nodes(

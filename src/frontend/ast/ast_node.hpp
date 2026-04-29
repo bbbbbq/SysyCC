@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -866,14 +868,30 @@ class StatementExpr : public Expr {
 
 // Represents an initializer list expression.
 class InitListExpr : public Expr {
+  public:
+    struct Designator {
+        enum class Kind { Field, Index };
+
+        Kind kind;
+        std::string text;
+    };
+
+    using DesignatorPath = std::vector<Designator>;
+
   private:
     std::vector<std::unique_ptr<Expr>> elements_;
+    std::vector<std::optional<DesignatorPath>> element_designators_;
 
   public:
     explicit InitListExpr(SourceSpan source_span = {});
 
     const std::vector<std::unique_ptr<Expr>> &get_elements() const noexcept;
+    const std::vector<std::optional<DesignatorPath>> &
+    get_element_designators() const noexcept;
+    const std::optional<DesignatorPath> &
+    get_element_designator(std::size_t index) const noexcept;
     void add_element(std::unique_ptr<Expr> element);
+    void add_element(std::unique_ptr<Expr> element, DesignatorPath designators);
 };
 
 // Placeholder expression node used until lowering is implemented.

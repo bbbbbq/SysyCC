@@ -1,5 +1,6 @@
 #include "frontend/ast/detail/ast_builder.hpp"
 
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -2745,9 +2746,68 @@ AstBuilder::build_init_list_expr(const ParseTreeNode *node) const {
     }
 
     for (const ParseTreeNode *init_value_node : init_value_nodes) {
+        if (ParseTreeMatcher::label_equals(init_value_node,
+                                           "designated_init_val")) {
+            init_list->add_element(
+                build_expr(init_value_node),
+                build_initializer_designator_path(init_value_node));
+            continue;
+        }
         init_list->add_element(build_expr(init_value_node));
     }
     return init_list;
+}
+
+InitListExpr::DesignatorPath
+AstBuilder::build_initializer_designator_path(const ParseTreeNode *node) const {
+    InitListExpr::DesignatorPath path;
+    const ParseTreeNode *designator_seq =
+        ParseTreeMatcher::find_first_child_with_label(node, "designator_seq");
+    if (designator_seq == nullptr) {
+        return path;
+    }
+
+    std::vector<const ParseTreeNode *> designators;
+    std::function<void(const ParseTreeNode *)> collect_designators =
+        [&](const ParseTreeNode *current) {
+            if (current == nullptr) {
+                return;
+            }
+            if (ParseTreeMatcher::label_equals(current, "designator")) {
+                designators.push_back(current);
+                return;
+            }
+            for (const auto &child : current->children) {
+                collect_designators(child.get());
+            }
+        };
+    collect_designators(designator_seq);
+
+    for (const ParseTreeNode *designator : designators) {
+        for (const auto &child : designator->children) {
+            if (child == nullptr) {
+                continue;
+            }
+            if (ParseTreeMatcher::label_starts_with(child.get(), "IDENTIFIER")) {
+                path.push_back({InitListExpr::Designator::Kind::Field,
+                                ParseTreeMatcher::extract_terminal_suffix(
+                                    child.get(), "IDENTIFIER")});
+                break;
+            }
+            if (ParseTreeMatcher::label_starts_with(child.get(), "TYPE_NAME")) {
+                path.push_back({InitListExpr::Designator::Kind::Field,
+                                ParseTreeMatcher::extract_terminal_suffix(
+                                    child.get(), "TYPE_NAME")});
+                break;
+            }
+            if (ParseTreeMatcher::label_equals(child.get(), "const_expr")) {
+                path.push_back({InitListExpr::Designator::Kind::Index,
+                                child->label});
+                break;
+            }
+        }
+    }
+    return path;
 }
 
 void AstBuilder::collect_direct_init_value_nodes(

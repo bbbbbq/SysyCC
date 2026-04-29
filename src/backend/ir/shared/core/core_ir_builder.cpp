@@ -4262,6 +4262,83 @@ class CoreIrBuildSession {
         return true;
     }
 
+    bool initializer_can_target_semantic_type(
+        const Expr *initializer, const SemanticType *semantic_type) const {
+        semantic_type = strip_qualifiers(semantic_type);
+        if (initializer == nullptr || semantic_type == nullptr) {
+            return initializer == nullptr;
+        }
+        if (is_zero_initializer_expr(initializer)) {
+            return true;
+        }
+
+        switch (semantic_type->get_kind()) {
+        case SemanticTypeKind::Builtin:
+        case SemanticTypeKind::Enum:
+            if (is_integer_semantic_type(semantic_type)) {
+                return get_integer_constant_value(initializer).has_value();
+            }
+            if (is_float_semantic_type(semantic_type)) {
+                return get_scalar_numeric_constant_value(initializer).has_value();
+            }
+            return false;
+        case SemanticTypeKind::Pointer: {
+            if (dynamic_cast<const StringLiteralExpr *>(initializer) != nullptr) {
+                return true;
+            }
+            if (const auto *unary_expr =
+                    dynamic_cast<const UnaryExpr *>(initializer);
+                unary_expr != nullptr && unary_expr->get_operator_text() == "&") {
+                return true;
+            }
+            const SemanticType *initializer_type =
+                strip_qualifiers(get_node_type(initializer));
+            return initializer_type != nullptr &&
+                   (initializer_type->get_kind() == SemanticTypeKind::Pointer ||
+                    initializer_type->get_kind() == SemanticTypeKind::Array ||
+                    initializer_type->get_kind() == SemanticTypeKind::Function);
+        }
+        case SemanticTypeKind::Array:
+            return initializer->get_kind() == AstKind::InitListExpr ||
+                   (dynamic_cast<const StringLiteralExpr *>(initializer) !=
+                    nullptr &&
+                    is_character_semantic_type(
+                        static_cast<const ArraySemanticType *>(semantic_type)
+                            ->get_element_type()));
+        case SemanticTypeKind::Struct:
+        case SemanticTypeKind::Union:
+            return initializer->get_kind() == AstKind::InitListExpr;
+        case SemanticTypeKind::Function:
+        case SemanticTypeKind::Qualified:
+            return false;
+        }
+        return false;
+    }
+
+    bool initializer_element_designates_field(const InitListExpr *init_list,
+                                              std::size_t element_index,
+                                              const std::string &field_name) const {
+        if (init_list == nullptr || field_name.empty()) {
+            return false;
+        }
+        const auto &designator = init_list->get_element_designator(element_index);
+        if (!designator.has_value() || designator->empty()) {
+            return false;
+        }
+        const auto &first = designator->front();
+        return first.kind == InitListExpr::Designator::Kind::Field &&
+               first.text == field_name;
+    }
+
+    bool initializer_element_has_designator(const InitListExpr *init_list,
+                                            std::size_t element_index) const {
+        if (init_list == nullptr) {
+            return false;
+        }
+        const auto &designator = init_list->get_element_designator(element_index);
+        return designator.has_value() && !designator->empty();
+    }
+
     template <typename VisitElement>
     bool walk_array_initializer_elements(const ArraySemanticType *array_semantic_type,
                                          const CoreIrArrayType *array_type,
@@ -4388,6 +4465,8 @@ class CoreIrBuildSession {
         }
 
         std::size_t initializer_index = 0;
+        std::vector<bool> consumed_initializers(
+            init_list == nullptr ? 0 : init_list->get_elements().size(), false);
         for (std::size_t field_index = 0;
              field_index < struct_semantic_type->get_fields().size(); ++field_index) {
             const auto &field = struct_semantic_type->get_fields()[field_index];
@@ -4398,11 +4477,37 @@ class CoreIrBuildSession {
 
             const Expr *field_initializer = nullptr;
             if (!field.get_name().empty()) {
-                if (init_list != nullptr &&
-                    initializer_index < init_list->get_elements().size()) {
-                    field_initializer = init_list->get_elements()[initializer_index].get();
+                if (init_list != nullptr) {
+                    for (std::size_t index = 0;
+                         index < init_list->get_elements().size(); ++index) {
+                        if (consumed_initializers[index] ||
+                            !initializer_element_designates_field(
+                                init_list, index, field.get_name())) {
+                            continue;
+                        }
+                        field_initializer = init_list->get_elements()[index].get();
+                        consumed_initializers[index] = true;
+                        break;
+                    }
                 }
-                ++initializer_index;
+
+                while (field_initializer == nullptr && init_list != nullptr &&
+                       initializer_index < init_list->get_elements().size()) {
+                    if (consumed_initializers[initializer_index] ||
+                        initializer_element_has_designator(init_list,
+                                                           initializer_index)) {
+                        ++initializer_index;
+                        continue;
+                    }
+                    const Expr *candidate =
+                        init_list->get_elements()[initializer_index].get();
+                    if (initializer_can_target_semantic_type(candidate,
+                                                             field.get_type())) {
+                        field_initializer = candidate;
+                        consumed_initializers[initializer_index] = true;
+                    }
+                    ++initializer_index;
+                }
             }
 
             const SourceSpan field_source_span =
@@ -4414,7 +4519,10 @@ class CoreIrBuildSession {
             }
         }
 
-        if (init_list != nullptr && initializer_index < init_list->get_elements().size()) {
+        if (init_list != nullptr &&
+            std::any_of(consumed_initializers.begin(),
+                        consumed_initializers.end(),
+                        [](bool consumed) { return !consumed; })) {
             add_error("core ir generation encountered too many " +
                           diagnostic_context + " elements",
                       initializer->get_source_span());

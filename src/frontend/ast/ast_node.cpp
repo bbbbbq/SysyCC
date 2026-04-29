@@ -772,11 +772,35 @@ const std::vector<std::unique_ptr<Expr>> &InitListExpr::get_elements() const
     return elements_;
 }
 
+const std::vector<std::optional<InitListExpr::DesignatorPath>> &
+InitListExpr::get_element_designators() const noexcept {
+    return element_designators_;
+}
+
+const std::optional<InitListExpr::DesignatorPath> &
+InitListExpr::get_element_designator(std::size_t index) const noexcept {
+    static const std::optional<DesignatorPath> empty_designator;
+    if (index >= element_designators_.size()) {
+        return empty_designator;
+    }
+    return element_designators_[index];
+}
+
 void InitListExpr::add_element(std::unique_ptr<Expr> element) {
+    add_element(std::move(element), {});
+}
+
+void InitListExpr::add_element(std::unique_ptr<Expr> element,
+                               DesignatorPath designators) {
     if (element == nullptr) {
         return;
     }
     elements_.push_back(std::move(element));
+    if (designators.empty()) {
+        element_designators_.push_back(std::nullopt);
+        return;
+    }
+    element_designators_.push_back(std::move(designators));
 }
 
 UnknownExpr::UnknownExpr(std::string summary, SourceSpan source_span)
