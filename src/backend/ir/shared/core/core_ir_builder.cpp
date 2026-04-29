@@ -5721,6 +5721,10 @@ class CoreIrBuildSession {
         for (std::size_t index = 0; index < entries.size(); ++index) {
             current_block_ = entries[index].block;
             for (const Stmt *entry_body : entries[index].spec.body_statements) {
+                if (current_block_ == nullptr &&
+                    (entry_body == nullptr || !stmt_contains_label(entry_body))) {
+                    continue;
+                }
                 if (!emit_stmt(entry_body)) {
                     break_blocks_.pop_back();
                     return false;

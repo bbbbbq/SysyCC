@@ -1,0 +1,25 @@
+int pick(int action) {
+    switch (action) {
+    case 1:
+        return 7;
+        putint(99);
+        return -1;
+    case 2:
+        return 9;
+    default:
+        return 11;
+    }
+}
+
+int main(void) {
+    if (pick(1) != 7) {
+        return 1;
+    }
+    if (pick(2) != 9) {
+        return 2;
+    }
+    if (pick(3) != 11) {
+        return 3;
+    }
+    return 0;
+}
