@@ -528,8 +528,52 @@ std::string MacroExpander::substitute_parameters(const std::string &replacement,
                             raw_variadic_arguments);
 
     std::string output;
+    bool in_string_literal = false;
+    bool in_char_literal = false;
+    bool escaping = false;
     std::size_t index = 0;
     while (index < pasted.size()) {
+        const char current = pasted[index];
+        if (in_string_literal) {
+            output.push_back(current);
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '"') {
+                in_string_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (in_char_literal) {
+            output.push_back(current);
+            if (escaping) {
+                escaping = false;
+            } else if (current == '\\') {
+                escaping = true;
+            } else if (current == '\'') {
+                in_char_literal = false;
+            }
+            ++index;
+            continue;
+        }
+
+        if (current == '"') {
+            in_string_literal = true;
+            output.push_back(current);
+            ++index;
+            continue;
+        }
+
+        if (current == '\'') {
+            in_char_literal = true;
+            output.push_back(current);
+            ++index;
+            continue;
+        }
+
         if (!is_identifier_start(pasted[index])) {
             output.push_back(pasted[index]);
             ++index;
