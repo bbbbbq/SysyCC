@@ -30,7 +30,7 @@ using sysycc::detail::paths_overlap;
 using sysycc::detail::replace_instruction;
 using sysycc::detail::trace_stack_slot_prefix;
 
-constexpr std::size_t kMaxUnswitchNestingDepth = 2;
+constexpr std::size_t kMaxUnswitchNestingDepth = 1;
 constexpr std::size_t kMaxConditionSliceInstructionCount = 8;
 
 PassResult fail_missing_core_ir(CompilerContext &context,
@@ -223,19 +223,20 @@ bool loop_has_external_value_use(const CoreIrLoopInfo &loop) {
     return false;
 }
 
-bool function_has_small_integer_array_stackslot(const CoreIrFunction &function) {
+bool function_has_small_integer_array_stackslot(
+    const CoreIrFunction &function) {
     for (const auto &stack_slot_ptr : function.get_stack_slots()) {
         const CoreIrStackSlot *stack_slot = stack_slot_ptr.get();
         if (stack_slot == nullptr) {
             continue;
         }
-        const auto *array_type =
-            dynamic_cast<const CoreIrArrayType *>(stack_slot->get_allocated_type());
+        const auto *array_type = dynamic_cast<const CoreIrArrayType *>(
+            stack_slot->get_allocated_type());
         if (array_type == nullptr || array_type->get_element_count() > 256) {
             continue;
         }
-        if (dynamic_cast<const CoreIrIntegerType *>(array_type->get_element_type()) !=
-            nullptr) {
+        if (dynamic_cast<const CoreIrIntegerType *>(
+                array_type->get_element_type()) != nullptr) {
             return true;
         }
     }
@@ -607,7 +608,8 @@ struct LoopUnswitchCandidate {
 };
 
 std::optional<LoopUnswitchCandidate> find_loop_body_unswitch_candidate(
-    CoreIrFunction &function, const CoreIrLoopInfo &loop,
+    CoreIrFunction &function, const CoreIrCfgAnalysisResult &cfg,
+    const CoreIrLoopInfo &loop,
     const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
     if (loop.get_preheader() == nullptr || exit_blocks_have_phi(loop) ||
         loop_has_external_value_use(loop) || loop.get_blocks().size() > 256 ||
@@ -634,6 +636,9 @@ std::optional<LoopUnswitchCandidate> find_loop_body_unswitch_candidate(
              block_has_phi(*branch->get_true_block())) ||
             (loop_contains_block(loop, branch->get_false_block()) &&
              block_has_phi(*branch->get_false_block()))) {
+            continue;
+        }
+        if (cfg.get_predecessors(block).size() != 1) {
             continue;
         }
 
@@ -839,10 +844,11 @@ clone_loop_variant(CoreIrFunction &function, const CoreIrLoopInfo &loop,
 }
 
 bool unswitch_loop_body_condition(
-    CoreIrFunction &function, const CoreIrLoopInfo &loop,
+    CoreIrFunction &function, const CoreIrCfgAnalysisResult &cfg,
+    const CoreIrLoopInfo &loop,
     const CoreIrScalarEvolutionLiteAnalysisResult &scev) {
     const std::optional<LoopUnswitchCandidate> candidate =
-        find_loop_body_unswitch_candidate(function, loop, scev);
+        find_loop_body_unswitch_candidate(function, cfg, loop, scev);
     if (!candidate.has_value() || candidate->condition_block == nullptr ||
         candidate->condition_block->get_instructions().empty()) {
         return false;
@@ -1034,7 +1040,7 @@ PassResult CoreIrSimpleLoopUnswitchPass::Run(CompilerContext &context) {
             bool loop_changed =
                 unswitch_loop_header(*function, *loop_ptr, scev);
             loop_changed =
-                unswitch_loop_body_condition(*function, *loop_ptr, scev) ||
+                unswitch_loop_body_condition(*function, cfg, *loop_ptr, scev) ||
                 loop_changed;
             function_changed = loop_changed || function_changed;
         }
