@@ -4,6 +4,7 @@
 
 ```text
 doc/
+├── compiler-learning-guide.md
 ├── README.md
 └── modules/
     ├── aarch64-llvm-backend-plan.md
@@ -113,6 +114,7 @@ repository transitions toward the public driver name.
 
 ## Module Map
 
+- [compiler-learning-guide.md](/Users/caojunze424/code/SysyCC/doc/compiler-learning-guide.md): learning roadmap for students starting from zero and using SysyCC as a compiler-principles reference project
 - [attribute.md](/Users/caojunze424/code/SysyCC/doc/modules/attribute.md): GNU-style attribute parsing and structured attribute records
 - [aarch64-llvm-backend-plan.md](/Users/caojunze424/code/SysyCC/doc/modules/aarch64-llvm-backend-plan.md): staged plan for the decoupled AArch64 LLVM-IR-first codegen library and object/link closure work
 - [roadmap.md](/Users/caojunze424/code/SysyCC/roadmap.md): current milestone roadmap for performance, backend completion, and correctness validation
