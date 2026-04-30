@@ -4009,6 +4009,85 @@ class CoreIrBuildSession {
             return call;
         }
 
+        if (const auto *callee_identifier =
+                dynamic_cast<const IdentifierExpr *>(expr.get_callee());
+            callee_identifier != nullptr &&
+            callee_identifier->get_name() == "__builtin_prefetch") {
+            if (expr.get_arguments().empty() || expr.get_arguments().size() > 3) {
+                add_error("core ir generation found malformed prefetch builtin",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            const FunctionSemanticType *callee_semantic_type =
+                get_function_semantic_type(get_node_type(expr.get_callee()));
+            if (callee_semantic_type == nullptr ||
+                callee_semantic_type->get_parameter_types().empty()) {
+                add_error(
+                    "core ir generation could not resolve prefetch builtin type",
+                    expr.get_source_span());
+                return nullptr;
+            }
+            CoreIrValue *address_value = build_expr(expr.get_arguments()[0].get());
+            if (address_value == nullptr) {
+                return nullptr;
+            }
+            address_value = build_converted_value(
+                address_value, get_node_type(expr.get_arguments()[0].get()),
+                callee_semantic_type->get_parameter_types().front(),
+                expr.get_arguments()[0]->get_source_span());
+            if (address_value == nullptr) {
+                return nullptr;
+            }
+
+            const auto *i32_type =
+                core_ir_context_->create_type<CoreIrIntegerType>(32, true);
+            auto make_i32_constant = [&](std::int64_t value) {
+                auto *constant =
+                    core_ir_context_->create_constant<CoreIrConstantInt>(
+                        i32_type, value);
+                constant->set_source_span(expr.get_source_span());
+                return constant;
+            };
+            std::vector<CoreIrValue *> arguments;
+            arguments.reserve(4);
+            arguments.push_back(address_value);
+            const SemanticType *int_semantic_type =
+                get_static_builtin_semantic_type("int");
+            for (std::size_t index = 1; index < 3; ++index) {
+                if (index < expr.get_arguments().size()) {
+                    CoreIrValue *argument_value =
+                        build_expr(expr.get_arguments()[index].get());
+                    if (argument_value == nullptr) {
+                        return nullptr;
+                    }
+                    argument_value = build_converted_value(
+                        argument_value,
+                        get_node_type(expr.get_arguments()[index].get()),
+                        int_semantic_type,
+                        expr.get_arguments()[index]->get_source_span());
+                    if (argument_value == nullptr) {
+                        return nullptr;
+                    }
+                    arguments.push_back(argument_value);
+                } else {
+                    arguments.push_back(make_i32_constant(index == 1 ? 0 : 3));
+                }
+            }
+            arguments.push_back(make_i32_constant(1));
+
+            auto *call = current_block_->create_instruction<CoreIrCallInst>(
+                void_type_, std::string(), "llvm.prefetch.p0",
+                core_ir_context_->create_type<CoreIrFunctionType>(
+                    void_type_,
+                    std::vector<const CoreIrType *>{address_value->get_type(),
+                                                    i32_type, i32_type,
+                                                    i32_type},
+                    false),
+                std::move(arguments));
+            call->set_source_span(expr.get_source_span());
+            return call;
+        }
+
         const FunctionSemanticType *callee_semantic_type =
             get_function_semantic_type(get_node_type(expr.get_callee()));
         if (callee_semantic_type == nullptr) {

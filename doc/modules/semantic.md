@@ -112,6 +112,9 @@ The current implementation has a first batch of real semantic rules:
   `__builtin_clzl`, `__builtin_clzll`, `__builtin_ctz`, `__builtin_ctzl`,
   and `__builtin_ctzll` are predeclared and lowered through LLVM intrinsics
   for real-project bitmap code paths
+- `__builtin_prefetch` is predeclared and lowered to LLVM `llvm.prefetch.p0`,
+  preserving real-project cache-prefetch hints without introducing an external
+  runtime symbol
 - `__builtin_alloca` is predeclared as a stack-allocation builtin and lowered
   to LLVM `alloca`, covering Git-style dynamic temporary buffers without
   requiring a host fallback or external symbol
