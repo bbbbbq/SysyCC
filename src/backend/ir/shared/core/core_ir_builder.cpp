@@ -954,11 +954,16 @@ class CoreIrBuildSession {
 
             const auto *union_semantic_type =
                 static_cast<const UnionSemanticType *>(unqualified);
+            if (union_semantic_type->get_fields().empty()) {
+                union_type->set_element_types({});
+                return union_type;
+            }
+
             const detail::AggregateLayoutInfo layout =
                 detail::compute_aggregate_layout(unqualified);
             const SemanticType *carrier_semantic_type =
                 get_union_carrier_semantic_type(union_semantic_type);
-            if (carrier_semantic_type == nullptr || layout.size == 0) {
+            if (carrier_semantic_type == nullptr) {
                 add_error("core ir generation could not resolve union carrier type");
                 return nullptr;
             }
