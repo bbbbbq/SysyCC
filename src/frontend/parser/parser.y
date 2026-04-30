@@ -1717,6 +1717,8 @@ cast_target_type
       { $$ = sysycc::make_nonterminal_node("cast_target_type", {$1, $2, $3}); }
     | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer
       { $$ = sysycc::make_nonterminal_node("cast_target_type", {$1, $2, $3, $4}); }
+    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt LPAREN pointer RPAREN abstract_array_suffix_list
+      { $$ = sysycc::make_nonterminal_node("cast_target_type", {$1, $2, $3, $5, $7}); }
     | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt LPAREN pointer RPAREN LPAREN function_parameter_list_opt RPAREN
       {
           void *direct_declarator = sysycc::make_nonterminal_node(

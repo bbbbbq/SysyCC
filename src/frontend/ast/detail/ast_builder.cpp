@@ -2901,6 +2901,21 @@ AstBuilder::build_cast_target_type(const ParseTreeNode *node) const {
         pointer = ParseTreeMatcher::find_first_child_with_label(sizeof_suffix,
                                                                 "pointer");
     }
+    if (pointer != nullptr) {
+        if (const ParseTreeNode *array_suffix_list =
+                ParseTreeMatcher::find_first_child_with_label(
+                    node, "abstract_array_suffix_list");
+            array_suffix_list != nullptr) {
+            std::unique_ptr<TypeNode> element_type = build_declared_type(
+                type_specifier, nullptr, pointee_qualifiers.is_const,
+                pointee_qualifiers.is_volatile);
+            auto array_type = std::make_unique<ArrayTypeNode>(
+                std::move(element_type),
+                collect_declarator_dimensions(array_suffix_list),
+                get_node_source_span(node));
+            return build_pointer_type(std::move(array_type), pointer);
+        }
+    }
     std::unique_ptr<TypeNode> declared_type = build_declared_type(
         type_specifier, pointer, pointee_qualifiers.is_const,
         pointee_qualifiers.is_volatile);
