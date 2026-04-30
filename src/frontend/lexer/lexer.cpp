@@ -57,6 +57,8 @@ TokenKind ToTokenKind(int token) {
         return TokenKind::KwNoreturn;
     case RESTRICT:
         return TokenKind::KwRestrict;
+    case ATOMIC:
+        return TokenKind::KwAtomic;
     case NULLABILITY:
         return TokenKind::KwNullability;
     case LONG:

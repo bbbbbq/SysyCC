@@ -121,6 +121,16 @@ void initialize_predefined_macros(
         {"__type", "__member"});
     define_object_like_macro(macro_table, "__ATOMIC_RELAXED__", "0");
     define_object_like_macro(macro_table, "__ATOMIC_RELAXED", "0");
+    define_object_like_macro(macro_table, "__ATOMIC_CONSUME__", "1");
+    define_object_like_macro(macro_table, "__ATOMIC_CONSUME", "1");
+    define_object_like_macro(macro_table, "__ATOMIC_ACQUIRE__", "2");
+    define_object_like_macro(macro_table, "__ATOMIC_ACQUIRE", "2");
+    define_object_like_macro(macro_table, "__ATOMIC_RELEASE__", "3");
+    define_object_like_macro(macro_table, "__ATOMIC_RELEASE", "3");
+    define_object_like_macro(macro_table, "__ATOMIC_ACQ_REL__", "4");
+    define_object_like_macro(macro_table, "__ATOMIC_ACQ_REL", "4");
+    define_object_like_macro(macro_table, "__ATOMIC_SEQ_CST__", "5");
+    define_object_like_macro(macro_table, "__ATOMIC_SEQ_CST", "5");
     define_function_like_macro(macro_table, "__sync_synchronize", "", {});
     define_function_like_macro(macro_table, "__atomic_load_n", "(*(__ptr))",
                                {"__ptr", "__memorder"});

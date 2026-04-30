@@ -72,6 +72,7 @@ class Token {
         case TokenKind::KwInline:
         case TokenKind::KwNoreturn:
         case TokenKind::KwRestrict:
+        case TokenKind::KwAtomic:
         case TokenKind::KwNullability:
         case TokenKind::KwLong:
         case TokenKind::KwSigned:
@@ -193,6 +194,8 @@ class Token {
             return "KwNoreturn";
         case TokenKind::KwRestrict:
             return "KwRestrict";
+        case TokenKind::KwAtomic:
+            return "KwAtomic";
         case TokenKind::KwNullability:
             return "KwNullability";
         case TokenKind::KwLong:

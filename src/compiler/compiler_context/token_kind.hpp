@@ -22,6 +22,7 @@ enum class TokenKind : uint8_t {
     KwInline,
     KwNoreturn,
     KwRestrict,
+    KwAtomic,
     KwNullability,
     KwLong,
     KwSigned,
