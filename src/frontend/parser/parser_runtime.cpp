@@ -190,4 +190,50 @@ void hide_typedef_names_from_declarator_list(const ParseTreeNode *node) {
     }
 }
 
+bool hide_first_typedef_declarator_identifier(const ParseTreeNode *node) {
+    if (node == nullptr) {
+        return false;
+    }
+    if (node->label == "declarator_identifier") {
+        for (const auto &child : node->children) {
+            std::string name;
+            if (child->label.rfind("IDENTIFIER ", 0) == 0) {
+                name = child->label.substr(std::string("IDENTIFIER ").size());
+            } else if (child->label.rfind("TYPE_NAME ", 0) == 0) {
+                name = child->label.substr(std::string("TYPE_NAME ").size());
+            }
+            if (!name.empty() &&
+                g_typedef_names.find(name) != g_typedef_names.end()) {
+                ++g_hidden_typedef_name_counts[name];
+                if (!g_typedef_shadow_scope_stack.empty()) {
+                    g_typedef_shadow_scope_stack.back().push_back(name);
+                }
+                return true;
+            }
+            if (!name.empty()) {
+                return true;
+            }
+        }
+    }
+    for (const auto &child : node->children) {
+        if (hide_first_typedef_declarator_identifier(child.get())) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void hide_function_parameter_typedef_names(const ParseTreeNode *node) {
+    if (node == nullptr) {
+        return;
+    }
+    if (node->label == "parameter_decl") {
+        (void)hide_first_typedef_declarator_identifier(node);
+        return;
+    }
+    for (const auto &child : node->children) {
+        hide_function_parameter_typedef_names(child.get());
+    }
+}
+
 } // namespace sysycc

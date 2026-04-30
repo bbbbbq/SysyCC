@@ -1004,61 +1004,110 @@ declarator_identifier
     ;
 
 func_def
-    : storage_specifier_opt type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator block
+    : storage_specifier_opt type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator
       {
+          sysycc::push_typedef_shadow_scope();
+          sysycc::hide_function_parameter_typedef_names(
+              static_cast<const sysycc::ParseTreeNode *>($5));
+      }
+      block
+      {
+          sysycc::pop_typedef_shadow_scope();
           void *attribute_opt =
               sysycc::make_nonterminal_node("attribute_specifier_seq_opt", {});
           $$ = sysycc::make_nonterminal_node("func_def",
-                                             {$1, attribute_opt, $2, $3, $4, $5, $6});
+                                             {$1, attribute_opt, $2, $3, $4, $5, $7});
       }
-    | attribute_specifier_seq storage_specifier_opt type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator block
+    | attribute_specifier_seq storage_specifier_opt type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator
       {
+          sysycc::push_typedef_shadow_scope();
+          sysycc::hide_function_parameter_typedef_names(
+              static_cast<const sysycc::ParseTreeNode *>($6));
+      }
+      block
+      {
+          sysycc::pop_typedef_shadow_scope();
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$1});
           $$ = sysycc::make_nonterminal_node("func_def",
-                                             {$2, attribute_opt, $3, $4, $5, $6, $7});
+                                             {$2, attribute_opt, $3, $4, $5, $6, $8});
       }
-    | attribute_specifier_seq storage_specifier_opt type_qualifier_seq_opt type_specifier attribute_specifier_seq type_qualifier_seq_opt function_declarator block
+    | attribute_specifier_seq storage_specifier_opt type_qualifier_seq_opt type_specifier attribute_specifier_seq type_qualifier_seq_opt function_declarator
       {
+          sysycc::push_typedef_shadow_scope();
+          sysycc::hide_function_parameter_typedef_names(
+              static_cast<const sysycc::ParseTreeNode *>($7));
+      }
+      block
+      {
+          sysycc::pop_typedef_shadow_scope();
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$1, $5});
           $$ = sysycc::make_nonterminal_node("func_def",
-                                             {$2, attribute_opt, $3, $4, $6, $7, $8});
+                                             {$2, attribute_opt, $3, $4, $6, $7, $9});
       }
-    | attribute_specifier_seq storage_specifier attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator block
+    | attribute_specifier_seq storage_specifier attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator
       {
+          sysycc::push_typedef_shadow_scope();
+          sysycc::hide_function_parameter_typedef_names(
+              static_cast<const sysycc::ParseTreeNode *>($7));
+      }
+      block
+      {
+          sysycc::pop_typedef_shadow_scope();
           void *storage_opt =
               sysycc::make_nonterminal_node("storage_specifier_opt", {$2});
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$1, $3});
           $$ = sysycc::make_nonterminal_node("func_def",
-                                             {storage_opt, attribute_opt, $4, $5, $6, $7, $8});
+                                             {storage_opt, attribute_opt, $4, $5, $6, $7, $9});
       }
-    | storage_specifier_opt type_qualifier_seq_opt type_specifier attribute_specifier_seq type_qualifier_seq_opt function_declarator block
+    | storage_specifier_opt type_qualifier_seq_opt type_specifier attribute_specifier_seq type_qualifier_seq_opt function_declarator
       {
+          sysycc::push_typedef_shadow_scope();
+          sysycc::hide_function_parameter_typedef_names(
+              static_cast<const sysycc::ParseTreeNode *>($6));
+      }
+      block
+      {
+          sysycc::pop_typedef_shadow_scope();
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$4});
           $$ = sysycc::make_nonterminal_node("func_def",
-                                             {$1, attribute_opt, $2, $3, $5, $6, $7});
+                                             {$1, attribute_opt, $2, $3, $5, $6, $8});
       }
-    | storage_specifier attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator block
+    | storage_specifier attribute_specifier_seq type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator
       {
+          sysycc::push_typedef_shadow_scope();
+          sysycc::hide_function_parameter_typedef_names(
+              static_cast<const sysycc::ParseTreeNode *>($6));
+      }
+      block
+      {
+          sysycc::pop_typedef_shadow_scope();
           void *storage_opt =
               sysycc::make_nonterminal_node("storage_specifier_opt", {$1});
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$2});
           $$ = sysycc::make_nonterminal_node("func_def",
-                                             {storage_opt, attribute_opt, $3, $4, $5, $6, $7});
+                                             {storage_opt, attribute_opt, $3, $4, $5, $6, $8});
       }
-    | storage_specifier attribute_specifier_seq storage_specifier type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator block
+    | storage_specifier attribute_specifier_seq storage_specifier type_qualifier_seq_opt type_specifier type_qualifier_seq_opt function_declarator
       {
+          sysycc::push_typedef_shadow_scope();
+          sysycc::hide_function_parameter_typedef_names(
+              static_cast<const sysycc::ParseTreeNode *>($7));
+      }
+      block
+      {
+          sysycc::pop_typedef_shadow_scope();
           void *storage_opt =
               sysycc::make_nonterminal_node("storage_specifier_opt", {$1, $3});
           void *attribute_opt = sysycc::make_nonterminal_node(
               "attribute_specifier_seq_opt", {$2});
           $$ = sysycc::make_nonterminal_node(
               "func_def",
-              {storage_opt, attribute_opt, $4, $5, $6, $7, $8});
+              {storage_opt, attribute_opt, $4, $5, $6, $7, $9});
       }
     ;
 

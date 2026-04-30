@@ -54,6 +54,7 @@ void register_typedef_names_from_declarator_list(const ParseTreeNode *node);
 void push_typedef_shadow_scope();
 void pop_typedef_shadow_scope();
 void hide_typedef_names_from_declarator_list(const ParseTreeNode *node);
+void hide_function_parameter_typedef_names(const ParseTreeNode *node);
 bool is_typedef_name_registered(const std::string &name);
 
 } // namespace sysycc
