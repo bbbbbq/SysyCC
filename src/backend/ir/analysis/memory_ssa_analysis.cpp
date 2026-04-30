@@ -1,5 +1,7 @@
 #include "backend/ir/analysis/memory_ssa_analysis.hpp"
 
+#include <cstdint>
+#include <string>
 #include <unordered_set>
 
 #include "backend/ir/analysis/cfg_analysis.hpp"
@@ -63,6 +65,53 @@ void build_dominator_children(
             children[idom].push_back(block.get());
         }
     }
+}
+
+void append_pointer_key(std::string &key, const void *pointer) {
+    key += std::to_string(reinterpret_cast<std::uintptr_t>(pointer));
+    key.push_back(';');
+}
+
+void append_memory_location_key(std::string &key,
+                                const CoreIrMemoryLocation *location) {
+    if (location == nullptr) {
+        key += "none;";
+        return;
+    }
+
+    key += std::to_string(static_cast<int>(location->kind));
+    key.push_back(':');
+    switch (location->kind) {
+    case CoreIrMemoryLocationKind::StackSlot:
+        append_pointer_key(key, location->stack_slot);
+        break;
+    case CoreIrMemoryLocationKind::Global:
+        append_pointer_key(key, location->global);
+        break;
+    case CoreIrMemoryLocationKind::ArgumentDerived:
+        append_pointer_key(key, location->parameter);
+        key += std::to_string(location->parameter_index);
+        key.push_back(';');
+        break;
+    case CoreIrMemoryLocationKind::Unknown:
+        key += "unknown;";
+        break;
+    }
+    key += location->exact_access_path ? "exact:" : "inexact:";
+    for (std::uint64_t index : location->access_path) {
+        key += std::to_string(index);
+        key.push_back('/');
+    }
+    key.push_back(';');
+}
+
+std::string
+build_clobbering_access_cache_key(const CoreIrMemoryAccess *cursor,
+                                  const CoreIrMemoryLocation *location) {
+    std::string key;
+    append_pointer_key(key, cursor);
+    append_memory_location_key(key, location);
+    return key;
 }
 
 struct RenameState {
@@ -150,14 +199,34 @@ void rename_memory_accesses(const CoreIrBasicBlock &block,
 CoreIrMemoryAccess *resolve_clobbering_access(
     CoreIrMemoryAccess *cursor, const CoreIrMemoryLocation *query_location,
     const CoreIrAliasAnalysisResult &alias_analysis,
-    std::unordered_set<const CoreIrMemoryPhiAccess *> &visiting) {
+    std::unordered_set<const CoreIrMemoryPhiAccess *> &visiting,
+    std::unordered_map<std::string, CoreIrMemoryAccess *> &cache) {
+    CoreIrMemoryAccess *start = cursor;
+    const std::string cache_key =
+        build_clobbering_access_cache_key(start, query_location);
+    auto cache_it = cache.find(cache_key);
+    if (cache_it != cache.end()) {
+        return cache_it->second;
+    }
+    auto finish = [&](CoreIrMemoryAccess *result) {
+        cache.emplace(cache_key, result);
+        return result;
+    };
+
     while (cursor != nullptr) {
-        if (dynamic_cast<CoreIrMemoryLiveOnEntryAccess *>(cursor) != nullptr) {
-            return cursor;
+        switch (cursor->get_kind()) {
+        case CoreIrMemoryAccessKind::LiveOnEntry:
+            return finish(cursor);
+        case CoreIrMemoryAccessKind::Use:
+            return finish(cursor);
+        case CoreIrMemoryAccessKind::Phi:
+            break;
+        case CoreIrMemoryAccessKind::Def:
+            break;
         }
 
-        if (auto *phi = dynamic_cast<CoreIrMemoryPhiAccess *>(cursor);
-            phi != nullptr) {
+        if (cursor->get_kind() == CoreIrMemoryAccessKind::Phi) {
+            auto *phi = static_cast<CoreIrMemoryPhiAccess *>(cursor);
             if (query_location == nullptr || !visiting.insert(phi).second) {
                 return cursor;
             }
@@ -166,14 +235,14 @@ CoreIrMemoryAccess *resolve_clobbering_access(
             for (const auto &[_, incoming] : phi->get_incomings()) {
                 if (incoming == nullptr) {
                     visiting.erase(phi);
-                    return cursor;
+                    return finish(cursor);
                 }
                 CoreIrMemoryAccess *incoming_resolved =
                     resolve_clobbering_access(incoming, query_location,
-                                              alias_analysis, visiting);
+                                              alias_analysis, visiting, cache);
                 if (incoming_resolved == nullptr) {
                     visiting.erase(phi);
-                    return cursor;
+                    return finish(cursor);
                 }
                 if (resolved == nullptr) {
                     resolved = incoming_resolved;
@@ -181,17 +250,17 @@ CoreIrMemoryAccess *resolve_clobbering_access(
                 }
                 if (resolved != incoming_resolved) {
                     visiting.erase(phi);
-                    return cursor;
+                    return finish(cursor);
                 }
             }
 
             visiting.erase(phi);
-            return resolved == nullptr ? cursor : resolved;
+            return finish(resolved == nullptr ? cursor : resolved);
         }
 
-        auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(cursor);
-        if (def == nullptr || query_location == nullptr) {
-            return cursor;
+        auto *def = static_cast<CoreIrMemoryDefAccess *>(cursor);
+        if (query_location == nullptr) {
+            return finish(cursor);
         }
 
         const CoreIrMemoryLocation *def_location =
@@ -199,12 +268,12 @@ CoreIrMemoryAccess *resolve_clobbering_access(
         if (def_location == nullptr ||
             alias_core_ir_memory_locations(*query_location, *def_location) !=
                 CoreIrAliasKind::NoAlias) {
-            return cursor;
+            return finish(cursor);
         }
         cursor = def->get_defining_access();
     }
 
-    return nullptr;
+    return finish(nullptr);
 }
 
 } // namespace
@@ -238,7 +307,7 @@ CoreIrMemorySSAAnalysisResult::get_phis_for_block(
 }
 
 CoreIrMemoryAccess *CoreIrMemorySSAAnalysisResult::get_clobbering_access(
-    const CoreIrInstruction *instruction) const noexcept {
+    const CoreIrInstruction *instruction) const {
     CoreIrMemoryAccess *access = get_access_for_instruction(instruction);
     if (access == nullptr) {
         return nullptr;
@@ -247,16 +316,23 @@ CoreIrMemoryAccess *CoreIrMemorySSAAnalysisResult::get_clobbering_access(
     const CoreIrMemoryLocation *query_location =
         alias_analysis_.get_location_for_instruction(instruction);
     CoreIrMemoryAccess *cursor = nullptr;
-    if (auto *use = dynamic_cast<CoreIrMemoryUseAccess *>(access);
-        use != nullptr) {
-        cursor = use->get_defining_access();
-    } else if (auto *def = dynamic_cast<CoreIrMemoryDefAccess *>(access);
-               def != nullptr) {
-        cursor = def->get_defining_access();
+    switch (access->get_kind()) {
+    case CoreIrMemoryAccessKind::Use:
+        cursor =
+            static_cast<CoreIrMemoryUseAccess *>(access)->get_defining_access();
+        break;
+    case CoreIrMemoryAccessKind::Def:
+        cursor =
+            static_cast<CoreIrMemoryDefAccess *>(access)->get_defining_access();
+        break;
+    case CoreIrMemoryAccessKind::LiveOnEntry:
+    case CoreIrMemoryAccessKind::Phi:
+        cursor = access;
+        break;
     }
     std::unordered_set<const CoreIrMemoryPhiAccess *> visiting;
     return resolve_clobbering_access(cursor, query_location, alias_analysis_,
-                                     visiting);
+                                     visiting, clobbering_access_cache_);
 }
 
 CoreIrMemorySSAAnalysisResult CoreIrMemorySSAAnalysis::Run(

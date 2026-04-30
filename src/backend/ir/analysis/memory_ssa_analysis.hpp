@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -86,15 +87,18 @@ class CoreIrMemoryDefAccess final : public CoreIrMemoryAccess {
 class CoreIrMemoryPhiAccess final : public CoreIrMemoryAccess {
   private:
     const CoreIrBasicBlock *block_ = nullptr;
-    std::vector<std::pair<const CoreIrBasicBlock *, CoreIrMemoryAccess *>> incomings_;
+    std::vector<std::pair<const CoreIrBasicBlock *, CoreIrMemoryAccess *>>
+        incomings_;
 
   public:
-    CoreIrMemoryPhiAccess(std::size_t id, const CoreIrBasicBlock *block) noexcept
+    CoreIrMemoryPhiAccess(std::size_t id,
+                          const CoreIrBasicBlock *block) noexcept
         : CoreIrMemoryAccess(CoreIrMemoryAccessKind::Phi, id), block_(block) {}
 
     const CoreIrBasicBlock *get_block() const noexcept { return block_; }
 
-    const std::vector<std::pair<const CoreIrBasicBlock *, CoreIrMemoryAccess *>> &
+    const std::vector<
+        std::pair<const CoreIrBasicBlock *, CoreIrMemoryAccess *>> &
     get_incomings() const noexcept {
         return incomings_;
     }
@@ -113,13 +117,17 @@ class CoreIrMemorySSAAnalysisResult {
     std::vector<std::unique_ptr<CoreIrMemoryAccess>> accesses_;
     std::unordered_map<const CoreIrInstruction *, CoreIrMemoryAccess *>
         instruction_accesses_;
-    std::unordered_map<const CoreIrBasicBlock *, std::vector<CoreIrMemoryPhiAccess *>>
+    std::unordered_map<const CoreIrBasicBlock *,
+                       std::vector<CoreIrMemoryPhiAccess *>>
         block_phis_;
+    mutable std::unordered_map<std::string, CoreIrMemoryAccess *>
+        clobbering_access_cache_;
 
   public:
     CoreIrMemorySSAAnalysisResult() = default;
     CoreIrMemorySSAAnalysisResult(
-        const CoreIrFunction *function, CoreIrAliasAnalysisResult alias_analysis,
+        const CoreIrFunction *function,
+        CoreIrAliasAnalysisResult alias_analysis,
         std::unique_ptr<CoreIrMemoryLiveOnEntryAccess> live_on_entry,
         std::vector<std::unique_ptr<CoreIrMemoryAccess>> accesses,
         std::unordered_map<const CoreIrInstruction *, CoreIrMemoryAccess *>
@@ -144,16 +152,17 @@ class CoreIrMemorySSAAnalysisResult {
     const std::vector<CoreIrMemoryPhiAccess *> &
     get_phis_for_block(const CoreIrBasicBlock *block) const;
 
-    CoreIrMemoryAccess *get_clobbering_access(
-        const CoreIrInstruction *instruction) const noexcept;
+    CoreIrMemoryAccess *
+    get_clobbering_access(const CoreIrInstruction *instruction) const;
 };
 
 class CoreIrMemorySSAAnalysis {
   public:
     using ResultType = CoreIrMemorySSAAnalysisResult;
 
-    CoreIrMemorySSAAnalysisResult Run(
-        const CoreIrFunction &function, const CoreIrCfgAnalysisResult &cfg_analysis,
+    CoreIrMemorySSAAnalysisResult
+    Run(const CoreIrFunction &function,
+        const CoreIrCfgAnalysisResult &cfg_analysis,
         const CoreIrDominatorTreeAnalysisResult &dominator_tree,
         const CoreIrDominanceFrontierAnalysisResult &dominance_frontier,
         const CoreIrFunctionEffectSummaryAnalysisResult &effect_summary,

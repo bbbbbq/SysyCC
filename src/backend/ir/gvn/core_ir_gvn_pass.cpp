@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "backend/ir/analysis/alias_analysis.hpp"
@@ -28,7 +29,6 @@ using sysycc::detail::append_type_key;
 using sysycc::detail::append_value_key;
 using sysycc::detail::are_equivalent_types;
 using sysycc::detail::collect_structural_gep_chain;
-using sysycc::detail::erase_instruction;
 using sysycc::detail::get_pointer_pointee_type;
 using sysycc::detail::get_structural_gep_source_pointee_type;
 using sysycc::detail::unwrap_trivial_zero_index_geps;
@@ -103,13 +103,15 @@ void append_structural_root_key(std::string &key, const CoreIrValue *root) {
     append_value_key(key, root);
 }
 
-void append_structural_address_key(std::string &key, const CoreIrValue *address) {
+void append_structural_address_key(std::string &key,
+                                   const CoreIrValue *address) {
     if (address == nullptr) {
         key += "null;";
         return;
     }
 
-    if (const auto *gep = dynamic_cast<const CoreIrGetElementPtrInst *>(address);
+    if (const auto *gep =
+            dynamic_cast<const CoreIrGetElementPtrInst *>(address);
         gep != nullptr) {
         CoreIrValue *root_base = nullptr;
         std::vector<CoreIrValue *> indices;
@@ -123,7 +125,8 @@ void append_structural_address_key(std::string &key, const CoreIrValue *address)
             }
             return;
         }
-        address = unwrap_trivial_zero_index_geps(const_cast<CoreIrValue *>(address));
+        address =
+            unwrap_trivial_zero_index_geps(const_cast<CoreIrValue *>(address));
     }
 
     key += "addr:";
@@ -265,9 +268,12 @@ bool is_gvn_candidate(const CoreIrInstruction &instruction) {
            dynamic_cast<const CoreIrUnaryInst *>(&instruction) != nullptr ||
            dynamic_cast<const CoreIrCompareInst *>(&instruction) != nullptr ||
            dynamic_cast<const CoreIrCastInst *>(&instruction) != nullptr ||
-           dynamic_cast<const CoreIrAddressOfGlobalInst *>(&instruction) != nullptr ||
-           dynamic_cast<const CoreIrAddressOfStackSlotInst *>(&instruction) != nullptr ||
-           dynamic_cast<const CoreIrAddressOfFunctionInst *>(&instruction) != nullptr ||
+           dynamic_cast<const CoreIrAddressOfGlobalInst *>(&instruction) !=
+               nullptr ||
+           dynamic_cast<const CoreIrAddressOfStackSlotInst *>(&instruction) !=
+               nullptr ||
+           dynamic_cast<const CoreIrAddressOfFunctionInst *>(&instruction) !=
+               nullptr ||
            dynamic_cast<const CoreIrGetElementPtrInst *>(&instruction) !=
                nullptr;
 }
@@ -365,20 +371,13 @@ struct AvailableValueChange {
     bool had_old_value = false;
 };
 
-bool has_recorded_change(const std::vector<AvailableValueChange> &changes,
-                         const std::string &key) {
-    return std::any_of(changes.begin(), changes.end(),
-                       [&key](const AvailableValueChange &change) {
-                           return change.key == key;
-                       });
-}
-
 void set_available_value(
     std::unordered_map<std::string, CoreIrValue *> &available_values,
-    std::vector<AvailableValueChange> &changes, std::string key,
+    std::vector<AvailableValueChange> &changes,
+    std::unordered_set<std::string> &recorded_change_keys, std::string key,
     CoreIrValue *value) {
     auto it = available_values.find(key);
-    if (!has_recorded_change(changes, key)) {
+    if (recorded_change_keys.insert(key).second) {
         changes.push_back(AvailableValueChange{
             key, it == available_values.end() ? nullptr : it->second,
             it != available_values.end()});
@@ -411,6 +410,7 @@ bool run_gvn_block(
     std::unordered_map<std::string, CoreIrValue *> &available_values) {
     bool changed = false;
     std::vector<AvailableValueChange> scoped_changes;
+    std::unordered_set<std::string> scoped_change_keys;
     auto &instructions = block.get_instructions();
     std::size_t index = 0;
     while (index < instructions.size()) {
@@ -433,17 +433,21 @@ bool run_gvn_block(
                 *load, alias_analysis, memory_ssa, available_values, load_key);
             if (replacement != nullptr) {
                 load->replace_all_uses_with(replacement);
-                erase_instruction(block, load);
+                load->detach_operands();
+                instructions[index].reset();
                 changed = true;
                 if (load_key.has_value()) {
                     set_available_value(available_values, scoped_changes,
+                                        scoped_change_keys,
                                         std::move(*load_key), replacement);
                 }
+                ++index;
                 continue;
             }
             if (load_key.has_value()) {
                 set_available_value(available_values, scoped_changes,
-                                    std::move(*load_key), load);
+                                    scoped_change_keys, std::move(*load_key),
+                                    load);
             }
             ++index;
             continue;
@@ -458,13 +462,21 @@ bool run_gvn_block(
         auto it = available_values.find(key);
         if (it != available_values.end()) {
             instruction->replace_all_uses_with(it->second);
-            erase_instruction(block, instruction);
+            instruction->detach_operands();
+            instructions[index].reset();
             changed = true;
+            ++index;
             continue;
         }
-        set_available_value(available_values, scoped_changes, key,
-                            instruction);
+        set_available_value(available_values, scoped_changes,
+                            scoped_change_keys, key, instruction);
         ++index;
+    }
+
+    if (changed) {
+        instructions.erase(
+            std::remove(instructions.begin(), instructions.end(), nullptr),
+            instructions.end());
     }
 
     auto child_it = children.find(&block);
