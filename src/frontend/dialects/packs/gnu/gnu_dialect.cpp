@@ -31,6 +31,7 @@ void GnuDialect::contribute_preprocess_directive_handlers(
 
 void GnuDialect::contribute_lexer_keywords(
     LexerKeywordRegistry &registry) const {
+    registry.add_keyword("__attribute", TokenKind::KwAttribute);
     registry.add_keyword("__attribute__", TokenKind::KwAttribute);
     registry.add_keyword("__asm", TokenKind::KwAsm);
     registry.add_keyword("__asm__", TokenKind::KwAsm);
