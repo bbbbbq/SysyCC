@@ -728,6 +728,11 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         analyze_type_operand_expressions(var_decl->get_declared_type(),
                                          expr_analyzer_, semantic_context,
                                          scope_stack);
+        const bool is_file_scope =
+            semantic_context.get_current_function() == nullptr;
+        const bool allows_variable_length_array =
+            !is_file_scope && !var_decl->get_is_static() &&
+            !var_decl->get_is_extern();
         for (const auto &dimension : var_decl->get_dimensions()) {
             if (dimension == nullptr) {
                 continue;
@@ -736,10 +741,12 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
                                         scope_stack);
             if (!constant_evaluator_.is_integer_constant_expr(
                     dimension.get(), semantic_context, conversion_checker_)) {
-                add_error(
-                    semantic_context,
-                    "array dimension must be an integer constant expression",
-                    dimension->get_source_span());
+                if (!allows_variable_length_array) {
+                    add_error(semantic_context,
+                              "array dimension must be an integer constant "
+                              "expression",
+                              dimension->get_source_span());
+                }
             }
         }
         const SemanticType *declared_type =
@@ -778,8 +785,6 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
             semantic_model.bind_node_type(var_decl, declared_type);
             break;
         }
-        const bool is_file_scope =
-            semantic_context.get_current_function() == nullptr;
         const bool has_initializer = var_decl->get_initializer() != nullptr;
         const bool has_static_storage_duration =
             is_file_scope || var_decl->get_is_static();

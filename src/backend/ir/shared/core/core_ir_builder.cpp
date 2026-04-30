@@ -2329,6 +2329,9 @@ class CoreIrBuildSession {
                 return build_stack_slot_address(*binding->stack_slot,
                                                identifier->get_source_span());
             }
+            if (binding->value != nullptr) {
+                return binding->value;
+            }
             if (binding->global != nullptr) {
                 return build_global_address(*binding->global,
                                             identifier->get_source_span());
@@ -5416,6 +5419,140 @@ class CoreIrBuildSession {
         return true;
     }
 
+    const ArraySemanticType *
+    get_variable_length_array_type(const SemanticType *type) const {
+        const SemanticType *unqualified = strip_qualifiers(type);
+        if (unqualified == nullptr ||
+            unqualified->get_kind() != SemanticTypeKind::Array) {
+            return nullptr;
+        }
+        const auto *array_type =
+            static_cast<const ArraySemanticType *>(unqualified);
+        for (const int dimension : array_type->get_dimensions()) {
+            if (dimension == 0) {
+                return array_type;
+            }
+        }
+        return nullptr;
+    }
+
+    CoreIrValue *build_vla_element_count(const VarDecl &var_decl,
+                                         const CoreIrType *size_type) {
+        CoreIrValue *element_count = nullptr;
+        for (const auto &dimension : var_decl.get_dimensions()) {
+            CoreIrValue *dimension_value = nullptr;
+            if (dimension == nullptr) {
+                dimension_value =
+                    build_integer_constant(size_type, 1,
+                                           var_decl.get_source_span());
+            } else if (const std::optional<long long> constant_dimension =
+                           get_integer_constant_value(dimension.get());
+                       constant_dimension.has_value()) {
+                dimension_value = build_integer_constant(
+                    size_type, static_cast<std::uint64_t>(*constant_dimension),
+                    dimension->get_source_span());
+            } else {
+                dimension_value = build_expr(dimension.get());
+                if (dimension_value == nullptr) {
+                    return nullptr;
+                }
+                if (!are_equivalent_types(dimension_value->get_type(),
+                                          size_type)) {
+                    const auto *source_integer_type =
+                        dynamic_cast<const CoreIrIntegerType *>(
+                            dimension_value->get_type());
+                    const auto *target_integer_type =
+                        dynamic_cast<const CoreIrIntegerType *>(size_type);
+                    if (source_integer_type == nullptr ||
+                        target_integer_type == nullptr) {
+                        add_error("core ir generation expected an integer VLA "
+                                  "dimension",
+                                  dimension->get_source_span());
+                        return nullptr;
+                    }
+                    CoreIrCastKind cast_kind = CoreIrCastKind::ZeroExtend;
+                    if (source_integer_type->get_bit_width() >
+                        target_integer_type->get_bit_width()) {
+                        cast_kind = CoreIrCastKind::Truncate;
+                    } else if (source_integer_type->get_bit_width() <
+                               target_integer_type->get_bit_width()) {
+                        cast_kind = source_integer_type->get_is_signed()
+                                        ? CoreIrCastKind::SignExtend
+                                        : CoreIrCastKind::ZeroExtend;
+                    }
+                    dimension_value =
+                        current_block_->create_instruction<CoreIrCastInst>(
+                            cast_kind, size_type, next_temp_name(),
+                            dimension_value);
+                    dimension_value->set_source_span(
+                        dimension->get_source_span());
+                }
+            }
+            if (dimension_value == nullptr) {
+                return nullptr;
+            }
+            if (element_count == nullptr) {
+                element_count = dimension_value;
+                continue;
+            }
+            auto *product = current_block_->create_instruction<CoreIrBinaryInst>(
+                CoreIrBinaryOpcode::Mul, size_type, next_temp_name(),
+                element_count, dimension_value);
+            product->set_source_span(dimension == nullptr
+                                         ? var_decl.get_source_span()
+                                         : dimension->get_source_span());
+            element_count = product;
+        }
+        if (element_count == nullptr) {
+            element_count =
+                build_integer_constant(size_type, 1, var_decl.get_source_span());
+        }
+        return element_count;
+    }
+
+    bool emit_variable_length_array_decl(const VarDecl &var_decl,
+                                         const SemanticSymbol *symbol,
+                                         const ArraySemanticType &array_type) {
+        if (var_decl.get_initializer() != nullptr) {
+            add_error("core ir generation does not support initialized variable "
+                      "length arrays",
+                      var_decl.get_source_span());
+            return false;
+        }
+        const CoreIrType *element_type =
+            get_or_create_type(array_type.get_element_type());
+        if (element_type == nullptr) {
+            add_error("core ir generation could not resolve VLA element type",
+                      var_decl.get_source_span());
+            return false;
+        }
+        const auto *size_type =
+            core_ir_context_->create_type<CoreIrIntegerType>(64, false);
+        CoreIrValue *byte_count = build_vla_element_count(var_decl, size_type);
+        if (byte_count == nullptr) {
+            return false;
+        }
+        const std::size_t element_size = get_core_ir_type_size(element_type);
+        if (element_size > 1) {
+            CoreIrValue *element_size_value = build_integer_constant(
+                size_type, static_cast<std::uint64_t>(element_size),
+                var_decl.get_source_span());
+            auto *scaled_count =
+                current_block_->create_instruction<CoreIrBinaryInst>(
+                    CoreIrBinaryOpcode::Mul, size_type, next_temp_name(),
+                    byte_count, element_size_value);
+            scaled_count->set_source_span(var_decl.get_source_span());
+            byte_count = scaled_count;
+        }
+        const auto *pointer_type =
+            core_ir_context_->create_type<CoreIrPointerType>(element_type);
+        auto *alloca = current_block_->create_instruction<CoreIrDynamicAllocaInst>(
+            pointer_type, next_temp_name(), byte_count);
+        alloca->set_source_span(var_decl.get_source_span());
+        local_bindings_[symbol] = ValueBinding{alloca, nullptr, nullptr};
+        return true;
+    }
+
     bool emit_local_decl(const SemanticSymbol *symbol, const std::string &symbol_name,
                          const Expr *initializer, SourceSpan source_span) {
         if (symbol == nullptr || symbol->get_type() == nullptr) {
@@ -5487,7 +5624,16 @@ class CoreIrBuildSession {
                                           var_decl.get_initializer(),
                                           var_decl.get_source_span());
         }
-        return emit_local_decl(get_symbol_binding(&var_decl), var_decl.get_name(),
+        const SemanticSymbol *symbol = get_symbol_binding(&var_decl);
+        if (symbol != nullptr) {
+            if (const ArraySemanticType *vla_type =
+                    get_variable_length_array_type(symbol->get_type());
+                vla_type != nullptr) {
+                return emit_variable_length_array_decl(var_decl, symbol,
+                                                       *vla_type);
+            }
+        }
+        return emit_local_decl(symbol, var_decl.get_name(),
                                var_decl.get_initializer(),
                                var_decl.get_source_span());
     }
