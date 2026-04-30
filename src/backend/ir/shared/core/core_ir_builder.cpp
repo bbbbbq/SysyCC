@@ -7406,6 +7406,14 @@ class CoreIrBuildSession {
                 return nullptr;
             }
 
+            if (union_type->get_element_types().size() == 1 &&
+                are_equivalent_types(first_field_type,
+                                     union_type->get_element_types().front())) {
+                return core_ir_context_->create_constant<CoreIrConstantAggregate>(
+                    union_type,
+                    std::vector<const CoreIrConstant *>{field_constant});
+            }
+
             std::vector<std::uint8_t> field_bytes;
             if (!append_constant_bytes(field_constant, first_field_type, field_bytes,
                                        field_initializer == nullptr
