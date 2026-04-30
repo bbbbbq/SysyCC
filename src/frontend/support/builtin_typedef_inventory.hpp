@@ -67,11 +67,11 @@ inline constexpr std::array<BuiltinTypedefInventoryEntry, 47>
         {"__darwin_va_list", BuiltinTypedefGroup::VaList},
         {"wchar_t", BuiltinTypedefGroup::Int},
         {"__WCHAR_TYPE__", BuiltinTypedefGroup::Int},
-        {"__WINT_TYPE__", BuiltinTypedefGroup::Int},
+        {"__WINT_TYPE__", BuiltinTypedefGroup::UnsignedInt},
         {"__darwin_ct_rune_t", BuiltinTypedefGroup::Int},
         {"__darwin_wchar_t", BuiltinTypedefGroup::Int},
         {"__darwin_rune_t", BuiltinTypedefGroup::Int},
-        {"__darwin_wint_t", BuiltinTypedefGroup::Int},
+        {"__darwin_wint_t", BuiltinTypedefGroup::UnsignedInt},
         {"__darwin_nl_item", BuiltinTypedefGroup::Int},
         {"__darwin_wctrans_t", BuiltinTypedefGroup::Int},
     }};

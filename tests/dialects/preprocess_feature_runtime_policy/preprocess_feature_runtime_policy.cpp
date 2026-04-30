@@ -17,7 +17,8 @@ int main() {
     MacroTable macro_table;
     PreprocessFeatureRegistry no_features;
     initialize_predefined_macros(macro_table, no_features, "");
-    assert(!macro_table.has_macro("__STDC__"));
+    assert(macro_table.has_macro("__STDC__"));
+    assert(macro_table.has_macro("__STRICT_ANSI__"));
 
     DialectManager empty_dialects;
     BuiltinProbeEvaluator probe_evaluator;
@@ -67,6 +68,7 @@ int main() {
     initialize_predefined_macros(
         gnu_macro_table, gnu_dialects.get_preprocess_feature_registry(), "");
     assert(gnu_macro_table.has_macro("__STDC__"));
+    assert(!gnu_macro_table.has_macro("__STRICT_ANSI__"));
 
     return 0;
 }

@@ -474,6 +474,46 @@ bool is_system_header_symbol(const SemanticSymbol *symbol,
         symbol->get_decl_node()->get_source_span());
 }
 
+bool is_compatible_integer_typedef_redeclaration(
+    const SemanticType *existing_type, const SemanticType *declared_type) {
+    IntegerConversionService integer_conversion_service;
+    const auto existing_info =
+        integer_conversion_service.get_integer_type_info(existing_type);
+    const auto declared_info =
+        integer_conversion_service.get_integer_type_info(declared_type);
+    if (!existing_info.has_value() || !declared_info.has_value()) {
+        return false;
+    }
+    return existing_info->get_is_signed() == declared_info->get_is_signed() &&
+           existing_info->get_bit_width() == declared_info->get_bit_width();
+}
+
+bool is_compatible_typedef_redeclaration(
+    const SemanticSymbol *existing_symbol, const SemanticType *declared_type,
+    const SourceSpan &declared_span, const ConversionChecker &conversion_checker,
+    const SemanticContext &semantic_context) {
+    if (existing_symbol == nullptr ||
+        existing_symbol->get_kind() != SymbolKind::TypedefName) {
+        return false;
+    }
+
+    const bool is_bootstrap_or_system_header_redeclaration =
+        existing_symbol->get_decl_node() == nullptr ||
+        semantic_context.is_system_header_span(declared_span) ||
+        is_system_header_symbol(existing_symbol, semantic_context);
+    if (!is_bootstrap_or_system_header_redeclaration) {
+        return false;
+    }
+
+    if (conversion_checker.is_same_type(existing_symbol->get_type(),
+                                        declared_type)) {
+        return true;
+    }
+
+    return is_compatible_integer_typedef_redeclaration(
+        existing_symbol->get_type(), declared_type);
+}
+
 bool is_anonymous_tag_name(const std::string &name) {
     return name.empty() || name.rfind("<anonymous", 0) == 0;
 }
@@ -1195,14 +1235,9 @@ void DeclAnalyzer::analyze_decl(const Decl *decl,
         }
         if (const SemanticSymbol *existing_symbol =
                 scope_stack.lookup_local(typedef_decl->get_name());
-            existing_symbol != nullptr &&
-            existing_symbol->get_kind() == SymbolKind::TypedefName &&
-            conversion_checker_.is_same_type(existing_symbol->get_type(),
-                                             aliased_type) &&
-            (existing_symbol->get_decl_node() == nullptr ||
-             semantic_context.is_system_header_span(
-                 typedef_decl->get_source_span()) ||
-             is_system_header_symbol(existing_symbol, semantic_context))) {
+            is_compatible_typedef_redeclaration(
+                existing_symbol, aliased_type, typedef_decl->get_source_span(),
+                conversion_checker_, semantic_context)) {
             semantic_model.bind_symbol(typedef_decl, existing_symbol);
             semantic_model.bind_node_type(typedef_decl, aliased_type);
             return;

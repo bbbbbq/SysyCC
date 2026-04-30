@@ -2,5 +2,10 @@
 
 int main() {
     size_t count = 3;
-    return (int)count;
+    __int64_t signed_value = -4;
+    __uint64_t unsigned_value = 7;
+    __darwin_wint_t wide_char = 2;
+    int64_t public_value = 5;
+    return (int)(count + unsigned_value + public_value + wide_char +
+                 signed_value);
 }
