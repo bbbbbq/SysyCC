@@ -350,7 +350,7 @@ analysis. The per-header attribution map lives in
 | Header | Targeted coverage | Notes |
 | --- | --- | --- |
 | `stdlib.h` | `tests/semantic/semantic_stdlib_h_smoke`, `tests/run/run_malloc_free_dynamic_sum`, `tests/parser/system_header_stdlib_prototype_compat` | Covers transitive `size_t` use plus `malloc` / `free` declarations through the real host header chain. |
-| compiler builtins | `tests/run/run_builtin_alloca_stack_smoke` | Covers `__builtin_alloca` lowering to LLVM stack allocation and execution through a minimal runtime-free smoke. |
+| compiler builtins | `tests/run/run_builtin_alloca_stack_smoke`, `tests/run/run_builtin_clz_smoke`, `tests/run/run_builtin_ctz_smoke` | Covers `__builtin_alloca` lowering to LLVM stack allocation plus GCC bit-scan builtins used by real-project bitmap code. |
 | `string.h` | `tests/semantic/semantic_string_h_smoke`, `tests/run/run_string_h_memcpy_builtin_bug` | Covers `memcpy` declarations and the builtin-backed expansion path used by host headers. |
 | `ctype.h` | `tests/semantic/semantic_ctype_h_smoke`, `tests/run/run_ctype_h_isdigit_header_bug` | Covers `isdigit` macro/function entry through the real header path. |
 | `assert.h` | `tests/semantic/semantic_assert_h_smoke`, `tests/run/run_assert_h_builtin_macro_bug` | Covers assert-macro expansion through the builtin macro surface accepted by the frontend. |

@@ -1,4 +1,16 @@
 int main(void) {
+    if (__builtin_clz(1U) != 31) {
+        return 10;
+    }
+    if (__builtin_clz(0x80000000U) != 0) {
+        return 11;
+    }
+    if (__builtin_clzl(1UL) != 63) {
+        return 12;
+    }
+    if (__builtin_clzl(0x8000000000000000UL) != 0) {
+        return 13;
+    }
     if (__builtin_clzll(1ULL) != 63) {
         return 1;
     }

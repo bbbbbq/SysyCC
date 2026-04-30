@@ -3899,7 +3899,11 @@ class CoreIrBuildSession {
                 dynamic_cast<const IdentifierExpr *>(expr.get_callee());
             callee_identifier != nullptr &&
             (callee_identifier->get_name() == "__builtin_clzll" ||
-             callee_identifier->get_name() == "__builtin_ctzll")) {
+             callee_identifier->get_name() == "__builtin_ctzll" ||
+             callee_identifier->get_name() == "__builtin_clzl" ||
+             callee_identifier->get_name() == "__builtin_ctzl" ||
+             callee_identifier->get_name() == "__builtin_clz" ||
+             callee_identifier->get_name() == "__builtin_ctz")) {
             if (expr.get_arguments().size() != 1) {
                 add_error("core ir generation found malformed bit-scan builtin",
                           expr.get_source_span());
@@ -3932,10 +3936,20 @@ class CoreIrBuildSession {
                 core_ir_context_->create_constant<CoreIrConstantInt>(i1_type, 0);
             is_zero_undef->set_source_span(expr.get_source_span());
 
+            const std::string &builtin_name = callee_identifier->get_name();
+            const bool is_clz = builtin_name == "__builtin_clzll" ||
+                                builtin_name == "__builtin_clzl" ||
+                                builtin_name == "__builtin_clz";
+            const bool is_long_long = builtin_name == "__builtin_clzll" ||
+                                      builtin_name == "__builtin_ctzll";
+            const bool is_long = builtin_name == "__builtin_clzl" ||
+                                 builtin_name == "__builtin_ctzl";
             const char *intrinsic_name =
-                callee_identifier->get_name() == "__builtin_clzll"
-                    ? "llvm.ctlz.i64"
-                    : "llvm.cttz.i64";
+                is_clz
+                    ? (is_long_long || is_long ? "llvm.ctlz.i64"
+                                               : "llvm.ctlz.i32")
+                    : (is_long_long || is_long ? "llvm.cttz.i64"
+                                               : "llvm.cttz.i32");
             auto *bitscan_call = current_block_->create_instruction<CoreIrCallInst>(
                 argument_value->get_type(), next_temp_name(), intrinsic_name,
                 core_ir_context_->create_type<CoreIrFunctionType>(
