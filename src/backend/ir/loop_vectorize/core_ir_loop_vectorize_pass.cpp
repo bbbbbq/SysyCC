@@ -1313,6 +1313,10 @@ bool match_store_loop_pattern(const CoreIrLoopInfo &loop,
         return true;
     }
 
+    if (pattern.mul_binary == nullptr) {
+        return false;
+    }
+
     CoreIrValue *mul_value = nullptr;
     if (lhs == pattern.accumulator_load && pattern.mul_binary != nullptr) {
         mul_value = rhs;

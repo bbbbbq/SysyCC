@@ -1,0 +1,13 @@
+void add_scalar(int *values, int delta) {
+    int i = 0;
+    while (i < 32) {
+        values[i] = values[i] + delta;
+        i = i + 1;
+    }
+}
+
+int main() {
+    int values[32];
+    add_scalar(values, 3);
+    return 0;
+}
