@@ -125,7 +125,28 @@ void RegisterLastIdentifierInChunk(const std::string &chunk) {
 }
 
 void RegisterFunctionPointerTypedefNames(const std::string &decl) {
+    int brace_depth = 0;
+    int bracket_depth = 0;
     for (std::size_t index = 0; index < decl.size(); ++index) {
+        if (decl[index] == '{') {
+            ++brace_depth;
+            continue;
+        }
+        if (decl[index] == '}' && brace_depth > 0) {
+            --brace_depth;
+            continue;
+        }
+        if (decl[index] == '[') {
+            ++bracket_depth;
+            continue;
+        }
+        if (decl[index] == ']' && bracket_depth > 0) {
+            --bracket_depth;
+            continue;
+        }
+        if (brace_depth != 0 || bracket_depth != 0) {
+            continue;
+        }
         if (decl[index] != '(') {
             continue;
         }

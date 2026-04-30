@@ -101,6 +101,29 @@ void register_typedef_name(const std::string &name) {
     }
 }
 
+std::string extract_first_declarator_identifier(const ParseTreeNode *node) {
+    if (node == nullptr) {
+        return {};
+    }
+    if (node->label == "declarator_identifier") {
+        for (const auto &child : node->children) {
+            if (child->label.rfind("IDENTIFIER ", 0) == 0) {
+                return child->label.substr(std::string("IDENTIFIER ").size());
+            }
+            if (child->label.rfind("TYPE_NAME ", 0) == 0) {
+                return child->label.substr(std::string("TYPE_NAME ").size());
+            }
+        }
+    }
+    for (const auto &child : node->children) {
+        const std::string name = extract_first_declarator_identifier(child.get());
+        if (!name.empty()) {
+            return name;
+        }
+    }
+    return {};
+}
+
 void register_typedef_names_from_declarator_list(const ParseTreeNode *node) {
     if (node == nullptr) {
         return;
@@ -110,19 +133,10 @@ void register_typedef_names_from_declarator_list(const ParseTreeNode *node) {
         node->label == "function_parameter_list_opt") {
         return;
     }
-    if (node->label == "declarator_identifier") {
-        for (const auto &child : node->children) {
-            if (child->label.rfind("IDENTIFIER ", 0) == 0) {
-                register_typedef_name(
-                    child->label.substr(std::string("IDENTIFIER ").size()));
-                return;
-            }
-            if (child->label.rfind("TYPE_NAME ", 0) == 0) {
-                register_typedef_name(
-                    child->label.substr(std::string("TYPE_NAME ").size()));
-                return;
-            }
-        }
+    if (node->label == "typedef_declarator" ||
+        node->label == "function_declarator" || node->label == "declarator") {
+        register_typedef_name(extract_first_declarator_identifier(node));
+        return;
     }
     for (const auto &child : node->children) {
         register_typedef_names_from_declarator_list(child.get());
