@@ -5,6 +5,8 @@
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
 
+#include <unordered_set>
+
 namespace sysycc {
 
 namespace {
@@ -29,9 +31,13 @@ bool append_constant_indices(CoreIrMemoryLocation &location,
     return true;
 }
 
-} // namespace
+CoreIrMemoryLocation
+describe_memory_location_impl(const CoreIrValue *value,
+                              std::unordered_set<const CoreIrValue *> &visited) {
+    if (value == nullptr || !visited.insert(value).second) {
+        return CoreIrMemoryLocation::make_unknown();
+    }
 
-CoreIrMemoryLocation describe_memory_location(const CoreIrValue *value) {
     if (auto *address =
             dynamic_cast<const CoreIrAddressOfStackSlotInst *>(value);
         address != nullptr) {
@@ -72,12 +78,20 @@ CoreIrMemoryLocation describe_memory_location(const CoreIrValue *value) {
         return {};
     }
 
-    CoreIrMemoryLocation location = describe_memory_location(gep->get_base());
+    CoreIrMemoryLocation location =
+        describe_memory_location_impl(gep->get_base(), visited);
     if (location.is_unknown()) {
         return location;
     }
     append_constant_indices(location, *gep);
     return location;
+}
+
+} // namespace
+
+CoreIrMemoryLocation describe_memory_location(const CoreIrValue *value) {
+    std::unordered_set<const CoreIrValue *> visited;
+    return describe_memory_location_impl(value, visited);
 }
 
 } // namespace sysycc
