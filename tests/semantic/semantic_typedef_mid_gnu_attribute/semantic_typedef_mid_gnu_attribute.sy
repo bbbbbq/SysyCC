@@ -1,0 +1,12 @@
+typedef struct gf_s {
+    int limb[16];
+} __attribute__((__aligned__(16))) gf_s, gf[1];
+
+gf_s *first(gf value) {
+    return value;
+}
+
+int main() {
+    gf value;
+    return first(value) == value ? 0 : 1;
+}

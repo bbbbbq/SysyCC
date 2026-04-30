@@ -327,6 +327,18 @@ typedef_decl
           sysycc::register_typedef_names_from_declarator_list(
               static_cast<const sysycc::ParseTreeNode *>($5));
       }
+    | TYPEDEF type_specifier attribute_specifier_seq type_qualifier_seq_opt typedef_declarator_list SEMICOLON
+      {
+          $$ = sysycc::make_nonterminal_node("typedef_decl", {$1, $2, $3, $4, $5, $6});
+          sysycc::register_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($5));
+      }
+    | TYPEDEF type_qualifier_seq type_specifier attribute_specifier_seq type_qualifier_seq_opt typedef_declarator_list SEMICOLON
+      {
+          $$ = sysycc::make_nonterminal_node("typedef_decl", {$1, $2, $3, $4, $5, $6, $7});
+          sysycc::register_typedef_names_from_declarator_list(
+              static_cast<const sysycc::ParseTreeNode *>($6));
+      }
     | TYPEDEF type_specifier type_qualifier_seq_opt function_declarator attribute_specifier_seq_opt SEMICOLON
       {
           $$ = sysycc::make_nonterminal_node("typedef_decl", {$1, $2, $3, $4, $5, $6});
