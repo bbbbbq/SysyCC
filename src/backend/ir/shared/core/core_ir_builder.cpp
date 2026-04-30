@@ -4012,6 +4012,170 @@ class CoreIrBuildSession {
         if (const auto *callee_identifier =
                 dynamic_cast<const IdentifierExpr *>(expr.get_callee());
             callee_identifier != nullptr &&
+            callee_identifier->get_name() == "__atomic_is_lock_free") {
+            return create_i32_constant(1, expr.get_source_span());
+        }
+
+        if (const auto *callee_identifier =
+                dynamic_cast<const IdentifierExpr *>(expr.get_callee());
+            callee_identifier != nullptr &&
+            (callee_identifier->get_name() == "__atomic_add_fetch" ||
+             callee_identifier->get_name() == "__atomic_sub_fetch" ||
+             callee_identifier->get_name() == "__atomic_and_fetch" ||
+             callee_identifier->get_name() == "__atomic_or_fetch")) {
+            if (expr.get_arguments().size() < 2) {
+                add_error("core ir generation found malformed atomic fetch builtin",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            CoreIrValue *address_value = build_expr(expr.get_arguments()[0].get());
+            CoreIrValue *operand_value = build_expr(expr.get_arguments()[1].get());
+            if (address_value == nullptr || operand_value == nullptr) {
+                return nullptr;
+            }
+            const auto *pointer_type =
+                dynamic_cast<const CoreIrPointerType *>(address_value->get_type());
+            if (pointer_type == nullptr || pointer_type->get_pointee_type() == nullptr) {
+                add_error("core ir generation found atomic fetch without pointer",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            const CoreIrType *value_type = pointer_type->get_pointee_type();
+            const auto *address_semantic_pointer =
+                dynamic_cast<const PointerSemanticType *>(
+                    strip_qualifiers(get_node_type(expr.get_arguments()[0].get())));
+            if (address_semantic_pointer == nullptr ||
+                address_semantic_pointer->get_pointee_type() == nullptr) {
+                add_error("core ir generation could not resolve atomic fetch type",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            const SemanticType *value_semantic_type =
+                strip_qualifiers(address_semantic_pointer->get_pointee_type());
+            operand_value = build_converted_value(
+                operand_value, get_node_type(expr.get_arguments()[1].get()),
+                value_semantic_type,
+                expr.get_arguments()[1]->get_source_span());
+            if (operand_value == nullptr) {
+                return nullptr;
+            }
+            auto *old_value = current_block_->create_instruction<CoreIrLoadInst>(
+                value_type, next_temp_name(), address_value);
+            old_value->set_source_span(expr.get_source_span());
+            CoreIrBinaryOpcode opcode = CoreIrBinaryOpcode::Add;
+            const std::string &name = callee_identifier->get_name();
+            if (name == "__atomic_sub_fetch") {
+                opcode = CoreIrBinaryOpcode::Sub;
+            } else if (name == "__atomic_and_fetch") {
+                opcode = CoreIrBinaryOpcode::And;
+            } else if (name == "__atomic_or_fetch") {
+                opcode = CoreIrBinaryOpcode::Or;
+            }
+            auto *new_value = current_block_->create_instruction<CoreIrBinaryInst>(
+                opcode, value_type, next_temp_name(), old_value, operand_value);
+            new_value->set_source_span(expr.get_source_span());
+            auto *store = current_block_->create_instruction<CoreIrStoreInst>(
+                void_type_, new_value, address_value);
+            store->set_source_span(expr.get_source_span());
+            return build_converted_value(
+                new_value, value_semantic_type, get_node_type(&expr),
+                expr.get_source_span());
+        }
+
+        if (const auto *callee_identifier =
+                dynamic_cast<const IdentifierExpr *>(expr.get_callee());
+            callee_identifier != nullptr &&
+            (callee_identifier->get_name() == "__atomic_load" ||
+             callee_identifier->get_name() == "__atomic_store")) {
+            if (expr.get_arguments().size() < 2) {
+                add_error("core ir generation found malformed atomic load/store builtin",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            CoreIrValue *address_value = build_expr(expr.get_arguments()[0].get());
+            CoreIrValue *out_or_value_address =
+                build_expr(expr.get_arguments()[1].get());
+            if (address_value == nullptr || out_or_value_address == nullptr) {
+                return nullptr;
+            }
+            const auto *pointer_type =
+                dynamic_cast<const CoreIrPointerType *>(address_value->get_type());
+            const auto *out_pointer_type = dynamic_cast<const CoreIrPointerType *>(
+                out_or_value_address->get_type());
+            if (pointer_type == nullptr || pointer_type->get_pointee_type() == nullptr ||
+                out_pointer_type == nullptr) {
+                add_error("core ir generation found atomic load/store without pointer",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            const CoreIrType *value_type = pointer_type->get_pointee_type();
+            CoreIrValue *result = nullptr;
+            if (callee_identifier->get_name() == "__atomic_load") {
+                auto *loaded = current_block_->create_instruction<CoreIrLoadInst>(
+                    value_type, next_temp_name(), address_value);
+                loaded->set_source_span(expr.get_source_span());
+                auto *store = current_block_->create_instruction<CoreIrStoreInst>(
+                    void_type_, loaded, out_or_value_address);
+                store->set_source_span(expr.get_source_span());
+                result = store;
+            } else {
+                auto *loaded = current_block_->create_instruction<CoreIrLoadInst>(
+                    value_type, next_temp_name(), out_or_value_address);
+                loaded->set_source_span(expr.get_source_span());
+                auto *store = current_block_->create_instruction<CoreIrStoreInst>(
+                    void_type_, loaded, address_value);
+                store->set_source_span(expr.get_source_span());
+                result = store;
+            }
+            return result;
+        }
+
+        if (const auto *callee_identifier =
+                dynamic_cast<const IdentifierExpr *>(expr.get_callee());
+            callee_identifier != nullptr &&
+            callee_identifier->get_name() == "__atomic_compare_exchange_n") {
+            if (expr.get_arguments().size() < 3) {
+                add_error("core ir generation found malformed atomic compare exchange",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            CoreIrValue *address_value = build_expr(expr.get_arguments()[0].get());
+            CoreIrValue *desired_value = build_expr(expr.get_arguments()[2].get());
+            if (address_value == nullptr || desired_value == nullptr) {
+                return nullptr;
+            }
+            const auto *pointer_type =
+                dynamic_cast<const CoreIrPointerType *>(address_value->get_type());
+            if (pointer_type == nullptr || pointer_type->get_pointee_type() == nullptr) {
+                add_error("core ir generation found compare exchange without pointer",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            const auto *address_semantic_pointer =
+                dynamic_cast<const PointerSemanticType *>(
+                    strip_qualifiers(get_node_type(expr.get_arguments()[0].get())));
+            if (address_semantic_pointer == nullptr ||
+                address_semantic_pointer->get_pointee_type() == nullptr) {
+                add_error("core ir generation could not resolve compare exchange type",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            desired_value = build_converted_value(
+                desired_value, get_node_type(expr.get_arguments()[2].get()),
+                strip_qualifiers(address_semantic_pointer->get_pointee_type()),
+                expr.get_arguments()[2]->get_source_span());
+            if (desired_value == nullptr) {
+                return nullptr;
+            }
+            auto *store = current_block_->create_instruction<CoreIrStoreInst>(
+                void_type_, desired_value, address_value);
+            store->set_source_span(expr.get_source_span());
+            return create_i32_constant(1, expr.get_source_span());
+        }
+
+        if (const auto *callee_identifier =
+                dynamic_cast<const IdentifierExpr *>(expr.get_callee());
+            callee_identifier != nullptr &&
             callee_identifier->get_name() == "__builtin_prefetch") {
             if (expr.get_arguments().empty() || expr.get_arguments().size() > 3) {
                 add_error("core ir generation found malformed prefetch builtin",

@@ -235,6 +235,22 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
     register_builtin_function(semantic_model, scope_stack, "__builtin_prefetch",
                               void_type, {void_ptr_type}, true);
     register_builtin_function(semantic_model, scope_stack,
+                              "__atomic_is_lock_free", int_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack, "__atomic_add_fetch",
+                              unsigned_long_long_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack, "__atomic_sub_fetch",
+                              unsigned_long_long_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack, "__atomic_and_fetch",
+                              unsigned_long_long_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack, "__atomic_or_fetch",
+                              unsigned_long_long_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack, "__atomic_load",
+                              void_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack, "__atomic_store",
+                              void_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack,
+                              "__atomic_compare_exchange_n", int_type, {}, true);
+    register_builtin_function(semantic_model, scope_stack,
                               "__builtin___memcpy_chk", void_ptr_type,
                               {void_ptr_type, void_ptr_type, unsigned_long_type,
                                unsigned_long_type});

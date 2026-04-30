@@ -115,6 +115,11 @@ The current implementation has a first batch of real semantic rules:
 - `__builtin_prefetch` is predeclared and lowered to LLVM `llvm.prefetch.p0`,
   preserving real-project cache-prefetch hints without introducing an external
   runtime symbol
+- common GCC `__atomic_*` builtins used by OpenSSL's pthread layer are
+  predeclared and currently lowered through conservative Core IR scalar
+  load/store/read-modify-write sequences, which keeps single-threaded real
+  project smoke coverage linkable while leaving hardware atomic lowering as a
+  follow-up backend precision task
 - `__builtin_alloca` is predeclared as a stack-allocation builtin and lowered
   to LLVM `alloca`, covering Git-style dynamic temporary buffers without
   requiring a host fallback or external symbol
