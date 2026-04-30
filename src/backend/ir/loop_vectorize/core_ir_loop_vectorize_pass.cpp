@@ -3142,6 +3142,13 @@ bool vectorize_store_loop(CoreIrFunction &function, StoreLoopPattern &pattern,
     if (i32_type == nullptr) {
         return false;
     }
+    const CoreIrBinaryOpcode final_opcode =
+        pattern.final_binary->get_binary_opcode();
+    const std::optional<CoreIrBinaryOpcode> mul_opcode =
+        pattern.mul_binary == nullptr
+            ? std::nullopt
+            : std::optional<CoreIrBinaryOpcode>(
+                  pattern.mul_binary->get_binary_opcode());
     auto *vec_type = context.create_type<CoreIrVectorType>(i32_type, kVectorWidth);
     auto *step = context.create_constant<CoreIrConstantInt>(i32_type, kVectorWidth);
 
@@ -3162,7 +3169,7 @@ bool vectorize_store_loop(CoreIrFunction &function, StoreLoopPattern &pattern,
                                                    vec_type, "vec.acc");
     CoreIrValue *vec_result = nullptr;
 
-    if (pattern.mul_binary != nullptr) {
+    if (mul_opcode.has_value()) {
         CoreIrValue *lane_vec = materialize_vector_load(*pattern.body, anchor, context,
                                                         pattern.lane_access, *pattern.iv,
                                                         vec_type, "vec.lane");
@@ -3175,14 +3182,14 @@ bool vectorize_store_loop(CoreIrFunction &function, StoreLoopPattern &pattern,
             scalar_vec = make_splat_vector_constant(context, vec_type,
                                                     pattern.scalar_constant);
         }
-        auto vec_mul = std::make_unique<CoreIrBinaryInst>(
-            pattern.mul_binary->get_binary_opcode(), vec_type, "vec.mul",
-            lane_vec, scalar_vec);
+        auto vec_mul = std::make_unique<CoreIrBinaryInst>(*mul_opcode, vec_type,
+                                                          "vec.mul", lane_vec,
+                                                          scalar_vec);
         CoreIrInstruction *mul_inst =
             insert_instruction_before(*pattern.body, anchor, std::move(vec_mul));
-        auto vec_add = std::make_unique<CoreIrBinaryInst>(
-            pattern.final_binary->get_binary_opcode(), vec_type, "vec.add",
-            acc_vec, mul_inst);
+        auto vec_add = std::make_unique<CoreIrBinaryInst>(final_opcode, vec_type,
+                                                          "vec.add", acc_vec,
+                                                          mul_inst);
         vec_result =
             insert_instruction_before(*pattern.body, anchor, std::move(vec_add));
     } else {
@@ -3196,8 +3203,7 @@ bool vectorize_store_loop(CoreIrFunction &function, StoreLoopPattern &pattern,
                                                  pattern.scalar_constant);
         }
         auto vec_binary = std::make_unique<CoreIrBinaryInst>(
-            pattern.final_binary->get_binary_opcode(), vec_type, "vec.op", acc_vec,
-            rhs_vec);
+            final_opcode, vec_type, "vec.op", acc_vec, rhs_vec);
         vec_result =
             insert_instruction_before(*pattern.body, anchor, std::move(vec_binary));
     }
