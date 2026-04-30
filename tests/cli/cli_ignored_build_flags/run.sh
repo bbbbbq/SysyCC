@@ -20,10 +20,17 @@ mkdir -p "${CASE_BUILD_DIR}"
     -ffunction-sections \
     -fdata-sections \
     -fno-common \
+    -fno-builtin-memcmp \
+    -falign-functions=16 \
     -fvisibility=hidden \
+    -flto=auto \
+    -grecord-gcc-switches \
     -Wfatal-errors \
     -Wdisabled-optimization \
     -Wc++-compat \
+    -Wdate-time \
+    -Wformat-truncation=2 \
+    -Werror=implicit-function-declaration \
     -march=native \
     -arch arm64 \
     -c \

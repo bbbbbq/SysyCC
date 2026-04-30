@@ -27,6 +27,8 @@ std::string language_mode_name(sysycc::LanguageMode language_mode) {
     switch (language_mode) {
     case sysycc::LanguageMode::Sysy:
         return "sysy";
+    case sysycc::LanguageMode::C89:
+        return "c89";
     case sysycc::LanguageMode::C99:
         return "c99";
     case sysycc::LanguageMode::C11:
@@ -35,6 +37,8 @@ std::string language_mode_name(sysycc::LanguageMode language_mode) {
         return "c17";
     case sysycc::LanguageMode::C2x:
         return "c2x";
+    case sysycc::LanguageMode::Gnu89:
+        return "gnu89";
     case sysycc::LanguageMode::Gnu99:
         return "gnu99";
     case sysycc::LanguageMode::Gnu11:

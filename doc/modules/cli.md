@@ -137,9 +137,17 @@ Output:
 - The parsed system include directories are also forwarded through the compiler context and consumed by the preprocess stage during angle-include and `#include_next` resolution.
 - `-D`, `-U`, and `-include` are stored as preprocess-session inputs and are
   applied before the main source file is preprocessed.
-- `-std=c99`, `-std=c11`, `-std=c17`, `-std=c18`, ISO aliases such as `-std=iso9899:2011`, `-std=c2x`, `-std=c23`, `-std=gnu99`, `-std=gnu11`, `-std=gnu17`, `-std=gnu18`, `-std=gnu2x`, `-std=gnu23`, and `-std=sysy` select the base language mode, and
+- `-std=c89`, `-std=c90`, `-std=c99`, `-std=c11`, `-std=c17`,
+  `-std=c18`, ISO aliases such as `-std=iso9899:1990` and
+  `-std=iso9899:2011`, `-std=c2x`, `-std=c23`, `-std=gnu89`,
+  `-std=gnu90`, `-std=gnu99`, `-std=gnu11`, `-std=gnu17`,
+  `-std=gnu18`, `-std=gnu2x`, `-std=gnu23`, and `-std=sysy` select
+  the base language mode, and
   `-fgnu-extensions`, `-fclang-extensions`, and `-fbuiltin-types` can override
   parts of that base mode for one invocation.
+- `-ansi` is accepted as the GCC-compatible spelling for strict C89/C90 mode,
+  so it disables the GNU, Clang, and builtin-type extension packs for that
+  invocation.
 - `--strict-c99` remains accepted as a compatibility alias for disabling GNU,
   Clang, and builtin-type extension packs in one invocation.
 - `-Wall`, `-Wextra`, `-Werror`, `-Wno-...`, and `-Werror=...` are parsed into
@@ -214,10 +222,11 @@ Output:
 | `-iquote`, `-isystem`, `-idirafter` | supported | Fed into preprocess include lookup and host dependency scanning with GCC-like ordering. |
 | `--sysroot`, `-isysroot` | supported | Adds sysroot include roots and forwards the flags to host dependency scanning/full linking. |
 | `-fPIC`, `-fPIE`, `-fpie`, `-fno-pie`, `-fno-pic`, `-fno-PIC`, `-g` | supported | Forwarded into backend/driver state where relevant; the `-fno-*pic*` forms clear the position-independent request. |
-| `-ansi`, `-pedantic`, `-pedantic-errors` | safe ignore | Accepted for build-system compatibility until strict conformance diagnostics are implemented. |
-| `-pipe`, `-ffunction-sections`, `-fdata-sections`, `-fno-common`, `-fno-strict-aliasing`, `-fstrict-aliasing`, `-fno-strict-overflow`, `-fno-delete-null-pointer-checks`, `-fno-tree-vectorize`, `-fno-inline`, `-fwrapv`, `-funsigned-char`, `-fsigned-char`, `-ffreestanding`, `-fhosted`, `-fno-plt`, `-fno-lto`, unwind-table toggles, merge-constants toggles, `-fno-ident`, math-errno / trapping-math toggles, `-fno-builtin`, stack-protector toggles, frame-pointer toggles, `-fvisibility=hidden`, `-fvisibility=default`, `-fvisibility=internal`, prefix-map flags, diagnostic-color flags, machine tuning flags such as `-march=native`, `-Qunused-arguments`, `-m64`, `-mno-red-zone`, `-Winvalid-pch`, `-arch arm64`, `-arch aarch64` | safe ignore | Accepted for build-system compatibility without changing the current output mode. |
-| `-Wshadow`, `-Wundef`, `-Wfatal-errors`, `-Wdisabled-optimization`, `-Wformat`, `-Wformat=2`, `-Wformat-security`, `-Werror=format`, `-Wstrict-prototypes`, `-Wmissing-prototypes`, `-Wc++-compat`, `-Wcast-align`, `-Wpointer-arith`, and related common project warning flags | safe ignore | Accepted until SysyCC implements equivalent diagnostics. |
-| `-pthread`, `-L`, `-l`, `-Wl,...`, `-shared` | pass through | Stored on [CompilerOption](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp) and forwarded to the external host link driver when a link stage runs. |
+| `-ansi` | supported | Selects strict C89/C90 mode and disables extension packs, matching GCC compatibility expectations. |
+| `-pedantic`, `-pedantic-errors` | safe ignore | Accepted for build-system compatibility until strict conformance diagnostics are implemented. |
+| `-pipe`, `-ffunction-sections`, `-fdata-sections`, `-fno-common`, `-fno-strict-aliasing`, `-fstrict-aliasing`, `-fno-strict-overflow`, `-fno-delete-null-pointer-checks`, `-fno-tree-vectorize`, `-fno-inline`, `-fwrapv`, `-funsigned-char`, `-fsigned-char`, `-ffreestanding`, `-fhosted`, `-fno-plt`, `-fno-lto`, `-flto=auto`, unwind-table toggles, merge-constants toggles, `-fno-ident`, math-errno / trapping-math toggles, `-fno-builtin`, `-fno-builtin-*`, stack-protector toggles, frame-pointer toggles, `-fvisibility=hidden`, `-fvisibility=default`, `-fvisibility=internal`, prefix-map flags, diagnostic-color flags, function/loop alignment flags, machine tuning flags such as `-march=native`, `-Qunused-arguments`, `-m64`, `-mno-red-zone`, `-grecord-gcc-switches`, `-Winvalid-pch`, `-arch arm64`, `-arch aarch64` | safe ignore | Accepted for build-system compatibility without changing the current output mode. |
+| `-Wshadow`, `-Wundef`, `-Wfatal-errors`, `-Wdisabled-optimization`, `-Wdate-time`, `-Wformat`, `-Wformat=2`, `-Wformat-security`, `-Werror=format`, `-Werror=format-security`, `-Werror=implicit-function-declaration`, `-Wstrict-prototypes`, `-Wmissing-prototypes`, `-Wc++-compat`, `-Wcast-align`, `-Wpointer-arith`, and related common project warning flags | safe ignore | Accepted until SysyCC implements equivalent diagnostics. |
+| `-pthread`, `-L`, `-l`, `-Wl,...`, `-shared`, `-rdynamic`, `-static`, `-static-libgcc`, `-static-libstdc++`, `-s`, `-pie`, `-no-pie` | pass through | Stored on [CompilerOption](/Users/caojunze424/code/SysyCC/src/compiler/compiler_option.hpp) and forwarded to the external host link driver when a link stage runs. |
 | unsupported `-x <lang>` | explicit error | Only `-x c` is currently accepted. |
 | unsupported `-arch <arch>` | explicit error | Only `arm64` and `aarch64` are accepted as compatibility spellings. |
 | unsupported `-fvisibility=<mode>` | explicit error | Only `hidden`, `default`, and `internal` are currently accepted as safe-ignore compatibility spellings. |

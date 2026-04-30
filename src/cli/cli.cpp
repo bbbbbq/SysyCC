@@ -105,6 +105,11 @@ const char *backend_kind_to_string(sysycc::BackendKind backend_kind) {
 
 bool parse_language_mode(const std::string &mode_name,
                          sysycc::LanguageMode &language_mode) {
+    if (mode_name == "c89" || mode_name == "c90" ||
+        mode_name == "iso9899:1990" || mode_name == "iso9899:199409") {
+        language_mode = sysycc::LanguageMode::C89;
+        return true;
+    }
     if (mode_name == "c99") {
         language_mode = sysycc::LanguageMode::C99;
         return true;
@@ -131,6 +136,10 @@ bool parse_language_mode(const std::string &mode_name,
     }
     if (mode_name == "c2x" || mode_name == "c23") {
         language_mode = sysycc::LanguageMode::C2x;
+        return true;
+    }
+    if (mode_name == "gnu89" || mode_name == "gnu90") {
+        language_mode = sysycc::LanguageMode::Gnu89;
         return true;
     }
     if (mode_name == "gnu99") {
@@ -187,6 +196,7 @@ void apply_language_mode_defaults(sysycc::LanguageMode language_mode,
                                   bool &enable_clang_dialect,
                                   bool &enable_builtin_type_extension_pack) {
     switch (language_mode) {
+    case sysycc::LanguageMode::C89:
     case sysycc::LanguageMode::C99:
     case sysycc::LanguageMode::C11:
     case sysycc::LanguageMode::C17:
@@ -195,6 +205,7 @@ void apply_language_mode_defaults(sysycc::LanguageMode language_mode,
         enable_clang_dialect = false;
         enable_builtin_type_extension_pack = false;
         return;
+    case sysycc::LanguageMode::Gnu89:
     case sysycc::LanguageMode::Gnu99:
     case sysycc::LanguageMode::Gnu11:
     case sysycc::LanguageMode::Gnu17:
@@ -767,8 +778,15 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
-        if (arg == "-ansi" || arg == "-pedantic" ||
-            arg == "-pedantic-errors") {
+        if (arg == "-ansi") {
+            language_mode_ = sysycc::LanguageMode::C89;
+            apply_language_mode_defaults(
+                language_mode_, enable_gnu_dialect_, enable_clang_dialect_,
+                enable_builtin_type_extension_pack_);
+            continue;
+        }
+
+        if (arg == "-pedantic" || arg == "-pedantic-errors") {
             continue;
         }
 
@@ -789,7 +807,7 @@ void Cli::Run(int argc, char *argv[]) {
             arg == "-fno-math-errno" || arg == "-fmath-errno" ||
             arg == "-frounding-math" || arg == "-ftrapping-math" ||
             arg == "-fno-trapping-math" ||
-            arg == "-fno-lto" ||
+            arg == "-fno-lto" || arg == "-flto=auto" ||
             arg == "-fno-builtin" || arg == "-fno-stack-protector" ||
             arg == "-fstack-protector" || arg == "-fstack-protector-strong" ||
             arg == "-fstack-protector-all" || arg == "-fomit-frame-pointer" ||
@@ -797,12 +815,21 @@ void Cli::Run(int argc, char *argv[]) {
             arg == "-fno-rtti" || arg == "-Winvalid-pch" ||
             arg == "-fvisibility=hidden" || arg == "-fcolor-diagnostics" ||
             arg == "-fno-color-diagnostics" || arg == "-Qunused-arguments" ||
-            arg == "-m64" || arg == "-mno-red-zone") {
+            arg == "-m64" || arg == "-mno-red-zone" ||
+            arg == "-grecord-gcc-switches") {
             continue;
         }
 
         if (arg.rfind("-march=", 0) == 0 || arg.rfind("-mtune=", 0) == 0 ||
             arg.rfind("-mcpu=", 0) == 0) {
+            continue;
+        }
+
+        if (arg.rfind("-fno-builtin-", 0) == 0 ||
+            arg.rfind("-falign-functions=", 0) == 0 ||
+            arg.rfind("-falign-jumps=", 0) == 0 ||
+            arg.rfind("-falign-labels=", 0) == 0 ||
+            arg.rfind("-falign-loops=", 0) == 0) {
             continue;
         }
 
@@ -1266,7 +1293,9 @@ void Cli::Run(int argc, char *argv[]) {
             continue;
         }
 
-        if (arg == "-shared") {
+        if (arg == "-shared" || arg == "-rdynamic" || arg == "-static" ||
+            arg == "-static-libgcc" || arg == "-static-libstdc++" ||
+            arg == "-s" || arg == "-pie" || arg == "-no-pie") {
             linker_passthrough_arguments_.push_back(arg);
             continue;
         }
@@ -1354,11 +1383,25 @@ void Cli::Run(int argc, char *argv[]) {
             arg == "-Wduplicated-cond" || arg == "-Wduplicated-branches" ||
             arg == "-Walloca" || arg == "-Warray-bounds" ||
             arg == "-Wstrict-aliasing" || arg == "-Wstrict-aliasing=2" ||
-            arg == "-Wold-style-declaration") {
+            arg == "-Wold-style-declaration" || arg == "-Wdate-time" ||
+            arg == "-Wendif-labels" || arg == "-Winit-self" ||
+            arg == "-Wmissing-include-dirs" || arg == "-Wmultichar" ||
+            arg == "-Wpacked" || arg == "-Wpadded" ||
+            arg == "-Wformat-overflow" || arg == "-Wformat-overflow=2" ||
+            arg == "-Wformat-truncation" || arg == "-Wformat-truncation=2" ||
+            arg == "-Wstringop-overflow" || arg == "-Wstringop-overflow=2") {
             continue;
         }
 
-        if (arg == "-Werror=format" || arg == "-Wno-error=format") {
+        if (arg == "-Werror=format" || arg == "-Wno-error=format" ||
+            arg == "-Werror=format-security" ||
+            arg == "-Wno-error=format-security" ||
+            arg == "-Werror=implicit-function-declaration" ||
+            arg == "-Wno-error=implicit-function-declaration" ||
+            arg == "-Werror=implicit-int" ||
+            arg == "-Wno-error=implicit-int" ||
+            arg == "-Werror=incompatible-pointer-types" ||
+            arg == "-Wno-error=incompatible-pointer-types") {
             continue;
         }
 

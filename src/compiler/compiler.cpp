@@ -112,6 +112,8 @@ std::string effective_depfile_output_file(const CompilerOption &option) {
 
 std::string dependency_scanner_language_flag(const CompilerOption &option) {
     switch (option.get_language_mode()) {
+    case LanguageMode::C89:
+        return "-std=c89";
     case LanguageMode::C99:
         return "-std=c99";
     case LanguageMode::C11:
@@ -120,6 +122,8 @@ std::string dependency_scanner_language_flag(const CompilerOption &option) {
         return "-std=c17";
     case LanguageMode::C2x:
         return "-std=c2x";
+    case LanguageMode::Gnu89:
+        return "-std=gnu89";
     case LanguageMode::Gnu99:
         return "-std=gnu99";
     case LanguageMode::Gnu11:

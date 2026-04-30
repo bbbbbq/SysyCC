@@ -206,10 +206,12 @@ enum class DriverAction : uint8_t {
 
 enum class LanguageMode : uint8_t {
     Sysy,
+    C89,
     C99,
     C11,
     C17,
     C2x,
+    Gnu89,
     Gnu99,
     Gnu11,
     Gnu17,

@@ -841,6 +841,11 @@ that should stay in tier1 but is too driver-specific for pure runtime cases:
   external object input
 - Ninja invoking the same command shape through a rule edge
 - host linker handoff for mixed temporary LLVM IR plus object-file inputs
+- a configure-style driver smoke under
+  `tests/compiler/compiler_configure_make_smoke`, which runs
+  `CC=build/compiler ./configure && make`, covers `-std=gnu89`, configure
+  warning/codegen compatibility flags, default depfiles, and a multi-source
+  `-c` object rule
 - manual north-star compatibility coverage under
   `tests/manual/north_star_gcc_only_gap_corpus`, which checks that SysyCC can
   act as `CC` for small GNU/C project-shaped cases accepted by GCC/Clang. This

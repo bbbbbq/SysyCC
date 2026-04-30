@@ -9,6 +9,24 @@ using namespace sysycc;
 int main() {
     {
         char arg0[] = "sysycc";
+        char arg1[] = "-std=c89";
+        char arg2[] = "-fsyntax-only";
+        char arg3[] = "input.sy";
+        char *argv[] = {arg0, arg1, arg2, arg3};
+        ClI::Cli cli;
+        cli.Run(4, argv);
+        assert(!cli.get_has_error());
+        CompilerOption option;
+        cli.set_compiler_option(option);
+        assert(option.get_driver_action() == DriverAction::SyntaxOnly);
+        assert(option.get_language_mode() == LanguageMode::C89);
+        assert(!option.get_enable_gnu_dialect());
+        assert(!option.get_enable_clang_dialect());
+        assert(!option.get_enable_builtin_type_extension_pack());
+    }
+
+    {
+        char arg0[] = "sysycc";
         char arg1[] = "-std=c99";
         char arg2[] = "-fsyntax-only";
         char arg3[] = "input.sy";
@@ -46,6 +64,25 @@ int main() {
 
     {
         char arg0[] = "sysycc";
+        char arg1[] = "-std=gnu89";
+        char arg2[] = "-fclang-extensions";
+        char arg3[] = "-fbuiltin-types";
+        char arg4[] = "-fsyntax-only";
+        char arg5[] = "input.sy";
+        char *argv[] = {arg0, arg1, arg2, arg3, arg4, arg5};
+        ClI::Cli cli;
+        cli.Run(6, argv);
+        assert(!cli.get_has_error());
+        CompilerOption option;
+        cli.set_compiler_option(option);
+        assert(option.get_language_mode() == LanguageMode::Gnu89);
+        assert(option.get_enable_gnu_dialect());
+        assert(option.get_enable_clang_dialect());
+        assert(option.get_enable_builtin_type_extension_pack());
+    }
+
+    {
+        char arg0[] = "sysycc";
         char arg1[] = "-std=gnu99";
         char arg2[] = "-fclang-extensions";
         char arg3[] = "-fbuiltin-types";
@@ -61,6 +98,23 @@ int main() {
         assert(option.get_enable_gnu_dialect());
         assert(option.get_enable_clang_dialect());
         assert(option.get_enable_builtin_type_extension_pack());
+    }
+
+    {
+        char arg0[] = "sysycc";
+        char arg1[] = "-ansi";
+        char arg2[] = "-fsyntax-only";
+        char arg3[] = "input.sy";
+        char *argv[] = {arg0, arg1, arg2, arg3};
+        ClI::Cli cli;
+        cli.Run(4, argv);
+        assert(!cli.get_has_error());
+        CompilerOption option;
+        cli.set_compiler_option(option);
+        assert(option.get_language_mode() == LanguageMode::C89);
+        assert(!option.get_enable_gnu_dialect());
+        assert(!option.get_enable_clang_dialect());
+        assert(!option.get_enable_builtin_type_extension_pack());
     }
 
     {

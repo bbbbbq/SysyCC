@@ -134,7 +134,7 @@ class Cli {
                   << "  -include <file>    Force include a file before the main input\n"
                   << "  -nostdinc          Disable default system include directories\n"
                   << "  -o <output_file>   Specify output file\n"
-                  << "  -std=<mode>        Select language mode (c99, c11, c17, c18, c2x/c23, gnu99, gnu11, gnu17, gnu18, gnu2x/gnu23, sysy)\n"
+                  << "  -std=<mode>        Select language mode (c89/c90, c99, c11, c17, c18, c2x/c23, gnu89/gnu90, gnu99, gnu11, gnu17, gnu18, gnu2x/gnu23, sysy)\n"
                   << "  -fgnu-extensions   Enable GNU dialect extensions\n"
                   << "  -fno-gnu-extensions Disable GNU dialect extensions\n"
                   << "  -fclang-extensions Enable Clang dialect extensions\n"
