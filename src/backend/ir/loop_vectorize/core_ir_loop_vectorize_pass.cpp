@@ -694,6 +694,32 @@ bool add_runtime_rotated_exit_incomings(
     return true;
 }
 
+bool can_add_runtime_rotated_exit_incomings(
+    RuntimeMulReductionInterleavePattern &pattern) {
+    if (pattern.exit_block == nullptr || pattern.body == nullptr ||
+        pattern.preheader == nullptr) {
+        return false;
+    }
+    for (const auto &instruction_ptr : pattern.exit_block->get_instructions()) {
+        auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction_ptr.get());
+        if (phi == nullptr) {
+            break;
+        }
+        CoreIrValue *body_value = get_phi_incoming_from_block(*phi, pattern.body);
+        CoreIrValue *preheader_value =
+            get_phi_incoming_from_block(*phi, pattern.preheader);
+        if (body_value == pattern.reduction_update ||
+            body_value == pattern.reduction_phi ||
+            body_value == pattern.iv_next || body_value == pattern.iv ||
+            (body_value == nullptr && preheader_value != nullptr) ||
+            body_value == preheader_value) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 bool add_runtime_header_incomings(
     RuntimeMulReductionInterleavePattern &pattern,
     CoreIrBasicBlock *current_preheader,
@@ -727,6 +753,32 @@ bool add_runtime_header_incomings(
             return false;
         }
         phi->add_incoming(new_pred, incoming_value);
+    }
+    return true;
+}
+
+bool can_add_runtime_header_incomings(
+    RuntimeMulReductionInterleavePattern &pattern) {
+    if (pattern.header == nullptr || pattern.body == nullptr ||
+        pattern.preheader == nullptr) {
+        return false;
+    }
+    for (const auto &instruction_ptr : pattern.header->get_instructions()) {
+        auto *phi = dynamic_cast<CoreIrPhiInst *>(instruction_ptr.get());
+        if (phi == nullptr) {
+            break;
+        }
+        CoreIrValue *body_value = get_phi_incoming_from_block(*phi, pattern.body);
+        CoreIrValue *preheader_value =
+            get_phi_incoming_from_block(*phi, pattern.preheader);
+        if (phi == pattern.reduction_phi || body_value == pattern.reduction_update ||
+            body_value == pattern.reduction_phi || phi == pattern.iv ||
+            body_value == pattern.iv_next || body_value == pattern.iv ||
+            (body_value == nullptr && preheader_value != nullptr) ||
+            body_value == preheader_value) {
+            continue;
+        }
+        return false;
     }
     return true;
 }
@@ -2796,6 +2848,11 @@ bool interleave_runtime_mul_reduction_loop(
         return false;
     }
     if (dynamic_cast<const CoreIrFloatType *>(pattern.reduction_phi->get_type()) != nullptr) {
+        return false;
+    }
+    if ((pattern.rotated_latch_exit &&
+         !can_add_runtime_rotated_exit_incomings(pattern)) ||
+        !can_add_runtime_header_incomings(pattern)) {
         return false;
     }
     if (pattern.reduction_update->get_parent() != pattern.body ||
