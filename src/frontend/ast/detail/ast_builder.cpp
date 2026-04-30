@@ -57,6 +57,21 @@ bool is_void_type_specifier_node(const ParseTreeNode *node) {
     return false;
 }
 
+bool tree_contains_token_prefix(const ParseTreeNode *node, const char *prefix) {
+    if (node == nullptr) {
+        return false;
+    }
+    if (ParseTreeMatcher::label_starts_with(node, prefix)) {
+        return true;
+    }
+    for (const auto &child : node->children) {
+        if (tree_contains_token_prefix(child.get(), prefix)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string decode_string_literal_token(std::string token_text) {
     if (token_text.size() >= 2 && token_text.front() == '"' &&
         token_text.back() == '"') {
@@ -677,6 +692,8 @@ AstBuilder::build_parameters(const ParseTreeNode *node) const {
             const ParseTreeNode *abstract_array_suffix =
                 ParseTreeMatcher::find_first_child_with_label(
                     current, "abstract_array_suffix_list");
+            const bool has_explicit_pointer =
+                tree_contains_token_prefix(pointer, "MUL");
             if (declarator == nullptr && pointer == nullptr &&
                 is_void_type_specifier_node(type_specifier)) {
                 continue;
@@ -698,7 +715,8 @@ AstBuilder::build_parameters(const ParseTreeNode *node) const {
             }
             const ParseTreeNode *type_declarator =
                 declarator == nullptr ? pointer : declarator;
-            if (declarator == nullptr && abstract_array_suffix != nullptr) {
+            if (declarator == nullptr && abstract_array_suffix != nullptr &&
+                !has_explicit_pointer) {
                 type_declarator = nullptr;
             }
             std::vector<std::unique_ptr<Expr>> dimensions =
@@ -1845,6 +1863,11 @@ AstBuilder::build_function_parameter_types(
             const ParseTreeNode *pointer =
                 ParseTreeMatcher::find_first_child_with_label(current,
                                                               "pointer");
+            const ParseTreeNode *abstract_array_suffix =
+                ParseTreeMatcher::find_first_child_with_label(
+                    current, "abstract_array_suffix_list");
+            const bool has_explicit_pointer =
+                tree_contains_token_prefix(pointer, "MUL");
             TypeQualifierFlags pointee_qualifiers;
             for (const auto &child : current->children) {
                 if (ParseTreeMatcher::label_equals(child.get(),
@@ -1860,6 +1883,12 @@ AstBuilder::build_function_parameter_types(
                 type_specifier, declarator == nullptr ? pointer : declarator,
                 pointee_qualifiers.is_const, pointee_qualifiers.is_volatile,
                 true);
+            if (abstract_array_suffix != nullptr && has_explicit_pointer) {
+                parameter_type = std::make_unique<ArrayTypeNode>(
+                    std::move(parameter_type),
+                    collect_declarator_dimensions(abstract_array_suffix),
+                    get_node_source_span(current));
+            }
             if (!collect_declarator_dimensions(declarator).empty()) {
                 parameter_type = std::make_unique<PointerTypeNode>(
                     std::move(parameter_type), get_node_source_span(current));

@@ -1280,6 +1280,11 @@ parameter_decl
           $$ = sysycc::make_nonterminal_node("parameter_decl",
                                              {$1, $2, $3, pointer, $4});
       }
+    | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt pointer abstract_array_suffix_list
+      {
+          $$ = sysycc::make_nonterminal_node("parameter_decl",
+                                             {$1, $2, $3, $4, $5});
+      }
     | type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator %dprec 2
       { $$ = sysycc::make_nonterminal_node("parameter_decl", {$1, $2, $3, $4}); }
     | storage_specifier type_qualifier_seq_opt type_specifier type_qualifier_seq_opt declarator %dprec 2
