@@ -1189,6 +1189,8 @@ function_declarator
       { $$ = sysycc::make_nonterminal_node("function_declarator", {$1, $2, $3, $4, $5, $6, $7, $8}); }
     | pointer declarator_identifier LPAREN function_parameter_list_opt RPAREN
       { $$ = sysycc::make_nonterminal_node("function_declarator", {$1, $2, $3, $4, $5}); }
+    | pointer attribute_specifier_seq declarator_identifier LPAREN function_parameter_list_opt RPAREN
+      { $$ = sysycc::make_nonterminal_node("function_declarator", {$1, $2, $3, $4, $5, $6}); }
     ;
 
 asm_label_opt

@@ -2975,6 +2975,15 @@ AstBuilder::extract_declarator_name(const ParseTreeNode *node) const {
     if (node == nullptr) {
         return "<unnamed>";
     }
+    if (ParseTreeMatcher::label_equals(node, "attribute_specifier_seq") ||
+        ParseTreeMatcher::label_equals(node, "attribute_specifier") ||
+        ParseTreeMatcher::label_equals(node, "attribute_list") ||
+        ParseTreeMatcher::label_equals(node, "attribute") ||
+        ParseTreeMatcher::label_equals(node, "attribute_name") ||
+        ParseTreeMatcher::label_equals(node, "attribute_argument_list") ||
+        ParseTreeMatcher::label_equals(node, "attribute_argument")) {
+        return "<unnamed>";
+    }
     if (ParseTreeMatcher::label_starts_with(node, "IDENTIFIER")) {
         const std::string name =
             ParseTreeMatcher::extract_terminal_suffix(node, "IDENTIFIER");
