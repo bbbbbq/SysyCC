@@ -8,16 +8,29 @@
 #include "common/diagnostic/warning_options.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/model/semantic_diagnostic.hpp"
-#include "frontend/semantic/type_system/constant_evaluator.hpp"
-#include "frontend/semantic/support/semantic_context.hpp"
-#include "frontend/semantic/support/scope_stack.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
 #include "frontend/semantic/model/semantic_symbol.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
+#include "frontend/semantic/support/scope_stack.hpp"
+#include "frontend/semantic/support/semantic_context.hpp"
+#include "frontend/semantic/type_system/constant_evaluator.hpp"
 
 namespace sysycc::detail {
 
 namespace {
+
+bool is_void_parameter_type(const SemanticType *type) {
+    return type != nullptr && type->get_kind() == SemanticTypeKind::Builtin &&
+           static_cast<const BuiltinSemanticType *>(type)->get_name() == "void";
+}
+
+void normalize_void_parameter_list(
+    std::vector<const SemanticType *> &parameter_types) {
+    if (parameter_types.size() == 1 &&
+        is_void_parameter_type(parameter_types.front())) {
+        parameter_types.clear();
+    }
+}
 
 std::vector<SemanticFieldInfo>
 build_semantic_fields(const std::vector<std::unique_ptr<Decl>> &fields,
@@ -34,8 +47,9 @@ build_semantic_fields(const std::vector<std::unique_ptr<Decl>> &fields,
         const auto *field_decl = static_cast<const FieldDecl *>(field.get());
         std::optional<int> bit_width;
         if (field_decl->get_bit_width() != nullptr) {
-            const auto width_value = constant_evaluator.get_integer_constant_value(
-                field_decl->get_bit_width(), semantic_context);
+            const auto width_value =
+                constant_evaluator.get_integer_constant_value(
+                    field_decl->get_bit_width(), semantic_context);
             if (width_value.has_value()) {
                 bit_width = static_cast<int>(*width_value);
             }
@@ -104,9 +118,10 @@ const SemanticType *resolve_completed_tag_type(const SemanticType *type,
 
 } // namespace
 
-const SemanticType *TypeResolver::resolve_type(
-    const TypeNode *type_node, SemanticContext &semantic_context,
-    const ScopeStack *scope_stack) const {
+const SemanticType *
+TypeResolver::resolve_type(const TypeNode *type_node,
+                           SemanticContext &semantic_context,
+                           const ScopeStack *scope_stack) const {
     if (type_node == nullptr) {
         return nullptr;
     }
@@ -131,7 +146,8 @@ const SemanticType *TypeResolver::resolve_type(
         }
         const SemanticSymbol *symbol =
             scope_stack->lookup(named_type->get_name());
-        if (symbol == nullptr || symbol->get_kind() != SymbolKind::TypedefName) {
+        if (symbol == nullptr ||
+            symbol->get_kind() != SymbolKind::TypedefName) {
             semantic_model.add_diagnostic(SemanticDiagnostic(
                 DiagnosticSeverity::Error,
                 "unknown type name: " + named_type->get_name(),
@@ -141,14 +157,15 @@ const SemanticType *TypeResolver::resolve_type(
         return resolve_completed_tag_type(symbol->get_type(), *scope_stack);
     }
     case AstKind::TypeofType: {
-        const auto *typeof_type = static_cast<const TypeofTypeNode *>(type_node);
+        const auto *typeof_type =
+            static_cast<const TypeofTypeNode *>(type_node);
         const SemanticType *operand_type =
             semantic_model.get_node_type(typeof_type->get_operand());
         if (operand_type == nullptr) {
-            semantic_model.add_diagnostic(SemanticDiagnostic(
-                DiagnosticSeverity::Error,
-                "unable to resolve GNU typeof operand type",
-                type_node->get_source_span()));
+            semantic_model.add_diagnostic(
+                SemanticDiagnostic(DiagnosticSeverity::Error,
+                                   "unable to resolve GNU typeof operand type",
+                                   type_node->get_source_span()));
             return nullptr;
         }
         return operand_type;
@@ -157,25 +174,26 @@ const SemanticType *TypeResolver::resolve_type(
         const auto *qualified_type =
             static_cast<const QualifiedTypeNode *>(type_node);
         return semantic_model.own_type(std::make_unique<QualifiedSemanticType>(
-            qualified_type->get_is_const(),
-            qualified_type->get_is_volatile(),
+            qualified_type->get_is_const(), qualified_type->get_is_volatile(),
             false,
             resolve_type(qualified_type->get_base_type(), semantic_context,
                          scope_stack)));
     }
     case AstKind::PointerType: {
-        const auto *pointer_type = static_cast<const PointerTypeNode *>(type_node);
+        const auto *pointer_type =
+            static_cast<const PointerTypeNode *>(type_node);
         const SemanticType *resolved_pointer =
             semantic_model.own_type(std::make_unique<PointerSemanticType>(
-            resolve_type(pointer_type->get_pointee_type(), semantic_context,
-                         scope_stack),
-            pointer_type->get_nullability_kind()));
+                resolve_type(pointer_type->get_pointee_type(), semantic_context,
+                             scope_stack),
+                pointer_type->get_nullability_kind()));
         if (pointer_type->get_is_const() || pointer_type->get_is_volatile() ||
             pointer_type->get_is_restrict()) {
-            return semantic_model.own_type(std::make_unique<QualifiedSemanticType>(
-                pointer_type->get_is_const(), pointer_type->get_is_volatile(),
-                pointer_type->get_is_restrict(),
-                resolved_pointer));
+            return semantic_model.own_type(
+                std::make_unique<QualifiedSemanticType>(
+                    pointer_type->get_is_const(),
+                    pointer_type->get_is_volatile(),
+                    pointer_type->get_is_restrict(), resolved_pointer));
         }
         return resolved_pointer;
     }
@@ -191,22 +209,27 @@ const SemanticType *TypeResolver::resolve_type(
             static_cast<const FunctionTypeNode *>(type_node);
         std::vector<const SemanticType *> parameter_types;
         parameter_types.reserve(function_type->get_parameter_types().size());
-        for (const auto &parameter_type : function_type->get_parameter_types()) {
+        for (const auto &parameter_type :
+             function_type->get_parameter_types()) {
             parameter_types.push_back(adjust_parameter_type(
-                resolve_type(parameter_type.get(), semantic_context, scope_stack),
+                resolve_type(parameter_type.get(), semantic_context,
+                             scope_stack),
                 semantic_context));
         }
+        normalize_void_parameter_list(parameter_types);
         return semantic_model.own_type(std::make_unique<FunctionSemanticType>(
             resolve_type(function_type->get_return_type(), semantic_context,
                          scope_stack),
             std::move(parameter_types), function_type->get_is_variadic()));
     }
     case AstKind::StructType: {
-        const auto *struct_type = static_cast<const StructTypeNode *>(type_node);
+        const auto *struct_type =
+            static_cast<const StructTypeNode *>(type_node);
         if (struct_type->get_fields().empty() && scope_stack != nullptr) {
             const SemanticSymbol *symbol =
                 scope_stack->lookup_tag(struct_type->get_name());
-            if (symbol != nullptr && symbol->get_kind() == SymbolKind::StructName) {
+            if (symbol != nullptr &&
+                symbol->get_kind() == SymbolKind::StructName) {
                 return symbol->get_type();
             }
         }
@@ -221,7 +244,8 @@ const SemanticType *TypeResolver::resolve_type(
         if (union_type->get_fields().empty() && scope_stack != nullptr) {
             const SemanticSymbol *symbol =
                 scope_stack->lookup_tag(union_type->get_name());
-            if (symbol != nullptr && symbol->get_kind() == SymbolKind::UnionName) {
+            if (symbol != nullptr &&
+                symbol->get_kind() == SymbolKind::UnionName) {
                 return symbol->get_type();
             }
         }
@@ -266,19 +290,22 @@ const SemanticType *TypeResolver::apply_array_dimensions(
                 semantic_dimensions[0] = static_cast<int>(*dimension_value);
             }
         }
-        current_type = semantic_model.own_type(std::make_unique<ArraySemanticType>(
-            current_type, std::move(semantic_dimensions)));
+        current_type =
+            semantic_model.own_type(std::make_unique<ArraySemanticType>(
+                current_type, std::move(semantic_dimensions)));
     }
     return current_type;
 }
 
-const SemanticType *TypeResolver::adjust_parameter_type(
-    const SemanticType *type, SemanticContext &semantic_context) const {
+const SemanticType *
+TypeResolver::adjust_parameter_type(const SemanticType *type,
+                                    SemanticContext &semantic_context) const {
     if (type == nullptr) {
         return nullptr;
     }
     if (type->get_kind() == SemanticTypeKind::Qualified) {
-        type = static_cast<const QualifiedSemanticType *>(type)->get_base_type();
+        type =
+            static_cast<const QualifiedSemanticType *>(type)->get_base_type();
         if (type == nullptr) {
             return nullptr;
         }
@@ -287,11 +314,12 @@ const SemanticType *TypeResolver::adjust_parameter_type(
     SemanticModel &semantic_model = semantic_context.get_semantic_model();
     if (type->get_kind() == SemanticTypeKind::Array) {
         const auto *array_type = static_cast<const ArraySemanticType *>(type);
-        return semantic_model.own_type(
-            std::make_unique<PointerSemanticType>(array_type->get_element_type()));
+        return semantic_model.own_type(std::make_unique<PointerSemanticType>(
+            array_type->get_element_type()));
     }
     if (type->get_kind() == SemanticTypeKind::Function) {
-        return semantic_model.own_type(std::make_unique<PointerSemanticType>(type));
+        return semantic_model.own_type(
+            std::make_unique<PointerSemanticType>(type));
     }
     return type;
 }

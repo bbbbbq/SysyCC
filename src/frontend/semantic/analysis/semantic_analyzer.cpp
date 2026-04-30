@@ -66,6 +66,19 @@ bool function_decl_has_body(const SemanticSymbol *symbol) {
     return function_decl->get_body() != nullptr;
 }
 
+bool is_void_parameter_type(const SemanticType *type) {
+    return type != nullptr && type->get_kind() == SemanticTypeKind::Builtin &&
+           static_cast<const BuiltinSemanticType *>(type)->get_name() == "void";
+}
+
+void normalize_void_parameter_list(
+    std::vector<const SemanticType *> &parameter_types) {
+    if (parameter_types.size() == 1 &&
+        is_void_parameter_type(parameter_types.front())) {
+        parameter_types.clear();
+    }
+}
+
 bool expr_is_obviously_nonzero_constant(const Expr *expr) {
     if (expr == nullptr) {
         return false;
@@ -227,6 +240,7 @@ const SemanticType *SemanticAnalyzer::build_function_type(
         parameter_types.push_back(type_resolver.adjust_parameter_type(
             parameter_type, semantic_context));
     }
+    normalize_void_parameter_list(parameter_types);
 
     return semantic_context.get_semantic_model().own_type(
         std::make_unique<FunctionSemanticType>(
