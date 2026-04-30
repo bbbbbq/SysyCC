@@ -1,0 +1,5 @@
+static const unsigned char magic[] = "SHA256v1";
+
+int main(void) {
+    return magic[0] == 'S' && magic[7] == '1' && magic[8] == 0 ? 0 : 1;
+}

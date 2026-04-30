@@ -58,6 +58,25 @@ bool qualifiers_are_superset(const TypeQualifiers &target,
            (!value.is_restrict || target.is_restrict);
 }
 
+bool is_character_semantic_type(const SemanticType *type) {
+    type = strip_qualifiers(type);
+    if (type == nullptr || type->get_kind() != SemanticTypeKind::Builtin) {
+        return false;
+    }
+    const auto &name =
+        static_cast<const BuiltinSemanticType *>(type)->get_name();
+    return name == "char" || name == "signed char" || name == "unsigned char";
+}
+
+bool is_character_array_type(const SemanticType *type) {
+    type = strip_qualifiers(type);
+    if (type == nullptr || type->get_kind() != SemanticTypeKind::Array) {
+        return false;
+    }
+    const auto *array_type = static_cast<const ArraySemanticType *>(type);
+    return is_character_semantic_type(array_type->get_element_type());
+}
+
 bool drops_qualifiers_in_pointer_conversion(const SemanticType *target,
                                             const SemanticType *value) {
     const SemanticType *unqualified_target = strip_qualifiers(target);
@@ -343,6 +362,11 @@ bool ConversionChecker::is_assignable_value(
 
     SemanticModel &semantic_model = semantic_context.get_semantic_model();
     if (is_assignable_type(target, value)) {
+        return true;
+    }
+    if (value_expr != nullptr &&
+        value_expr->get_kind() == AstKind::StringLiteralExpr &&
+        is_character_array_type(target)) {
         return true;
     }
 
