@@ -82,17 +82,35 @@ CoreIrValue *get_memory_address_value(const CoreIrInstruction &instruction) {
     return nullptr;
 }
 
+const CoreIrType *get_memory_access_type(const CoreIrInstruction &instruction) {
+    if (const auto *load = dynamic_cast<const CoreIrLoadInst *>(&instruction);
+        load != nullptr) {
+        return load->get_type();
+    }
+    if (const auto *store = dynamic_cast<const CoreIrStoreInst *>(&instruction);
+        store != nullptr) {
+        CoreIrValue *value = store->get_value();
+        return value == nullptr ? nullptr : value->get_type();
+    }
+    return nullptr;
+}
+
 bool instructions_share_exact_memory_access(const CoreIrInstruction &lhs,
                                             const CoreIrInstruction &rhs) {
-    CoreIrStackSlot *lhs_slot = get_memory_stack_slot(lhs);
-    CoreIrStackSlot *rhs_slot = get_memory_stack_slot(rhs);
-    if (lhs_slot != nullptr || rhs_slot != nullptr) {
-        return lhs_slot != nullptr && lhs_slot == rhs_slot &&
-               rhs_slot != nullptr;
+    if (get_memory_access_type(lhs) != get_memory_access_type(rhs)) {
+        return false;
     }
 
+    CoreIrStackSlot *lhs_slot = get_memory_stack_slot(lhs);
+    CoreIrStackSlot *rhs_slot = get_memory_stack_slot(rhs);
     CoreIrValue *lhs_address = get_memory_address_value(lhs);
     CoreIrValue *rhs_address = get_memory_address_value(rhs);
+    if (lhs_slot != nullptr || rhs_slot != nullptr) {
+        return lhs_slot != nullptr && lhs_slot == rhs_slot &&
+               rhs_slot != nullptr && lhs_address == nullptr &&
+               rhs_address == nullptr;
+    }
+
     return lhs_address != nullptr &&
            are_equivalent_pointer_values(lhs_address, rhs_address) &&
            rhs_address != nullptr;

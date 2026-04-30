@@ -14,6 +14,10 @@ if [[ ! "${max_jobs}" =~ ^[1-9][0-9]*$ ]]; then
     exec "${tool_path}" "$@"
 fi
 
+if [[ "${SYSYCC_TEST_HEAVY_TOOL_SLOT_HELD:-0}" == "1" ]]; then
+    exec "${tool_path}" "$@"
+fi
+
 tool_name="${SYSYCC_TEST_WRAPPED_TOOL_NAME:-$(basename "${tool_path}")}"
 argv0_name="${SYSYCC_TEST_WRAPPED_ARGV0:-}"
 lock_root="${SYSYCC_TEST_HEAVY_TOOL_LOCK_ROOT:-${TMPDIR:-/tmp}/sysycc-heavy-tool-slots}"
@@ -147,6 +151,7 @@ while [[ -z "${slot_dir}" ]]; do
     sleep 0.1
 done
 
+export SYSYCC_TEST_HEAVY_TOOL_SLOT_HELD=1
 spawn_wrapped_tool "$@"
 child_pid="$!"
 if [[ "${spawned_dedicated_group}" == "1" ]]; then

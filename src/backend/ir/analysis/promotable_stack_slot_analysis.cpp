@@ -288,6 +288,7 @@ bool is_safe_address_user(CoreIrInstruction &user, std::size_t operand_index) {
     case CoreIrOpcode::AddressOfGlobal:
     case CoreIrOpcode::AddressOfStackSlot:
     case CoreIrOpcode::Call:
+    case CoreIrOpcode::DynamicAlloca:
     case CoreIrOpcode::Jump:
     case CoreIrOpcode::CondJump:
     case CoreIrOpcode::IndirectJump:
@@ -562,8 +563,11 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                         continue;
                     }
                     if (!exact_path) {
+                        // A dynamic index from any derived aggregate address can
+                        // legally reach sibling elements, so keep the root slot
+                        // intact instead of promoting only exact constant paths.
                         add_blocked_prefix(
-                            blocked_prefixes, stack_slot, std::move(path),
+                            blocked_prefixes, stack_slot, {},
                             CoreIrPromotionFailureReason::DynamicIndex);
                         continue;
                     }
@@ -592,8 +596,10 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
                         continue;
                     }
                     if (!exact_path) {
+                        // A dynamic store through a derived aggregate address may
+                        // alias any sibling element reachable from that base.
                         add_blocked_prefix(
-                            blocked_prefixes, stack_slot, std::move(path),
+                            blocked_prefixes, stack_slot, {},
                             CoreIrPromotionFailureReason::DynamicIndex);
                         continue;
                     }
@@ -662,6 +668,7 @@ CoreIrPromotableStackSlotAnalysis::Run(const CoreIrFunction &function) const {
             case CoreIrOpcode::VectorReduceAdd:
             case CoreIrOpcode::AddressOfFunction:
             case CoreIrOpcode::AddressOfGlobal:
+            case CoreIrOpcode::DynamicAlloca:
             case CoreIrOpcode::Call:
             case CoreIrOpcode::Jump:
             case CoreIrOpcode::CondJump:
