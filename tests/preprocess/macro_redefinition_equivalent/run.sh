@@ -15,6 +15,6 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 "${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-tokens --dump-parse
 
 assert_basic_frontend_outputs "${BUILD_DIR}" "${TEST_NAME}"
-grep -q '^    return 7;$' "${BUILD_DIR}/intermediate_results/${TEST_NAME}.preprocessed.sy"
+grep -q '^    return 7 + 0;$' "${BUILD_DIR}/intermediate_results/${TEST_NAME}.preprocessed.sy"
 
 echo "verified: equivalent macro redefinitions are accepted"
