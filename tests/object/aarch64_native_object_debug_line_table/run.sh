@@ -28,7 +28,11 @@ assert_basic_frontend_outputs "${BUILD_DIR}" "aarch64_native_object_debug_line_t
 assert_file_nonempty "${OBJ_FILE}"
 
 READELF_TOOL="$(find_aarch64_readelf)"
-"${READELF_TOOL}" -S "${OBJ_FILE}" | grep -q '\.debug_line'
+SECTION_DUMP="$("${READELF_TOOL}" -S "${OBJ_FILE}")"
+grep -q '\.text' <<<"${SECTION_DUMP}"
+grep -q '\.eh_frame' <<<"${SECTION_DUMP}"
+grep -q '\.debug_line' <<<"${SECTION_DUMP}"
+"${READELF_TOOL}" -s "${OBJ_FILE}" | grep -Eq '[[:space:]]FUNC[[:space:]]+GLOBAL[[:space:]]+DEFAULT[[:space:]]+[0-9]+[[:space:]]+add$'
 "${READELF_TOOL}" --debug-dump=decodedline "${OBJ_FILE}" | \
     grep -Eq 'aarch64_native_object_debug_line_table\.sy'
 "${READELF_TOOL}" --debug-dump=decodedline "${OBJ_FILE}" | \
@@ -36,4 +40,4 @@ READELF_TOOL="$(find_aarch64_readelf)"
 "${READELF_TOOL}" --debug-dump=decodedline "${OBJ_FILE}" | \
     grep -Eq '[[:space:]]4[[:space:]]+0x'
 
-echo "verified: native AArch64 -g object emission now produces a decoded DWARF line table"
+echo "verified: native AArch64 -g object emission now carries symbols, unwind info, and a decoded DWARF line table"

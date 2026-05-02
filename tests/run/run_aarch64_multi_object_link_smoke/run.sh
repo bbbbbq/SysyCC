@@ -71,6 +71,11 @@ fi
 run_aarch64_cc "${AARCH64_CC}" "${MAIN_OBJECT}" "${HELPER_OBJECT}" -o "${PROGRAM_FILE}"
 assert_file_nonempty "${PROGRAM_FILE}"
 
+if ! have_aarch64_binary_runtime; then
+    echo "skipped runtime: missing AArch64 qemu/docker runner"
+    exit 0
+fi
+
 PROGRAM_OUTPUT="$(run_aarch64_binary_with_available_runtime "${PROGRAM_FILE}" "${SYSROOT}")"
 if [[ -n "${PROGRAM_OUTPUT}" ]]; then
     echo "unexpected AArch64 multi-object smoke output: '${PROGRAM_OUTPUT}'" >&2

@@ -50,6 +50,12 @@ assert_aarch64_relocations "${MAIN_OBJECT}" 'helper'
 
 run_aarch64_cc "${AARCH64_CC}" "${MAIN_OBJECT}" "${HELPER_OBJECT}" -o "${PROGRAM_FILE}"
 assert_file_nonempty "${PROGRAM_FILE}"
+
+if ! have_aarch64_binary_runtime; then
+    echo "skipped runtime: missing AArch64 qemu/docker runner"
+    exit 0
+fi
+
 run_aarch64_binary_with_available_runtime "${PROGRAM_FILE}" "${SYSROOT}" >/dev/null
 
 echo "verified: AArch64 multi-object function-call ABI smoke emits .o files, links, and runs"

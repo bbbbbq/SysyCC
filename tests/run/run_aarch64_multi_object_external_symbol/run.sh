@@ -103,6 +103,11 @@ run_aarch64_cc "${AARCH64_CC}" "${MAIN_OBJECT}" "${HELPER_OBJECT}" \
     -o "${PROGRAM_FILE}"
 assert_file_nonempty "${PROGRAM_FILE}"
 
+if ! have_aarch64_binary_runtime; then
+    echo "skipped runtime: missing AArch64 qemu/docker runner"
+    exit 0
+fi
+
 PROGRAM_OUTPUT="$(run_aarch64_binary_with_available_runtime "${PROGRAM_FILE}" "${SYSROOT}")"
 if [[ "${PROGRAM_OUTPUT}" != "AArch64 external symbol" ]]; then
     echo "[FAIL] unexpected AArch64 external-symbol smoke output: '${PROGRAM_OUTPUT}'" >&2
