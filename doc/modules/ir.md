@@ -736,9 +736,11 @@ LLVM IR lowering path:
   code generator, keeping the produced bytes in compiler state as an
   `ObjectResult`
   function text through an external assembler/linker merge flow
-- `-g` on the native AArch64 path now emits basic debug line information:
-  assembly output carries `.file` / `.loc`, and object output carries
-  directly-written DWARF line tables
+- `-g` on the native AArch64 path now emits basic debug line information from
+  preserved Core IR source spans: assembly output carries `.file` / `.loc`,
+  object output carries directly-written DWARF line tables, and linked ELF
+  output keeps enough line-table, symbol-table, and unwind metadata for basic
+  source-line stepping and symbolized backtraces
 - the native AArch64 backend now lowers through backend-local machine blocks
   with virtual registers, CFG-aware liveness, interference-driven allocation,
   and spill-backed rewrite before final asm printing
@@ -758,7 +760,9 @@ LLVM IR lowering path:
   object output carries unwind frame information in `.eh_frame`
 - the native AArch64 object path now also emits basic source line stepping
   metadata through DWARF `.debug_line`, enough for `readelf
-  --debug-dump=decodedline` inspection and basic debugger line stepping
+  --debug-dump=decodedline` inspection and basic debugger line stepping; full
+  local-variable and type debug info in `.debug_info` is still outside the
+  current supported boundary
 - the native AArch64 backend is no longer organized only as one monolithic file:
   its internal layout now starts to separate
   - `model/` for machine/object/debug carrier types
@@ -828,8 +832,10 @@ LLVM IR lowering path:
   include a native AArch64 object-link preflight, which checks that the
   standalone `sysycc-aarch64c -c -fPIC` path still emits linkable PIC objects
   before the larger external-suite loops begin
-- native debug-info smoke now also covers `.file` / `.loc` assembly emission and
-  decoded DWARF line tables in native AArch64 object output
+- native debug-info smoke now also covers `.file` / `.loc` assembly emission,
+  decoded DWARF line tables in native AArch64 object output, and a linked ELF
+  smoke that verifies `.text`, `.eh_frame`, `.debug_line`, `.symtab`, function
+  symbols, and source line rows survive the external link
 - the current native AArch64 object/link relocation subset that is now backed
   by regression coverage is:
   - `R_AARCH64_CALL26` / `R_AARCH64_JUMP26` for external and cross-object calls

@@ -107,6 +107,9 @@ an AArch64 multi-object matrix:
 - `run_aarch64_multi_object_global_data` for external global read/write
 - `run_aarch64_multi_object_const_rodata` for exported constants/string rodata
 - `run_aarch64_multi_object_link_smoke` for mixed code/data plus address-taking
+- `run_aarch64_debuggable_elf_smoke` for a SysyCC-source `-g -c` object linked
+  into an ELF whose `.debug_line`, `.eh_frame`, `.symtab`, and function symbols
+  survive external linking
 
 Each case compiles two separate C sources to LLVM IR with host `clang`, emits
 two native AArch64 `.o` files through `sysycc-aarch64c -c -fPIC`, inspects the
@@ -327,6 +330,10 @@ includes:
   `clang -> .ll -> sysycc-aarch64c -c -fPIC -> .o -> external link/run`
   lane inside the imported `llvm-test-suite/SingleSource` smoke gate, now
   exercised by both `globalrefs.c` and `medce-1.c`
+- AArch64 debug ELF smoke coverage for a direct
+  `SysyCC -g -c --backend=aarch64-native -> .o -> external link` lane that
+  checks source line tables, function symbols, and unwind metadata in the
+  linked ELF
 
 ## System-Header Compatibility Matrix
 
