@@ -5570,6 +5570,7 @@ class CoreIrBuildSession {
         auto *stack_slot = current_function_->create_stack_slot<CoreIrStackSlot>(
             next_stack_slot_name(symbol_name + ".addr"), declared_type,
             get_default_alignment(declared_type));
+        stack_slot->set_source_span(source_span);
         local_bindings_[symbol] = ValueBinding{nullptr, stack_slot, nullptr};
 
         if (initializer != nullptr) {
@@ -6269,6 +6270,7 @@ class CoreIrBuildSession {
                     next_stack_slot_name(parameter_name + ".addr"),
                     parameter_type,
                     get_default_alignment(parameter_type));
+                stack_slot->set_source_span(parameter_decl->get_source_span());
                 auto *store = current_block_->create_instruction<CoreIrStoreInst>(
                     void_type_, parameter, stack_slot);
                 store->set_source_span(parameter_decl->get_source_span());

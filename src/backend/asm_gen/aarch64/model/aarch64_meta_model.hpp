@@ -15,6 +15,9 @@ enum class AArch64SectionKind : unsigned char {
     EhFrame,
     DebugFrame,
     DebugLine,
+    DebugInfo,
+    DebugAbbrev,
+    DebugStr,
 };
 
 enum class AArch64CfiDirectiveKind : unsigned char {
@@ -63,6 +66,50 @@ class AArch64FrameRecord {
 struct AArch64DebugFileEntry {
     unsigned index = 0;
     std::string path;
+};
+
+enum class AArch64DebugTypeKind : unsigned char {
+    Base,
+    Pointer,
+    Array,
+    Structure,
+    Unspecified,
+};
+
+struct AArch64DebugMemberInfo {
+    std::string name;
+    std::string type_key;
+    std::size_t offset = 0;
+};
+
+struct AArch64DebugTypeInfo {
+    std::string key;
+    AArch64DebugTypeKind kind = AArch64DebugTypeKind::Unspecified;
+    std::string name;
+    std::size_t byte_size = 0;
+    unsigned encoding = 0;
+    std::string referenced_type_key;
+    std::size_t element_count = 0;
+    std::vector<AArch64DebugMemberInfo> members;
+};
+
+struct AArch64DebugVariableInfo {
+    std::string name;
+    std::string type_key;
+    unsigned decl_file_id = 0;
+    unsigned decl_line = 0;
+    unsigned decl_column = 0;
+    long long frame_offset = 0;
+    bool has_frame_offset = false;
+    unsigned dwarf_register = 0;
+    bool has_dwarf_register = false;
+};
+
+struct AArch64DebugFunctionInfo {
+    std::string name;
+    std::string return_type_key;
+    std::vector<AArch64DebugVariableInfo> parameters;
+    std::vector<AArch64DebugVariableInfo> local_variables;
 };
 
 } // namespace sysycc

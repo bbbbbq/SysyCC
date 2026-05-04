@@ -115,11 +115,32 @@ bool write_aarch64_elf_object(
         !build_eh_frame_section_image(machine_module, object_module,
                                       scanned_functions, sections) ||
         !build_debug_line_section_image(machine_module, object_module,
-                                        scanned_functions, sections)) {
+                                        scanned_functions, sections) ||
+        !build_debug_info_section_images(object_module, scanned_functions,
+                                         sections)) {
         append_object_writer_state_note(
             diagnostic_engine, machine_module, object_module, sections,
             "AArch64 object writer state after section image construction failure");
         return false;
+    }
+
+    auto has_section = [&](AArch64SectionKind kind) {
+        return std::any_of(sections.begin(), sections.end(),
+                           [&](const SectionImage &section) {
+                               return section.kind == kind;
+                           });
+    };
+    if (has_section(AArch64SectionKind::DebugLine)) {
+        defined_symbols["__sysycc_debug_line"] =
+            DefinedSymbol{AArch64SectionKind::DebugLine, 0, 0};
+    }
+    if (has_section(AArch64SectionKind::DebugAbbrev)) {
+        defined_symbols["__sysycc_debug_abbrev"] =
+            DefinedSymbol{AArch64SectionKind::DebugAbbrev, 0, 0};
+    }
+    if (has_section(AArch64SectionKind::DebugStr)) {
+        defined_symbols["__sysycc_debug_str"] =
+            DefinedSymbol{AArch64SectionKind::DebugStr, 0, 0};
     }
 
     if (sections.empty()) {

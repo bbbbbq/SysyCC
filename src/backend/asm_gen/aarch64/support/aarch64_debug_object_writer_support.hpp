@@ -22,4 +22,9 @@ bool build_debug_line_section_image(
     const std::unordered_map<std::string, FunctionScanInfo> &scanned_functions,
     std::vector<SectionImage> &sections);
 
+bool build_debug_info_section_images(
+    const AArch64ObjectModule &object_module,
+    const std::unordered_map<std::string, FunctionScanInfo> &scanned_functions,
+    std::vector<SectionImage> &sections);
+
 } // namespace sysycc

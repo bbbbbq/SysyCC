@@ -40,6 +40,9 @@ SECTION_DUMP="$("${READELF_TOOL}" -S "${ELF_FILE}")"
 grep -q '\.text' <<<"${SECTION_DUMP}"
 grep -q '\.eh_frame' <<<"${SECTION_DUMP}"
 grep -q '\.debug_line' <<<"${SECTION_DUMP}"
+grep -q '\.debug_info' <<<"${SECTION_DUMP}"
+grep -q '\.debug_abbrev' <<<"${SECTION_DUMP}"
+grep -q '\.debug_str' <<<"${SECTION_DUMP}"
 grep -q '\.symtab' <<<"${SECTION_DUMP}"
 
 "${READELF_TOOL}" -s "${ELF_FILE}" | grep -Eq '[[:space:]]FUNC[[:space:]]+GLOBAL[[:space:]]+DEFAULT[[:space:]]+[0-9]+[[:space:]]+main$'
@@ -52,9 +55,15 @@ grep -q '\.symtab' <<<"${SECTION_DUMP}"
     grep -Eq '[[:space:]]4[[:space:]]+0x'
 "${READELF_TOOL}" --debug-dump=decodedline "${ELF_FILE}" | \
     grep -Eq '[[:space:]]8[[:space:]]+0x'
+"${READELF_TOOL}" --debug-dump=info "${ELF_FILE}" | \
+    grep -q 'DW_TAG_compile_unit'
+"${READELF_TOOL}" --debug-dump=info "${ELF_FILE}" | \
+    grep -q 'DW_TAG_subprogram'
+"${READELF_TOOL}" --debug-dump=info "${ELF_FILE}" | \
+    grep -q 'DW_AT_frame_base'
 
 if have_aarch64_binary_runtime; then
     run_aarch64_binary_with_available_runtime "${ELF_FILE}" "${SYSROOT}" >/dev/null
 fi
 
-echo "verified: SysyCC AArch64 -g linked ELF keeps symbols, unwind info, and source line tables"
+echo "verified: SysyCC AArch64 -g linked ELF keeps symbols, unwind info, source line tables, and DWARF debug info"

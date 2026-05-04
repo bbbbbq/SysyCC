@@ -737,10 +737,12 @@ LLVM IR lowering path:
   `ObjectResult`
   function text through an external assembler/linker merge flow
 - `-g` on the native AArch64 path now emits basic debug line information from
-  preserved Core IR source spans: assembly output carries `.file` / `.loc`,
-  object output carries directly-written DWARF line tables, and linked ELF
-  output keeps enough line-table, symbol-table, and unwind metadata for basic
-  source-line stepping and symbolized backtraces
+  preserved Core IR source spans and object debug metadata: assembly output
+  carries `.file` / `.loc`, object output carries directly-written DWARF line
+  tables plus `.debug_info` / `.debug_abbrev` / `.debug_str`, and linked ELF
+  output keeps enough line-table, declaration-site, type, parameter,
+  local-variable, symbol-table, and unwind metadata for basic source-level
+  debugging
 - the native AArch64 backend now lowers through backend-local machine blocks
   with virtual registers, CFG-aware liveness, interference-driven allocation,
   and spill-backed rewrite before final asm printing
@@ -758,11 +760,13 @@ LLVM IR lowering path:
   references and relocation-bearing external calls
 - the native AArch64 printer now also emits `.cfi_*` directives so assembled
   object output carries unwind frame information in `.eh_frame`
-- the native AArch64 object path now also emits basic source line stepping
-  metadata through DWARF `.debug_line`, enough for `readelf
-  --debug-dump=decodedline` inspection and basic debugger line stepping; full
-  local-variable and type debug info in `.debug_info` is still outside the
-  current supported boundary
+- the native AArch64 object path now also emits source line stepping metadata
+  through DWARF `.debug_line` and a first `.debug_info` model with compile-unit,
+  subprogram, base/pointer/array/structure/member type, formal-parameter,
+  local-variable, declaration file/line/column, and frame-relative/register
+  location DIEs; optimized-away variables may still have incomplete locations
+  until the IR pipeline grows value-location tracking, and source-level typedef
+  spellings / real struct field names need future semantic debug metadata
 - the native AArch64 backend is no longer organized only as one monolithic file:
   its internal layout now starts to separate
   - `model/` for machine/object/debug carrier types
@@ -833,9 +837,12 @@ LLVM IR lowering path:
   standalone `sysycc-aarch64c -c -fPIC` path still emits linkable PIC objects
   before the larger external-suite loops begin
 - native debug-info smoke now also covers `.file` / `.loc` assembly emission,
-  decoded DWARF line tables in native AArch64 object output, and a linked ELF
-  smoke that verifies `.text`, `.eh_frame`, `.debug_line`, `.symtab`, function
-  symbols, and source line rows survive the external link
+  decoded DWARF line tables, `.debug_info` / `.debug_abbrev` / `.debug_str` in
+  native AArch64 object output, and a linked ELF smoke that verifies `.text`,
+  `.eh_frame`, `.debug_line`, `.debug_info`, `.symtab`, function symbols, and
+  source line rows survive the external link; object-level debug-info coverage
+  also checks declaration attributes plus array, structure, member, parameter,
+  and local-variable DIEs
 - the current native AArch64 object/link relocation subset that is now backed
   by regression coverage is:
   - `R_AARCH64_CALL26` / `R_AARCH64_JUMP26` for external and cross-object calls

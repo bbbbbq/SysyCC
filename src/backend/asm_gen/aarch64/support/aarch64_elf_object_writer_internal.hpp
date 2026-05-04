@@ -143,6 +143,12 @@ inline const char *section_name_for_object(AArch64SectionKind kind) {
         return ".eh_frame";
     case AArch64SectionKind::DebugLine:
         return ".debug_line";
+    case AArch64SectionKind::DebugInfo:
+        return ".debug_info";
+    case AArch64SectionKind::DebugAbbrev:
+        return ".debug_abbrev";
+    case AArch64SectionKind::DebugStr:
+        return ".debug_str";
     default:
         return nullptr;
     }
@@ -160,6 +166,9 @@ inline std::uint64_t section_flags_for_object(AArch64SectionKind kind) {
         return 0x2;
     case AArch64SectionKind::DebugLine:
     case AArch64SectionKind::DebugFrame:
+    case AArch64SectionKind::DebugInfo:
+    case AArch64SectionKind::DebugAbbrev:
+    case AArch64SectionKind::DebugStr:
         return 0;
     default:
         return 0;

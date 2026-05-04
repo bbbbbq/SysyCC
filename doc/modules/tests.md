@@ -108,8 +108,12 @@ an AArch64 multi-object matrix:
 - `run_aarch64_multi_object_const_rodata` for exported constants/string rodata
 - `run_aarch64_multi_object_link_smoke` for mixed code/data plus address-taking
 - `run_aarch64_debuggable_elf_smoke` for a SysyCC-source `-g -c` object linked
-  into an ELF whose `.debug_line`, `.eh_frame`, `.symtab`, and function symbols
-  survive external linking
+  into an ELF whose `.debug_line`, `.debug_info`, `.debug_abbrev`,
+  `.debug_str`, `.eh_frame`, `.symtab`, and function symbols survive external
+  linking
+- `aarch64_native_object_debug_info` for object-level DWARF compile-unit,
+  subprogram, base/pointer/array/structure/member type, declaration
+  file/line/column, formal-parameter, local-variable, and location DIE coverage
 
 Each case compiles two separate C sources to LLVM IR with host `clang`, emits
 two native AArch64 `.o` files through `sysycc-aarch64c -c -fPIC`, inspects the

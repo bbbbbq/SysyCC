@@ -1,8 +1,267 @@
 #include "backend/asm_gen/aarch64/support/aarch64_debug_object_writer_support.hpp"
 
+#include <algorithm>
+#include <unordered_map>
+
 namespace sysycc {
 
 namespace {
+
+constexpr std::uint16_t kDwarfLanguageC99 = 0x000c;
+
+constexpr std::uint64_t kDwTagCompileUnit = 0x11;
+constexpr std::uint64_t kDwTagSubprogram = 0x2e;
+constexpr std::uint64_t kDwTagFormalParameter = 0x05;
+constexpr std::uint64_t kDwTagVariable = 0x34;
+constexpr std::uint64_t kDwTagBaseType = 0x24;
+constexpr std::uint64_t kDwTagPointerType = 0x0f;
+constexpr std::uint64_t kDwTagArrayType = 0x01;
+constexpr std::uint64_t kDwTagSubrangeType = 0x21;
+constexpr std::uint64_t kDwTagStructureType = 0x13;
+constexpr std::uint64_t kDwTagMember = 0x0d;
+constexpr std::uint64_t kDwTagUnspecifiedType = 0x3b;
+
+constexpr std::uint64_t kDwChildrenNo = 0x00;
+constexpr std::uint64_t kDwChildrenYes = 0x01;
+
+constexpr std::uint64_t kDwAtName = 0x03;
+constexpr std::uint64_t kDwAtLocation = 0x02;
+constexpr std::uint64_t kDwAtByteSize = 0x0b;
+constexpr std::uint64_t kDwAtStmtList = 0x10;
+constexpr std::uint64_t kDwAtLowPc = 0x11;
+constexpr std::uint64_t kDwAtHighPc = 0x12;
+constexpr std::uint64_t kDwAtLanguage = 0x13;
+constexpr std::uint64_t kDwAtCompDir = 0x1b;
+constexpr std::uint64_t kDwAtProducer = 0x25;
+constexpr std::uint64_t kDwAtCount = 0x37;
+constexpr std::uint64_t kDwAtDataMemberLocation = 0x38;
+constexpr std::uint64_t kDwAtDeclColumn = 0x39;
+constexpr std::uint64_t kDwAtDeclFile = 0x3a;
+constexpr std::uint64_t kDwAtDeclLine = 0x3b;
+constexpr std::uint64_t kDwAtEncoding = 0x3e;
+constexpr std::uint64_t kDwAtExternal = 0x3f;
+constexpr std::uint64_t kDwAtFrameBase = 0x40;
+constexpr std::uint64_t kDwAtType = 0x49;
+
+constexpr std::uint64_t kDwFormAddr = 0x01;
+constexpr std::uint64_t kDwFormData2 = 0x05;
+constexpr std::uint64_t kDwFormData4 = 0x06;
+constexpr std::uint64_t kDwFormData1 = 0x0b;
+constexpr std::uint64_t kDwFormStrp = 0x0e;
+constexpr std::uint64_t kDwFormRef4 = 0x13;
+constexpr std::uint64_t kDwFormSecOffset = 0x17;
+constexpr std::uint64_t kDwFormExprloc = 0x18;
+constexpr std::uint64_t kDwFormFlagPresent = 0x19;
+
+constexpr std::uint8_t kDwOpReg29 = 0x50 + 29;
+constexpr std::uint8_t kDwOpFbreg = 0x91;
+
+constexpr const char *kDebugAbbrevSectionSymbol = "__sysycc_debug_abbrev";
+constexpr const char *kDebugLineSectionSymbol = "__sysycc_debug_line";
+constexpr const char *kDebugStrSectionSymbol = "__sysycc_debug_str";
+
+enum DwarfAbbrevCode : std::uint8_t {
+    kAbbrevCompileUnit = 1,
+    kAbbrevSubprogramWithType = 2,
+    kAbbrevFormalParameter = 3,
+    kAbbrevVariable = 4,
+    kAbbrevBaseType = 5,
+    kAbbrevPointerType = 6,
+    kAbbrevStructureType = 7,
+    kAbbrevUnspecifiedType = 8,
+    kAbbrevArrayType = 9,
+    kAbbrevSubrangeType = 10,
+    kAbbrevMember = 11,
+};
+
+std::uint32_t append_debug_string(std::vector<std::uint8_t> &debug_str,
+                                  const std::string &text) {
+    const std::uint32_t offset = static_cast<std::uint32_t>(debug_str.size());
+    debug_str.insert(debug_str.end(), text.begin(), text.end());
+    debug_str.push_back('\0');
+    return offset;
+}
+
+std::string basename_for_debug(const std::string &path) {
+    const std::size_t slash = path.find_last_of("/\\");
+    return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+std::string dirname_for_debug(const std::string &path) {
+    const std::size_t slash = path.find_last_of("/\\");
+    if (slash == std::string::npos) {
+        return ".";
+    }
+    if (slash == 0) {
+        return "/";
+    }
+    return path.substr(0, slash);
+}
+
+void append_abbrev_attr(std::vector<std::uint8_t> &bytes, std::uint64_t attr,
+                        std::uint64_t form) {
+    append_uleb128(bytes, attr);
+    append_uleb128(bytes, form);
+}
+
+void append_abbrev_entry(std::vector<std::uint8_t> &bytes, std::uint64_t code,
+                         std::uint64_t tag, std::uint64_t children,
+                         const std::vector<std::pair<std::uint64_t, std::uint64_t>>
+                             &attributes) {
+    append_uleb128(bytes, code);
+    append_uleb128(bytes, tag);
+    bytes.push_back(static_cast<std::uint8_t>(children));
+    for (const auto &[attr, form] : attributes) {
+        append_abbrev_attr(bytes, attr, form);
+    }
+    append_abbrev_attr(bytes, 0, 0);
+}
+
+void build_debug_abbrev_section_image(std::vector<SectionImage> &sections) {
+    SectionImage &section =
+        ensure_section_image(sections, AArch64SectionKind::DebugAbbrev);
+    section.align = 1;
+
+    append_abbrev_entry(section.bytes, kAbbrevCompileUnit, kDwTagCompileUnit,
+                        kDwChildrenYes,
+                        {{kDwAtProducer, kDwFormStrp},
+                         {kDwAtLanguage, kDwFormData2},
+                         {kDwAtName, kDwFormStrp},
+                         {kDwAtCompDir, kDwFormStrp},
+                         {kDwAtStmtList, kDwFormSecOffset}});
+    append_abbrev_entry(section.bytes, kAbbrevSubprogramWithType, kDwTagSubprogram,
+                        kDwChildrenYes,
+                        {{kDwAtName, kDwFormStrp},
+                         {kDwAtLowPc, kDwFormAddr},
+                         {kDwAtHighPc, kDwFormData4},
+                         {kDwAtFrameBase, kDwFormExprloc},
+                         {kDwAtExternal, kDwFormFlagPresent},
+                         {kDwAtType, kDwFormRef4}});
+    append_abbrev_entry(section.bytes, kAbbrevFormalParameter,
+                        kDwTagFormalParameter, kDwChildrenNo,
+                        {{kDwAtName, kDwFormStrp},
+                         {kDwAtDeclFile, kDwFormData4},
+                         {kDwAtDeclLine, kDwFormData4},
+                         {kDwAtDeclColumn, kDwFormData4},
+                         {kDwAtType, kDwFormRef4},
+                         {kDwAtLocation, kDwFormExprloc}});
+    append_abbrev_entry(section.bytes, kAbbrevVariable, kDwTagVariable,
+                        kDwChildrenNo,
+                        {{kDwAtName, kDwFormStrp},
+                         {kDwAtDeclFile, kDwFormData4},
+                         {kDwAtDeclLine, kDwFormData4},
+                         {kDwAtDeclColumn, kDwFormData4},
+                         {kDwAtType, kDwFormRef4},
+                         {kDwAtLocation, kDwFormExprloc}});
+    append_abbrev_entry(section.bytes, kAbbrevBaseType, kDwTagBaseType,
+                        kDwChildrenNo,
+                        {{kDwAtName, kDwFormStrp},
+                         {kDwAtByteSize, kDwFormData1},
+                         {kDwAtEncoding, kDwFormData1}});
+    append_abbrev_entry(section.bytes, kAbbrevPointerType, kDwTagPointerType,
+                        kDwChildrenNo,
+                        {{kDwAtByteSize, kDwFormData1},
+                         {kDwAtType, kDwFormRef4}});
+    append_abbrev_entry(section.bytes, kAbbrevArrayType, kDwTagArrayType,
+                        kDwChildrenYes, {{kDwAtType, kDwFormRef4}});
+    append_abbrev_entry(section.bytes, kAbbrevSubrangeType, kDwTagSubrangeType,
+                        kDwChildrenNo, {{kDwAtCount, kDwFormData4}});
+    append_abbrev_entry(section.bytes, kAbbrevStructureType, kDwTagStructureType,
+                        kDwChildrenYes,
+                        {{kDwAtName, kDwFormStrp},
+                         {kDwAtByteSize, kDwFormData4}});
+    append_abbrev_entry(section.bytes, kAbbrevMember, kDwTagMember,
+                        kDwChildrenNo,
+                        {{kDwAtName, kDwFormStrp},
+                         {kDwAtType, kDwFormRef4},
+                         {kDwAtDataMemberLocation, kDwFormData4}});
+    append_abbrev_entry(section.bytes, kAbbrevUnspecifiedType,
+                        kDwTagUnspecifiedType, kDwChildrenNo,
+                        {{kDwAtName, kDwFormStrp}});
+    append_uleb128(section.bytes, 0);
+}
+
+void append_debug_strp(SectionImage &debug_info,
+                       std::vector<std::uint8_t> &debug_str,
+                       const AArch64ObjectModule &object_module,
+                       const std::string &text) {
+    const std::uint32_t string_offset = append_debug_string(debug_str, text);
+    const std::size_t reloc_offset = debug_info.bytes.size();
+    append_pod(debug_info.bytes, string_offset);
+    debug_info.relocations.push_back(PendingRelocation{
+        reloc_offset,
+        AArch64RelocationRecord{
+            AArch64RelocationKind::Absolute32,
+            object_module.make_symbol_reference(
+                kDebugStrSectionSymbol, AArch64SymbolKind::Object,
+                AArch64SymbolBinding::Local, AArch64SectionKind::DebugStr,
+                string_offset, true),
+            reloc_offset}});
+}
+
+void append_debug_line_sec_offset(SectionImage &debug_info,
+                                  const AArch64ObjectModule &object_module) {
+    const std::size_t reloc_offset = debug_info.bytes.size();
+    append_pod(debug_info.bytes, std::uint32_t{0});
+    debug_info.relocations.push_back(PendingRelocation{
+        reloc_offset,
+        AArch64RelocationRecord{
+            AArch64RelocationKind::Absolute32,
+            object_module.make_symbol_reference(
+                kDebugLineSectionSymbol, AArch64SymbolKind::Object,
+                AArch64SymbolBinding::Local, AArch64SectionKind::DebugLine,
+                0, true),
+            reloc_offset}});
+}
+
+void append_debug_abbrev_sec_offset(SectionImage &debug_info,
+                                    const AArch64ObjectModule &object_module) {
+    const std::size_t reloc_offset = debug_info.bytes.size();
+    append_pod(debug_info.bytes, std::uint32_t{0});
+    debug_info.relocations.push_back(PendingRelocation{
+        reloc_offset,
+        AArch64RelocationRecord{
+            AArch64RelocationKind::Absolute32,
+            object_module.make_symbol_reference(
+                kDebugAbbrevSectionSymbol, AArch64SymbolKind::Object,
+                AArch64SymbolBinding::Local, AArch64SectionKind::DebugAbbrev,
+                0, true),
+            reloc_offset}});
+}
+
+void append_debug_exprloc_fbreg(std::vector<std::uint8_t> &bytes,
+                                long long frame_offset) {
+    std::vector<std::uint8_t> expr;
+    expr.push_back(kDwOpFbreg);
+    append_sleb128(expr, frame_offset);
+    append_uleb128(bytes, expr.size());
+    bytes.insert(bytes.end(), expr.begin(), expr.end());
+}
+
+void append_debug_exprloc_reg29(std::vector<std::uint8_t> &bytes) {
+    append_uleb128(bytes, 1);
+    bytes.push_back(kDwOpReg29);
+}
+
+void append_debug_exprloc_register(std::vector<std::uint8_t> &bytes,
+                                   unsigned dwarf_register) {
+    std::vector<std::uint8_t> expr;
+    if (dwarf_register <= 31) {
+        expr.push_back(static_cast<std::uint8_t>(0x50U + dwarf_register));
+    } else {
+        expr.push_back(0x90U);
+        append_uleb128(expr, dwarf_register);
+    }
+    append_uleb128(bytes, expr.size());
+    bytes.insert(bytes.end(), expr.begin(), expr.end());
+}
+
+std::uint32_t type_ref_offset(
+    const std::string &type_key,
+    const std::unordered_map<std::string, std::uint32_t> &type_offsets) {
+    const auto it = type_offsets.find(type_key);
+    return it == type_offsets.end() ? 0 : it->second;
+}
 
 void append_dwarf_advance(std::vector<std::uint8_t> &bytes,
                           std::size_t byte_delta) {
@@ -316,6 +575,166 @@ bool build_debug_line_section_image(
     overwrite_u32(section.bytes, unit_length_offset,
                   static_cast<std::uint32_t>(section.bytes.size() -
                                              unit_length_offset - 4));
+    return true;
+}
+
+bool build_debug_info_section_images(
+    const AArch64ObjectModule &object_module,
+    const std::unordered_map<std::string, FunctionScanInfo> &scanned_functions,
+    std::vector<SectionImage> &sections) {
+    if (object_module.get_debug_functions().empty() ||
+        object_module.get_debug_file_entries().empty()) {
+        return true;
+    }
+
+    build_debug_abbrev_section_image(sections);
+
+    SectionImage &debug_str =
+        ensure_section_image(sections, AArch64SectionKind::DebugStr);
+    debug_str.align = 1;
+    if (debug_str.bytes.empty()) {
+        debug_str.bytes.push_back('\0');
+    }
+
+    SectionImage &debug_info =
+        ensure_section_image(sections, AArch64SectionKind::DebugInfo);
+    debug_info.align = 1;
+
+    const std::string primary_path =
+        object_module.get_debug_file_entries().front().path;
+    const std::size_t unit_start = debug_info.bytes.size();
+    append_pod(debug_info.bytes, std::uint32_t{0});
+    append_pod(debug_info.bytes, std::uint16_t{4});
+    append_debug_abbrev_sec_offset(debug_info, object_module);
+    debug_info.bytes.push_back(8);
+
+    append_uleb128(debug_info.bytes, kAbbrevCompileUnit);
+    append_debug_strp(debug_info, debug_str.bytes, object_module,
+                      "SysyCC AArch64 native backend");
+    append_pod(debug_info.bytes, kDwarfLanguageC99);
+    append_debug_strp(debug_info, debug_str.bytes, object_module,
+                      basename_for_debug(primary_path));
+    append_debug_strp(debug_info, debug_str.bytes, object_module,
+                      dirname_for_debug(primary_path));
+    append_debug_line_sec_offset(debug_info, object_module);
+
+    std::unordered_map<std::string, std::uint32_t> type_offsets;
+    for (const AArch64DebugTypeInfo &type : object_module.get_debug_types()) {
+        if (type.key.empty()) {
+            continue;
+        }
+        type_offsets[type.key] =
+            static_cast<std::uint32_t>(debug_info.bytes.size() - unit_start);
+        switch (type.kind) {
+        case AArch64DebugTypeKind::Base:
+            append_uleb128(debug_info.bytes, kAbbrevBaseType);
+            append_debug_strp(debug_info, debug_str.bytes, object_module,
+                              type.name);
+            debug_info.bytes.push_back(static_cast<std::uint8_t>(type.byte_size));
+            debug_info.bytes.push_back(static_cast<std::uint8_t>(type.encoding));
+            break;
+        case AArch64DebugTypeKind::Pointer:
+            append_uleb128(debug_info.bytes, kAbbrevPointerType);
+            debug_info.bytes.push_back(static_cast<std::uint8_t>(type.byte_size));
+            append_pod(debug_info.bytes,
+                       type_ref_offset(type.referenced_type_key, type_offsets));
+            break;
+        case AArch64DebugTypeKind::Array:
+            append_uleb128(debug_info.bytes, kAbbrevArrayType);
+            append_pod(debug_info.bytes,
+                       type_ref_offset(type.referenced_type_key, type_offsets));
+            append_uleb128(debug_info.bytes, kAbbrevSubrangeType);
+            append_pod(debug_info.bytes,
+                       static_cast<std::uint32_t>(type.element_count));
+            append_uleb128(debug_info.bytes, 0);
+            break;
+        case AArch64DebugTypeKind::Structure:
+            append_uleb128(debug_info.bytes, kAbbrevStructureType);
+            append_debug_strp(debug_info, debug_str.bytes, object_module,
+                              type.name);
+            append_pod(debug_info.bytes,
+                       static_cast<std::uint32_t>(type.byte_size));
+            for (const AArch64DebugMemberInfo &member : type.members) {
+                append_uleb128(debug_info.bytes, kAbbrevMember);
+                append_debug_strp(debug_info, debug_str.bytes, object_module,
+                                  member.name);
+                append_pod(debug_info.bytes,
+                           type_ref_offset(member.type_key, type_offsets));
+                append_pod(debug_info.bytes,
+                           static_cast<std::uint32_t>(member.offset));
+            }
+            append_uleb128(debug_info.bytes, 0);
+            break;
+        case AArch64DebugTypeKind::Unspecified:
+            append_uleb128(debug_info.bytes, kAbbrevUnspecifiedType);
+            append_debug_strp(debug_info, debug_str.bytes, object_module,
+                              type.name);
+            break;
+        }
+    }
+
+    auto append_variable_die = [&](const AArch64DebugVariableInfo &variable,
+                                   std::uint8_t abbrev_code) {
+        if (variable.name.empty() ||
+            (!variable.has_frame_offset && !variable.has_dwarf_register)) {
+            return;
+        }
+        append_uleb128(debug_info.bytes, abbrev_code);
+        append_debug_strp(debug_info, debug_str.bytes, object_module,
+                          variable.name);
+        append_pod(debug_info.bytes, variable.decl_file_id);
+        append_pod(debug_info.bytes, variable.decl_line);
+        append_pod(debug_info.bytes, variable.decl_column);
+        append_pod(debug_info.bytes,
+                   type_ref_offset(variable.type_key, type_offsets));
+        if (variable.has_frame_offset) {
+            append_debug_exprloc_fbreg(debug_info.bytes, variable.frame_offset);
+        } else {
+            append_debug_exprloc_register(debug_info.bytes,
+                                          variable.dwarf_register);
+        }
+    };
+
+    for (const AArch64DebugFunctionInfo &function :
+         object_module.get_debug_functions()) {
+        const auto scan_it = scanned_functions.find(function.name);
+        if (scan_it == scanned_functions.end()) {
+            continue;
+        }
+        append_uleb128(debug_info.bytes, kAbbrevSubprogramWithType);
+        append_debug_strp(debug_info, debug_str.bytes, object_module,
+                          function.name);
+        const std::size_t reloc_offset = debug_info.bytes.size();
+        append_pod(debug_info.bytes, std::uint64_t{0});
+        debug_info.relocations.push_back(PendingRelocation{
+            reloc_offset,
+            AArch64RelocationRecord{
+                AArch64RelocationKind::Absolute64,
+                object_module.make_symbol_reference(
+                    function.name, AArch64SymbolKind::Function,
+                    AArch64SymbolBinding::Unknown, AArch64SectionKind::Text,
+                    0, true),
+                reloc_offset}});
+        append_pod(debug_info.bytes,
+                   static_cast<std::uint32_t>(scan_it->second.code_size));
+        append_debug_exprloc_reg29(debug_info.bytes);
+        append_pod(debug_info.bytes,
+                   type_ref_offset(function.return_type_key, type_offsets));
+
+        for (const AArch64DebugVariableInfo &parameter : function.parameters) {
+            append_variable_die(parameter, kAbbrevFormalParameter);
+        }
+        for (const AArch64DebugVariableInfo &local_variable :
+             function.local_variables) {
+            append_variable_die(local_variable, kAbbrevVariable);
+        }
+        append_uleb128(debug_info.bytes, 0);
+    }
+    append_uleb128(debug_info.bytes, 0);
+
+    overwrite_u32(debug_info.bytes, unit_start,
+                  static_cast<std::uint32_t>(debug_info.bytes.size() -
+                                             unit_start - 4));
     return true;
 }
 

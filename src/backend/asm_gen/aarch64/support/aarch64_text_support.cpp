@@ -35,6 +35,12 @@ const char *section_name(AArch64SectionKind section_kind) {
         return ".section .debug_frame";
     case AArch64SectionKind::DebugLine:
         return ".section .debug_line";
+    case AArch64SectionKind::DebugInfo:
+        return ".section .debug_info";
+    case AArch64SectionKind::DebugAbbrev:
+        return ".section .debug_abbrev";
+    case AArch64SectionKind::DebugStr:
+        return ".section .debug_str";
     }
     return ".text";
 }

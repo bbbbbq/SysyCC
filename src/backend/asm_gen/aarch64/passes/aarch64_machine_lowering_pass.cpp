@@ -128,6 +128,15 @@ get_signed_integer_constant(const CoreIrConstant *constant) {
     return static_cast<long long>(masked | ~mask);
 }
 
+std::string debug_stack_slot_user_name(std::string name) {
+    const std::string suffix = ".addr";
+    const std::size_t suffix_pos = name.find(suffix);
+    if (suffix_pos != std::string::npos) {
+        return name.substr(0, suffix_pos);
+    }
+    return name;
+}
+
 void add_backend_error(DiagnosticEngine &diagnostic_engine,
                        const std::string &message) {
     diagnostic_engine.add_error(DiagnosticStage::Compiler, message);
@@ -601,6 +610,243 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         return plan_function_control_flow(function, state, facade);
     }
 
+    std::string record_debug_type(const CoreIrType *type) {
+        if (object_module_ == nullptr || type == nullptr) {
+            return {};
+        }
+
+        if (is_void_type(type)) {
+            const std::string key = "void";
+            object_module_->record_debug_type(AArch64DebugTypeInfo{
+                .key = key,
+                .kind = AArch64DebugTypeKind::Unspecified,
+                .name = "void"});
+            return key;
+        }
+        if (const auto *integer_type = as_integer_type(type);
+            integer_type != nullptr) {
+            const std::size_t bit_width = integer_type->get_bit_width();
+            const bool is_signed = integer_type->get_is_signed();
+            const std::string key =
+                std::string(is_signed ? "i" : "u") + std::to_string(bit_width);
+            std::string name;
+            if (bit_width == 1) {
+                name = "_Bool";
+            } else if (bit_width == 8) {
+                name = is_signed ? "signed char" : "unsigned char";
+            } else if (bit_width == 16) {
+                name = is_signed ? "short" : "unsigned short";
+            } else if (bit_width == 32) {
+                name = is_signed ? "int" : "unsigned int";
+            } else if (bit_width == 64) {
+                name = is_signed ? "long long" : "unsigned long long";
+            } else {
+                name = (is_signed ? "i" : "u") + std::to_string(bit_width);
+            }
+            object_module_->record_debug_type(AArch64DebugTypeInfo{
+                .key = key,
+                .kind = AArch64DebugTypeKind::Base,
+                .name = name,
+                .byte_size = get_storage_size(type),
+                .encoding = bit_width == 1 ? 2U : (is_signed ? 5U : 7U)});
+            return key;
+        }
+        if (const auto *float_type = as_float_type(type); float_type != nullptr) {
+            std::string key;
+            std::string name;
+            switch (float_type->get_float_kind()) {
+            case CoreIrFloatKind::Float16:
+                key = "f16";
+                name = "_Float16";
+                break;
+            case CoreIrFloatKind::Float32:
+                key = "f32";
+                name = "float";
+                break;
+            case CoreIrFloatKind::Float64:
+                key = "f64";
+                name = "double";
+                break;
+            case CoreIrFloatKind::Float128:
+                key = "f128";
+                name = "long double";
+                break;
+            }
+            object_module_->record_debug_type(AArch64DebugTypeInfo{
+                .key = key,
+                .kind = AArch64DebugTypeKind::Base,
+                .name = name,
+                .byte_size = get_storage_size(type),
+                .encoding = 4});
+            return key;
+        }
+        if (const auto *pointer_type = dynamic_cast<const CoreIrPointerType *>(type);
+            pointer_type != nullptr) {
+            const std::string pointee_key =
+                record_debug_type(pointer_type->get_pointee_type());
+            const std::string key = "p:" + pointee_key;
+            object_module_->record_debug_type(AArch64DebugTypeInfo{
+                .key = key,
+                .kind = AArch64DebugTypeKind::Pointer,
+                .name = "pointer",
+                .byte_size = 8,
+                .referenced_type_key = pointee_key});
+            return key;
+        }
+        if (const auto *array_type = dynamic_cast<const CoreIrArrayType *>(type);
+            array_type != nullptr) {
+            const std::string element_key =
+                record_debug_type(array_type->get_element_type());
+            const std::string key =
+                "a:" + std::to_string(array_type->get_element_count()) + ":" +
+                element_key;
+            object_module_->record_debug_type(AArch64DebugTypeInfo{
+                .key = key,
+                .kind = AArch64DebugTypeKind::Array,
+                .name = "array",
+                .byte_size = get_type_size(type),
+                .referenced_type_key = element_key,
+                .element_count = array_type->get_element_count()});
+            return key;
+        }
+        if (const auto *struct_type = dynamic_cast<const CoreIrStructType *>(type);
+            struct_type != nullptr) {
+            std::vector<AArch64DebugMemberInfo> members;
+            const auto &element_types = struct_type->get_element_types();
+            members.reserve(element_types.size());
+            for (std::size_t index = 0; index < element_types.size(); ++index) {
+                members.push_back(AArch64DebugMemberInfo{
+                    .name = "field" + std::to_string(index),
+                    .type_key = record_debug_type(element_types[index]),
+                    .offset = get_struct_member_offset(struct_type, index)});
+            }
+            const std::string key =
+                "struct:" + std::to_string(reinterpret_cast<std::uintptr_t>(type));
+            object_module_->record_debug_type(AArch64DebugTypeInfo{
+                .key = key,
+                .kind = AArch64DebugTypeKind::Structure,
+                .name = struct_type->get_is_packed() ? "packed aggregate"
+                                                     : "aggregate",
+                .byte_size = get_type_size(type),
+                .members = std::move(members)});
+            return key;
+        }
+
+        const std::string key =
+            "object:" + std::to_string(reinterpret_cast<std::uintptr_t>(type));
+        object_module_->record_debug_type(AArch64DebugTypeInfo{
+            .key = key,
+            .kind = AArch64DebugTypeKind::Structure,
+            .name = "aggregate",
+            .byte_size = get_type_size(type)});
+        return key;
+    }
+
+    const CoreIrStackSlot *
+    find_debug_stack_slot(const CoreIrFunction &function,
+                          const std::string &user_name) const {
+        const std::string expected = user_name + ".addr";
+        for (const auto &stack_slot : function.get_stack_slots()) {
+            if (stack_slot != nullptr && stack_slot->get_name() == expected) {
+                return stack_slot.get();
+            }
+        }
+        return nullptr;
+    }
+
+    void attach_debug_decl_location(AArch64DebugVariableInfo &debug_variable,
+                                    const SourceSpan &source_span) {
+        if (source_span.empty()) {
+            return;
+        }
+        const unsigned file_id = record_debug_file(source_span.get_file());
+        if (file_id == 0 || source_span.get_line_begin() <= 0) {
+            return;
+        }
+        debug_variable.decl_file_id = file_id;
+        debug_variable.decl_line =
+            static_cast<unsigned>(source_span.get_line_begin());
+        debug_variable.decl_column =
+            static_cast<unsigned>(std::max(1, source_span.get_col_begin()));
+    }
+
+    void record_debug_function_metadata(const CoreIrFunction &function,
+                                        const FunctionState &state) {
+        if (object_module_ == nullptr || !backend_options_.get_debug_info() ||
+            state.machine_function == nullptr) {
+            return;
+        }
+
+        AArch64DebugFunctionInfo debug_function;
+        debug_function.name = function.get_name();
+        debug_function.return_type_key =
+            record_debug_type(function.get_function_type()->get_return_type());
+
+        std::set<std::string> parameter_names;
+        for (std::size_t index = 0; index < function.get_parameters().size();
+             ++index) {
+            const auto &parameter = function.get_parameters()[index];
+            if (parameter == nullptr || parameter->get_name().empty()) {
+                continue;
+            }
+            parameter_names.insert(parameter->get_name());
+            AArch64DebugVariableInfo debug_parameter;
+            debug_parameter.name = parameter->get_name();
+            debug_parameter.type_key = record_debug_type(parameter->get_type());
+            attach_debug_decl_location(debug_parameter,
+                                       parameter->get_source_span());
+            const CoreIrStackSlot *stack_slot =
+                find_debug_stack_slot(function, parameter->get_name());
+            if (stack_slot != nullptr) {
+                debug_parameter.frame_offset =
+                    -static_cast<long long>(state.machine_function->get_frame_info()
+                                                .get_stack_slot_offset(stack_slot));
+                debug_parameter.has_frame_offset = true;
+            } else if (index < state.call_state.abi_info.parameters.size()) {
+                const AArch64AbiAssignment &assignment =
+                    state.call_state.abi_info.parameters[index];
+                if (!assignment.locations.empty() &&
+                    (assignment.locations.front().kind ==
+                         AArch64AbiLocationKind::GeneralRegister ||
+                     assignment.locations.front().kind ==
+                         AArch64AbiLocationKind::FloatingRegister)) {
+                    debug_parameter.dwarf_register =
+                        dwarf_register_number(assignment.locations.front().physical_reg);
+                    debug_parameter.has_dwarf_register = true;
+                }
+            }
+            if (debug_parameter.has_frame_offset ||
+                debug_parameter.has_dwarf_register) {
+                debug_function.parameters.push_back(std::move(debug_parameter));
+            }
+        }
+
+        for (const auto &stack_slot : function.get_stack_slots()) {
+            if (stack_slot == nullptr || stack_slot->get_name().empty()) {
+                continue;
+            }
+            const std::string user_name =
+                debug_stack_slot_user_name(stack_slot->get_name());
+            if (user_name.empty() ||
+                parameter_names.find(user_name) != parameter_names.end()) {
+                continue;
+            }
+            AArch64DebugVariableInfo debug_variable;
+            debug_variable.name = user_name;
+            debug_variable.type_key =
+                record_debug_type(stack_slot->get_allocated_type());
+            attach_debug_decl_location(debug_variable,
+                                       stack_slot->get_source_span());
+            debug_variable.frame_offset =
+                -static_cast<long long>(state.machine_function->get_frame_info()
+                                            .get_stack_slot_offset(stack_slot.get()));
+            debug_variable.has_frame_offset = true;
+            debug_function.local_variables.push_back(std::move(debug_variable));
+        }
+
+        object_module_->append_debug_function(std::move(debug_function));
+    }
+
     bool append_function(AArch64MachineModule &machine_module,
                          const CoreIrFunction &function) {
         if (function.get_basic_blocks().empty()) {
@@ -611,6 +857,7 @@ class AArch64LoweringSession : public AArch64LoweringFacadeServices {
         if (!initialize_function_state(machine_module, function, state)) {
             return false;
         }
+        record_debug_function_metadata(function, state);
 
         return emit_function(*state.machine_function, function, state);
     }

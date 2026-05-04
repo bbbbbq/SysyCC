@@ -255,6 +255,9 @@ class AArch64ObjectModule {
   private:
     std::vector<AArch64DebugFileEntry> debug_file_entries_;
     std::unordered_map<std::string, unsigned> debug_file_ids_;
+    std::vector<AArch64DebugTypeInfo> debug_types_;
+    std::unordered_map<std::string, std::size_t> debug_type_indices_;
+    std::vector<AArch64DebugFunctionInfo> debug_functions_;
     std::vector<AArch64DataObject> data_objects_;
     std::map<std::string, AArch64Symbol> symbols_;
     std::uint32_t next_symbol_id_ = 1;
@@ -274,6 +277,29 @@ class AArch64ObjectModule {
     }
     const std::vector<AArch64DebugFileEntry> &get_debug_file_entries() const noexcept {
         return debug_file_entries_;
+    }
+    void record_debug_type(AArch64DebugTypeInfo debug_type) {
+        if (debug_type.key.empty()) {
+            return;
+        }
+        const auto existing = debug_type_indices_.find(debug_type.key);
+        if (existing != debug_type_indices_.end()) {
+            return;
+        }
+        debug_type_indices_[debug_type.key] = debug_types_.size();
+        debug_types_.push_back(std::move(debug_type));
+    }
+    const std::vector<AArch64DebugTypeInfo> &get_debug_types() const noexcept {
+        return debug_types_;
+    }
+    void append_debug_function(AArch64DebugFunctionInfo debug_function) {
+        if (!debug_function.name.empty()) {
+            debug_functions_.push_back(std::move(debug_function));
+        }
+    }
+    const std::vector<AArch64DebugFunctionInfo> &
+    get_debug_functions() const noexcept {
+        return debug_functions_;
     }
     std::vector<AArch64DataObject> &get_data_objects() noexcept { return data_objects_; }
     const std::vector<AArch64DataObject> &get_data_objects() const noexcept {

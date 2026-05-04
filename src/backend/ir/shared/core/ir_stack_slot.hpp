@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <string>
 
+#include "common/source_span.hpp"
+
 namespace sysycc {
 
 class CoreIrFunction;
@@ -14,6 +16,7 @@ class CoreIrStackSlot {
     const CoreIrType *allocated_type_ = nullptr;
     std::size_t alignment_ = 0;
     CoreIrFunction *parent_ = nullptr;
+    SourceSpan source_span_;
 
   public:
     CoreIrStackSlot(std::string name, const CoreIrType *allocated_type,
@@ -33,6 +36,12 @@ class CoreIrStackSlot {
     }
 
     std::size_t get_alignment() const noexcept { return alignment_; }
+
+    const SourceSpan &get_source_span() const noexcept { return source_span_; }
+
+    void set_source_span(SourceSpan source_span) noexcept {
+        source_span_ = source_span;
+    }
 };
 
 } // namespace sysycc

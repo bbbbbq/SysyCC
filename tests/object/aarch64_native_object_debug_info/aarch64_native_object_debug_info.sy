@@ -1,0 +1,19 @@
+struct Pair {
+    int left;
+    int right;
+};
+
+int add(int a, int b) {
+    int c;
+    int *p;
+    int **pp;
+    int values[2];
+    struct Pair pair;
+    c = a + b;
+    p = &c;
+    pp = &p;
+    values[0] = **pp;
+    pair.left = values[0];
+    pair.right = b;
+    return pair.left + pair.right - b;
+}
