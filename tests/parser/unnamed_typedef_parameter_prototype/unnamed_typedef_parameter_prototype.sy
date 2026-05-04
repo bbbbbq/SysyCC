@@ -1,5 +1,0 @@
-int strncasecmp(const char *, const char *, size_t);
-
-int main() {
-    return 0;
-}

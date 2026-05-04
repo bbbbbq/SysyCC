@@ -1,9 +1,0 @@
-int main() {
-    long double value;
-    double shadow;
-    value = (long double)getint();
-    shadow = (double)value;
-    value = (long double)shadow;
-    putint((int)value);
-    return 0;
-}

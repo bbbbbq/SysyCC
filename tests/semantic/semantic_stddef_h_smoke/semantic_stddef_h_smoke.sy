@@ -1,8 +1,0 @@
-#include <stddef.h>
-
-int main(void) {
-    ptrdiff_t delta = 0;
-    size_t width = sizeof(delta);
-    void *empty = NULL;
-    return empty == NULL ? (int)(delta + (ptrdiff_t)width) : 1;
-}

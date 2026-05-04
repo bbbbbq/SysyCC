@@ -1,5 +1,0 @@
-extern int ext_fn(int);
-
-int call_ext(int value) {
-    return ext_fn(value);
-}

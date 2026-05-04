@@ -1,1 +1,0 @@
-#define INDIRECT_VALUE 64

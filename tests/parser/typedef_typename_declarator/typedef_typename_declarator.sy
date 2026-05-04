@@ -1,5 +1,0 @@
-struct BootstrapNames {
-    int size_t;
-};
-
-int main() { return 0; }

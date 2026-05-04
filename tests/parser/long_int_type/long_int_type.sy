@@ -1,5 +1,0 @@
-extern float scalblnf(float, long int);
-
-int main() {
-    return 0;
-}

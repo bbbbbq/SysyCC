@@ -1,7 +1,0 @@
-static int * const *values[1] = {(void*)0};
-
-int main() {
-    putint(values[0] == (void*)0);
-    putch(10);
-    return 0;
-}

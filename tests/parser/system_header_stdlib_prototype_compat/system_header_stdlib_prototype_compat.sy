@@ -1,6 +1,0 @@
-int abs(int) __attribute__((__const__));
-int atexit(void (* _Nonnull)(void));
-double erand48(unsigned short[3]);
-void (*signal(int, void (*)(int)))(int);
-
-int main(void) { return 0; }

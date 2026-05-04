@@ -1,9 +1,0 @@
-enum Value {
-    FIRST = 1,
-    SECOND = 1,
-    THIRD = 2
-};
-
-int main(void) {
-    return FIRST + SECOND + THIRD;
-}

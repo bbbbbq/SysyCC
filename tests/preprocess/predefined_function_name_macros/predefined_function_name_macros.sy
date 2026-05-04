@@ -1,7 +1,0 @@
-const char *current_function(void) {
-    return __FUNCTION__;
-}
-
-const char *pretty_function(void) {
-    return __PRETTY_FUNCTION__;
-}

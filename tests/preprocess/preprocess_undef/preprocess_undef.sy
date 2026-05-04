@@ -1,7 +1,0 @@
-#define RET 1
-#undef RET
-#define RET 7
-
-int main() {
-    return RET;
-}

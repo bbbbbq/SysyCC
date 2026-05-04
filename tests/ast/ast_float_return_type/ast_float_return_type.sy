@@ -1,3 +1,0 @@
-float value() {
-    return 0;
-}

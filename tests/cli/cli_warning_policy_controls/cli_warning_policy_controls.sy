@@ -1,6 +1,0 @@
-int compare(int lhs, unsigned int rhs) {
-    if (lhs < rhs) {
-        return 1;
-    }
-    return 0;
-}

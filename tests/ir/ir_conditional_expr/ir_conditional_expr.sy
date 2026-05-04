@@ -1,9 +1,0 @@
-int getint(void);
-
-int pick(int cond) {
-    return cond ? 11 : 22;
-}
-
-int main(void) {
-    return pick(getint());
-}

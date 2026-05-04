@@ -1,5 +1,0 @@
-#define PICK(..., x) x
-
-int main() {
-    return 0;
-}

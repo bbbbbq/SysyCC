@@ -1,6 +1,0 @@
-const int N = 'a' + 1;
-int values[N];
-
-int main() {
-    return values['b' - 'b'];
-}

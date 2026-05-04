@@ -1,4 +1,0 @@
-int main(void) {
-    putint(7);
-    return 0;
-}

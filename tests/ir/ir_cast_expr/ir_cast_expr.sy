@@ -1,5 +1,0 @@
-int main() {
-    double value;
-    value = (double)1;
-    return (int)value;
-}

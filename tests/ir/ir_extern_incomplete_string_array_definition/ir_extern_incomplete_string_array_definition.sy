@@ -1,9 +1,0 @@
-extern const char lua_ident[];
-
-const char lua_ident[] =
-    "Lua "
-    "real project";
-
-int main(void) {
-    return lua_ident[0] == 'L' ? 0 : 1;
-}

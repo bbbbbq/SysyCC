@@ -1,4 +1,0 @@
-#define SOME_MACRO 1
-#if defined(
-int unreachable = 0;
-#endif

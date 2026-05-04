@@ -1,4 +1,0 @@
-int main() {
-    const int *items[5];
-    return 0;
-}

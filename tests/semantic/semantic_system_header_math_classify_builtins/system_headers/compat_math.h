@@ -1,6 +1,0 @@
-#define NAN __builtin_nanf("")
-#define INFINITY __builtin_inff()
-#define isnan(value) __builtin_isnan(value)
-#define isfinite(value) __builtin_isfinite(value)
-#define isinf(value) __builtin_isinf_sign(value)
-#define signbit(value) __builtin_signbit(value)

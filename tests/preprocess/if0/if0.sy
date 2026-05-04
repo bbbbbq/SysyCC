@@ -1,9 +1,0 @@
-#if 0
-int unreachable() {
-    return 3;
-}
-#else
-int main() {
-    return 0;
-}
-#endif

@@ -1,9 +1,0 @@
-int helper(int x) {
-    int y;
-    y = x + 7;
-    return y;
-}
-
-int main() {
-    return helper(35) - 42;
-}

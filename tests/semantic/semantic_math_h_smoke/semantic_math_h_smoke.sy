@@ -1,6 +1,0 @@
-#include <math.h>
-
-int main(void) {
-    double value = 0.0;
-    return isnan(value);
-}

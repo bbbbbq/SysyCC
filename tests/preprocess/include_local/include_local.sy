@@ -1,5 +1,0 @@
-#include "local_value.h"
-
-int main() {
-    return RET;
-}

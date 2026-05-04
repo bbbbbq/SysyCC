@@ -1,4 +1,0 @@
-int main() {
-    unsigned char value = (unsigned char)300;
-    return value;
-}

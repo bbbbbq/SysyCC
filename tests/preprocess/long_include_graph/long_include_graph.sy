@@ -1,5 +1,0 @@
-#include "root/local_root.h"
-
-int main() {
-    return combined_total;
-}

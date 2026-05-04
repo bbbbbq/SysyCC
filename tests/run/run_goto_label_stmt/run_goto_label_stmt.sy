@@ -1,9 +1,0 @@
-int main() {
-    int value = 0;
-    goto done;
-    value = 1;
-done:
-    putint(value);
-    putch(10);
-    return 0;
-}

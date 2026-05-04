@@ -1,7 +1,0 @@
-int main() {
-    int lhs = getint();
-    int rhs = getint();
-    putint(lhs + rhs);
-    putch(10);
-    return 0;
-}

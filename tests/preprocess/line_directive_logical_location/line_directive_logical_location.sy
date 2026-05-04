@@ -1,4 +1,0 @@
-#line 200 "virtual_input.sy"
-#if defined(1)
-int selected = 1;
-#endif

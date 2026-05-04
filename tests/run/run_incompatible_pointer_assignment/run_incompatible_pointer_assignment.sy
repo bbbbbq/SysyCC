@@ -1,9 +1,0 @@
-int main() {
-    int value = 7;
-    int *source = &value;
-    unsigned int *target = (void*)0;
-    target = source;
-    putint(target != (void*)0);
-    putch(10);
-    return 0;
-}

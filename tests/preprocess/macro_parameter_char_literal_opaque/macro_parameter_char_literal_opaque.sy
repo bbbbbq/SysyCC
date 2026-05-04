@@ -1,6 +1,0 @@
-#define PARSE_OPT_NOCOMPLETE 32
-#define OPT_FORCE(f) \
-int short_name = ('f'); \
-int flags = (f);
-
-OPT_FORCE(PARSE_OPT_NOCOMPLETE)

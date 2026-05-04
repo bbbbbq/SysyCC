@@ -1,8 +1,0 @@
-#define THIRD 9
-#define SECOND THIRD
-#define FIRST SECOND
-#define WRAP(x) ((x) + FIRST)
-
-int main() {
-    return WRAP(FIRST);
-}

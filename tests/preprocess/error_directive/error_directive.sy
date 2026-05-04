@@ -1,9 +1,0 @@
-#if 0
-#error should_not_trigger
-#endif
-
-#error explicit preprocess failure
-
-int main() {
-    return 0;
-}

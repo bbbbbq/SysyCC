@@ -1,5 +1,0 @@
-int macro_seen = CLI_MACRO;
-int forced_seen = FORCED_VALUE;
-#ifdef HIDDEN
-int hidden = 1;
-#endif

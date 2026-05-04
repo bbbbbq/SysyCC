@@ -1,7 +1,0 @@
-int main() {
-    int values[3];
-    int index = 1;
-    values[0] = 2;
-    values[index] = 4;
-    return values[1];
-}

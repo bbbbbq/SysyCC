@@ -1,6 +1,0 @@
-int main() {
-    unsigned int buff[4];
-    char *bytes = (char *)buff;
-    bytes[0] = 0;
-    return bytes[0];
-}

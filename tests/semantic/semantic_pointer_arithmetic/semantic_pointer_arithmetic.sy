@@ -1,9 +1,0 @@
-int main() {
-    int values[4];
-    int *ptr;
-    int diff;
-    ptr = values;
-    ptr = ptr + 1;
-    diff = ptr - values;
-    return diff;
-}

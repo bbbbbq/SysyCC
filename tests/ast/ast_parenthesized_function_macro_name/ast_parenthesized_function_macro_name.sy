@@ -1,5 +1,0 @@
-#define FUNC_NAME(x) (safe_##x)
-
-static int FUNC_NAME(add)(int x, int y) {
-    return x + y;
-}

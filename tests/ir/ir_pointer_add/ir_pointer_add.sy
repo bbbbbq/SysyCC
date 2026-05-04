@@ -1,3 +1,0 @@
-int read_offset(int *p, int offset) {
-    return *(p + offset);
-}

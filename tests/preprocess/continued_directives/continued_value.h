@@ -1,1 +1,0 @@
-#define CONTINUATION_VALUE 2

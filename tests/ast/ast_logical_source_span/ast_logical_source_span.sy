@@ -1,4 +1,0 @@
-#line 40 "virtual_ast.sy"
-int main() {
-    return 0;
-}

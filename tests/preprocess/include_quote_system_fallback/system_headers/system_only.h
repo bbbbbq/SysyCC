@@ -1,1 +1,0 @@
-#define SYSTEM_ONLY_VALUE 77

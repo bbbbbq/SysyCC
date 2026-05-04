@@ -1,2 +1,0 @@
-int i32_max_value = __INT32_MAX__;
-unsigned int u32_max_value = __UINT32_MAX__;

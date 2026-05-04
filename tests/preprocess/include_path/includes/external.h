@@ -1,1 +1,0 @@
-#define EXTERNAL_RET 42

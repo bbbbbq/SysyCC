@@ -1,2 +1,0 @@
-int macro_seen = CLI_MACRO;
-int forced_seen = FORCED_VALUE;

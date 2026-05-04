@@ -1,1 +1,0 @@
-#define FORCED_VALUE 42

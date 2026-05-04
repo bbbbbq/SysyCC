@@ -1,3 +1,0 @@
-int mix(int *p, int a, int b, int c, int d, int e, int f) {
-    return p[a] + p[b] + p[c] + p[d] + p[e] + p[f];
-}

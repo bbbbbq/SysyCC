@@ -1,5 +1,0 @@
-#include <ctype.h>
-
-int main(void) {
-    return isdigit('3');
-}

@@ -1,7 +1,0 @@
-static const char *futurewords[] = {
-    "class", "const", "enum",
-};
-
-int main(void) {
-    return futurewords[0][0] == 'c' ? 0 : 1;
-}

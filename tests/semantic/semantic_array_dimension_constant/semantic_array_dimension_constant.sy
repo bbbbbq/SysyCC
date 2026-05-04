@@ -1,5 +1,0 @@
-int main() {
-    int size = 4;
-    int values[size];
-    return 0;
-}

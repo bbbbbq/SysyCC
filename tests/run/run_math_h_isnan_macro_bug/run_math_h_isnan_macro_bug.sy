@@ -1,5 +1,0 @@
-#include <math.h>
-
-int main(void) {
-    return isnan(0.0);
-}

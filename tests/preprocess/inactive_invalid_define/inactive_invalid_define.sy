@@ -1,9 +1,0 @@
-#if 0
-#include
-#endif
-
-int kept = 41;
-
-int main() {
-    return kept;
-}

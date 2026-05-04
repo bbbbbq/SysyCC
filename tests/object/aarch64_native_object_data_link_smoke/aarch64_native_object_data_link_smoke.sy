@@ -1,7 +1,0 @@
-static int local_value = 7;
-static int *local_ptr = &local_value;
-
-int main(void) {
-    putint(*local_ptr);
-    return 0;
-}

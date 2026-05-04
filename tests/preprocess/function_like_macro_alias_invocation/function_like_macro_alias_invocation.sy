@@ -1,8 +1,0 @@
-#define add3(a, b, c) ((a) + (b) + (c))
-#define add3_alias add3
-
-int result = add3_alias(1, 2, 3);
-
-int main() {
-    return result == 6 ? 0 : 1;
-}

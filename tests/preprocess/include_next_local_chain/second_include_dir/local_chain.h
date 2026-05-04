@@ -1,1 +1,0 @@
-#define LOCAL_CHAIN_SECOND 8

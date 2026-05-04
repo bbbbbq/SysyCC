@@ -1,6 +1,0 @@
-int main() {
-    int value = 1;
-    int *ptr = &value;
-    *ptr = 7;
-    return value;
-}

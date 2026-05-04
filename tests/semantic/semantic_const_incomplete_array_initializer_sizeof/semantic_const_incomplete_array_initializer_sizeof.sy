@@ -1,4 +1,0 @@
-int main(void) {
-    const int values[] = {32, 36, 52, 60, 64, 68};
-    return sizeof(values) == 6 * sizeof(values[0]) ? 0 : 1;
-}

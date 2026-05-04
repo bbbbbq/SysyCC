@@ -1,9 +1,0 @@
-int g = 1;
-
-int main() {
-    int value = g;
-    if (value < 2) {
-        return value + 3;
-    }
-    return 0;
-}

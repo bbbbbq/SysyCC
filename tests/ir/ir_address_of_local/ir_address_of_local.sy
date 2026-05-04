@@ -1,7 +1,0 @@
-int main() {
-    int value;
-    int *p;
-    value = 7;
-    p = &value;
-    return value;
-}

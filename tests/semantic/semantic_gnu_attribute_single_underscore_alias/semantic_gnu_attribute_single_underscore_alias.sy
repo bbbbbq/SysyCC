@@ -1,7 +1,0 @@
-typedef unsigned long size_t;
-typedef size_t size_t_aX __attribute((__aligned__(1)));
-
-int main(void) {
-    size_t_aX value = 3;
-    return (int)value - 3;
-}

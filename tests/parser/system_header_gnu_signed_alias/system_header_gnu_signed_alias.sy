@@ -1,9 +1,0 @@
-typedef __signed__ char __s8;
-typedef __signed__ short int __s16;
-
-__s8 narrow_value = -7;
-__s16 short_value = -9;
-
-int main(void) {
-    return (int)narrow_value + (int)short_value;
-}

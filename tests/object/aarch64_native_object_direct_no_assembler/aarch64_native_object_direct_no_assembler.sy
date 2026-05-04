@@ -1,6 +1,0 @@
-static int local_value = 7;
-
-int main(void) {
-    putint(local_value);
-    return 0;
-}

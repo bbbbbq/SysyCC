@@ -1,8 +1,0 @@
-struct Node {
-    int value;
-};
-
-int main() {
-    int *ptr;
-    return ptr->value;
-}

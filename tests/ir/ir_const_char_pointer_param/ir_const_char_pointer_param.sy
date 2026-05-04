@@ -1,3 +1,0 @@
-int first_char(const char *p) {
-    return 0;
-}

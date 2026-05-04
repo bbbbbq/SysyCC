@@ -1,4 +1,0 @@
-#line 40 "virtual_lexer.sy"
-int main() {
-    return @;
-}

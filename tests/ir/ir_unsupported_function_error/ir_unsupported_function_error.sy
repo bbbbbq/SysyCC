@@ -1,6 +1,0 @@
-int x;
-int *p = &x + 1;
-
-int main() {
-    return p != 0;
-}

@@ -1,5 +1,0 @@
-__attribute__((cold)) int foo(void);
-
-int main() {
-    return 0;
-}

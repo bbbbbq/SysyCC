@@ -1,4 +1,0 @@
-__attribute__((__always_inline__))
-char *gets(char *);
-
-void perror(const char *);

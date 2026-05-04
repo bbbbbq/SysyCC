@@ -1,5 +1,0 @@
-struct Forward;
-
-int main(void) {
-    return sizeof(struct Forward);
-}

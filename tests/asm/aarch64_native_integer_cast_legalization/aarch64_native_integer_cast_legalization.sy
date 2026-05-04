@@ -1,9 +1,0 @@
-int main() {
-    signed char a = -2;
-    unsigned char b = 250;
-    short c = -3;
-    long long x = a;
-    int y = b;
-    signed char z = c;
-    return (int)(x + y + z);
-}

@@ -1,9 +1,0 @@
-int foo(void) {
-    return 1;
-}
-
-static int g = foo();
-
-int main(void) {
-    return g;
-}

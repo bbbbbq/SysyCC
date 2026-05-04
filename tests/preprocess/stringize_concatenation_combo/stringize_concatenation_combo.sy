@@ -1,7 +1,0 @@
-#define STRINGIZE_AND_APPEND(x, suffix) #x suffix
-
-const char *message = STRINGIZE_AND_APPEND(hello, " world");
-
-int main(void) {
-    return message[0];
-}

@@ -1,7 +1,0 @@
-double keep_first(double x, ...) {
-    return x;
-}
-
-double forward(double x, double y) {
-    return keep_first(x, y);
-}

@@ -1,7 +1,0 @@
-int keep_first(int x, ...) {
-    return x;
-}
-
-int main() {
-    return keep_first(7, (float)2.5, (short)3);
-}

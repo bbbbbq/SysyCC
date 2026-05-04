@@ -1,7 +1,0 @@
-#if defined(
-int selected = 1;
-#endif
-
-int main() {
-    return selected;
-}

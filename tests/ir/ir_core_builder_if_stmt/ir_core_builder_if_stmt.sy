@@ -1,7 +1,0 @@
-int choose(int cond, int lhs, int rhs) {
-    if (cond) {
-        return lhs;
-    } else {
-        return rhs;
-    }
-}

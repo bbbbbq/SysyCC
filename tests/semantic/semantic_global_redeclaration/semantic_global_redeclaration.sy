@@ -1,7 +1,0 @@
-extern int signgam;
-int signgam;
-extern int signgam;
-
-int main() {
-    return signgam;
-}

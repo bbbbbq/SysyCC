@@ -1,7 +1,0 @@
-int takes_mutable(char *p) {
-    return 0;
-}
-
-int takes_readonly(const char *p) {
-    return takes_mutable(p);
-}

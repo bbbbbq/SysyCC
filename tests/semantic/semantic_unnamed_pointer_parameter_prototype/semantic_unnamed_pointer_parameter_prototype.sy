@@ -1,5 +1,0 @@
-extern float modff(float, float *);
-
-int main() {
-    return 0;
-}

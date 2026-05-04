@@ -1,6 +1,0 @@
-int main() {
-    int value = getint();
-    putint(value);
-    putch(10);
-    return 0;
-}

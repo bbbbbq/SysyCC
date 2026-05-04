@@ -1,7 +1,0 @@
-#define MAKE_NAME(a, b) a##b
-
-int foobar = 7;
-
-int main() {
-    return MAKE_NAME(foo, bar);
-}

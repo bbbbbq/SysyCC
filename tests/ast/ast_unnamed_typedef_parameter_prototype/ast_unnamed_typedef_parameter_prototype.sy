@@ -1,7 +1,0 @@
-int strncasecmp(const char *, const char *, size_t);
-
-int vprintf(const char *restrict fmt, va_list);
-
-int main() {
-    return 0;
-}

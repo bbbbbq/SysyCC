@@ -1,9 +1,0 @@
-uint32_t bump_crc(uint32_t value) {
-    return value + 1;
-}
-
-int main() {
-    uint32_t crc;
-    crc = 2;
-    return (int)bump_crc(crc);
-}

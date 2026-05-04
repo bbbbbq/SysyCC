@@ -1,7 +1,0 @@
-#define LOG(fmt, ...) putch('x')
-
-int main(void) {
-    LOG("ok");
-    putch(10);
-    return 0;
-}

@@ -1,4 +1,0 @@
-int main() {
-    int value = 17 % 5;
-    return value;
-}

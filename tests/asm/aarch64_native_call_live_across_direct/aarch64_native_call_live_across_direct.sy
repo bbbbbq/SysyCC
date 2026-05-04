@@ -1,5 +1,0 @@
-int inc(int x) { return x + 1; }
-
-int keep(int a, int b, int c, int d) {
-    return (c + d) + inc(a + b);
-}

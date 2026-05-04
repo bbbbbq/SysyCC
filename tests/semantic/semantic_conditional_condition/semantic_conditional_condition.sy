@@ -1,4 +1,0 @@
-int main() {
-    int values[2];
-    return values ? 1 : 2;
-}

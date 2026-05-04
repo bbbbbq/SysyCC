@@ -1,8 +1,0 @@
-int global_value = 7;
-
-int main() {
-    int *values[2] = {&global_value, &global_value};
-    putint(*values[1]);
-    putch(10);
-    return 0;
-}

@@ -1,9 +1,0 @@
-unsigned int shift_top_bit(unsigned int value) {
-    return value >> 31;
-}
-
-int main(void) {
-    putint((int)shift_top_bit(0x80000000U));
-    putch(10);
-    return 0;
-}

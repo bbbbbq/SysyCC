@@ -1,6 +1,0 @@
-#define PATH_SEP ";"
-
-int main(void) {
-    char sep = *PATH_SEP;
-    return sep == ';' ? 0 : 1;
-}

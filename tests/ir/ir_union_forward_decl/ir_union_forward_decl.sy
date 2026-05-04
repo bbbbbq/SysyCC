@@ -1,8 +1,0 @@
-union Opaque;
-
-int consume(union Opaque *value);
-
-int main() {
-    union Opaque *value = 0;
-    return value != 0;
-}

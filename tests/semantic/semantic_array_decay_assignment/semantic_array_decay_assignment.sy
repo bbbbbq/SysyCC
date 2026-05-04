@@ -1,6 +1,0 @@
-int main() {
-    int values[4];
-    int *ptr;
-    ptr = values;
-    return 0;
-}

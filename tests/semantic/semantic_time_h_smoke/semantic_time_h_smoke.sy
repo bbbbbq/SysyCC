@@ -1,8 +1,0 @@
-#include <time.h>
-
-int main(void) {
-    time_t epoch = 0;
-    struct tm broken;
-    broken.tm_sec = (int)epoch;
-    return broken.tm_sec;
-}

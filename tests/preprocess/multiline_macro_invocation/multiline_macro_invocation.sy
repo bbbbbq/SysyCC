@@ -1,7 +1,0 @@
-#define ADD(a, b) ((a) + (b))
-#define COMBINE(x, y) ADD(x, y)
-
-int main() {
-    return COMBINE(ADD(1, 2), \
-                   ADD(3, 4));
-}

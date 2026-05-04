@@ -1,6 +1,0 @@
-int main() {
-    starttime();
-    putf("%d %c %f\n", 7, 65, 3.5);
-    stoptime();
-    return 0;
-}

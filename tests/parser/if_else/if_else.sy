@@ -1,9 +1,0 @@
-int main() {
-    int value = 1;
-    if (value) {
-        value = value + 1;
-    } else {
-        value = value + 2;
-    }
-    return value;
-}

@@ -1,9 +1,0 @@
-typedef int register_t __attribute__ ((__mode__ (__word__)));
-
-register_t bump(register_t value) {
-    return value + 1;
-}
-
-int main(void) {
-    return bump(41) == 42 ? 0 : 1;
-}

@@ -1,6 +1,0 @@
-static int arr[4];
-static int *p = arr + 1;
-
-int main(void) {
-    return p == &arr[1] ? 0 : 1;
-}

@@ -1,8 +1,0 @@
-#define FORWARD(...) __VA_ARGS__
-#define ADD_HEAD(head, ...) ((head) + (__VA_ARGS__))
-
-int main() {
-    int lhs = FORWARD(1);
-    int rhs = ADD_HEAD(2, 3);
-    return lhs + rhs;
-}

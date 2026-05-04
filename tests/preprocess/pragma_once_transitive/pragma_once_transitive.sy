@@ -1,6 +1,0 @@
-#include "left_parent.h"
-#include "right_parent.h"
-
-int main() {
-    return shared_value + from_left + from_right;
-}

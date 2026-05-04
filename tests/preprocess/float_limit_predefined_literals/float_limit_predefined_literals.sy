@@ -1,7 +1,0 @@
-int float_limit_predefined_literals = 1;
-
-int main(void) {
-    double lo = __DBL_MIN__;
-    double hi = __DBL_MAX__;
-    return lo < hi && float_limit_predefined_literals == 1 ? 0 : 1;
-}

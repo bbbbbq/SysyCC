@@ -1,8 +1,0 @@
-#include <compat_math.h>
-
-int main(void) {
-    float f = __builtin_huge_valf();
-    double d = HUGE_VAL;
-    long double ld = __builtin_huge_vall();
-    return f > 0.0f && d > 0.0 && ld > 0.0L ? 0 : 1;
-}

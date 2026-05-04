@@ -1,7 +1,0 @@
-long int address_as_long(int value) {
-    return (long int)&value;
-}
-
-int main() {
-    return 0;
-}

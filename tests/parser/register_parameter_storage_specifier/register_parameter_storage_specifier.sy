@@ -1,6 +1,0 @@
-struct tree;
-struct trie;
-
-static void treefails(register struct tree const *tree,
-                      struct trie const *fail,
-                      register int depth);

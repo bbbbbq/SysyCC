@@ -1,6 +1,0 @@
-#include <first.h>
-#include <second.h>
-
-int main() {
-    return SHARED_SYSTEM_MACRO;
-}

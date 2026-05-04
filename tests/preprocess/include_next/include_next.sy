@@ -1,6 +1,0 @@
-// Test #include_next by chaining two system include directories.
-#include <nextable.h>
-
-int main() {
-    return FROM_FIRST + FROM_SECOND;
-}

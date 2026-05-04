@@ -1,7 +1,0 @@
-long long invert_limit() {
-    return ~9223372036854775807LL;
-}
-
-int main() {
-    return 0;
-}

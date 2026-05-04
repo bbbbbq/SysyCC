@@ -1,3 +1,0 @@
-int nullable_callback(int (* _Nullable)(void *, char *, int));
-int nonnull_callback(int (* _Nonnull)(void *, char *, int));
-int unspecified_callback(int (* _Null_unspecified)(void *, char *, int));

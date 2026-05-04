@@ -1,5 +1,0 @@
-void use_blocks(const unsigned char blocks[][16]);
-
-void f(const void *input) {
-    use_blocks((const unsigned char (*)[16])input);
-}

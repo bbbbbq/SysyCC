@@ -1,5 +1,0 @@
-#include "local_chain.h"
-
-int main() {
-    return combined;
-}

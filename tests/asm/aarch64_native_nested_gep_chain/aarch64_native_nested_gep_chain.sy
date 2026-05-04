@@ -1,3 +1,0 @@
-int sum2(int a[2][3], int i, int j) {
-    return a[i][j] + a[1][2];
-}

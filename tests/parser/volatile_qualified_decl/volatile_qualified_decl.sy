@@ -1,3 +1,0 @@
-volatile int *volatile standard_value;
-__volatile int * __volatile gnu_value;
-__volatile__ int * __volatile__ gnu_value2;

@@ -1,6 +1,0 @@
-int main() {
-    int x = 0;
-    putint(((x = 4), x + 3));
-    putch(10);
-    return 0;
-}

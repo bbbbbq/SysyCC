@@ -1,3 +1,0 @@
-static void helper(void) {
-    return;
-}

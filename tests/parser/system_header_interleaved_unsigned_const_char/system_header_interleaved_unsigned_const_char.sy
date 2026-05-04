@@ -1,8 +1,0 @@
-int copy_byte(unsigned char *dst, unsigned const char *src) {
-    *dst = *src;
-    return 0;
-}
-
-int main(void) {
-    return 0;
-}

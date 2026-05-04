@@ -1,8 +1,0 @@
-void take_float(float value) {
-    return;
-}
-
-int main() {
-    take_float("x");
-    return 0;
-}

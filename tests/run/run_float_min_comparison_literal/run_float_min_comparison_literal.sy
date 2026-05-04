@@ -1,7 +1,0 @@
-int main() {
-    float value;
-    value = 1.0f;
-    putint(value >= 1.17549435e-38F);
-    putch(10);
-    return 0;
-}

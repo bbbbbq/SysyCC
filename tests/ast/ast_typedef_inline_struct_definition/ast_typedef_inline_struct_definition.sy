@@ -1,8 +1,0 @@
-typedef struct Pair {
-    int left;
-    int right;
-} PairAlias;
-
-int main() {
-    return 0;
-}

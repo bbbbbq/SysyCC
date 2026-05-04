@@ -1,6 +1,0 @@
-char g_words[2][4] = {"ab", "cd"};
-
-int main(void) {
-    char l_words[2][4] = {"ef", "gh"};
-    return g_words[1][1] != 'd' || l_words[0][1] != 'f';
-}

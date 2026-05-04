@@ -1,9 +1,0 @@
-unsigned long next_value(unsigned long value) {
-    return value + 1;
-}
-
-int main() {
-    unsigned long value;
-    value = 0;
-    return (int)next_value(value);
-}

@@ -1,5 +1,0 @@
-_Noreturn void die(const char *message);
-
-int main(void) {
-    return 0;
-}

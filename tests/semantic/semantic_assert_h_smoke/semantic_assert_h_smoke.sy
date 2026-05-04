@@ -1,7 +1,0 @@
-#include <assert.h>
-
-int main(void) {
-    int value = 1;
-    assert(value);
-    return 0;
-}

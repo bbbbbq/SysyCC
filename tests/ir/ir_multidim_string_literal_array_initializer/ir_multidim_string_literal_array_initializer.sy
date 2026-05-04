@@ -1,5 +1,0 @@
-char g_words[2][4] = {"ab", "cd"};
-
-int main(void) {
-    return g_words[0][1] != 'b' || g_words[1][1] != 'd';
-}

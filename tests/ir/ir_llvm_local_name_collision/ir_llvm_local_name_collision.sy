@@ -1,7 +1,0 @@
-int f(int t0) {
-    return t0 + 1;
-}
-
-int main() {
-    return f(41) - 42;
-}

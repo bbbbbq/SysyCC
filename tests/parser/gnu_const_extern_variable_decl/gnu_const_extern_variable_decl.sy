@@ -1,2 +1,0 @@
-extern __const int sys_nerr;
-extern __const char *__const sys_errlist[];

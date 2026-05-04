@@ -1,7 +1,0 @@
-#include <float.h>
-
-int main(void) {
-    int radix = FLT_RADIX;
-    int mantissa = DBL_MANT_DIG;
-    return radix + mantissa > 0 ? 0 : 1;
-}

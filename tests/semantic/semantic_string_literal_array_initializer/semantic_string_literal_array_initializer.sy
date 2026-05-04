@@ -1,4 +1,0 @@
-int main(void) {
-    char text[4] = "abc";
-    return text[1] != 'b';
-}

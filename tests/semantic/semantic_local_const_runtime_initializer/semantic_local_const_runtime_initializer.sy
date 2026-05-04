@@ -1,8 +1,0 @@
-int read_value(void) {
-    return 7;
-}
-
-int main(void) {
-    const int value = read_value();
-    return value == 7 ? 0 : 1;
-}

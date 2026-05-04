@@ -1,9 +1,0 @@
-int read_at(int *base, unsigned long index) {
-    return base[index];
-}
-
-int main() {
-    int values[3] = {4, 5, 6};
-    unsigned long index = 2UL;
-    return read_at(values, index);
-}

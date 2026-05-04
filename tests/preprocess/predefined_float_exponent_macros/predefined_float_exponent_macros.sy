@@ -1,4 +1,0 @@
-int dbl_max_10_exp_value = __DBL_MAX_10_EXP__;
-int dbl_min_10_exp_value = __DBL_MIN_10_EXP__;
-int flt_max_exp_value = __FLT_MAX_EXP__;
-int ldbl_min_exp_value = __LDBL_MIN_EXP__;

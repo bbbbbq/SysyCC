@@ -1,5 +1,0 @@
-int strerror(int errnum) __asm("_" "strerror");
-
-int main() {
-    return strerror(7);
-}

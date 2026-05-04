@@ -1,9 +1,0 @@
-typedef int base_t;
-typedef base_t alias_t;
-alias_t value;
-
-int main() {
-    alias_t local;
-    local = value;
-    return local;
-}

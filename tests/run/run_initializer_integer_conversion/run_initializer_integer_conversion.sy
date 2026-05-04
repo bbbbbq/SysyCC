@@ -1,6 +1,0 @@
-int main() {
-    long int widened = getint();
-    putint((int)widened);
-    putch(10);
-    return 0;
-}

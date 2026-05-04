@@ -1,9 +1,0 @@
-static volatile int g_value = 7;
-static volatile int * volatile g_inner = &g_value;
-static volatile int * const volatile *g_outer = &g_inner;
-
-int main(void) {
-    putint(**g_outer);
-    putch(10);
-    return 0;
-}

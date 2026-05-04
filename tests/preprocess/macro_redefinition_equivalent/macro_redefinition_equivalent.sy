@@ -1,8 +1,0 @@
-#define DARWIN_ALIAS(x) x
-#define DARWIN_ALIAS(x) x
-#define OPENSSL_FLAG 0
-#define OPENSSL_FLAG 0 /* Return error for unknown exts */
-
-int main() {
-    return DARWIN_ALIAS(7) + OPENSSL_FLAG;
-}

@@ -1,9 +1,0 @@
-struct Pair {
-    int value;
-};
-
-int main() {
-    struct Pair pairs[2];
-    pairs[1].value = 7;
-    return pairs[1].value;
-}

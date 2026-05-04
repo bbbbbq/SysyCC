@@ -1,6 +1,0 @@
-#define errno (*__errno_location())
-#include <errno.h>
-
-int main(void) {
-    return errno_header_value();
-}

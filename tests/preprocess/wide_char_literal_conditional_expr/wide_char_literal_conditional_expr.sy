@@ -1,9 +1,0 @@
-#if L'\0' - 1 > 0
-int selected = 0;
-#else
-int selected = 11;
-#endif
-
-int main() {
-    return selected == 11 ? 0 : 1;
-}

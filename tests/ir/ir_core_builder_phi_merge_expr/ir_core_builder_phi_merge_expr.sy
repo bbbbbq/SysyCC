@@ -1,6 +1,0 @@
-int main(void) {
-    int a = 0;
-    int b = a && 1;
-    int c = a ? 11 : 22;
-    return b + c;
-}

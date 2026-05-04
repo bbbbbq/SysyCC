@@ -1,9 +1,0 @@
-struct Node {
-    int value;
-};
-
-int main() {
-    struct Node node;
-    struct Node *ptr = &node;
-    return ptr->missing;
-}

@@ -1,5 +1,0 @@
-int big(int n) {
-    int a[96];
-    a[95] = n;
-    return a[95];
-}

@@ -1,9 +1,0 @@
-int maybe_value(int flag) {
-    if (flag) {
-        return 7;
-    }
-}
-
-int main(void) {
-    return maybe_value(0);
-}

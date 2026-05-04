@@ -1,9 +1,0 @@
-int width = 1;
-
-struct Bits {
-    int value : width;
-};
-
-int main() {
-    return 0;
-}

@@ -1,6 +1,0 @@
-long lseek(int fd, long off, int whence) __asm__("__USER_LABEL_PREFIX__" "lseek64");
-long lseek64(int fd, long off, int whence);
-
-int main(void) {
-    return (int)lseek(1, 2, 3) + (int)lseek64(4, 5, 6);
-}

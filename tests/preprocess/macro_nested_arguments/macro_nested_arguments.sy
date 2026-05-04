@@ -1,6 +1,0 @@
-#define ADD(a, b) ((a) + (b))
-#define WRAP(x) ADD(x, 5)
-
-int main() {
-    return WRAP(ADD(1, 2));
-}

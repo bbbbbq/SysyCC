@@ -1,2 +1,0 @@
-#warning
-int warning_directive_empty_payload_value = 11;

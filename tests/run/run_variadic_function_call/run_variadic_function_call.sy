@@ -1,9 +1,0 @@
-int keep_first(int x, ...) {
-    return x;
-}
-
-int main() {
-    putint(keep_first(7, 1, 2, 3));
-    putch(10);
-    return 0;
-}

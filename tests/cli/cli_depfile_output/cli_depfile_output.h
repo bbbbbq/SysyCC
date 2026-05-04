@@ -1,6 +1,0 @@
-#ifndef CLI_DEPFILE_OUTPUT_H
-#define CLI_DEPFILE_OUTPUT_H
-
-#define CLI_DEPFILE_ADDEND 7
-
-#endif

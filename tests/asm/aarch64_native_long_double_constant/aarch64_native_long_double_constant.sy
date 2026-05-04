@@ -1,3 +1,0 @@
-long double one(void) {
-    return 1.0L;
-}

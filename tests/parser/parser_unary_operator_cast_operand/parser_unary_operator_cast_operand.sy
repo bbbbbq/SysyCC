@@ -1,7 +1,0 @@
-typedef unsigned int Instruction;
-
-static const Instruction invalidinstruction = ~(Instruction)0;
-
-int main(void) {
-    return (int)invalidinstruction;
-}

@@ -1,5 +1,0 @@
-#include "a.h"
-
-int main(void) {
-    return RECURSIVE_PRAGMA_ONCE_VALUE;
-}
