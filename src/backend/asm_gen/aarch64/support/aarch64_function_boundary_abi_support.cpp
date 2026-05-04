@@ -1,15 +1,64 @@
 #include "backend/asm_gen/aarch64/support/aarch64_function_boundary_abi_support.hpp"
 
+#include "backend/asm_gen/aarch64/support/aarch64_frame_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_memory_access_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_function.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 
+#include <vector>
+
 namespace sysycc {
+
+namespace {
+
+struct CapturedRegisterParameter {
+    const CoreIrParameter *parameter = nullptr;
+    AArch64VirtualReg parameter_reg;
+    std::size_t frame_offset = 0;
+};
+
+std::size_t align_to(std::size_t value, std::size_t alignment) {
+    if (alignment == 0) {
+        return value;
+    }
+    const std::size_t remainder = value % alignment;
+    if (remainder == 0) {
+        return value;
+    }
+    return value + (alignment - remainder);
+}
+
+std::size_t allocate_entry_capture_slot(AArch64MachineFunction &machine_function,
+                                        const CoreIrType *type) {
+    AArch64FunctionFrameInfo &frame_info = machine_function.get_frame_info();
+    const std::size_t size = get_storage_size(type);
+    const std::size_t alignment = get_storage_alignment(type);
+    std::size_t local_size = frame_info.get_local_size();
+    local_size = align_to(local_size, alignment);
+    local_size += size;
+    frame_info.set_local_size(local_size);
+    frame_info.set_frame_size(align_to(local_size, 16));
+    return local_size;
+}
+
+void append_store_physical_register_parameter_to_frame(
+    AArch64MachineBlock &block, unsigned physical_reg,
+    AArch64VirtualRegKind reg_kind, const CoreIrType *type,
+    std::size_t frame_offset) {
+    append_physical_frame_store(
+        block.get_instructions(), physical_reg, reg_kind, get_storage_size(type),
+        frame_offset, static_cast<unsigned>(AArch64PhysicalReg::X9));
+}
+
+} // namespace
 
 bool lower_function_entry_parameters(
     AArch64MachineBlock &prologue_block, const CoreIrFunction &function,
     const AArch64FunctionAbiInfo &abi_info, AArch64MachineFunction &machine_function,
     AArch64AbiEmissionContext &context) {
+    std::vector<CapturedRegisterParameter> captured_register_parameters;
     for (std::size_t index = 0; index < function.get_parameters().size(); ++index) {
         const CoreIrParameter *parameter = function.get_parameters()[index].get();
         const AArch64AbiAssignment &assignment = abi_info.parameters[index];
@@ -36,16 +85,29 @@ bool lower_function_entry_parameters(
         const AArch64AbiLocation &location = assignment.locations.front();
         if (location.kind == AArch64AbiLocationKind::GeneralRegister ||
             location.kind == AArch64AbiLocationKind::FloatingRegister) {
-            context.append_copy_from_physical_reg(prologue_block, parameter_reg,
-                                                  location.physical_reg,
-                                                  location.reg_kind);
+            const std::size_t frame_offset =
+                allocate_entry_capture_slot(machine_function, parameter->get_type());
+            append_store_physical_register_parameter_to_frame(
+                prologue_block, location.physical_reg, location.reg_kind,
+                parameter->get_type(), frame_offset);
+            captured_register_parameters.push_back(
+                CapturedRegisterParameter{parameter, parameter_reg, frame_offset});
         } else {
             context.append_load_from_incoming_stack_arg(
                 prologue_block, parameter->get_type(), parameter_reg,
                 location.stack_offset, machine_function);
+            context.apply_truncate_to_virtual_reg(prologue_block, parameter_reg,
+                                                  parameter->get_type());
         }
-        context.apply_truncate_to_virtual_reg(prologue_block, parameter_reg,
-                                              parameter->get_type());
+    }
+    for (const CapturedRegisterParameter &captured :
+         captured_register_parameters) {
+        append_load_from_frame(prologue_block, context, captured.parameter->get_type(),
+                               captured.parameter_reg, captured.frame_offset,
+                               machine_function);
+        context.apply_truncate_to_virtual_reg(prologue_block,
+                                              captured.parameter_reg,
+                                              captured.parameter->get_type());
     }
     return true;
 }

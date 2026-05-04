@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <iostream>
 #include <optional>
 #include <sstream>
@@ -88,9 +89,28 @@ struct AArch64BorrowedScratchState {
     AArch64VirtualRegKind save_kind = AArch64VirtualRegKind::General64;
 };
 
+inline constexpr std::size_t kAArch64PhysicalRegSetSize =
+    static_cast<unsigned>(AArch64PhysicalReg::V31) + 1U;
+
+class AArch64PhysicalRegSet {
+  private:
+    std::bitset<kAArch64PhysicalRegSetSize> bits_;
+
+  public:
+    void insert(unsigned reg) {
+        if (reg < bits_.size()) {
+            bits_.set(reg);
+        }
+    }
+
+    bool contains(unsigned reg) const {
+        return reg < bits_.size() && bits_.test(reg);
+    }
+};
+
 struct AArch64ScratchPool {
     std::vector<unsigned> regs;
-    std::unordered_set<unsigned> borrowed_regs;
+    AArch64PhysicalRegSet borrowed_regs;
 };
 
 bool has_role(AArch64SpillOperandRoles roles, AArch64SpillOperandRole role) {
@@ -396,8 +416,7 @@ bool assign_spill_bank_operands(
             operand.virtual_reg_id,
             physical_reg,
             operand.kind,
-            scratch_pool.borrowed_regs.find(physical_reg) !=
-                scratch_pool.borrowed_regs.end()});
+            scratch_pool.borrowed_regs.contains(physical_reg)});
         return true;
     };
 
@@ -555,8 +574,8 @@ bool instruction_acts_like_call(const AArch64MachineInstr &instruction) {
 
 void record_instruction_used_physical_regs(
     const AArch64MachineOperand &operand, const AArch64MachineFunction &function,
-    std::unordered_set<unsigned> &general_regs,
-    std::unordered_set<unsigned> &float_regs) {
+    AArch64PhysicalRegSet &general_regs,
+    AArch64PhysicalRegSet &float_regs) {
     if (const auto *physical_reg = operand.get_physical_reg_operand();
         physical_reg != nullptr) {
         if (is_float_physical_reg(physical_reg->reg_number)) {
@@ -626,10 +645,9 @@ void record_instruction_used_physical_regs(
     }
 }
 
-std::unordered_set<unsigned>
+AArch64PhysicalRegSet
 collect_allocated_physical_regs(const AArch64MachineFunction &function) {
-    std::unordered_set<unsigned> allocated;
-    allocated.reserve(function.get_virtual_reg_allocation().size());
+    AArch64PhysicalRegSet allocated;
     for (const auto &[id, physical_reg] : function.get_virtual_reg_allocation()) {
         (void)id;
         allocated.insert(physical_reg);
@@ -639,13 +657,13 @@ collect_allocated_physical_regs(const AArch64MachineFunction &function) {
 
 AArch64ScratchPool build_general_spill_scratch_pool(
     const AArch64MachineInstr &instruction,
-    const std::unordered_set<unsigned> &allocated,
-    const std::unordered_set<unsigned> &instruction_general_regs,
+    const AArch64PhysicalRegSet &allocated,
+    const AArch64PhysicalRegSet &instruction_general_regs,
     bool needs_address_scratch, bool allow_address_reg_sharing) {
     AArch64ScratchPool pool;
 
     auto append_if_available = [&](unsigned reg, bool borrowed) {
-        if (instruction_general_regs.find(reg) != instruction_general_regs.end()) {
+        if (instruction_general_regs.contains(reg)) {
             return;
         }
         if (std::find(pool.regs.begin(), pool.regs.end(), reg) != pool.regs.end()) {
@@ -665,12 +683,12 @@ AArch64ScratchPool build_general_spill_scratch_pool(
         append_if_available(kAArch64SpillAddressPhysicalReg, false);
     }
     for (unsigned reg : kAArch64CallerSavedAllocatableGeneralPhysicalRegs) {
-        if (allocated.find(reg) == allocated.end()) {
+        if (!allocated.contains(reg)) {
             append_if_available(reg, false);
         }
     }
     for (unsigned reg : kAArch64CalleeSavedAllocatableGeneralPhysicalRegs) {
-        if (allocated.find(reg) == allocated.end()) {
+        if (!allocated.contains(reg)) {
             append_if_available(reg, false);
         }
     }
@@ -680,12 +698,12 @@ AArch64ScratchPool build_general_spill_scratch_pool(
         }
     }
     for (unsigned reg : kAArch64CallerSavedAllocatableGeneralPhysicalRegs) {
-        if (allocated.find(reg) != allocated.end()) {
+        if (allocated.contains(reg)) {
             append_if_available(reg, true);
         }
     }
     for (unsigned reg : kAArch64CalleeSavedAllocatableGeneralPhysicalRegs) {
-        if (allocated.find(reg) != allocated.end()) {
+        if (allocated.contains(reg)) {
             append_if_available(reg, true);
         }
     }
@@ -694,12 +712,12 @@ AArch64ScratchPool build_general_spill_scratch_pool(
 
 AArch64ScratchPool build_float_spill_scratch_pool(
     const AArch64MachineInstr &instruction,
-    const std::unordered_set<unsigned> &allocated,
-    const std::unordered_set<unsigned> &instruction_float_regs) {
+    const AArch64PhysicalRegSet &allocated,
+    const AArch64PhysicalRegSet &instruction_float_regs) {
     AArch64ScratchPool pool;
 
     auto append_if_available = [&](unsigned reg, bool borrowed) {
-        if (instruction_float_regs.find(reg) != instruction_float_regs.end()) {
+        if (instruction_float_regs.contains(reg)) {
             return;
         }
         if (std::find(pool.regs.begin(), pool.regs.end(), reg) != pool.regs.end()) {
@@ -715,12 +733,12 @@ AArch64ScratchPool build_float_spill_scratch_pool(
         append_if_available(reg, false);
     }
     for (unsigned reg : kAArch64CallerSavedAllocatableFloatPhysicalRegs) {
-        if (allocated.find(reg) == allocated.end()) {
+        if (!allocated.contains(reg)) {
             append_if_available(reg, false);
         }
     }
     for (unsigned reg : kAArch64CalleeSavedAllocatableFloatPhysicalRegs) {
-        if (allocated.find(reg) == allocated.end()) {
+        if (!allocated.contains(reg)) {
             append_if_available(reg, false);
         }
     }
@@ -730,12 +748,12 @@ AArch64ScratchPool build_float_spill_scratch_pool(
         }
     }
     for (unsigned reg : kAArch64CallerSavedAllocatableFloatPhysicalRegs) {
-        if (allocated.find(reg) != allocated.end()) {
+        if (allocated.contains(reg)) {
             append_if_available(reg, true);
         }
     }
     for (unsigned reg : kAArch64CalleeSavedAllocatableFloatPhysicalRegs) {
-        if (allocated.find(reg) != allocated.end()) {
+        if (allocated.contains(reg)) {
             append_if_available(reg, true);
         }
     }
@@ -745,11 +763,11 @@ AArch64ScratchPool build_float_spill_scratch_pool(
 AArch64InstructionRewritePlan
 build_instruction_rewrite_plan(const AArch64MachineInstr &instruction,
                                const AArch64MachineFunction &function,
-                               const std::unordered_set<unsigned> &allocated) {
+                               const AArch64PhysicalRegSet &allocated) {
     AArch64InstructionRewritePlan plan;
     std::unordered_map<std::size_t, std::size_t> operand_indices;
-    std::unordered_set<unsigned> instruction_general_regs;
-    std::unordered_set<unsigned> instruction_float_regs;
+    AArch64PhysicalRegSet instruction_general_regs;
+    AArch64PhysicalRegSet instruction_float_regs;
 
     for (const AArch64MachineOperand &operand : instruction.get_operands()) {
         record_spilled_operand_roles(plan, operand_indices, operand, function);
@@ -1108,8 +1126,7 @@ collect_borrowed_scratch_states(const AArch64InstructionRewritePlan &plan) {
 
 bool AArch64SpillRewritePass::run(AArch64MachineFunction &function,
                                   DiagnosticEngine &diagnostic_engine) const {
-    const std::unordered_set<unsigned> allocated =
-        collect_allocated_physical_regs(function);
+    const AArch64PhysicalRegSet allocated = collect_allocated_physical_regs(function);
     for (AArch64MachineBlock &block : function.get_blocks()) {
         std::vector<AArch64MachineInstr> rewritten;
         for (AArch64MachineInstr &instruction : block.get_instructions()) {

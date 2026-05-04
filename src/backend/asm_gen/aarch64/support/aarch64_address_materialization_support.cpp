@@ -5,6 +5,7 @@
 
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_value_materialization_context.hpp"
 #include "backend/ir/shared/core/ir_constant.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 #include "backend/ir/shared/core/ir_type.hpp"
@@ -364,12 +365,28 @@ bool materialize_gep_value(
     std::size_t index_count,
     const std::function<CoreIrValue *(std::size_t)> &get_index_value,
     const AArch64VirtualReg &target_reg, AArch64MachineFunction &function) {
-    AArch64VirtualReg base_reg;
-    if (!context.ensure_value_in_vreg(machine_block, base_value, base_reg)) {
-        return false;
-    }
-    if (base_reg.get_id() != target_reg.get_id()) {
-        append_register_copy(machine_block, target_reg, base_reg);
+    if (const auto *stack_slot_address =
+            dynamic_cast<const CoreIrAddressOfStackSlotInst *>(base_value);
+        stack_slot_address != nullptr) {
+        auto *value_context =
+            dynamic_cast<AArch64ValueMaterializationContext *>(&context);
+        if (value_context == nullptr) {
+            context.report_error(
+                "missing stack slot address materialization context for AArch64 gep");
+            return false;
+        }
+        value_context->append_frame_address(
+            machine_block, target_reg,
+            value_context->get_stack_slot_offset(stack_slot_address->get_stack_slot()),
+            function);
+    } else {
+        AArch64VirtualReg base_reg;
+        if (!context.ensure_value_in_vreg(machine_block, base_value, base_reg)) {
+            return false;
+        }
+        if (base_reg.get_id() != target_reg.get_id()) {
+            append_register_copy(machine_block, target_reg, base_reg);
+        }
     }
 
     const CoreIrType *current_type = base_type;

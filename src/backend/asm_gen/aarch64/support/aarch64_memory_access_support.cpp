@@ -1,5 +1,9 @@
 #include "backend/asm_gen/aarch64/support/aarch64_memory_access_support.hpp"
 
+#include <cstdint>
+
+#include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_context.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_constant_materialization_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_text_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_value_conversion_support.hpp"
@@ -29,6 +33,46 @@ AArch64MachineOperand incoming_stack_memory_operand(std::size_t offset) {
     return AArch64MachineOperand::memory_address_physical_reg(
         static_cast<unsigned>(AArch64PhysicalReg::X29),
         static_cast<long long>(offset));
+}
+
+bool emit_large_zero_fill_call(AArch64MachineBlock &machine_block,
+                               AArch64MemoryAccessContext &context,
+                               const AArch64VirtualReg &address_reg,
+                               std::size_t byte_count,
+                               AArch64MachineFunction &function) {
+    auto *constant_context =
+        dynamic_cast<AArch64ConstantMaterializationContext *>(&context);
+    if (constant_context == nullptr) {
+        return false;
+    }
+
+    static CoreIrIntegerType i32_type(32);
+    const AArch64VirtualReg zero_reg =
+        function.create_virtual_reg(AArch64VirtualRegKind::General32);
+    const AArch64VirtualReg size_reg =
+        function.create_virtual_reg(AArch64VirtualRegKind::General64);
+
+    constant_context->append_copy_to_physical_reg(
+        machine_block, static_cast<unsigned>(AArch64PhysicalReg::X0),
+        AArch64VirtualRegKind::General64, address_reg);
+    if (!materialize_integer_constant(machine_block, *constant_context, &i32_type, 0,
+                                      zero_reg)) {
+        return false;
+    }
+    constant_context->append_copy_to_physical_reg(
+        machine_block, static_cast<unsigned>(AArch64PhysicalReg::X1),
+        AArch64VirtualRegKind::General32, zero_reg);
+    if (!materialize_integer_constant(machine_block, *constant_context,
+                                      context.create_fake_pointer_type(),
+                                      static_cast<std::uint64_t>(byte_count),
+                                      size_reg)) {
+        return false;
+    }
+    constant_context->append_copy_to_physical_reg(
+        machine_block, static_cast<unsigned>(AArch64PhysicalReg::X2),
+        AArch64VirtualRegKind::General64, size_reg);
+    constant_context->append_helper_call(machine_block, "memset");
+    return true;
 }
 
 std::size_t exact_scalar_memory_size(const CoreIrType *type) {
@@ -206,6 +250,13 @@ bool emit_zero_fill(AArch64MachineBlock &machine_block,
                     const AArch64VirtualReg &address_reg, const CoreIrType *type,
                     AArch64MachineFunction &function) {
     std::size_t remaining = get_type_size(type);
+    constexpr std::size_t kLargeZeroFillCallThreshold = 256;
+    if (remaining >= kLargeZeroFillCallThreshold &&
+        emit_large_zero_fill_call(machine_block, context, address_reg, remaining,
+                                  function)) {
+        return true;
+    }
+
     std::size_t offset = 0;
     while (remaining >= 8) {
         if (!append_memory_store(machine_block, context,

@@ -951,6 +951,42 @@ parse_memory_immediate_offset(std::string_view memory_operand) {
 
 std::optional<std::string> parse_memory_base_register(std::string_view memory_operand);
 
+std::optional<std::string>
+parse_post_index_memory_base_register(std::string_view line) {
+    std::optional<TwoOperandAsmPattern> access =
+        parse_two_operand_instruction(line, "ldr");
+    if (!access.has_value()) {
+        access = parse_two_operand_instruction(line, "str");
+    }
+    if (!access.has_value()) {
+        return std::nullopt;
+    }
+
+    std::string_view memory_operand = trim_ascii(access->rhs);
+    if (memory_operand.size() < 5 || memory_operand.front() != '[') {
+        return std::nullopt;
+    }
+    const std::size_t close = memory_operand.find(']');
+    if (close == std::string_view::npos) {
+        return std::nullopt;
+    }
+    std::string_view suffix = trim_ascii(memory_operand.substr(close + 1));
+    if (!starts_with_ascii(suffix, ", #")) {
+        return std::nullopt;
+    }
+
+    std::string_view inside = memory_operand.substr(1, close - 1);
+    const std::size_t comma = inside.find(',');
+    if (comma != std::string_view::npos) {
+        inside = inside.substr(0, comma);
+    }
+    inside = trim_ascii(inside);
+    if (inside.empty()) {
+        return std::nullopt;
+    }
+    return std::string(inside);
+}
+
 std::optional<long long> parse_hash_immediate_with_optional_lsl(
     std::string_view text) {
     text = trim_ascii(text);
@@ -1140,6 +1176,12 @@ bool eliminate_redundant_frame_pointer_sub_materializations(
         if (parse_unconditional_branch_line(trimmed).has_value()) {
             known_frame_offsets.clear();
             continue;
+        }
+
+        if (const auto post_index_base =
+                parse_post_index_memory_base_register(trimmed);
+            post_index_base.has_value()) {
+            known_frame_offsets.erase(canonical_general_register_key(*post_index_base));
         }
 
         if (const auto materialized =
@@ -1863,25 +1905,23 @@ bool fold_zero_offset_memory_post_increment(std::vector<std::string> &lines) {
             continue;
         }
 
-        for (std::size_t probe = index + 1;
-             probe < lines.size() && probe <= index + 16; ++probe) {
-            if (parse_label_definition(lines[probe]).has_value()) {
-                break;
-            }
-            if (const auto add = parse_add_immediate_line(lines[probe]);
-                add.has_value() && registers_alias(add->dst, *base) &&
-                registers_alias(add->lhs, *base) && add->immediate != 0) {
-                lines[index] = "  " + access->mnemonic + " " + access->lhs +
-                               ", [" + *base + "], #" +
-                               std::to_string(add->immediate);
-                lines[probe].clear();
-                return true;
-            }
-            if (instruction_overwrites_register_without_using(lines[probe], *base) ||
-                line_mentions_register_alias(lines[probe], *base)) {
-                break;
-            }
+        if (index + 1 >= lines.size()) {
+            continue;
         }
+        const auto add = parse_add_immediate_line(lines[index + 1]);
+        if (!add.has_value() || !registers_alias(add->dst, *base) ||
+            !registers_alias(add->lhs, *base)) {
+            continue;
+        }
+
+        const int access_width = access->lhs.front() == 'x' ? 8 : 4;
+        if (add->immediate != access_width) {
+            continue;
+        }
+        lines[index] = "  " + access->mnemonic + " " + access->lhs + ", [" +
+                       *base + "], #" + std::to_string(add->immediate);
+        lines[index + 1].clear();
+        return true;
     }
     return false;
 }

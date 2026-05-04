@@ -1518,6 +1518,157 @@ encodeable_add_sub_immediate(std::int64_t signed_value) {
     return std::nullopt;
 }
 
+std::optional<std::uint64_t>
+add_sub_immediate_magnitude(const AArch64MachineInstr &instruction) {
+    if (instruction.get_operands().size() != 3 &&
+        instruction.get_operands().size() != 4) {
+        return std::nullopt;
+    }
+    const std::optional<long long> parsed =
+        parse_hash_immediate(instruction.get_operands()[2]);
+    if (!parsed.has_value() || *parsed < 0) {
+        return std::nullopt;
+    }
+    std::uint64_t value = static_cast<std::uint64_t>(*parsed);
+    if (instruction.get_operands().size() == 4) {
+        const auto *shift = instruction.get_operands()[3].get_shift_operand();
+        if (shift == nullptr || shift->kind != AArch64ShiftKind::Lsl ||
+            shift->amount >= 64U) {
+            return std::nullopt;
+        }
+        value <<= shift->amount;
+    }
+    return value;
+}
+
+std::optional<AArch64VirtualRegKind>
+general_operand_kind(const AArch64MachineOperand &operand,
+                     const AArch64MachineFunction &function) {
+    if (const auto *physical = operand.get_physical_reg_operand();
+        physical != nullptr && is_general_kind(physical->kind)) {
+        return physical->kind;
+    }
+    if (const auto *virtual_reg = operand.get_virtual_reg_operand();
+        virtual_reg != nullptr && virtual_reg->reg.is_general()) {
+        const std::optional<unsigned> assigned =
+            function.get_physical_reg_for_virtual(virtual_reg->reg.get_id());
+        if (!assigned.has_value()) {
+            return std::nullopt;
+        }
+        return virtual_reg->reg.get_kind();
+    }
+    return std::nullopt;
+}
+
+AArch64MachineOperand
+general_operand_as_use(const AArch64MachineOperand &operand) {
+    if (const auto *physical = operand.get_physical_reg_operand();
+        physical != nullptr) {
+        return AArch64MachineOperand::physical_reg(physical->reg_number,
+                                                   physical->kind);
+    }
+    if (const auto *virtual_reg = operand.get_virtual_reg_operand();
+        virtual_reg != nullptr) {
+        return AArch64MachineOperand::use_virtual_reg(virtual_reg->reg);
+    }
+    return operand;
+}
+
+std::vector<AArch64MachineInstr>
+materialize_physical_integer_constant(const AArch64MachineOperand &dst_operand,
+                                      AArch64VirtualRegKind kind,
+                                      std::uint64_t value,
+                                      const AArch64MachineInstr &source) {
+    const bool use_64bit = uses_general_64bit_register(kind);
+    const std::uint64_t mask = use_64bit ? ~0ULL : 0xFFFFFFFFULL;
+    value &= mask;
+
+    std::vector<AArch64MachineInstr> result;
+    if (value == 0) {
+        result.emplace_back(AArch64MachineOpcode::Move,
+                            std::vector<AArch64MachineOperand>{
+                                dst_operand, zero_register_operand(use_64bit)},
+                            source.get_flags(), source.get_debug_location(),
+                            source.get_implicit_defs(),
+                            source.get_implicit_uses(),
+                            source.get_call_clobber_mask());
+        return result;
+    }
+
+    const unsigned pieces = use_64bit ? 4U : 2U;
+    bool emitted_first_piece = false;
+    const AArch64MachineOperand dst_use = general_operand_as_use(dst_operand);
+    for (unsigned piece = 0; piece < pieces; ++piece) {
+        const std::uint16_t imm16 =
+            static_cast<std::uint16_t>((value >> (piece * 16U)) & 0xFFFFU);
+        if (!emitted_first_piece) {
+            result.emplace_back(
+                AArch64MachineOpcode::MoveWideZero,
+                std::vector<AArch64MachineOperand>{
+                    dst_operand,
+                    AArch64MachineOperand::immediate("#" +
+                                                     std::to_string(imm16)),
+                    shift_operand("lsl", piece * 16U)},
+                source.get_flags(), source.get_debug_location(),
+                source.get_implicit_defs(), source.get_implicit_uses(),
+                source.get_call_clobber_mask());
+            emitted_first_piece = true;
+            continue;
+        }
+        if (imm16 == 0) {
+            continue;
+        }
+        result.emplace_back(
+            AArch64MachineOpcode::MoveWideKeep,
+            std::vector<AArch64MachineOperand>{
+                dst_operand, dst_use,
+                AArch64MachineOperand::immediate("#" + std::to_string(imm16)),
+                shift_operand("lsl", piece * 16U)},
+            source.get_flags(), source.get_debug_location(),
+            source.get_implicit_defs(), source.get_implicit_uses(),
+            source.get_call_clobber_mask());
+    }
+    return result;
+}
+
+bool legalize_zero_register_add_sub_immediates(AArch64MachineFunction &function) {
+    for (AArch64MachineBlock &block : function.get_blocks()) {
+        std::vector<AArch64MachineInstr> &instructions = block.get_instructions();
+        for (std::size_t index = 0; index < instructions.size(); ++index) {
+            const AArch64MachineInstr &instruction = instructions[index];
+            if ((instruction.get_opcode() != AArch64MachineOpcode::Add &&
+                 instruction.get_opcode() != AArch64MachineOpcode::Sub) ||
+                instruction.get_operands().size() < 3 ||
+                !instruction.get_operands()[1].is_zero_register()) {
+                continue;
+            }
+
+            const std::optional<std::uint64_t> magnitude =
+                add_sub_immediate_magnitude(instruction);
+            const std::optional<AArch64VirtualRegKind> kind =
+                general_operand_kind(instruction.get_operands()[0], function);
+            if (!magnitude.has_value() || !kind.has_value()) {
+                continue;
+            }
+
+            const std::uint64_t value =
+                instruction.get_opcode() == AArch64MachineOpcode::Sub
+                    ? static_cast<std::uint64_t>(0) - *magnitude
+                    : *magnitude;
+            std::vector<AArch64MachineInstr> replacement =
+                materialize_physical_integer_constant(instruction.get_operands()[0],
+                                                      *kind, value, instruction);
+            instructions.erase(instructions.begin() +
+                               static_cast<std::ptrdiff_t>(index));
+            instructions.insert(instructions.begin() +
+                                    static_cast<std::ptrdiff_t>(index),
+                                replacement.begin(), replacement.end());
+            return true;
+        }
+    }
+    return false;
+}
+
 bool is_uxtw_same_reg_instruction(const AArch64MachineInstr &instruction,
                                   unsigned &reg_number) {
     if (instruction.get_mnemonic() != "uxtw" ||
@@ -1727,10 +1878,15 @@ bool fold_move_wide_constant_adds(AArch64MachineFunction &function) {
             if (!immediate.has_value()) {
                 continue;
             }
+            const AArch64MachineOperand &base_operand =
+                add_instruction.get_operands()[base_operand_index];
+            if (signed_value <= 0 && base_operand.is_zero_register()) {
+                continue;
+            }
 
             std::vector<AArch64MachineOperand> replacement_operands{
                 add_instruction.get_operands()[0],
-                add_instruction.get_operands()[base_operand_index],
+                base_operand,
                 AArch64MachineOperand::immediate(
                     "#" + std::to_string(immediate->first))};
             if (immediate->second) {
@@ -2247,21 +2403,41 @@ BlockTerminatorInfo analyze_block_terminators(const AArch64MachineBlock &block) 
     return info;
 }
 
-std::vector<std::size_t>
-collect_block_predecessors(const AArch64MachineFunction &function,
-                           std::size_t block_index) {
-    std::vector<std::size_t> predecessors;
-    const std::string &label = function.get_blocks()[block_index].get_label();
+std::vector<std::vector<std::size_t>>
+collect_all_block_predecessors(const AArch64MachineFunction &function,
+                               std::vector<BlockTerminatorInfo> &terminators) {
     const auto &blocks = function.get_blocks();
+    terminators.clear();
+    terminators.reserve(blocks.size());
+
+    std::unordered_map<std::string, std::size_t> label_to_index;
+    label_to_index.reserve(blocks.size());
     for (std::size_t index = 0; index < blocks.size(); ++index) {
-        const BlockTerminatorInfo terminator = analyze_block_terminators(blocks[index]);
-        const auto matches = [&label](const std::optional<std::string> &target) {
-            return target.has_value() && *target == label;
-        };
-        if (matches(terminator.conditional_target) ||
-            matches(terminator.unconditional_target)) {
-            predecessors.push_back(index);
+        label_to_index.emplace(blocks[index].get_label(), index);
+        terminators.push_back(analyze_block_terminators(blocks[index]));
+    }
+
+    std::vector<std::vector<std::size_t>> predecessors(blocks.size());
+    const auto add_edge = [&](std::size_t predecessor,
+                              const std::optional<std::string> &target) {
+        if (!target.has_value()) {
+            return;
         }
+        const auto it = label_to_index.find(*target);
+        if (it == label_to_index.end()) {
+            return;
+        }
+        auto &block_predecessors = predecessors[it->second];
+        if (!block_predecessors.empty() &&
+            block_predecessors.back() == predecessor) {
+            return;
+        }
+        block_predecessors.push_back(predecessor);
+    };
+
+    for (std::size_t index = 0; index < terminators.size(); ++index) {
+        add_edge(index, terminators[index].conditional_target);
+        add_edge(index, terminators[index].unconditional_target);
     }
     return predecessors;
 }
@@ -2275,8 +2451,17 @@ bool terminator_targets_block(const BlockTerminatorInfo &info,
 
 bool thread_unconditional_phi_edge_blocks(AArch64MachineFunction &function) {
     auto &blocks = function.get_blocks();
+    std::vector<BlockTerminatorInfo> terminators;
+    const std::vector<std::vector<std::size_t>> predecessors_by_block =
+        collect_all_block_predecessors(function, terminators);
+    std::vector<bool> modified_blocks(blocks.size(), false);
+    bool changed = false;
+
     for (std::size_t block_index = 1; block_index < blocks.size(); ++block_index) {
         AArch64MachineBlock &edge_block = blocks[block_index];
+        if (modified_blocks[block_index]) {
+            continue;
+        }
         if (!is_phi_edge_block_label(edge_block.get_label())) {
             continue;
         }
@@ -2301,18 +2486,23 @@ bool thread_unconditional_phi_edge_blocks(AArch64MachineFunction &function) {
             continue;
         }
 
-        const std::vector<std::size_t> predecessors =
-            collect_block_predecessors(function, block_index);
+        const std::vector<std::size_t> &predecessors =
+            predecessors_by_block[block_index];
         if (predecessors.size() != 1) {
             continue;
         }
-        AArch64MachineBlock &predecessor = blocks[predecessors.front()];
+        const std::size_t predecessor_index = predecessors.front();
+        if (predecessor_index >= blocks.size() || predecessor_index == block_index ||
+            modified_blocks[predecessor_index]) {
+            continue;
+        }
+        AArch64MachineBlock &predecessor = blocks[predecessor_index];
         auto &predecessor_instructions = predecessor.get_instructions();
         if (predecessor_instructions.empty()) {
             continue;
         }
         const BlockTerminatorInfo predecessor_terminator =
-            analyze_block_terminators(predecessor);
+            terminators[predecessor_index];
         if (predecessor_terminator.conditional_target.has_value() ||
             predecessor_terminator.unconditional_target != edge_block.get_label() ||
             predecessor_terminator.first_terminator_index + 1 !=
@@ -2330,9 +2520,10 @@ bool thread_unconditional_phi_edge_blocks(AArch64MachineFunction &function) {
         predecessor_instructions.push_back(AArch64MachineInstr(
             AArch64MachineOpcode::Branch,
             {AArch64MachineOperand::label(*target_label)}));
-        return true;
+        modified_blocks[predecessor_index] = true;
+        changed = true;
     }
-    return false;
+    return changed;
 }
 
 bool instruction_writes_frame_offset(const AArch64MachineInstr &instruction,
@@ -2420,36 +2611,10 @@ bool remove_redundant_copies(AArch64MachineFunction &function) {
                 return true;
             }
 
-            if (index + 1 >= instructions.size()) {
-                continue;
-            }
-
-            AArch64MachineInstr &next_instruction = instructions[index + 1];
-            const std::size_t next_uses =
-                count_instruction_uses(next_instruction, copy.dst);
-            if (next_uses == 0) {
-                continue;
-            }
-
-            const bool next_defines_dst =
-                defines_virtual_reg(next_instruction, copy.dst);
-            const auto use_it = use_counts.find(copy.dst.get_id());
-            const std::size_t total_uses =
-                use_it != use_counts.end() ? use_it->second : 0;
-            if (!next_defines_dst && total_uses != next_uses) {
-                continue;
-            }
-
-            const auto rewritten =
-                rewrite_instruction_use(next_instruction, copy.dst, copy.src);
-            if (!rewritten.has_value()) {
-                continue;
-            }
-
-            next_instruction = *rewritten;
-            instructions.erase(instructions.begin() +
-                               static_cast<std::ptrdiff_t>(index));
-            return true;
+            // Do not rewrite a following instruction to bypass this copy after
+            // register allocation. Phi edge blocks can rely on the copy value
+            // remaining live across a branch even when the immediate next use
+            // appears locally replaceable.
         }
     }
 
@@ -3146,6 +3311,8 @@ void AArch64PostRaPeepholePass::run(AArch64MachineFunction &function) const {
         {"collapse_repeated_frame_slot_mask_store_clusters",
          collapse_repeated_frame_slot_mask_store_clusters},
         {"fold_move_wide_constant_adds", fold_move_wide_constant_adds},
+        {"legalize_zero_register_add_sub_immediates",
+         legalize_zero_register_add_sub_immediates},
         {"hoist_loop_invariant_frame_slot_loads",
          hoist_loop_invariant_frame_slot_loads},
         {"fold_redefining_physical_copies", fold_redefining_physical_copies},

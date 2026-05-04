@@ -1,5 +1,6 @@
 #include "backend/asm_gen/aarch64/passes/aarch64_register_allocation_pass.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <set>
 #include <unordered_map>
@@ -37,6 +38,13 @@ struct AArch64BlockLiveness {
     std::unordered_set<std::size_t> live_in;
     std::unordered_set<std::size_t> live_out;
     std::vector<std::size_t> successors;
+};
+
+struct AllocationNodeInfo {
+    AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
+    bool is_floating_point = false;
+    bool live_across_call = false;
+    std::size_t color_count = 0;
 };
 
 class AArch64LivenessInfo {
@@ -105,6 +113,14 @@ class AArch64InterferenceGraph {
         return it->second;
     }
 };
+
+std::size_t max_virtual_reg_id(const AArch64MachineFunction &function) {
+    std::size_t max_id = 0;
+    for (const auto &[virtual_reg_id, _] : function.get_virtual_reg_kinds()) {
+        max_id = std::max(max_id, virtual_reg_id);
+    }
+    return max_id;
+}
 
 AArch64InstructionLiveness
 collect_instruction_defs_uses(const AArch64MachineInstr &instruction) {
@@ -379,18 +395,10 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
     const AArch64LivenessInfo liveness = build_liveness_info(function);
     const AArch64InterferenceGraph graph =
         build_interference_graph(function, liveness);
-    std::unordered_map<std::size_t, std::unordered_set<std::size_t>> working_graph =
-        graph.get_adjacency();
 
-    struct AllocationNodeInfo {
-        AArch64VirtualRegKind kind = AArch64VirtualRegKind::General32;
-        bool is_floating_point = false;
-        bool live_across_call = false;
-        std::size_t color_count = 0;
-    };
-
-    std::unordered_map<std::size_t, AllocationNodeInfo> node_infos;
-    node_infos.reserve(function.get_virtual_reg_kinds().size());
+    const std::size_t max_id = max_virtual_reg_id(function);
+    std::vector<AllocationNodeInfo> node_infos(max_id + 1);
+    std::vector<bool> has_node_info(max_id + 1, false);
     for (const auto &[virtual_reg_id, kind] : function.get_virtual_reg_kinds()) {
         const bool is_floating_point =
             AArch64VirtualReg(virtual_reg_id, kind).is_floating_point();
@@ -408,9 +416,9 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
                        ? std::size(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs)
                        : std::size(kAArch64CallerSavedAllocatableGeneralPhysicalRegs) +
                              std::size(kAArch64CalleeSavedAllocatableGeneralPhysicalRegs));
-        node_infos.emplace(
-            virtual_reg_id,
-            AllocationNodeInfo{kind, is_floating_point, live_across_call, color_count});
+        node_infos[virtual_reg_id] =
+            AllocationNodeInfo{kind, is_floating_point, live_across_call, color_count};
+        has_node_info[virtual_reg_id] = true;
     }
 
     struct SimplifyNode {
@@ -419,49 +427,88 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
         bool live_across_call = false;
     };
 
-    std::vector<SimplifyNode> simplify_stack;
-    while (!working_graph.empty()) {
-        std::optional<SimplifyNode> low_degree_choice;
-        std::optional<SimplifyNode> spill_choice;
-        for (const auto &[virtual_reg_id, neighbors] : working_graph) {
-            const AllocationNodeInfo &node_info = node_infos.at(virtual_reg_id);
-            const SimplifyNode candidate{
-                virtual_reg_id, neighbors.size(), node_info.live_across_call};
-            if (candidate.degree < node_info.color_count) {
-                if (!low_degree_choice.has_value() ||
-                    candidate.degree > low_degree_choice->degree ||
-                    (candidate.degree == low_degree_choice->degree &&
-                     candidate.virtual_reg_id < low_degree_choice->virtual_reg_id)) {
-                    low_degree_choice = candidate;
-                }
-                continue;
+    struct CandidateKey {
+        std::size_t degree = 0;
+        std::size_t virtual_reg_id = 0;
+    };
+
+    struct CandidateKeyLess {
+        bool operator()(const CandidateKey &lhs,
+                        const CandidateKey &rhs) const noexcept {
+            if (lhs.degree != rhs.degree) {
+                return lhs.degree > rhs.degree;
             }
-            if (!spill_choice.has_value() ||
-                candidate.degree > spill_choice->degree ||
-                (candidate.degree == spill_choice->degree &&
-                 candidate.virtual_reg_id < spill_choice->virtual_reg_id)) {
-                spill_choice = candidate;
-            }
+            return lhs.virtual_reg_id < rhs.virtual_reg_id;
         }
+    };
 
-        const SimplifyNode chosen =
-            low_degree_choice.has_value() ? *low_degree_choice : *spill_choice;
-        simplify_stack.push_back(chosen);
+    const auto &adjacency = graph.get_adjacency();
+    std::vector<std::size_t> degrees(max_id + 1, 0);
+    std::vector<bool> active(max_id + 1, false);
+    std::size_t active_count = 0;
+    std::set<CandidateKey, CandidateKeyLess> low_degree_candidates;
+    std::set<CandidateKey, CandidateKeyLess> spill_candidates;
 
-        const auto node_it = working_graph.find(chosen.virtual_reg_id);
-        if (node_it == working_graph.end()) {
+    const auto is_low_degree = [&node_infos](std::size_t virtual_reg_id,
+                                             std::size_t degree) {
+        return degree < node_infos[virtual_reg_id].color_count;
+    };
+    const auto insert_candidate = [&](std::size_t virtual_reg_id) {
+        const CandidateKey key{degrees[virtual_reg_id], virtual_reg_id};
+        if (is_low_degree(virtual_reg_id, key.degree)) {
+            low_degree_candidates.insert(key);
+        } else {
+            spill_candidates.insert(key);
+        }
+    };
+    const auto erase_candidate = [&](std::size_t virtual_reg_id) {
+        const CandidateKey key{degrees[virtual_reg_id], virtual_reg_id};
+        if (is_low_degree(virtual_reg_id, key.degree)) {
+            low_degree_candidates.erase(key);
+        } else {
+            spill_candidates.erase(key);
+        }
+    };
+
+    for (const auto &[virtual_reg_id, neighbors] : adjacency) {
+        if (virtual_reg_id >= has_node_info.size() || !has_node_info[virtual_reg_id]) {
             continue;
         }
-        const std::vector<std::size_t> neighbors(node_it->second.begin(),
-                                                 node_it->second.end());
-        for (std::size_t neighbor : neighbors) {
-            const auto neighbor_it = working_graph.find(neighbor);
-            if (neighbor_it == working_graph.end()) {
+        active[virtual_reg_id] = true;
+        degrees[virtual_reg_id] = neighbors.size();
+        ++active_count;
+        insert_candidate(virtual_reg_id);
+    }
+
+    std::vector<SimplifyNode> simplify_stack;
+    while (active_count > 0) {
+        const CandidateKey chosen_key =
+            !low_degree_candidates.empty() ? *low_degree_candidates.begin()
+                                           : *spill_candidates.begin();
+        const SimplifyNode chosen{
+            chosen_key.virtual_reg_id,
+            chosen_key.degree,
+            node_infos[chosen_key.virtual_reg_id].live_across_call};
+        simplify_stack.push_back(chosen);
+
+        erase_candidate(chosen.virtual_reg_id);
+        active[chosen.virtual_reg_id] = false;
+        --active_count;
+
+        const auto node_it = adjacency.find(chosen.virtual_reg_id);
+        if (node_it == adjacency.end()) {
+            continue;
+        }
+        for (std::size_t neighbor : node_it->second) {
+            if (neighbor >= active.size() || !active[neighbor]) {
                 continue;
             }
-            neighbor_it->second.erase(chosen.virtual_reg_id);
+            erase_candidate(neighbor);
+            if (degrees[neighbor] > 0) {
+                --degrees[neighbor];
+            }
+            insert_candidate(neighbor);
         }
-        working_graph.erase(node_it);
     }
 
     while (!simplify_stack.empty()) {
@@ -469,7 +516,7 @@ bool AArch64RegisterAllocationPass::run(AArch64MachineFunction &function,
         simplify_stack.pop_back();
 
         std::set<unsigned> available;
-        const AllocationNodeInfo &node_info = node_infos.at(node.virtual_reg_id);
+        const AllocationNodeInfo &node_info = node_infos[node.virtual_reg_id];
         const AArch64VirtualRegKind kind = node_info.kind;
         if (kind == AArch64VirtualRegKind::Float128 && node.live_across_call) {
             const std::size_t spill_size = virtual_reg_size(kind);

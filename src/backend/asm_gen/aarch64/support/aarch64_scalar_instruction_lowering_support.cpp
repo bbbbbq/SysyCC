@@ -10,6 +10,7 @@
 #include "backend/ir/shared/core/ir_constant.hpp"
 #include "common/diagnostic/diagnostic_engine.hpp"
 
+#include <cstdint>
 #include <vector>
 
 namespace sysycc {
@@ -42,6 +43,41 @@ bool can_encode_compare_immediate(std::uint64_t value) { return value <= 0xfffU;
 
 bool can_encode_shift_immediate(std::uint64_t value, bool use_64bit) {
     return value < (use_64bit ? 64U : 32U);
+}
+
+void emit_integer_constant(AArch64MachineBlock &machine_block,
+                           const AArch64VirtualReg &dst_reg,
+                           std::uint64_t value) {
+    const bool use_64bit = dst_reg.get_use_64bit();
+    value &= use_64bit ? ~0ULL : 0xFFFFFFFFULL;
+    if (value == 0) {
+        machine_block.append_instruction(AArch64MachineInstr(
+            "mov", {def_vreg_operand(dst_reg), zero_register_operand(use_64bit)}));
+        return;
+    }
+    const unsigned pieces = use_64bit ? 4U : 2U;
+    bool emitted_first_piece = false;
+    for (unsigned piece = 0; piece < pieces; ++piece) {
+        const std::uint16_t imm16 =
+            static_cast<std::uint16_t>((value >> (piece * 16U)) & 0xFFFFU);
+        if (!emitted_first_piece) {
+            machine_block.append_instruction(AArch64MachineInstr(
+                "movz", {def_vreg_operand(dst_reg),
+                         AArch64MachineOperand::immediate("#" +
+                                                          std::to_string(imm16)),
+                         shift_operand("lsl", piece * 16U)}));
+            emitted_first_piece = true;
+            continue;
+        }
+        if (imm16 == 0) {
+            continue;
+        }
+        machine_block.append_instruction(AArch64MachineInstr(
+            "movk", {def_vreg_operand(dst_reg), use_vreg_operand(dst_reg),
+                     AArch64MachineOperand::immediate("#" +
+                                                      std::to_string(imm16)),
+                     shift_operand("lsl", piece * 16U)}));
+    }
 }
 
 std::uint64_t bitmask_for_width(unsigned width) {
@@ -460,6 +496,20 @@ bool emit_binary_instruction(AArch64MachineBlock &machine_block,
                                                   std::to_string(*immediate))}));
             return true;
         };
+        const auto try_emit_zero_minus_immediate =
+            [&]() -> std::optional<bool> {
+            if (!is_zero_general_value(binary.get_lhs())) {
+                return std::nullopt;
+            }
+            const auto immediate =
+                try_get_nonnegative_integer_immediate_value(binary.get_rhs());
+            if (!immediate.has_value()) {
+                return std::nullopt;
+            }
+            emit_integer_constant(machine_block, dst_reg,
+                                  static_cast<std::uint64_t>(0) - *immediate);
+            return true;
+        };
 
         switch (binary.get_binary_opcode()) {
         case CoreIrBinaryOpcode::Add:
@@ -477,6 +527,10 @@ bool emit_binary_instruction(AArch64MachineBlock &machine_block,
             }
             break;
         case CoreIrBinaryOpcode::Sub:
+            if (const auto emitted = try_emit_zero_minus_immediate();
+                emitted.has_value()) {
+                return *emitted;
+            }
             if (const auto emitted =
                     try_emit_add_sub_immediate(binary.get_lhs(),
                                                binary.get_rhs(), "sub");

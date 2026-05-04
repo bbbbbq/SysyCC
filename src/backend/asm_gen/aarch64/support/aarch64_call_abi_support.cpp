@@ -2,6 +2,8 @@
 
 #include <vector>
 
+#include "backend/asm_gen/aarch64/support/aarch64_frame_support.hpp"
+#include "backend/asm_gen/aarch64/support/aarch64_memory_access_support.hpp"
 #include "backend/asm_gen/aarch64/support/aarch64_type_layout_support.hpp"
 #include "backend/ir/shared/core/ir_instruction.hpp"
 
@@ -16,7 +18,41 @@ struct PreparedCallArgument {
     bool is_aggregate = false;
     AArch64VirtualReg value_reg{};
     AArch64VirtualReg address_reg{};
+    std::size_t register_capture_frame_offset = 0;
 };
+
+std::size_t align_to(std::size_t value, std::size_t alignment) {
+    if (alignment == 0) {
+        return value;
+    }
+    const std::size_t remainder = value % alignment;
+    if (remainder == 0) {
+        return value;
+    }
+    return value + (alignment - remainder);
+}
+
+std::size_t allocate_call_register_capture_slot(
+    AArch64MachineFunction &machine_function, const CoreIrType *type) {
+    AArch64FunctionFrameInfo &frame_info = machine_function.get_frame_info();
+    const std::size_t size = get_storage_size(type);
+    const std::size_t alignment = get_storage_alignment(type);
+    std::size_t local_size = frame_info.get_local_size();
+    local_size = align_to(local_size, alignment);
+    local_size += size;
+    frame_info.set_local_size(local_size);
+    frame_info.set_frame_size(align_to(local_size, 16));
+    return local_size;
+}
+
+void append_load_physical_register_argument_from_frame(
+    AArch64MachineBlock &block, unsigned physical_reg,
+    AArch64VirtualRegKind reg_kind, const CoreIrType *type,
+    std::size_t frame_offset) {
+    append_physical_frame_load(
+        block.get_instructions(), physical_reg, reg_kind, get_storage_size(type),
+        frame_offset, static_cast<unsigned>(AArch64PhysicalReg::X9));
+}
 
 } // namespace
 
@@ -74,8 +110,12 @@ bool emit_call_with_abi(AArch64MachineBlock &machine_block, const CoreIrCallInst
         prepared_arguments.push_back(prepared_argument);
     }
 
-    for (const PreparedCallArgument &prepared_argument : prepared_arguments) {
+    for (PreparedCallArgument &prepared_argument : prepared_arguments) {
         const AArch64AbiAssignment &assignment = *prepared_argument.assignment;
+        const AArch64AbiLocation &location = assignment.locations.front();
+        if (location.kind != AArch64AbiLocationKind::Stack) {
+            continue;
+        }
         if (prepared_argument.is_aggregate) {
             if (!copy_aggregate_from_memory_to_assignment(
                     machine_block, assignment, prepared_argument.value->get_type(),
@@ -85,14 +125,6 @@ bool emit_call_with_abi(AArch64MachineBlock &machine_block, const CoreIrCallInst
                     prepared_argument.argument_index)) {
                 return false;
             }
-            continue;
-        }
-        const AArch64AbiLocation &location = assignment.locations.front();
-        if (location.kind == AArch64AbiLocationKind::GeneralRegister ||
-            location.kind == AArch64AbiLocationKind::FloatingRegister) {
-            context.append_copy_to_physical_reg(machine_block, location.physical_reg,
-                                                location.reg_kind,
-                                                prepared_argument.value_reg);
             continue;
         }
         if (!stack_base_address.has_value() ||
@@ -107,6 +139,53 @@ bool emit_call_with_abi(AArch64MachineBlock &machine_block, const CoreIrCallInst
                 "call argument");
             return false;
         }
+    }
+
+    for (PreparedCallArgument &prepared_argument : prepared_arguments) {
+        const AArch64AbiAssignment &assignment = *prepared_argument.assignment;
+        const AArch64AbiLocation &location = assignment.locations.front();
+        if (location.kind == AArch64AbiLocationKind::Stack) {
+            continue;
+        }
+        if (prepared_argument.is_aggregate) {
+            if (!copy_aggregate_from_memory_to_assignment(
+                    machine_block, assignment, prepared_argument.value->get_type(),
+                    prepared_argument.address_reg, machine_function, context,
+                    indirect_copy_offsets,
+                    stack_base_address.has_value() ? &*stack_base_address : nullptr,
+                    prepared_argument.argument_index)) {
+                return false;
+            }
+            continue;
+        }
+        if (location.kind == AArch64AbiLocationKind::GeneralRegister ||
+            location.kind == AArch64AbiLocationKind::FloatingRegister) {
+            const std::size_t frame_offset =
+                allocate_call_register_capture_slot(machine_function,
+                                                    prepared_argument.value->get_type());
+            append_store_to_frame(machine_block, context,
+                                  prepared_argument.value->get_type(),
+                                  prepared_argument.value_reg, frame_offset,
+                                  machine_function);
+            prepared_argument.register_capture_frame_offset = frame_offset;
+            continue;
+        }
+    }
+
+    for (const PreparedCallArgument &prepared_argument : prepared_arguments) {
+        const AArch64AbiAssignment &assignment = *prepared_argument.assignment;
+        const AArch64AbiLocation &location = assignment.locations.front();
+        if (location.kind != AArch64AbiLocationKind::GeneralRegister &&
+            location.kind != AArch64AbiLocationKind::FloatingRegister) {
+            continue;
+        }
+        if (prepared_argument.is_aggregate) {
+            continue;
+        }
+        append_load_physical_register_argument_from_frame(
+            machine_block, location.physical_reg, location.reg_kind,
+            prepared_argument.value->get_type(),
+            prepared_argument.register_capture_frame_offset);
     }
 
     if (!call.get_is_direct_call()) {
