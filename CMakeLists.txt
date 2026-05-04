@@ -274,34 +274,6 @@ set_target_properties(sysycc_riscv64_codegen
         OUTPUT_NAME sysycc_riscv64_codegen
 )
 
-add_executable(sysycc-aarch64c
-    src/tools/sysycc_aarch64c_main.cpp
-)
-
-target_include_directories(sysycc-aarch64c
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
-target_link_libraries(sysycc-aarch64c
-    PRIVATE
-        sysycc_aarch64_codegen
-)
-
-add_executable(sysycc-riscv64c
-    src/tools/sysycc_riscv64c_main.cpp
-)
-
-target_include_directories(sysycc-riscv64c
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
-target_link_libraries(sysycc-riscv64c
-    PRIVATE
-        sysycc_riscv64_codegen
-)
-
 set(SYSYCC_COMMON_SOURCES
     src/common/diagnostic/diagnostic.cpp
     src/common/diagnostic/diagnostic_engine.cpp
