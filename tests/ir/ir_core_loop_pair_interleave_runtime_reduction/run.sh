@@ -8,13 +8,12 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 TEST_SOURCE="${SCRIPT_DIR}/ir_core_loop_pair_interleave_runtime_reduction.sy"
 IR_OUTPUT_FILE="${BUILD_DIR}/intermediate_results/ir_core_loop_pair_interleave_runtime_reduction.ll"
 COMPILER_BIN="${BUILD_DIR}/compiler"
-RUNTIME_HEADER="${PROJECT_ROOT}/tests/compiler2025/sylib.h"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
-"${COMPILER_BIN}" -include "${RUNTIME_HEADER}" "${TEST_SOURCE}" --dump-ir >/dev/null
+"${COMPILER_BIN}" "${TEST_SOURCE}" --dump-ir >/dev/null
 
 assert_file_nonempty "${IR_OUTPUT_FILE}"
 

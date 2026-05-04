@@ -1678,6 +1678,24 @@ class CoreIrBuildSession {
         return text;
     }
 
+    std::string format_scalar_float_literal_for_type(
+        long double value, const CoreIrType *type) const {
+        const auto *float_type = dynamic_cast<const CoreIrFloatType *>(type);
+        if (float_type == nullptr) {
+            return format_scalar_float_literal(value);
+        }
+        switch (float_type->get_float_kind()) {
+        case CoreIrFloatKind::Float16:
+        case CoreIrFloatKind::Float32:
+            return format_scalar_float_literal(static_cast<float>(value));
+        case CoreIrFloatKind::Float64:
+            return format_scalar_float_literal(static_cast<double>(value));
+        case CoreIrFloatKind::Float128:
+            return format_scalar_float_literal(value);
+        }
+        return format_scalar_float_literal(value);
+    }
+
     const CoreIrConstant *build_float_constant_from_bytes(
         const CoreIrFloatType *float_type, const std::vector<std::uint8_t> &bytes,
         SourceSpan source_span) {
@@ -4017,6 +4035,39 @@ class CoreIrBuildSession {
             callee_identifier != nullptr &&
             callee_identifier->get_name() == "__atomic_is_lock_free") {
             return create_i32_constant(1, expr.get_source_span());
+        }
+
+        if (const auto *callee_identifier =
+                dynamic_cast<const IdentifierExpr *>(expr.get_callee());
+            callee_identifier != nullptr &&
+            (callee_identifier->get_name() == "starttime" ||
+             callee_identifier->get_name() == "stoptime")) {
+            if (!expr.get_arguments().empty()) {
+                add_error("core ir generation found malformed SysY timer call",
+                          expr.get_source_span());
+                return nullptr;
+            }
+            const auto *i32_type =
+                core_ir_context_->create_type<CoreIrIntegerType>(32);
+            auto *line_argument = create_i32_constant(
+                expr.get_source_span().get_line_begin(), expr.get_source_span());
+            const std::string runtime_name =
+                callee_identifier->get_name() == "starttime"
+                    ? "_sysy_starttime"
+                    : "_sysy_stoptime";
+            const auto *runtime_function_type =
+                core_ir_context_->create_type<CoreIrFunctionType>(
+                    void_type_, std::vector<const CoreIrType *>{i32_type},
+                    false);
+            if (module_->find_function(runtime_name) == nullptr) {
+                module_->create_function<CoreIrFunction>(
+                    runtime_name, runtime_function_type, false);
+            }
+            auto *call = current_block_->create_instruction<CoreIrCallInst>(
+                void_type_, std::string(), runtime_name, runtime_function_type,
+                std::vector<CoreIrValue *>{line_argument});
+            call->set_source_span(expr.get_source_span());
+            return call;
         }
 
         if (const auto *callee_identifier =
@@ -6998,7 +7049,9 @@ class CoreIrBuildSession {
                 get_scalar_numeric_constant_value(initializer);
             if (constant_value.has_value()) {
                 return core_ir_context_->create_constant<CoreIrConstantFloat>(
-                    declared_type, format_scalar_float_literal(*constant_value));
+                    declared_type,
+                    format_scalar_float_literal_for_type(*constant_value,
+                                                         declared_type));
             }
         }
 
@@ -7443,7 +7496,9 @@ class CoreIrBuildSession {
                 get_scalar_numeric_constant_value(initializer);
             if (scalar_value.has_value()) {
                 return core_ir_context_->create_constant<CoreIrConstantFloat>(
-                    declared_type, format_scalar_float_literal(*scalar_value));
+                    declared_type,
+                    format_scalar_float_literal_for_type(*scalar_value,
+                                                         declared_type));
             }
         }
 

@@ -5,9 +5,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${SYSYCC_COMPILER2025_BUILD_DIR:-${PROJECT_ROOT}/build}"
-CASE_BUILD_ROOT_BASE="${SCRIPT_DIR}/build"
+CASE_BUILD_ROOT_BASE="${SYSYCC_COMPILER2025_FUNCTIONAL_BUILD_ROOT:-${SCRIPT_DIR}/build}"
+FUNCTIONAL_DATA_ROOT="$(
+    cd "${SYSYCC_COMPILER2025_FUNCTIONAL_DATA_ROOT:-${SCRIPT_DIR}/extracted/functional/functional_recover}" &&
+        pwd
+)"
 COMPILER_BIN="${BUILD_DIR}/compiler"
-RUNTIME_HEADER="${SCRIPT_DIR}/sylib.h"
 RUNTIME_SOURCE="${SCRIPT_DIR}/sylib.c"
 RUNTIME_COMPAT_SOURCE="${SCRIPT_DIR}/runtime_builtin_compat.c"
 RUNTIME_OBJECT_FILE="${CASE_BUILD_ROOT_BASE}/compiler2025_runtime.o"
@@ -33,11 +36,11 @@ get_case_root() {
     case "${suite_name}" in
     functional)
         printf '%s\n' \
-            "${SCRIPT_DIR}/extracted/functional/functional_recover/functional"
+            "${FUNCTIONAL_DATA_ROOT}/functional"
         ;;
     h_functional)
         printf '%s\n' \
-            "${SCRIPT_DIR}/extracted/functional/functional_recover/h_functional"
+            "${FUNCTIONAL_DATA_ROOT}/h_functional"
         ;;
     *)
         return 1
@@ -137,11 +140,6 @@ source "${SCRIPT_DIR}/compiler2025_arm_common.sh"
 
 if [[ ! -f "${RUNTIME_SOURCE}" ]]; then
     echo "missing runtime source: ${RUNTIME_SOURCE}" >&2
-    exit 1
-fi
-
-if [[ ! -f "${RUNTIME_HEADER}" ]]; then
-    echo "missing runtime header: ${RUNTIME_HEADER}" >&2
     exit 1
 fi
 
@@ -278,7 +276,6 @@ for suite_name in "${SUITES_TO_RUN[@]}"; do
 
         echo "==> [${suite_name}/${test_name}] compiling"
         if ! "${COMPILER_BIN}" \
-            -include "${RUNTIME_HEADER}" \
             -S \
             --backend=aarch64-native \
             --target=aarch64-unknown-linux-gnu \

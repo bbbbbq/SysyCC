@@ -13,8 +13,7 @@ source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
-"${BUILD_DIR}/SysyCC" -include "${PROJECT_ROOT}/tests/compiler2025/sylib.h" \
-    "${INPUT_FILE}" --dump-core-ir >/dev/null
+"${BUILD_DIR}/SysyCC" "${INPUT_FILE}" --dump-core-ir >/dev/null
 
 assert_file_nonempty "${CORE_IR_FILE}"
 

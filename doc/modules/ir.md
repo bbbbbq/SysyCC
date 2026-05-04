@@ -718,6 +718,9 @@ LLVM IR lowering path:
     extension path for the current `long double` model
   - top-level `declare` emission for builtin runtime-style calls that do not
     have one user-defined body in the current translation unit
+  - bare SysY timer calls lower to `_sysy_starttime(line)` and
+    `_sysy_stoptime(line)`, so competition-style sources do not need the
+    `sylib.h` macro layer
 - `--dump-ir` writes `build/intermediate_results/*.ll`
 - `--dump-core-ir` writes `build/intermediate_results/*.core-ir.txt`
 - `-S --backend=aarch64-native --target=aarch64-unknown-linux-gnu` now emits a

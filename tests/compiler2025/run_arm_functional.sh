@@ -6,10 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${SYSYCC_COMPILER2025_BUILD_DIR:-${PROJECT_ROOT}/build}"
 IR_OUTPUT_DIR="${SYSYCC_COMPILER2025_IR_OUTPUT_DIR:-${PROJECT_ROOT}/build/intermediate_results}"
-CASE_BUILD_ROOT_BASE="${SCRIPT_DIR}/build/arm_functional"
+CASE_BUILD_ROOT_BASE="${SYSYCC_COMPILER2025_ARM_FUNCTIONAL_BUILD_ROOT:-${SCRIPT_DIR}/build/arm_functional}"
 COMPILER_BIN="${BUILD_DIR}/SysyCC"
 RUNTIME_SOURCE="${SCRIPT_DIR}/sylib.c"
-RUNTIME_HEADER="${SCRIPT_DIR}/sylib.h"
 RUNTIME_BUILTIN_STUB="${PROJECT_ROOT}/tests/run/support/runtime_builtin_stub.ll"
 RUNTIME_COMPAT_SOURCE="${SCRIPT_DIR}/runtime_builtin_compat.c"
 RUNTIME_COMPILE_LOG="${CASE_BUILD_ROOT_BASE}/arm_runtime_compile.log"
@@ -292,8 +291,8 @@ while IFS= read -r -d '' source_file; do
     mkdir -p "${case_dir}"
 
     echo "==> [arm-functional/${test_name}] compiling"
-    if ! "${COMPILER_BIN}" -include "${RUNTIME_HEADER}" "${source_file}" \
-        --dump-ir >"${compiler_log_file}" 2>&1; then
+    if ! "${COMPILER_BIN}" "${source_file}" --dump-ir \
+        >"${compiler_log_file}" 2>&1; then
         echo "[FAIL] arm-functional/${test_name}: compiler failed" >&2
         append_result_row "${test_name}" "SYSYCC_COMPILE_FAIL" \
             "$(basename "${compiler_log_file}")"

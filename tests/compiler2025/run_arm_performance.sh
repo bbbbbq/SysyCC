@@ -396,8 +396,8 @@ while IFS= read -r -d '' source_file; do
         continue
     fi
 
-    if ! "${COMPILER_BIN}" -include "${RUNTIME_HEADER}" "${source_file}" \
-        --dump-ir >"${sysycc_compiler_log}" 2>&1; then
+    if ! "${COMPILER_BIN}" "${source_file}" --dump-ir \
+        >"${sysycc_compiler_log}" 2>&1; then
         echo "[FAIL] arm-performance/${test_name}: SysyCC compile failed" >&2
         append_result_row "${test_name}" "SYSYCC_COMPILE_FAIL" "-" "-" "-" \
             "$(basename "${sysycc_compiler_log}")"
@@ -425,6 +425,9 @@ while IFS= read -r -d '' source_file; do
     fi
 
     echo "==> [arm-performance/${test_name}] compile Clang baseline"
+    # Clang is only the reference runner here, so it still needs ordinary C
+    # declarations for SysY runtime helpers. SysyCC above intentionally compiles
+    # the bare source without a forced sylib.h include, matching contest input.
     if ! clang "${CLANG_BASELINE_OPT_LEVEL}" -std=gnu99 -x c \
         -include "${RUNTIME_HEADER}" -I "${SCRIPT_DIR}" \
         "${source_file}" "${RUNTIME_SOURCE}" -o "${clang_binary}" \

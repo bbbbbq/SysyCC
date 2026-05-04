@@ -8,13 +8,12 @@ BUILD_DIR="${PROJECT_ROOT}/build"
 TEST_SOURCE="${SCRIPT_DIR}/ir_core_loop_vectorize_runtime_mul_reduction_float.sy"
 IR_OUTPUT_FILE="${BUILD_DIR}/intermediate_results/ir_core_loop_vectorize_runtime_mul_reduction_float.ll"
 COMPILER_BIN="${BUILD_DIR}/compiler"
-RUNTIME_HEADER="${PROJECT_ROOT}/tests/compiler2025/sylib.h"
 
 source "${PROJECT_ROOT}/tests/test_helpers.sh"
 
 build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
-"${COMPILER_BIN}" -include "${RUNTIME_HEADER}" "${TEST_SOURCE}" --dump-ir >/dev/null
+"${COMPILER_BIN}" "${TEST_SOURCE}" --dump-ir >/dev/null
 
 if [[ ! -f "${IR_OUTPUT_FILE}" ]]; then
     echo "missing IR dump: ${IR_OUTPUT_FILE}" >&2

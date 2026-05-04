@@ -551,8 +551,6 @@ for index, source in enumerate(case_sources, 1):
     sysycc_compile = run_with_limits(
         [
             str(compiler_bin),
-            "-include",
-            str(runtime_header),
             str(source),
             "--dump-ir",
         ],
@@ -638,6 +636,8 @@ for index, source in enumerate(case_sources, 1):
             "-std=gnu99",
             "-x",
             "c",
+            # Clang is the reference binary builder, not the compiler under
+            # test, so it still needs normal C declarations for SysY helpers.
             "-include",
             str(runtime_header),
             "-I",

@@ -20,6 +20,12 @@ tests/
 │   ├── run_arm_functional_in_docker.sh
 │   ├── run_arm_performance_in_docker.sh
 │   └── runtime support files
+├── compiler2026/
+│   ├── run_functional.sh
+│   ├── run_arm_functional.sh
+│   ├── run_functional_in_docker.sh
+│   ├── run_arm_functional_in_docker.sh
+│   └── extracted/functional/functional_recover/
 ├── compiler/
 │   └── <case>/
 ├── dialects/
@@ -129,16 +135,20 @@ current scripts cover:
 - the original correctness harness for the recovered `functional` and
   `h_functional` suites, now executed through SysyCC-generated native AArch64
   assembly plus cross assemble/link and qemu user-mode execution rather than
-  the older host-side `--dump-ir` fallback
+  the older host-side `--dump-ir` fallback; SysyCC is invoked without a forced
+  `sylib.h` include so this lane mirrors the competition `compiler -S -o
+  testcase.s testcase.sy` contract
 - an ARM-performance correctness runner that treats
   `tests/compiler2025/extracted/ARM-性能` as a case root and checks the
-  generated program output against the bundled `.out` files
+  generated program output against the bundled `.out` files while compiling
+  SysyCC inputs in the same no-header mode
 - an ARM-performance benchmark runner that compares SysyCC-generated LLVM IR
   programs against a direct Clang baseline and writes a Markdown timing report
 - a host-side IR-performance runner for Core IR optimization work, which keeps
   the same `SysyCC -> .ll -> clang link/run` measurement path but adds
   compile/run timeouts so long-running or wedged cases do not stall the whole
-  suite
+  suite; only the Clang baseline uses `sylib.h`, because Clang needs ordinary C
+  declarations for the SysY runtime helpers
 - matching Docker wrappers for the recovered functional suite plus the ARM
   functional/performance runners, so the larger compiler2025 suites can be
   executed inside the repository Docker image instead of depending on the host
@@ -148,6 +158,14 @@ current scripts cover:
   objects through `sysycc-aarch64c -c -fPIC`, checking cross-object
   relocations, externally linking them, and running the resulting binary before
   the main suite loop starts when the local AArch64 runtime stack is available
+
+`tests/compiler2026/` contains the 2026 initial-round ARM functional cases. The
+case format is intentionally treated as 2025-compatible: the 2026 wrapper
+scripts set `SYSYCC_COMPILER2025_FUNCTIONAL_DATA_ROOT` or pass the matching
+`--case-root`, then delegate to the maintained compiler2025 functional runners.
+This keeps the no-header competition contract, AArch64 assemble/link/run path,
+Docker behavior, and report format aligned across the two competition-year
+suites instead of carrying two copies of the same harness logic.
 
 Recent end-to-end coverage that now matters for the shared SysY22/C goal
 includes:
@@ -740,10 +758,12 @@ Semantic-analysis regressions, including:
 - pointer-target cast syntax such as `(int *)value`
 - `long double` declaration-only prototypes
 - `long double` cast-expression semantic acceptance
+- build-time SysY22 runtime helper predeclaration gating
 
 Representative paths:
 
 - [tests/semantic/semantic_undefined_identifier](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_undefined_identifier)
+- [tests/semantic/semantic_baked_sysy_runtime_builtins](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_baked_sysy_runtime_builtins)
 - [tests/semantic/semantic_const_initializer_constant](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_const_initializer_constant)
 - [tests/semantic/semantic_var_initializer_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_var_initializer_type)
 - [tests/semantic/semantic_dot_type](/Users/caojunze424/code/SysyCC/tests/semantic/semantic_dot_type)
@@ -1277,8 +1297,9 @@ Native Linux AArch64 asm regressions, including:
   whole regression.
 - [tests/run_tier1.sh](/Users/caojunze424/code/SysyCC/tests/run_tier1.sh)
   is the explicit day-to-day fast lane for `run`, `cli`, `dialects`,
-  `compiler`, compiler2025 wrapper smokes that live under `tests/run/`, and the
-  key O1 IR smokes `ir_core_loop_idiom` and `ir_top_level_pass_pipeline_llvm`.
+  `compiler`, compiler2025/compiler2026 wrapper smokes that live under
+  `tests/run/`, and the key O1 IR smokes `ir_core_loop_idiom` and
+  `ir_top_level_pass_pipeline_llvm`.
 - [tests/run_tier2.sh](/Users/caojunze424/code/SysyCC/tests/run_tier2.sh)
   runs the stage-focused second layer covering `asm`, `ast`, `fuzz`, `ir`,
   `lexer`, `object`, `parser`, `preprocess`, and `semantic`.
