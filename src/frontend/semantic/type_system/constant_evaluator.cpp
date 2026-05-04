@@ -433,6 +433,17 @@ apply_scalar_constant_cast(long double value, const SemanticType *target_type) {
         return std::nullopt;
     }
     if (is_float_semantic_type(target_type)) {
+        const auto *builtin_type =
+            dynamic_cast<const BuiltinSemanticType *>(target_type);
+        if (builtin_type != nullptr) {
+            const std::string &name = builtin_type->get_name();
+            if (name == "_Float16" || name == "float") {
+                return static_cast<float>(value);
+            }
+            if (name == "double") {
+                return static_cast<double>(value);
+            }
+        }
         return value;
     }
     if (is_integer_like_semantic_type(target_type) ||
@@ -707,8 +718,21 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
     }
     case AstKind::IdentifierExpr: {
         const auto value = semantic_model.get_integer_constant_value(expr);
-        return value.has_value() ? std::optional<long double>(*value)
-                                 : std::nullopt;
+        if (value.has_value()) {
+            return static_cast<long double>(*value);
+        }
+        const auto *identifier = static_cast<const IdentifierExpr *>(expr);
+        const SemanticSymbol *symbol =
+            semantic_model.get_symbol_binding(identifier);
+        if (symbol != nullptr && symbol->get_kind() == SymbolKind::Constant) {
+            if (const auto *const_decl =
+                    dynamic_cast<const ConstDecl *>(symbol->get_decl_node());
+                const_decl != nullptr) {
+                return evaluate_scalar_numeric_expr(
+                    const_decl->get_initializer(), semantic_model);
+            }
+        }
+        return std::nullopt;
     }
     case AstKind::SizeofTypeExpr: {
         const auto value = semantic_model.get_integer_constant_value(expr);
@@ -772,18 +796,22 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
             return std::nullopt;
         }
         const auto &op = binary_expr->get_operator_text();
+        const auto finish = [&](long double value) -> std::optional<long double> {
+            return apply_scalar_constant_cast(value,
+                                              semantic_model.get_node_type(expr));
+        };
         if (op == "+") {
-            return *lhs + *rhs;
+            return finish(*lhs + *rhs);
         }
         if (op == "-") {
-            return *lhs - *rhs;
+            return finish(*lhs - *rhs);
         }
         if (op == "*") {
-            return *lhs * *rhs;
+            return finish(*lhs * *rhs);
         }
         if (op == "/") {
             return *rhs == 0 ? std::nullopt
-                             : std::optional<long double>(*lhs / *rhs);
+                             : finish(*lhs / *rhs);
         }
         if (op == "%") {
             const long long lhs_int = static_cast<long long>(*lhs);
@@ -791,27 +819,27 @@ std::optional<long double> ConstantEvaluator::evaluate_scalar_numeric_expr(
             if (rhs_int == 0) {
                 return std::nullopt;
             }
-            return static_cast<long double>(lhs_int % rhs_int);
+            return finish(static_cast<long double>(lhs_int % rhs_int));
         }
         if (op == "<<") {
-            return static_cast<long double>(static_cast<long long>(*lhs)
-                                            << static_cast<long long>(*rhs));
+            return finish(static_cast<long double>(static_cast<long long>(*lhs)
+                                                   << static_cast<long long>(*rhs)));
         }
         if (op == ">>") {
-            return static_cast<long double>(static_cast<long long>(*lhs) >>
-                                            static_cast<long long>(*rhs));
+            return finish(static_cast<long double>(static_cast<long long>(*lhs) >>
+                                                   static_cast<long long>(*rhs)));
         }
         if (op == "&") {
-            return static_cast<long double>(static_cast<long long>(*lhs) &
-                                            static_cast<long long>(*rhs));
+            return finish(static_cast<long double>(static_cast<long long>(*lhs) &
+                                                   static_cast<long long>(*rhs)));
         }
         if (op == "|") {
-            return static_cast<long double>(static_cast<long long>(*lhs) |
-                                            static_cast<long long>(*rhs));
+            return finish(static_cast<long double>(static_cast<long long>(*lhs) |
+                                                   static_cast<long long>(*rhs)));
         }
         if (op == "^") {
-            return static_cast<long double>(static_cast<long long>(*lhs) ^
-                                            static_cast<long long>(*rhs));
+            return finish(static_cast<long double>(static_cast<long long>(*lhs) ^
+                                                   static_cast<long long>(*rhs)));
         }
         if (op == "&&") {
             return (*lhs != 0 && *rhs != 0) ? 1.0L : 0.0L;

@@ -2,10 +2,26 @@ cmake_minimum_required(VERSION 3.16)
 
 project(SysyCC VERSION 0.1.0 LANGUAGES C CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(SYSYCC_HOST_CXX_STANDARD "17" CACHE STRING
+    "C++ standard used to build the SysyCC compiler itself")
+set_property(CACHE SYSYCC_HOST_CXX_STANDARD PROPERTY STRINGS 17)
+set(CMAKE_CXX_STANDARD ${SYSYCC_HOST_CXX_STANDARD})
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile commands" FORCE)
+
+set(SYSYCC_SOURCE_LANGUAGE_STANDARD "sysy22" CACHE STRING
+    "Source language standard baked into this SysyCC build: sysy22 or c")
+set_property(CACHE SYSYCC_SOURCE_LANGUAGE_STANDARD PROPERTY STRINGS sysy22 c)
+if(NOT SYSYCC_SOURCE_LANGUAGE_STANDARD MATCHES "^(sysy22|c)$")
+    message(FATAL_ERROR
+        "SYSYCC_SOURCE_LANGUAGE_STANDARD must be one of: sysy22, c")
+endif()
+message(STATUS "SysyCC host C++ standard: C++${SYSYCC_HOST_CXX_STANDARD}")
+message(STATUS "SysyCC baked source language standard: ${SYSYCC_SOURCE_LANGUAGE_STANDARD}")
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -459,6 +475,17 @@ sysycc_set_internal_target_defaults(sysycc_common)
 
 add_library(sysycc_frontend STATIC ${SYSYCC_FRONTEND_SOURCES})
 sysycc_set_internal_target_defaults(sysycc_frontend)
+if(SYSYCC_SOURCE_LANGUAGE_STANDARD STREQUAL "sysy22")
+    target_compile_definitions(sysycc_frontend
+        PUBLIC
+            SYSYCC_SOURCE_LANGUAGE_STANDARD_SYSY22=1
+    )
+elseif(SYSYCC_SOURCE_LANGUAGE_STANDARD STREQUAL "c")
+    target_compile_definitions(sysycc_frontend
+        PUBLIC
+            SYSYCC_SOURCE_LANGUAGE_STANDARD_C=1
+    )
+endif()
 target_link_libraries(sysycc_frontend
     PUBLIC
         sysycc_common

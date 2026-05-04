@@ -79,7 +79,7 @@ The current implementation has a first batch of real semantic rules:
   `type_system/ConstantEvaluator`
 - transient analysis state and builtin installation live in `support/`
 - semantic output data structures live in `model/`
-- builtin functions such as `getint`, `putint`, `putfloat`, `putch`,
+- builtin functions such as `getint`, `putint`, `putfloat`, `putch`, `putf`,
   `starttime`, and `stoptime` are registered into the initial scope alongside
   bootstrap typedef aliases
 - builtin scalar type names now include `double` alongside `int`, `float`,
@@ -264,9 +264,16 @@ The current implementation has a first batch of real semantic rules:
 - arithmetic casts such as `_Float16 <-> int`, `_Float16 <-> long double`, and
   `long double <-> int` are now accepted through the shared conversion checker
   for the current supported scalar subset
-- decimal and hexadecimal floating literals now bind according to their C
-  suffix spelling: unsuffixed literals use `double`, `f/F` suffixed literals
-  use `float`, and `l/L` suffixed literals use `long double`
+- decimal and hexadecimal floating literals now bind according to their suffix
+  spelling and the build-time source language standard: `f/F` suffixed
+  literals use `float`, `l/L` suffixed literals use `long double`,
+  unsuffixed literals use `float` in `SYSYCC_SOURCE_LANGUAGE_STANDARD=sysy22`
+  builds and `double` in `SYSYCC_SOURCE_LANGUAGE_STANDARD=c` builds
+- SysY22 contest runtime helper declarations are also controlled by the same
+  build-time source language standard: SysY22 builds predeclare `getint`,
+  `getch`, `getfloat`, `getarray`, `getfarray`, `putint`, `putfloat`, `putch`,
+  `putarray`, `putfarray`, `putf`, `starttime`, and `stoptime`, while C builds
+  leave those names undefined unless user code or headers declare them
 - pointer-target casts such as `(int *)value` and `(const char *)ptr` now
   lower through the same explicit-cast semantic path used by other supported
   scalar and pointer casts

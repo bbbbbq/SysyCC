@@ -28,6 +28,13 @@ The CLI module converts `argv` into a compiler configuration object.
 - control default system header lookup via `-nostdinc`
 - map dialect-selection flags into compiler configuration
 - map `-std=...` and `-f...` extension toggles into effective dialect settings
+- keep source-language floating literal semantics fixed to the standard baked
+  into the binary by CMake `SYSYCC_SOURCE_LANGUAGE_STANDARD`; runtime `-std=...`
+  does not change whether unsuffixed floating literals default to SysY22
+  `float` semantics or C `double` semantics
+- keep SysY22 contest runtime predeclarations such as `getint`, `putint`,
+  `getarray`, `putf`, `starttime`, and `stoptime` tied to that same build-time
+  standard; `SYSYCC_SOURCE_LANGUAGE_STANDARD=c` builds do not inject them
 - parse warning-policy switches such as `-Wall`, `-Wextra`, `-Werror`, and
   `-Wno-...`
 - enable dump switches such as `--dump-tokens` and `--dump-parse`
@@ -57,6 +64,10 @@ Output:
 - The namespace is currently `ClI`.
 - The CLI does not run compilation logic itself.
 - It only prepares configuration for the compiler core.
+- The default source language standard is selected at build time with
+  `-DSYSYCC_SOURCE_LANGUAGE_STANDARD=sysy22|c`; the default build uses
+  `sysy22` so contest commands without `-std` match SysY22 floating literal
+  semantics and receive SysY22 runtime helper predeclarations.
 - The default public executable produced by the build is `compiler`, while
   `build/SysyCC` remains as a local compatibility alias for older scripts.
 - The public user-facing actions are now GCC-like:

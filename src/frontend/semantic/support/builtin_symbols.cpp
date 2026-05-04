@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "common/source_language_config.hpp"
 #include "frontend/semantic/model/semantic_model.hpp"
 #include "frontend/semantic/model/semantic_symbol.hpp"
 #include "frontend/semantic/model/semantic_type.hpp"
@@ -143,30 +144,34 @@ void BuiltinSymbols::install(SemanticModel &semantic_model,
                     unsigned_long_long_type, va_list_type));
         });
 
-    register_builtin_function(semantic_model, scope_stack, "getint", int_type,
-                              {});
-    register_builtin_function(semantic_model, scope_stack, "getch", int_type,
-                              {});
-    register_builtin_function(semantic_model, scope_stack, "getfloat",
-                              float_type, {});
-    register_builtin_function(semantic_model, scope_stack, "getarray", int_type,
-                              {int_ptr_type});
-    register_builtin_function(semantic_model, scope_stack, "getfarray", int_type,
-                              {float_ptr_type});
-    register_builtin_function(semantic_model, scope_stack, "putint", void_type,
-                              {int_type});
-    register_builtin_function(semantic_model, scope_stack, "putfloat",
-                              void_type, {float_type});
-    register_builtin_function(semantic_model, scope_stack, "putch", void_type,
-                              {int_type});
-    register_builtin_function(semantic_model, scope_stack, "putarray", void_type,
-                              {int_type, int_ptr_type});
-    register_builtin_function(semantic_model, scope_stack, "putfarray", void_type,
-                              {int_type, float_ptr_type});
-    register_builtin_function(semantic_model, scope_stack, "starttime",
-                              void_type, {});
-    register_builtin_function(semantic_model, scope_stack, "stoptime",
-                              void_type, {});
+    if constexpr (kInstallSysY22RuntimePredeclaredFunctions) {
+        register_builtin_function(semantic_model, scope_stack, "getint", int_type,
+                                  {});
+        register_builtin_function(semantic_model, scope_stack, "getch", int_type,
+                                  {});
+        register_builtin_function(semantic_model, scope_stack, "getfloat",
+                                  float_type, {});
+        register_builtin_function(semantic_model, scope_stack, "getarray",
+                                  int_type, {int_ptr_type});
+        register_builtin_function(semantic_model, scope_stack, "getfarray",
+                                  int_type, {float_ptr_type});
+        register_builtin_function(semantic_model, scope_stack, "putint",
+                                  void_type, {int_type});
+        register_builtin_function(semantic_model, scope_stack, "putfloat",
+                                  void_type, {float_type});
+        register_builtin_function(semantic_model, scope_stack, "putch",
+                                  void_type, {int_type});
+        register_builtin_function(semantic_model, scope_stack, "putarray",
+                                  void_type, {int_type, int_ptr_type});
+        register_builtin_function(semantic_model, scope_stack, "putfarray",
+                                  void_type, {int_type, float_ptr_type});
+        register_builtin_function(semantic_model, scope_stack, "putf", void_type,
+                                  {char_ptr_type}, true);
+        register_builtin_function(semantic_model, scope_stack, "starttime",
+                                  void_type, {});
+        register_builtin_function(semantic_model, scope_stack, "stoptime",
+                                  void_type, {});
+    }
 
     register_builtin_function(semantic_model, scope_stack, "__builtin_fabsf",
                               float_type, {float_type});

@@ -6,6 +6,7 @@
 
 #include "common/diagnostic/warning_options.hpp"
 #include "common/integer_literal.hpp"
+#include "common/source_language_config.hpp"
 #include "common/string_literal.hpp"
 #include "frontend/ast/ast_node.hpp"
 #include "frontend/semantic/analysis/decl_analyzer.hpp"
@@ -45,8 +46,8 @@ get_float_literal_semantic_type(const FloatLiteralExpr *expr,
         }
     }
 
-    return semantic_model.own_type(
-        std::make_unique<BuiltinSemanticType>("double"));
+    return semantic_model.own_type(std::make_unique<BuiltinSemanticType>(
+        kUseSysY22FloatingLiteralSemantics ? "float" : "double"));
 }
 
 const SemanticType *strip_qualifiers(const SemanticType *type) {

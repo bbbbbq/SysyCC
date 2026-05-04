@@ -1,0 +1,17 @@
+int main(void) {
+    int arr[2] = {0, 0};
+    float farr[2] = {0.0, 0.0};
+    int total = getint();
+    total = total + getch();
+    total = total + getarray(arr);
+    total = total + getfarray(farr);
+    putint(total);
+    putch(10);
+    putfloat(getfloat());
+    putarray(2, arr);
+    putfarray(2, farr);
+    putf("total=%d\n", total);
+    starttime();
+    stoptime();
+    return total;
+}
