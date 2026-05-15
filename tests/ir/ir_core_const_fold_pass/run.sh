@@ -15,15 +15,23 @@ build_project "${PROJECT_ROOT}" "${BUILD_DIR}"
 
 mkdir -p "${TEST_BUILD_DIR}"
 
-OBJECT_FILES=()
-while IFS= read -r -d '' object_file; do
-    OBJECT_FILES+=("${object_file}")
-done < <(find "${BUILD_DIR}/CMakeFiles/SysyCC.dir" \
-    -name '*.o' ! -name 'main.cpp.o' -print0)
+STATIC_LIBS=()
+while IFS= read -r -d '' lib; do
+    STATIC_LIBS+=("${lib}")
+done < <(find "${BUILD_DIR}" -name 'libsysycc_*.a' -print0)
+
+SHARED_LIBS=()
+while IFS= read -r -d '' lib; do
+    SHARED_LIBS+=("${lib}")
+done < <(find "${BUILD_DIR}" -name 'libsysycc_*.so' -print0)
 
 clang++ -std=c++17 -I"${PROJECT_ROOT}/src" \
     "${TEST_SOURCE}" \
-    "${OBJECT_FILES[@]}" \
+    "${STATIC_LIBS[@]}" \
+    -L"${BUILD_DIR}" \
+    -lsysycc_aarch64_codegen -lsysycc_riscv64_codegen \
+    -Wl,-rpath,"${BUILD_DIR}" \
+    -lffi \
     -o "${TEST_BINARY}"
 
 "${TEST_BINARY}"
