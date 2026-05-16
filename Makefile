@@ -13,7 +13,7 @@ CMAKE_CONFIGURE_ARGS += -DCMAKE_CXX_COMPILER_LAUNCHER=$(SYSYCC_COMPILER_CACHE)
 endif
 endif
 
-.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja profile-self-build test-tier1 test-tier2 test-full test-aarch64-ll test-aarch64-single-source test-aarch64-single-source-smoke test-aarch64-single-source-full lua-smoke lua-incremental pass-report-diff real-project-compile-times real-c-projects test clean clean-ninja format check
+.PHONY: all ensure-ninja configure-ninja build build-ninja run run-ninja profile-self-build test-tier1 test-tier2 test-full test-aarch64-ll test-aarch64-single-source test-aarch64-single-source-smoke test-aarch64-mul-const-smoke test-aarch64-single-source-full lua-smoke lua-incremental pass-report-diff real-project-compile-times real-c-projects test clean clean-ninja format check
 
 all: run
 
@@ -53,6 +53,9 @@ test-aarch64-single-source:
 
 test-aarch64-single-source-smoke:
 	./tests/aarch64_backend_single_source/smoke/run.sh $(TEST_ARGS)
+
+test-aarch64-mul-const-smoke:
+	./tests/aarch64_backend_single_source/smoke/run_mul_const_smoke.sh
 
 test-aarch64-single-source-full:
 	./tests/aarch64_backend_single_source/imported_suite/run.sh $(TEST_ARGS)
